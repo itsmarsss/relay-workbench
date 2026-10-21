@@ -4,13 +4,20 @@
   "private": true,
   "type": "module",
   "description": "A local workbench for human-directed, multi-harness development",
-  "engines": { "node": ">=24.0.0" },
+  "engines": {
+    "node": ">=24.0.0"
+  },
   "scripts": {
     "start": "node server/index.js",
     "dev": "node --watch server/index.js",
     "test": "node --test test/*.test.js",
     "check": "node scripts/check.js",
-    "test:browser": "node test/browser.e2e.js"
+    "test:browser": "node test/browser.e2e.js",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
   },
-  "devDependencies": { "playwright": "^1.64.1" }
+  "devDependencies": {
+    "playwright": "^1.64.1",
+    "prettier": "^3.9.10"
+  }
 }

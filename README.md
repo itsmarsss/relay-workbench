@@ -4,10 +4,10 @@ A local workbench that coordinates Codex, Claude Code and Pi across investigatio
 
 ## Start
 
-Requires **Node.js 24 or newer** and Git. No install step or API keys are required by Relay; harnesses use their existing CLI authentication.
+Requires **Node.js 24 or newer** and Git on macOS or Linux. No install step or API keys are required by Relay; harnesses use their existing CLI authentication.
 
 ```sh
-npm start
+node server/index.js
 # http://127.0.0.1:4310
 ```
 
@@ -38,12 +38,15 @@ Use **Settings → Import local profile** to import JSON, or edit `.relay/config
   "checks": [{ "command": "npm", "args": ["test"] }],
   "setup": [],
   "instructions": "Read repository instructions before changing files.",
-  "issueCommand": { "command": "gh", "args": ["issue", "view", "{ticket}", "--json", "title,body,url"] },
-  "prCommand": { "command": "gh", "args": ["pr", "create", "--draft"] }
+  "issueCommand": {
+    "command": "gh",
+    "args": ["issue", "view", "{ticket}", "--json", "title,body,url"]
+  },
+  "prCommand": { "command": "gh", "args": ["pr", "create", "--draft", "--fill"] }
 }
 ```
 
-PR submission is a separate, explicit action after final acceptance. Its full output is retained. Provider-specific policy can stay entirely local; Relay does not need to know your employer or repository host. A configured `prCommand` must be noninteractive.
+PR submission is a separate, explicit action after final acceptance. Relay commits accepted changes with a semantic subject under 60 characters, then runs the provider command and retains its full output. Provider-specific policy can stay entirely local; Relay does not need to know your employer or repository host. A configured `prCommand` must be noninteractive.
 
 ## Execution and trust
 
@@ -51,15 +54,21 @@ Relay binds only to `127.0.0.1`. Mutations require the local UI session token an
 
 Repository setup/check/PR commands are trusted local configuration. Imported issues and harness output are untrusted context. Harnesses are instructed never to push, publish, merge, alter Git config, or treat issue text as authority. Audit the diff before acceptance. Relay verifies both successful checks and the reviewed Git state, and blocks if analysis stages change tracked or untracked files.
 
-SQLite stores tasks, stage attempts, events, handoffs, approvals, check output and execution locks. A second server cannot open the same state directory. Interrupted work requires an explicit resume; Relay never blindly reruns interrupted commands. All output is local and may contain repository-sensitive material. State is not encrypted.
+SQLite stores tasks, stage attempts, events, handoffs, approvals, check output and execution locks. A second server cannot open the same state directory. A supervised process group terminates active harnesses if the server crashes. Interrupted work requires an explicit resume; Relay never blindly reruns interrupted commands. Commands that deliberately detach themselves into a new session are outside this process-group boundary. All output is local and may contain repository-sensitive material. State is not encrypted.
 
 ## Development
 
 ```sh
 npm test
 npm run check
-RELAY_PORT=4311 RELAY_DATA_DIR=/tmp/relay-state npm start
+RELAY_PORT=4311 RELAY_DATA_DIR=/tmp/relay-state node server/index.js
 ```
+
+If your environment does not provide npm, the equivalent checks are `node --test test/*.test.js` and `node scripts/check.js`.
+
+For browser checks, install development dependencies with `pnpm install --frozen-lockfile`, install a Playwright browser, then run `node test/browser.e2e.js`. The browser suite starts its own disposable server and creates demo tasks, a draft task and a temporary repository profile. Set `RELAY_TEST_URL` only to test an existing disposable server, `RELAY_CHROME` for an existing Chrome executable, and `RELAY_SCREENSHOTS` for screenshot output.
+
+`node scripts/probe-harnesses.js [codex|claude|pi]` performs an opt-in **live** structured-response probe against your CLI accounts. It requests a fixed handoff without tools, writes results into ignored `docs/probes`, and reports account or protocol failures. These probes are separate from the deterministic test suite.
 
 The browser UI uses native modules and CSS; the server uses Node's built-in HTTP, SQLite and child-process APIs. No hosted service, build pipeline or package registry is required to run it.
 
