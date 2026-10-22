@@ -2968,3 +2968,20 @@ select.input {
     font-size: 9px;
   }
 }
+
+.repo-participant {
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border);
+}
+.repo-participant select {
+  min-height: 64px;
+}
+.repository-diff {
+  margin-bottom: 20px;
+  min-width: 0;
+}
+.repository-diff > summary {
+  cursor: pointer;
+  font-weight: 600;
+  padding: 12px 0;
+}
