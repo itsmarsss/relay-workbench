@@ -66,6 +66,10 @@ function renderMain() {
   const inputs = [...main.querySelectorAll('textarea,input')]
     .filter((i) => i.id)
     .map((i) => ({ id: i.id, value: i.value, start: i.selectionStart, end: i.selectionEnd }));
+  const expanded = new Set(
+    [...main.querySelectorAll('details[data-event-key][open]')].map((d) => d.dataset.eventKey),
+  );
+  const selectedApproach = main.querySelector('input[name="optionId"]:checked')?.value;
   main.innerHTML =
     state.view === 'overview'
       ? overview()
@@ -89,6 +93,11 @@ function renderMain() {
       }
     }
   }
+  for (const d of main.querySelectorAll('details[data-event-key]'))
+    d.open = expanded.has(d.dataset.eventKey);
+  if (selectedApproach)
+    for (const input of main.querySelectorAll('input[name="optionId"]'))
+      input.checked = input.value === selectedApproach;
   main.scrollTop = scroll;
 }
 function pageHeading(kicker, title, subtitle, actions = '') {
@@ -189,7 +198,7 @@ function taskView() {
                   .name ?? d.dependsOn,
             )
             .join(', ') || 'Independent',
-        )}</dd><dt>Branch</dt><dd class="mono wrap">${e(r.branch || 'Assigned when started')}</dd><dt>Directory</dt><dd class="mono wrap">${e(r.workspace || 'Created when started')}</dd></dl>${t.status === 'completed' && !t.demo && r.repository.prCommand && !r.submission ? button('confirm-submit', 'Commit & submit draft PR', 'primary small', 'git', `data-repository-id="${e(r.repository.id)}"`) : ''}${r.submission ? `<p>Submission: <strong>${e(r.submission.status)}</strong></p><pre class="submission-output">${e(r.submission.stdout || r.submission.error || 'See execution log.')}${e(r.submission.stderr || '')}</pre>` : ''}</section>`,
+        )}</dd><dt>Workspace mode</dt><dd>${r.repository.strategy === 'attach' ? 'Attach existing checkout (explicit opt-in)' : r.repository.strategy === 'managed' ? 'New managed worktree per task' : 'New isolated worktree per task'}</dd><dt>Branch</dt><dd class="mono wrap">${e(r.branch || 'Assigned when started')}</dd><dt>Directory</dt><dd class="mono wrap">${e(r.workspace || 'Created when started')}</dd></dl>${t.status === 'completed' && !t.demo && r.repository.prCommand && !r.submission ? button('confirm-submit', 'Commit & submit draft PR', 'primary small', 'git', `data-repository-id="${e(r.repository.id)}"`) : ''}${r.submission ? `<p>Submission: <strong>${e(r.submission.status)}</strong></p><pre class="submission-output">${e(r.submission.stdout || r.submission.error || 'See execution log.')}${e(r.submission.stderr || '')}</pre>` : ''}</section>`,
     )
     .join(
       '',
@@ -202,6 +211,10 @@ function planGate(t) {
 function threadView(t) {
   const meaningful = new Set([
     'created',
+    'queued',
+    'workspace',
+    'stage_started',
+    'activity',
     'handoff',
     'approval',
     'decision',
@@ -213,9 +226,41 @@ function threadView(t) {
     'accepted',
     'submission',
   ]);
-  const events = state.events.filter((ev) => meaningful.has(ev.type));
-  const activity = state.events.findLast((ev) => ev.type === 'activity');
-  return `<div class="timeline">${events.map((ev) => `<article class="timeline-item ${ev.type === 'decision' ? 'decision-event' : ''}"><div class="timeline-avatar">${ev.harness ? harnessBadge(ev.harness) : icon(ev.type === 'approval' || ev.type === 'accepted' ? 'check' : ev.type === 'decision' ? 'eye' : ev.type === 'feedback' ? 'arrow' : 'layers')}</div><div class="timeline-body"><div class="event-meta"><strong>${ev.harness ? e(ev.harness.charAt(0).toUpperCase() + ev.harness.slice(1)) : ev.type === 'feedback' || ev.type === 'approval' || ev.type === 'accepted' ? 'You' : 'Relay'}</strong><span>${ev.stage ? e(stageNames[ev.stage]) : e(ev.type.replaceAll('_', ' '))}</span><time>${ago(ev.at)}</time></div><h3>${e(ev.summary)}</h3>${ev.details ? `<details class="event-details"><summary>View ${ev.type === 'handoff' ? 'handoff' : 'details'}</summary><div class="prose">${prose(ev.details)}</div></details>` : ''}${ev.type === 'handoff' ? handoffExtras(t.attempts.find((a) => a.id === ev.attemptId)?.handoff) : ''}</div></article>`).join('')}${['running', 'queued'].includes(t.status) ? `<article class="timeline-item working"><div class="timeline-avatar">${harnessBadge(t.stage === 'verify' ? 'checks' : t.routing[t.stage])}</div><div class="timeline-body"><div class="event-meta"><strong>${e(stageNames[t.stage])}</strong><span class="typing-dots"><i></i><i></i><i></i></span></div><p>${e(activity?.summary || 'Preparing the next handoff…')}</p><small>Updates appear here as work progresses.</small></div></article>` : ''}</div>`;
+  const knownMessages = new Set(
+    state.events
+      .filter((ev) => ev.type === 'activity' && ev.kind === 'message')
+      .map((ev) => `${ev.attemptId}:${ev.details || ev.summary}`),
+  );
+  const events = state.events.flatMap((ev) => {
+    if (meaningful.has(ev.type)) return [ev];
+    return (ev.agentMessages ?? [])
+      .filter((message) => !knownMessages.has(`${ev.attemptId}:${message}`))
+      .map((message) => ({
+        ...ev,
+        type: 'activity',
+        kind: 'message',
+        summary: message.slice(0, 1200),
+        details: message,
+      }));
+  });
+  const latestAttempt = t.attempts.at(-1);
+  const activity = state.events.findLast(
+    (ev) => ev.type === 'activity' && ev.attemptId === latestAttempt?.id,
+  );
+  const grouped = [];
+  for (const ev of events) {
+    if (ev.type === 'activity' && ev.kind !== 'message') {
+      const last = grouped.at(-1);
+      if (
+        last?.toolEvents &&
+        last.attemptId === ev.attemptId &&
+        last.repositoryId === ev.repositoryId
+      )
+        last.toolEvents.push(ev);
+      else grouped.push({ ...ev, toolEvents: [ev] });
+    } else grouped.push(ev);
+  }
+  return `<div class="timeline">${grouped.map((ev) => `<article data-event-seq="${ev.seq}" class="timeline-item ${ev.type === 'decision' ? 'decision-event' : ''}"><div class="timeline-avatar">${ev.harness ? harnessBadge(ev.harness) : icon(ev.type === 'approval' || ev.type === 'accepted' ? 'check' : ev.type === 'decision' ? 'eye' : ev.type === 'feedback' ? 'arrow' : 'layers')}</div><div class="timeline-body"><div class="event-meta"><strong>${ev.harness ? e(ev.harness.charAt(0).toUpperCase() + ev.harness.slice(1)) : ev.type === 'feedback' || ev.type === 'approval' || ev.type === 'accepted' ? 'You' : 'Relay'}</strong><span>${ev.stage ? e(stageNames[ev.stage]) : e(ev.type.replaceAll('_', ' '))}</span><time>${ago(ev.at)}</time>${ev.repositoryId ? `<span>${e((t.repositories?.length > 1 ? t.repositories : [t]).find((r) => r.repository.id === ev.repositoryId)?.repository.name ?? ev.repositoryId)}</span>` : ''}</div>${ev.toolEvents ? `<details class="event-details tool-activity" data-event-key="tools-${ev.seq}"><summary>${ev.toolEvents.length} ${ev.toolEvents.length === 1 ? 'activity' : 'activities'} · ${e(ev.toolEvents.at(-1).summary)}</summary>${ev.toolEvents.map((tool) => `<div class="tool-entry"><strong>${e(tool.summary)}</strong>${tool.details ? `<pre class="code-block">${e(tool.details)}</pre>` : ''}</div>`).join('')}</details>` : ev.type === 'activity' && ev.kind === 'message' ? `<div class="prose agent-message">${prose((ev.details || ev.summary).slice(0, 2000))}</div>${(ev.details?.length ?? 0) > 2000 ? `<details class="event-details" data-event-key="message-${ev.seq}"><summary>Full message</summary><div class="prose">${prose(ev.details)}</div></details>` : ''}` : `<h3>${e(ev.summary)}</h3>`}${ev.details && !ev.toolEvents && ev.type !== 'activity' ? `<details data-event-key="event-${ev.seq}" class="event-details"><summary>View ${ev.type === 'handoff' ? 'handoff' : 'details'}</summary><div class="prose">${prose(ev.details)}</div></details>` : ''}${ev.type === 'handoff' ? handoffExtras(t.attempts.find((a) => a.id === ev.attemptId)?.handoff) : ''}</div></article>`).join('')}${['running', 'queued'].includes(t.status) ? `<article class="timeline-item working"><div class="timeline-avatar">${harnessBadge(t.stage === 'verify' ? 'checks' : t.routing[t.stage])}</div><div class="timeline-body"><div class="event-meta"><strong>${e(stageNames[t.stage])}</strong><span class="typing-dots"><i></i><i></i><i></i></span></div><p>${e(activity?.summary || 'Preparing the next handoff…')}</p><small>Updates appear here as work progresses.</small></div></article>` : ''}</div>`;
 }
 function handoffExtras(h) {
   if (!h) return '';
@@ -298,7 +343,7 @@ function transcriptView() {
   }`;
 }
 function repositoriesView() {
-  return `${pageHeading('ONE TASK, CONNECTED REPOSITORIES', 'Repositories', 'Bring your own codebase. Keep its conventions and tooling.', button('add-repository', 'Add repository', 'primary', 'plus'))}<div class="repository-grid">${state.config.repositories.map((r) => `<article class="repository-card"><div class="repo-top"><span class="repo-icon">${icon('folder')}</span>${button('edit-repository', 'Edit profile', 'text small', '', `data-id="${e(r.id)}"`)}</div><h2>${e(r.name)}</h2><p class="mono wrap">${e(r.path)}</p><div class="repo-tags"><span>${icon('git')}${r.strategy === 'attach' ? 'Attach existing checkout' : 'Isolated worktrees'}</span><span>${icon('check')}${r.checks.length} verification ${r.checks.length === 1 ? 'command' : 'commands'}</span></div><div class="repo-footer"><small>Working directory <code>${e(r.cwd)}</code></small>${r.prCommand ? '<span class="configured-dot">Provider configured</span>' : '<span class="muted">Local only</span>'}</div></article>`).join('')}${!state.config.repositories.length ? empty('folder', 'Connect your first repository', 'Add a checkout and its verification commands to start real work.', button('add-repository', 'Add repository', 'primary', 'plus')) : ''}</div><div class="info-panel">${icon('git')}<div><strong>Your repository stays yours.</strong><p>Every specialist uses the same task workspace. Relay preserves changes and worktrees when a task finishes. Repository-specific policies and private integrations stay in your ignored local configuration.</p></div></div>`;
+  return `${pageHeading('ONE TASK, CONNECTED REPOSITORIES', 'Repositories', 'Bring your own codebase. Keep its conventions and tooling.', button('add-repository', 'Add repository', 'primary', 'plus'))}<div class="repository-grid">${state.config.repositories.map((r) => `<article class="repository-card"><div class="repo-top"><span class="repo-icon">${icon('folder')}</span>${button('edit-repository', 'Edit profile', 'text small', '', `data-id="${e(r.id)}"`)}</div><h2>${e(r.name)}</h2><p class="mono wrap">${e(r.path)}</p><div class="repo-tags"><span>${icon('git')}${r.strategy === 'attach' ? 'Attach existing checkout' : r.strategy === 'managed' ? 'Managed task worktrees' : 'Isolated worktrees'}</span><span>${icon('check')}${r.checks.length} verification ${r.checks.length === 1 ? 'command' : 'commands'}</span></div><div class="repo-footer"><small>Working directory <code>${e(r.cwd)}</code></small>${r.prCommand ? '<span class="configured-dot">Provider configured</span>' : '<span class="muted">Local only</span>'}</div></article>`).join('')}${!state.config.repositories.length ? empty('folder', 'Connect your first repository', 'Add a checkout and its verification commands to start real work.', button('add-repository', 'Add repository', 'primary', 'plus')) : ''}</div><div class="info-panel">${icon('git')}<div><strong>Your repository stays yours.</strong><p>Every specialist uses the same task workspace. Relay preserves changes and worktrees when a task finishes. Repository-specific policies and private integrations stay in your ignored local configuration.</p></div></div>`;
 }
 function harnessesView() {
   return `${pageHeading('THE RIGHT SPECIALIST, EACH STEP', 'Harnesses', 'Use your existing CLI accounts. Choose models and route work your way.')}<form id="harness-form"><div class="harness-grid">${[
@@ -367,7 +412,7 @@ function createTaskModal() {
       )
       .join(
         '',
-      )}<p class="form-help">Prerequisites must be selected repositories. Use Command/Ctrl to select several. No selection means independent. The primary repository is also included.</p></details>${!state.config.repositories.length ? `<div class="form-help">Add a repository first, or ${button('demo', 'try a demo', 'text small')}.</div>` : ''}<label class="field-label" for="new-ticket">Import an issue <span>Optional</span></label><div class="input-with-button"><input class="input" id="new-ticket" name="ticket" placeholder="Issue URL or number">${button('import-ticket', 'Import', 'secondary small')}</div><label class="field-label" for="new-title">Task title</label><input class="input" id="new-title" name="title" placeholder="What should be different when this is done?" maxlength="240" required><label class="field-label" for="new-description">Description & acceptance criteria</label><textarea class="input" id="new-description" name="description" rows="5" placeholder="The problem, expected behavior, useful context, and how to verify it…" maxlength="50000"></textarea><label class="toggle-label"><input type="checkbox" name="smartRouting"> Let the triage specialist recommend harness routing</label><p class="form-help">Implementation waits for your approach approval. Final acceptance always comes back to you.</p><div class="modal-footer">${button('close-modal', 'Cancel', 'text')}<button class="btn primary" type="submit">Create task ${icon('arrow')}</button></div></form>`,
+      )}<p class="form-help">Prerequisites must be selected repositories. Use Command/Ctrl to select several. No selection means independent. The primary repository is also included.</p></details>${!state.config.repositories.length ? `<div class="form-help">Add a repository first, or ${button('demo', 'try a demo', 'text small')}.</div>` : ''}<label class="field-label" for="new-ticket">Import an issue <span>Optional</span></label><div class="input-with-button"><input class="input" id="new-ticket" name="ticket" placeholder="Issue URL or number">${button('import-ticket', 'Import', 'secondary small')}</div><label class="field-label" for="new-title">Task title</label><input class="input" id="new-title" name="title" placeholder="What should be different when this is done?" maxlength="240" required><label class="field-label" for="new-description">Description & acceptance criteria</label><textarea class="input" id="new-description" name="description" rows="5" placeholder="The problem, expected behavior, useful context, and how to verify it…" maxlength="50000"></textarea><label class="toggle-label"><input type="checkbox" name="smartRouting"> Let the triage specialist recommend harness routing</label><p class="form-help">A separate task worktree is prepared when you start, unless a repository profile explicitly uses attach mode. Implementation waits for your approach approval. Final acceptance always comes back to you.</p><div class="modal-footer">${button('close-modal', 'Cancel', 'text')}<button class="btn primary" type="submit">Create task ${icon('arrow')}</button></div></form>`,
     true,
   );
 }
@@ -403,7 +448,7 @@ function repositoryModal(id) {
   state.modal = { repositoryId: id };
   showModal(
     id ? 'Edit repository profile' : 'Connect a repository',
-    `<form id="repository-form"><div class="form-columns"><label>Name<input class="input" name="name" value="${e(r.name)}" placeholder="My service" maxlength="100" required></label><label>Workspace strategy<select class="input" name="strategy"><option value="worktree" ${r.strategy === 'worktree' ? 'selected' : ''}>New worktree per task</option><option value="attach" ${r.strategy === 'attach' ? 'selected' : ''}>Attach existing checkout</option></select></label></div><label class="field-label" for="repo-path">Absolute checkout path</label><input class="input mono" id="repo-path" name="path" value="${e(r.path)}" placeholder="/absolute/path/to/repository" required><label class="field-label" for="repo-cwd">Working subdirectory</label><input class="input mono" id="repo-cwd" name="cwd" value="${e(r.cwd)}" placeholder="."><label class="field-label" for="repo-checks">Verification commands <span>One JSON argument array per line</span></label><textarea class="input mono" id="repo-checks" name="checks" rows="3" placeholder='["npm","test"]\n["npm","run","lint"]'>${e(commandsInput(r.checks))}</textarea><p class="form-help">Required for live tasks. Commands execute directly, without a shell. For managed environments, include the environment launcher in each argument array.</p><details class="advanced-fields"><summary>Setup, provider integration & instructions</summary><label class="field-label" for="repo-setup">Setup commands <span>Run once per task workspace</span></label><textarea class="input mono" id="repo-setup" name="setup" rows="2" placeholder='["npm","ci"]'>${e(commandsInput(r.setup))}</textarea><label class="field-label" for="repo-issue">Issue import command</label><textarea class="input mono" id="repo-issue" name="issueCommand" rows="2" placeholder='["gh","issue","view","{ticket}","--json","title,body,url"]'>${e(r.issueCommand ? commandsInput([r.issueCommand]) : '')}</textarea><label class="field-label" for="repo-pr">Draft PR command <span>Noninteractive</span></label><textarea class="input mono" id="repo-pr" name="prCommand" rows="2" placeholder='["gh","pr","create","--draft","--fill"]'>${e(r.prCommand ? commandsInput([r.prCommand]) : '')}</textarea><label class="field-label" for="repo-instructions">Additional workflow instructions</label><textarea class="input" id="repo-instructions" name="instructions" rows="4" placeholder="Private repository policies, skill references, required practices…">${e(r.instructions)}</textarea></details><div class="modal-footer">${id ? button('delete-repository', 'Remove profile', 'danger text', '', `data-id="${e(id)}"`) : '<span></span>'}<div>${button('close-modal', 'Cancel', 'text')}<button class="btn primary" type="submit">Save repository ${icon('check')}</button></div></div></form>`,
+    `<form id="repository-form"><div class="form-columns"><label>Name<input class="input" name="name" value="${e(r.name)}" placeholder="My service" maxlength="100" required></label><label>Workspace strategy<select class="input" name="strategy"><option value="worktree" ${r.strategy === 'worktree' ? 'selected' : ''}>New worktree per task</option><option value="managed" ${r.strategy === 'managed' ? 'selected' : ''}>Managed worktree per task</option><option value="attach" ${r.strategy === 'attach' ? 'selected' : ''}>Attach existing checkout</option></select></label></div><label class="field-label" for="repo-path">Absolute checkout path</label><input class="input mono" id="repo-path" name="path" value="${e(r.path)}" placeholder="/absolute/path/to/repository" required><label class="field-label" for="repo-cwd">Working subdirectory</label><input class="input mono" id="repo-cwd" name="cwd" value="${e(r.cwd)}" placeholder="."><label class="field-label" for="repo-checks">Verification commands <span>One JSON argument array per line</span></label><textarea class="input mono" id="repo-checks" name="checks" rows="3" placeholder='["npm","test"]\n["npm","run","lint"]'>${e(commandsInput(r.checks))}</textarea><p class="form-help">Required for live tasks. Commands execute directly, without a shell. For managed environments, include the environment launcher in each argument array.</p><details class="advanced-fields"><summary>Setup, provider integration & instructions</summary><label class="field-label" for="repo-workspace-command">Managed workspace creation command <span>JSON argument array</span></label><textarea class="input mono" id="repo-workspace-command" name="workspaceCommand" rows="2">${e(r.workspaceCommand ? commandsInput([r.workspaceCommand]) : '')}</textarea><label class="field-label" for="repo-workspace-path">Managed checkout root template</label><input class="input mono" id="repo-workspace-path" name="workspacePath" value="${e(r.workspacePath || '')}" placeholder="/absolute/workspaces/{workspaceName}"><p class="form-help">For managed worktrees only. Placeholders: {workspaceName}, {branch}, {baseCommit}, {taskId}. The trusted command must be idempotent and create a clean checkout at the requested base and branch.</p><label class="field-label" for="repo-setup">Setup commands <span>Run once per task workspace</span></label><textarea class="input mono" id="repo-setup" name="setup" rows="2" placeholder='["npm","ci"]'>${e(commandsInput(r.setup))}</textarea><label class="field-label" for="repo-issue">Issue import command</label><textarea class="input mono" id="repo-issue" name="issueCommand" rows="2" placeholder='["gh","issue","view","{ticket}","--json","title,body,url"]'>${e(r.issueCommand ? commandsInput([r.issueCommand]) : '')}</textarea><label class="field-label" for="repo-pr">Draft PR command <span>Noninteractive</span></label><textarea class="input mono" id="repo-pr" name="prCommand" rows="2" placeholder='["gh","pr","create","--draft","--fill"]'>${e(r.prCommand ? commandsInput([r.prCommand]) : '')}</textarea><label class="field-label" for="repo-instructions">Additional workflow instructions</label><textarea class="input" id="repo-instructions" name="instructions" rows="4" placeholder="Private repository policies, skill references, required practices…">${e(r.instructions)}</textarea></details><div class="modal-footer">${id ? button('delete-repository', 'Remove profile', 'danger text', '', `data-id="${e(id)}"`) : '<span></span>'}<div>${button('close-modal', 'Cancel', 'text')}<button class="btn primary" type="submit">Save repository ${icon('check')}</button></div></div></form>`,
     true,
   );
 }
@@ -625,6 +670,7 @@ document.addEventListener('submit', async (event) => {
         id: existing?.id,
         checks: parseCommands(values.checks),
         setup: parseCommands(values.setup),
+        workspaceCommand: parseCommands(values.workspaceCommand)[0] || null,
         issueCommand: parseCommands(values.issueCommand)[0] || null,
         prCommand: parseCommands(values.prCommand)[0] || null,
       };

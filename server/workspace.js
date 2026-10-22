@@ -23,13 +23,14 @@ export async function inspectRepository(profile) {
   );
   return { root, cwd, relativeCwd: rel };
 }
-export async function prepareWorkspace(task, directory, allTasks) {
+export async function prepareWorkspace(task, directory, allTasks, options = {}) {
   if (task.workspace) {
     await realpath(task.workspace);
     return;
   }
   const info = await inspectRepository(task.repository);
-  task.baseCommit = await git(info.root, ['rev-parse', 'HEAD']);
+  task.baseCommit ??= await git(info.root, ['rev-parse', 'HEAD']);
+  await options.checkpoint?.(task);
   if (task.repository.strategy === 'attach') {
     const occupied = allTasks.find(
       (other) =>
@@ -55,6 +56,59 @@ export async function prepareWorkspace(task, directory, allTasks) {
     );
     task.workspace = info.cwd;
     task.workspaceRoot = info.root;
+  } else if (task.repository.strategy === 'managed') {
+    const branch = `relay/${task.id}`;
+    const values = {
+      taskId: task.id,
+      workspaceName: `relay-${task.id}`,
+      branch,
+      baseCommit: task.baseCommit,
+    };
+    const expand = (value) =>
+      value.replace(/\{(taskId|workspaceName|branch|baseCommit)\}/g, (_, key) => values[key]);
+    const path = expand(task.repository.workspacePath);
+    requireValue(isAbsolute(path), 'Managed workspace path must be absolute');
+    const cmd = task.repository.workspaceCommand;
+    const result = await runProcess(cmd.command, cmd.args.map(expand), {
+      cwd: info.root,
+      timeout: 600000,
+      ...options,
+    });
+    requireValue(
+      result.code === 0,
+      `Managed workspace creation failed: ${result.stderr.slice(-2000) || result.stdout.slice(-2000)}`,
+    );
+    const target = await inspectRepository({
+      ...task.repository,
+      path,
+      cwd: info.relativeCwd || '.',
+    });
+    requireValue(target.root !== info.root, 'Workspace manager must create a separate checkout');
+    const sourceCommon = await realpath(
+      await git(info.root, ['rev-parse', '--path-format=absolute', '--git-common-dir']),
+    );
+    const targetCommon = await realpath(
+      await git(target.root, ['rev-parse', '--path-format=absolute', '--git-common-dir']),
+    );
+    requireValue(
+      sourceCommon === targetCommon,
+      'Managed workspace belongs to a different repository',
+    );
+    requireValue(
+      (await git(target.root, ['symbolic-ref', '--short', 'HEAD'])) === branch,
+      'Managed workspace has an unexpected branch',
+    );
+    requireValue(
+      (await git(target.root, ['rev-parse', 'HEAD'])) === task.baseCommit,
+      'Managed workspace has an unexpected base commit',
+    );
+    requireValue(
+      !(await git(target.root, ['status', '--porcelain', '--untracked-files=normal'])),
+      'New managed workspace must be clean',
+    );
+    task.workspaceRoot = target.root;
+    task.workspace = target.cwd;
+    task.branch = branch;
   } else {
     const branch = `relay/${task.id.slice(0, 8)}`;
     const path = join(directory, 'worktrees', task.id);

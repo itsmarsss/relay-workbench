@@ -6,6 +6,7 @@ import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { Store } from './store.js';
 import { Engine } from './engine.js';
 import { InputError, requireValue, text } from './domain.js';
+import { decodeEvent } from './harness.js';
 import { executableExists, runProcess } from './process.js';
 import { diff, fingerprint, inspectRepository, git } from './workspace.js';
 
@@ -195,7 +196,19 @@ export function createApp({ directory, publicDirectory, engineOptions = {} }) {
         if (operation === 'events' && req.method === 'GET') {
           const after = Number(url.searchParams.get('after') || 0);
           requireValue(Number.isSafeInteger(after) && after >= 0, 'Invalid event cursor');
-          return json(res, 200, store.events(id, after));
+          return json(
+            res,
+            200,
+            store.events(id, after).map((event) => {
+              if (event.type !== 'transcript' || event.stream !== 'stdout' || !event.harness)
+                return event;
+              const decoded = decodeEvent(event.harness, event.text);
+              const messages = (decoded.activities ?? [decoded])
+                .filter((a) => a.kind === 'message')
+                .map((a) => a.details || a.activity);
+              return messages.length ? { ...event, agentMessages: messages } : event;
+            }),
+          );
         }
         if (operation === 'diff' && req.method === 'GET') return json(res, 200, await diff(task));
         if (operation === 'export' && req.method === 'GET') {

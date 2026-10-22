@@ -287,14 +287,46 @@ export class Engine {
         const view = workspaceView(task, entry);
         // Unique worktree identity even for repositories with related histories.
         view.id = workspaces(task).length > 1 ? `${id}-${workspaces(task).indexOf(entry)}` : id;
+        if (!view.workspace)
+          this.store.event(id, {
+            type: 'workspace',
+            repositoryId: entry.repository.id,
+            summary: `${entry.repository.name}: preparing ${entry.repository.strategy === 'attach' ? 'attached checkout' : 'a new isolated task worktree'}…`,
+          });
         await prepareWorkspace(
           view,
           this.store.directory,
           this.store.all().filter((t) => t.id !== id),
+          {
+            signal,
+            checkpoint: () => {
+              entry.baseCommit = view.baseCommit;
+              task.status = this.store.get(id).status;
+              task.messages = this.store.get(id).messages;
+              this.store.save(task);
+            },
+            onLine: (line, stream) =>
+              this.store.event(id, {
+                type: 'transcript',
+                stage: 'workspace',
+                repositoryId: entry.repository.id,
+                stream,
+                text: line,
+              }),
+          },
         );
         for (const key of ['workspace', 'workspaceRoot', 'baseCommit', 'branch'])
           entry[key] = view[key];
         syncPrimary(task);
+        if (!entry.workspaceAnnounced) {
+          entry.workspaceAnnounced = true;
+          this.store.event(id, {
+            type: 'workspace',
+            repositoryId: entry.repository.id,
+            summary: `${entry.repository.name}: ${entry.repository.strategy === 'attach' ? 'Attached checkout' : 'Isolated task worktree'} ready`,
+            details: `Branch: ${entry.branch}\nDirectory: ${entry.workspace}`,
+          });
+        }
         task.status = this.store.get(id).status;
         task.messages = this.store.get(id).messages;
         this.store.save(task);
@@ -400,9 +432,23 @@ export class Engine {
         for (const checkEntry of entries)
           for (const command of checkEntry.repository.checks) {
             const started = Date.now();
+            const checkEvent = {
+              type: 'activity',
+              kind: 'tool',
+              stage,
+              harness: 'checks',
+              repositoryId: checkEntry.repository.id,
+              attemptId: attempt.id,
+            };
+            this.store.event(id, {
+              ...checkEvent,
+              summary: `Running check: ${command.command} ${command.args.join(' ')}`,
+            });
             const result = await runProcess(command.command, command.args, {
               cwd: checkEntry.workspace,
               env: {
+                RELAY_BASE_COMMIT: checkEntry.baseCommit,
+                RELAY_REPOSITORY_ID: checkEntry.repository.id,
                 RELAY_WORKSPACES_JSON: JSON.stringify(
                   Object.fromEntries(entries.map((e) => [e.repository.id, e.workspace])),
                 ),
@@ -418,6 +464,11 @@ export class Engine {
                   stream,
                   text: line.slice(0, 40000),
                 }),
+            });
+            this.store.event(id, {
+              ...checkEvent,
+              summary: `Check ${result.code === 0 ? 'passed' : 'failed'}: ${command.command} ${command.args.join(' ')}`,
+              details: `${result.stdout}\n${result.stderr}`.slice(-40000),
             });
             checks.push({
               repositoryId: checkEntry.repository.id,

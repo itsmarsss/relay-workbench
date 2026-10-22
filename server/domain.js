@@ -89,7 +89,14 @@ export function validateConfig(raw) {
   c.repositories = (raw.repositories ?? []).map((r) => {
     requireValue(r && typeof r === 'object', 'Invalid repository profile');
     const strategy = r.strategy ?? 'worktree';
-    requireValue(['worktree', 'attach'].includes(strategy), 'Unknown workspace strategy');
+    requireValue(
+      ['worktree', 'managed', 'attach'].includes(strategy),
+      'Unknown workspace strategy',
+    );
+    requireValue(
+      strategy !== 'managed' || r.workspaceCommand,
+      'Managed workspaces require a creation command',
+    );
     const checks = (r.checks ?? []).map(command);
     const setup = (r.setup ?? []).map(command);
     requireValue(checks.length <= 30 && setup.length <= 30, 'Too many commands');
@@ -99,6 +106,11 @@ export function validateConfig(raw) {
       path: text(r.path, 'Repository path', 2000),
       cwd: text(r.cwd ?? '.', 'Working subdirectory', 2000),
       strategy,
+      workspaceCommand: r.workspaceCommand ? command(r.workspaceCommand) : null,
+      workspacePath:
+        strategy === 'managed'
+          ? text(r.workspacePath, 'Managed workspace path template', 2000)
+          : '',
       checks,
       setup,
       instructions: text(r.instructions ?? '', 'Instructions', 50000, true),
