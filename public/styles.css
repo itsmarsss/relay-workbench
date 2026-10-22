@@ -2985,3 +2985,21 @@ select.input {
   font-weight: 600;
   padding: 12px 0;
 }
+
+.agent-message {
+  margin: 8px 0;
+  overflow-wrap: anywhere;
+}
+.tool-activity > summary {
+  font-size: 13px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+.tool-entry {
+  margin-top: 12px;
+  min-width: 0;
+}
+.tool-entry .code-block {
+  max-height: 260px;
+  overflow: auto;
+}

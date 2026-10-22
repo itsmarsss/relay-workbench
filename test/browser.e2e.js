@@ -64,6 +64,46 @@ try {
   await page.getByRole('button', { name: 'Accept result', exact: true }).click();
   await page.locator('.task-subtitle .badge.completed').waitFor();
   const taskUrl = page.url();
+  if (localApp) {
+    const id = taskUrl.split('/').at(-1);
+    localApp.store.event(id, {
+      type: 'transcript',
+      stream: 'stdout',
+      harness: 'codex',
+      attemptId: 'history',
+      text: JSON.stringify({
+        type: 'item.completed',
+        item: {
+          type: 'agent_message',
+          text: 'I found the caller mismatch. <script>unsafe</script>',
+        },
+      }),
+    });
+    localApp.store.event(id, {
+      type: 'activity',
+      kind: 'tool',
+      harness: 'codex',
+      attemptId: 'history',
+      summary: 'Read request.js',
+      details: 'Command output retained here.',
+    });
+    await page
+      .locator('.agent-message')
+      .getByText('I found the caller mismatch.', { exact: false })
+      .waitFor();
+    await page.locator('.tool-activity').last().locator('summary').click();
+    await page.getByText('Command output retained here.', { exact: false }).waitFor();
+    localApp.store.event(id, {
+      type: 'activity',
+      kind: 'tool',
+      harness: 'codex',
+      attemptId: 'history',
+      summary: 'Read caller.js',
+      details: 'Second result.',
+    });
+    await page.getByText('Second result.', { exact: false }).waitFor();
+    assert.equal(await page.locator('.agent-message script').count(), 0);
+  }
   await page.reload();
   await page.locator('.task-subtitle .badge.completed').waitFor();
   await page.getByRole('button', { name: 'All tasks', exact: false }).first().click();
