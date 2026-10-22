@@ -248,8 +248,62 @@ export function parseHandoff(value) {
 export function newTask(raw, config) {
   const demo = raw.demo === true;
   const repository = config.repositories.find((r) => r.id === raw.repositoryId);
-  requireValue(demo || repository, 'Select a configured repository');
+  requireValue(demo || repository || raw.repositoryIds?.length, 'Select a configured repository');
+  const ids = raw.repositoryIds ?? (repository ? [repository.id] : []);
+  requireValue(
+    Array.isArray(ids) && ids.length <= 12 && ids.every((id) => typeof id === 'string'),
+    'Select at most 12 repositories',
+  );
+  requireValue(demo || ids.length > 0, 'Select a configured repository');
+  requireValue(new Set(ids).size === ids.length, 'Duplicate task repositories');
+  requireValue(
+    !raw.repositoryId || ids.includes(raw.repositoryId),
+    'Primary repository must be selected',
+  );
+  const repositories = ids.map((id) => {
+    const profile = config.repositories.find((r) => r.id === id);
+    requireValue(profile, 'Unknown task repository');
+    return {
+      repository: structuredClone(profile),
+      workspace: null,
+      baseCommit: null,
+      branch: null,
+    };
+  });
+  const dependencies = raw.dependencies ?? [];
+  requireValue(
+    Array.isArray(dependencies) && dependencies.length <= 132,
+    'Invalid repository dependencies',
+  );
+  for (const edge of dependencies)
+    requireValue(
+      edge &&
+        ids.includes(edge.repositoryId) &&
+        ids.includes(edge.dependsOn) &&
+        edge.repositoryId !== edge.dependsOn,
+      'Dependencies must connect distinct selected repositories',
+    );
+  requireValue(
+    new Set(dependencies.map((e) => `${e.repositoryId}:${e.dependsOn}`)).size ===
+      dependencies.length,
+    'Duplicate dependencies',
+  );
+  const ordered = [];
+  while (ordered.length < repositories.length) {
+    const next = repositories.find(
+      (r) =>
+        !ordered.includes(r) &&
+        dependencies
+          .filter((e) => e.repositoryId === r.repository.id)
+          .every((e) => ordered.some((o) => o.repository.id === e.dependsOn)),
+    );
+    requireValue(next, 'Repository dependencies contain a cycle');
+    ordered.push(next);
+  }
   return {
+    repositories: demo ? [] : ordered,
+    dependencies: structuredClone(dependencies),
+    repositoryCursor: 0,
     id: randomUUID(),
     title: text(raw.title, 'Title', 240),
     description: text(raw.description ?? '', 'Description', 50000, true),
@@ -266,7 +320,7 @@ export function newTask(raw, config) {
           setup: [],
           instructions: '',
         }
-      : structuredClone(repository),
+      : structuredClone(repository ?? repositories[0].repository),
     routing: { ...config.routing, ...(raw.routing ?? {}) },
     smartRouting: raw.smartRouting === true,
     status: 'draft',

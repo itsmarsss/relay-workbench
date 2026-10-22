@@ -3,6 +3,7 @@ import { resolve, relative, isAbsolute, join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { runProcess } from './process.js';
 import { requireValue } from './domain.js';
+import { workspaces, workspaceView } from './task-repositories.js';
 
 export async function git(cwd, args, options = {}) {
   const result = await runProcess('git', ['-C', cwd, ...args], { timeout: 120000, ...options });
@@ -33,7 +34,7 @@ export async function prepareWorkspace(task, directory, allTasks) {
     const occupied = allTasks.find(
       (other) =>
         other.id !== task.id &&
-        other.workspaceRoot === info.root &&
+        workspaces(other).some((entry) => entry.workspaceRoot === info.root) &&
         !['completed', 'cancelled'].includes(other.status),
     );
     requireValue(
@@ -66,6 +67,12 @@ export async function prepareWorkspace(task, directory, allTasks) {
   }
 }
 export async function fingerprint(task) {
+  if (workspaces(task).length > 1) {
+    const values = [];
+    for (const entry of workspaces(task))
+      values.push([entry.repository.id, await fingerprint(workspaceView(task, entry))]);
+    return createHash('sha256').update(JSON.stringify(values)).digest('hex');
+  }
   const root = task.workspaceRoot;
   const hash = createHash('sha256');
   hash.update(await git(root, ['rev-parse', 'HEAD']));
@@ -86,6 +93,17 @@ export async function fingerprint(task) {
   return hash.digest('hex');
 }
 export async function diff(task) {
+  if (workspaces(task).length > 1) {
+    const repositories = [];
+    for (const entry of workspaces(task))
+      repositories.push({
+        repositoryId: entry.repository.id,
+        name: entry.repository.name,
+        baseCommit: entry.baseCommit,
+        ...(await diff(workspaceView(task, entry))),
+      });
+    return { repositories };
+  }
   if (!task.workspace || task.demo) return { text: '', stat: '', untracked: [], demo: task.demo };
   const [text, stat, names] = await Promise.all([
     git(task.workspaceRoot, ['diff', '--no-ext-diff', '--no-textconv', task.baseCommit, '--'], {

@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { workspaces, workspaceView, syncPrimary } from './task-repositories.js';
 import { setTimeout as delay } from 'node:timers/promises';
 import { newTask, requireValue, text, HARNESSES } from './domain.js';
 import { prepareWorkspace, fingerprint, inspectRepository } from './workspace.js';
@@ -15,17 +16,25 @@ export class Engine {
     this.workspaceReservations = new Map();
     this.stopping = false;
     for (const task of store.all()) {
-      if (
-        task.repository.strategy === 'attach' &&
-        task.workspaceRoot &&
-        !['completed', 'cancelled'].includes(task.status)
-      )
-        this.workspaceReservations.set(task.workspaceRoot, task.id);
-      if (task.submission?.status === 'running') {
-        task.submission.status = 'interrupted';
-        task.submission.error =
-          'Submission was interrupted. Inspect the remote and local commit before running your provider command manually.';
-        store.save(task, { type: 'submission', summary: task.submission.error });
+      for (const entry of workspaces(task)) {
+        if (
+          entry.repository.strategy === 'attach' &&
+          entry.workspaceRoot &&
+          !['completed', 'cancelled'].includes(task.status)
+        )
+          this.workspaceReservations.set(entry.workspaceRoot, task.id);
+      }
+      for (const entry of workspaces(task)) {
+        if (entry.submission?.status === 'running') {
+          entry.submission.status = 'interrupted';
+          entry.submission.error =
+            'Submission interrupted. Inspect the provider and local commit before retrying manually.';
+          store.save(task, {
+            type: 'submission',
+            repositoryId: entry.repository.id,
+            summary: entry.submission.error,
+          });
+        }
       }
       if (['running', 'queued'].includes(task.status)) {
         task.status = 'interrupted';
@@ -76,11 +85,19 @@ export class Engine {
           409,
         );
         if (!task.demo) {
-          requireValue(
-            task.repository.checks.length > 0,
-            'Configure at least one verification command before starting a live task',
-          );
-          await inspectRepository(task.repository);
+          const roots = new Set();
+          for (const entry of workspaces(task)) {
+            requireValue(
+              entry.repository.checks.length > 0,
+              `Configure verification commands for ${entry.repository.name}`,
+            );
+            const info = await inspectRepository(entry.repository);
+            requireValue(
+              !roots.has(info.root),
+              'Selected profiles refer to the same checkout; select one profile per repository',
+            );
+            roots.add(info.root);
+          }
           for (const stage of [
             'investigate',
             'plan',
@@ -120,6 +137,7 @@ export class Engine {
         });
         task.status = 'queued';
         task.stage = 'implement';
+        task.repositoryCursor = 0;
         task.error = null;
         this.store.save(task, {
           type: 'approval',
@@ -135,6 +153,7 @@ export class Engine {
         const note = text(data.note, 'Feedback', 20000);
         task.messages.push({ at: new Date().toISOString(), text: note, role: 'user' });
         task.stage = status === 'awaiting_plan' ? 'plan' : 'implement';
+        task.repositoryCursor = 0;
         task.status = 'queued';
         task.reviewedFingerprint = null;
         this.store.save(task, { type: 'feedback', summary: 'Changes requested.', details: note });
@@ -146,6 +165,8 @@ export class Engine {
             'The workspace changed after review. Request changes to rerun verification and review.',
             409,
           );
+        for (const entry of workspaces(task))
+          if (!task.demo) entry.acceptedFingerprint = await fingerprint(workspaceView(task, entry));
         task.status = 'completed';
         task.approvals.push({
           type: 'final',
@@ -241,40 +262,75 @@ export class Engine {
       summary: `Starting ${task.stage}.`,
     });
     if (!task.demo) {
-      if (task.repository.strategy === 'attach') {
-        const info = await inspectRepository(task.repository);
-        const owner = this.workspaceReservations.get(info.root);
+      // Reserve all attached checkouts before the first setup or harness can run.
+      const attached = [];
+      for (const entry of workspaces(task))
+        if (entry.repository.strategy === 'attach') {
+          const info = await inspectRepository(entry.repository);
+          const owner = this.workspaceReservations.get(info.root);
+          requireValue(
+            !owner || owner === id,
+            'This checkout is reserved by another task. Complete or cancel it first.',
+            409,
+          );
+          attached.push(info.root);
+        }
+      if (signal.aborted) throw new Error('Execution cancelled');
+      for (const root of attached)
         requireValue(
-          !owner || owner === id,
+          !this.workspaceReservations.has(root) || this.workspaceReservations.get(root) === id,
           'This checkout is reserved by another task. Complete or cancel it first.',
           409,
         );
-        this.workspaceReservations.set(info.root, id);
-      }
-      await prepareWorkspace(task, this.store.directory, this.store.all());
-      if (signal.aborted) throw new Error('Execution cancelled');
-      task.messages = this.store.get(id).messages;
-      this.store.save(task, {
-        type: 'workspace',
-        summary: 'Shared workspace ready.',
-        details: task.workspace,
-      });
-      if (!task.setupCompleted) {
-        for (const cmd of task.repository.setup) {
-          const result = await runProcess(cmd.command, cmd.args, {
-            cwd: task.workspace,
-            signal,
-            timeout: this.store.config.timeoutMinutes * 60000,
-            onLine: (line, stream) =>
-              this.store.event(id, { type: 'transcript', stage: 'setup', stream, text: line }),
-          });
-          if (result.code !== 0)
-            throw new Error(`Repository setup failed: ${cmd.command} exited ${result.code}`);
-        }
-        if (signal.aborted) throw new Error('Execution cancelled');
-        task.setupCompleted = true;
+      for (const root of attached) this.workspaceReservations.set(root, id);
+      for (const entry of workspaces(task)) {
+        const view = workspaceView(task, entry);
+        // Unique worktree identity even for repositories with related histories.
+        view.id = workspaces(task).length > 1 ? `${id}-${workspaces(task).indexOf(entry)}` : id;
+        await prepareWorkspace(
+          view,
+          this.store.directory,
+          this.store.all().filter((t) => t.id !== id),
+        );
+        for (const key of ['workspace', 'workspaceRoot', 'baseCommit', 'branch'])
+          entry[key] = view[key];
+        syncPrimary(task);
+        task.status = this.store.get(id).status;
         task.messages = this.store.get(id).messages;
         this.store.save(task);
+        if (signal.aborted) throw new Error('Execution cancelled');
+      }
+      for (const entry of workspaces(task)) {
+        if (!entry.setupCompleted) {
+          for (const cmd of entry.repository.setup) {
+            const result = await runProcess(cmd.command, cmd.args, {
+              cwd: entry.workspace,
+              signal,
+              env: {
+                RELAY_WORKSPACES_JSON: JSON.stringify(
+                  Object.fromEntries(workspaces(task).map((e) => [e.repository.id, e.workspace])),
+                ),
+              },
+              timeout: this.store.config.timeoutMinutes * 60000,
+              onLine: (line, stream) =>
+                this.store.event(id, {
+                  type: 'transcript',
+                  stage: 'setup',
+                  repositoryId: entry.repository.id,
+                  stream,
+                  text: line,
+                }),
+            });
+            if (result.code !== 0)
+              throw new Error(
+                `Setup failed for ${entry.repository.name}: ${cmd.command} exited ${result.code}`,
+              );
+          }
+          if (signal.aborted) throw new Error('Execution cancelled');
+          entry.setupCompleted = true;
+          task.messages = this.store.get(id).messages;
+          this.store.save(task);
+        }
       }
     } else if (!task.workspace) {
       task.workspace = 'Demo workspace · no files changed';
@@ -283,12 +339,25 @@ export class Engine {
       this.store.save(task);
     }
     const stage = task.stage;
+    const entries = workspaces(task);
+    const scoped = entries.length > 1 && ['investigate', 'implement', 'review'].includes(stage);
+    const entry = entries[scoped ? (task.repositoryCursor ?? 0) : 0];
+    const view = { ...workspaceView(task, entry) };
+    view.repositoryMap = entries.map((e) => ({
+      repository: e.repository,
+      workspace: e.workspace,
+      workspaceRoot: e.workspaceRoot,
+      branch: e.branch,
+      baseCommit: e.baseCommit,
+    }));
+    view.activeRepositoryId = scoped ? entry.repository.id : null;
     const harness = stage === 'verify' ? 'checks' : task.routing[stage];
     const attempt = {
       id: randomUUID(),
       stage,
       harness,
       round: task.round,
+      repositoryId: scoped ? entry.repository.id : null,
       status: 'running',
       startedAt: new Date().toISOString(),
     };
@@ -300,7 +369,7 @@ export class Engine {
       summary:
         stage === 'verify'
           ? 'Running repository verification commands.'
-          : `${harness} is working on ${stage}.`,
+          : `${harness} is working on ${stage}${scoped ? ` · ${entry.repository.name}` : ''}.`,
     });
     const before = !task.demo ? await fingerprint(task) : 'demo';
     if (stage === 'review')
@@ -308,6 +377,12 @@ export class Engine {
         task.demo || task.verifiedFingerprint === before,
         'Workspace changed after verification. Request changes or rerun implementation before review.',
       );
+    const otherBefore =
+      stage === 'implement' && entries.length > 1
+        ? await Promise.all(
+            entries.filter((e) => e !== entry).map((e) => fingerprint(workspaceView(task, e))),
+          )
+        : null;
     let handoff;
     if (stage === 'verify') {
       const checks = [];
@@ -322,23 +397,35 @@ export class Engine {
           durationMs: this.demoDelay,
         });
       } else
-        for (const command of task.repository.checks) {
-          const started = Date.now();
-          const result = await runProcess(command.command, command.args, {
-            cwd: task.workspace,
-            signal,
-            timeout: this.store.config.timeoutMinutes * 60000,
-            onLine: (line, stream) =>
-              this.store.event(id, {
-                type: 'transcript',
-                stage,
-                attemptId: attempt.id,
-                stream,
-                text: line.slice(0, 40000),
-              }),
-          });
-          checks.push({ ...command, ...result, durationMs: Date.now() - started });
-        }
+        for (const checkEntry of entries)
+          for (const command of checkEntry.repository.checks) {
+            const started = Date.now();
+            const result = await runProcess(command.command, command.args, {
+              cwd: checkEntry.workspace,
+              env: {
+                RELAY_WORKSPACES_JSON: JSON.stringify(
+                  Object.fromEntries(entries.map((e) => [e.repository.id, e.workspace])),
+                ),
+              },
+              signal,
+              timeout: this.store.config.timeoutMinutes * 60000,
+              onLine: (line, stream) =>
+                this.store.event(id, {
+                  type: 'transcript',
+                  stage,
+                  attemptId: attempt.id,
+                  repositoryId: checkEntry.repository.id,
+                  stream,
+                  text: line.slice(0, 40000),
+                }),
+            });
+            checks.push({
+              repositoryId: checkEntry.repository.id,
+              ...command,
+              ...result,
+              durationMs: Date.now() - started,
+            });
+          }
       const passed = checks.length > 0 && checks.every((c) => c.code === 0);
       handoff = {
         summary: passed
@@ -352,7 +439,9 @@ export class Engine {
           .join('\n\n'),
         checks,
         files: [],
-        evidence: checks.map((c) => `Exit ${c.code}: ${c.command} ${c.args.join(' ')}`),
+        evidence: checks.map(
+          (c) => `${c.repositoryId ?? 'demo'} · Exit ${c.code}: ${c.command} ${c.args.join(' ')}`,
+        ),
         risks: [],
         options: [],
         findings: [],
@@ -376,7 +465,7 @@ export class Engine {
     } else {
       requireValue(this.store.config.harnesses[harness]?.enabled, `${harness} is disabled`);
       handoff = await this.harness({
-        task,
+        task: view,
         stage,
         harness,
         config: structuredClone(this.store.config),
@@ -384,7 +473,13 @@ export class Engine {
         attemptId: attempt.id,
         signal,
         onEvent: (event) =>
-          this.store.event(id, { ...event, stage, harness, attemptId: attempt.id }),
+          this.store.event(id, {
+            ...event,
+            stage,
+            harness,
+            repositoryId: entry.repository.id,
+            attemptId: attempt.id,
+          }),
       });
     }
     if (signal.aborted) throw new Error('Execution cancelled');
@@ -392,6 +487,16 @@ export class Engine {
     if (['triage', 'investigate', 'plan', 'review'].includes(stage) && before !== after)
       throw new Error(
         `${stage} modified the workspace despite being read-only. Inspect the diff before resuming.`,
+      );
+    if (otherBefore)
+      requireValue(
+        JSON.stringify(otherBefore) ===
+          JSON.stringify(
+            await Promise.all(
+              entries.filter((e) => e !== entry).map((e) => fingerprint(workspaceView(task, e))),
+            ),
+          ),
+        'Implementation modified another repository outside its assigned workspace. Inspect all diffs before resuming.',
       );
     task = this.store.get(id);
     const savedAttempt = task.attempts.find((a) => a.id === attempt.id);
@@ -402,6 +507,14 @@ export class Engine {
     if (handoff.verdict === 'blocked') {
       task.status = 'blocked';
       task.error = handoff.summary;
+    } else if (
+      scoped &&
+      handoff.verdict === 'complete' &&
+      (stage !== 'review' || !handoff.findings.length) &&
+      (task.repositoryCursor ?? 0) < entries.length - 1
+    ) {
+      task.repositoryCursor = (task.repositoryCursor ?? 0) + 1;
+      task.status = 'queued';
     } else if (stage === 'triage') {
       if (task.smartRouting) {
         for (const [s, h] of Object.entries(handoff.routing)) {
@@ -415,11 +528,13 @@ export class Engine {
       task.stage = 'investigate';
       task.status = 'queued';
     } else if (stage === 'investigate') {
+      task.repositoryCursor = 0;
       task.stage = 'plan';
       task.status = 'queued';
     } else if (stage === 'plan') {
       task.status = 'awaiting_plan';
     } else if (stage === 'implement') {
+      task.repositoryCursor = 0;
       task.stage = 'verify';
       task.status = 'queued';
     } else if (stage === 'verify') {
@@ -444,7 +559,8 @@ export class Engine {
       type: 'handoff',
       stage,
       harness,
-      summary: handoff.summary,
+      repositoryId: scoped ? entry.repository.id : null,
+      summary: scoped ? `${entry.repository.name}: ${handoff.summary}` : handoff.summary,
       details: handoff.details,
       attemptId: attempt.id,
     });
@@ -459,6 +575,7 @@ export class Engine {
   }
   repair(task, reason) {
     task.round++;
+    task.repositoryCursor = 0;
     task.stage = 'implement';
     task.reviewedFingerprint = null;
     if (task.round > this.store.config.maxRepairRounds) {

@@ -120,7 +120,7 @@ function overview() {
   }<section class="section"><div class="section-title"><h2>Recent work <span class="count-chip">${state.tasks.length}</span></h2>${button('navigate', 'View all tasks', 'text', 'arrow', 'data-view="tasks"')}</div>${state.tasks.length ? taskTable(state.tasks.slice(0, 8)) : `<div class="welcome-card"><div class="welcome-art"><span class="orbit-label left">${harnessBadge('codex')} Codex</span><span class="orbit-center">${icon('relay')}</span><span class="orbit-label right">${harnessBadge('claude')} Claude</span><span class="orbit-label bottom">${harnessBadge('pi')} Pi</span></div><h2>Your next task has a whole team behind it.</h2><p>Investigation, thoughtful design, implementation, and an independent<br> review — connected by one clear thread.</p><div class="welcome-actions">${button('new-task', 'Create your first task', 'primary', 'plus')}${button('demo', 'Explore a demo', 'secondary', 'arrow')}</div><small>You approve the approach. You have the final say.</small></div>`}</section><div class="how-it-works"><div><span class="eyebrow">A WORKFLOW THAT THINKS AHEAD</span><h3>Hands-free work.<br>Human-led decisions.</h3></div><div class="flow-mini">${['Investigate', 'Design', 'You approve', 'Build & verify', 'Review', 'You accept'].map((s, i) => `${i ? icon('chevron') : ''}<span class="${s.startsWith('You') ? 'human' : ''}">${s}</span>`).join('')}</div></div>`;
 }
 function taskTable(tasks) {
-  return `<div class="task-table"><div class="table-header"><span>Task</span><span>Status</span><span>Specialists</span><span>Updated</span><span></span></div>${tasks.map((t) => `<button class="task-row" data-action="open-task" data-id="${t.id}"><span class="task-name"><span class="task-symbol">${icon('layers')}</span><span><strong>${e(t.title)} ${t.demo ? '<em class="demo-label">DEMO</em>' : ''}</strong><small>${e(t.repository.name)} <span>·</span> ${e(stageNames[t.stage] || 'Ready')}</small></span></span><span>${badge(t.status)}</span><span class="avatar-stack">${[...new Set(Object.values(t.routing).filter((h) => h !== 'checks'))].map((h) => harnessBadge(h)).join('')}</span><span class="muted">${ago(t.updatedAt)}</span>${icon('chevron')}</button>`).join('')}</div>`;
+  return `<div class="task-table"><div class="table-header"><span>Task</span><span>Status</span><span>Specialists</span><span>Updated</span><span></span></div>${tasks.map((t) => `<button class="task-row" data-action="open-task" data-id="${t.id}"><span class="task-name"><span class="task-symbol">${icon('layers')}</span><span><strong>${e(t.title)} ${t.demo ? '<em class="demo-label">DEMO</em>' : ''}</strong><small>${e((t.repositories?.length ? t.repositories.map((r) => r.repository.name) : [t.repository.name]).join(' + '))} <span>·</span> ${e(stageNames[t.stage] || 'Ready')}</small></span></span><span>${badge(t.status)}</span><span class="avatar-stack">${[...new Set(Object.values(t.routing).filter((h) => h !== 'checks'))].map((h) => harnessBadge(h)).join('')}</span><span class="muted">${ago(t.updatedAt)}</span>${icon('chevron')}</button>`).join('')}</div>`;
 }
 function tasksView() {
   const filtered = state.tasks.filter(
@@ -131,7 +131,9 @@ function tasksView() {
           : state.filter === 'attention'
             ? ['awaiting_plan', 'awaiting_final', 'blocked', 'interrupted'].includes(t.status)
             : t.status === 'completed')) &&
-      `${t.title} ${t.repository.name}`.toLowerCase().includes(state.search.toLowerCase()),
+      `${t.title} ${(t.repositories ?? [t]).map((r) => r.repository.name).join(' ')}`
+        .toLowerCase()
+        .includes(state.search.toLowerCase()),
   );
   return `${pageHeading('THE BIG PICTURE', 'All tasks', 'Every handoff, decision, and result. In one place.')}<div class="list-toolbar"><div class="segmented">${[
     ['all', 'All tasks'],
@@ -152,7 +154,7 @@ function taskView() {
   if (!t) return '<div class="boot">Loading task…</div>';
   const live = ['running', 'queued'].includes(t.status);
   const last = t.attempts.findLast((a) => a.handoff)?.handoff;
-  return `<div class="task-heading"><button class="back-link" data-action="navigate" data-view="tasks">← All tasks</button><div class="task-title-row"><h1>${e(t.title)}</h1>${t.demo ? '<span class="demo-label large">SIMULATED DEMO</span>' : ''}</div><div class="task-subtitle">${badge(t.status)}<span>${e(t.repository.name)}</span><span>·</span><span>${t.id.slice(0, 8)}</span><span>·</span><span>Created ${ago(t.createdAt).toLowerCase()}</span></div><div class="task-controls">${t.status === 'draft' ? button('task-action', 'Start workflow', 'primary', 'bolt', 'data-operation="start"') : ''}${['blocked', 'interrupted', 'paused'].includes(t.status) ? button('task-action', 'Resume workflow', 'primary', 'arrow', 'data-operation="resume"') : ''}${live ? button('task-action', 'Pause', 'secondary small', 'pause', 'data-operation="pause"') : ''}${!['completed', 'cancelled'].includes(t.status) ? button('confirm-cancel', 'Cancel', 'text small') : ''}<a class="btn text small" href="/api/tasks/${t.id}/export" download>${icon('download')}Export</a>${t.status === 'completed' && !t.demo && t.repository.prCommand && !t.submission ? button('confirm-submit', 'Commit & submit draft PR', 'primary small', 'git') : ''}</div></div>${t.demo ? '<div class="demo-banner">' + icon('spark') + 'Demo mode. Harness responses and checks are simulated; no repository files are changed.</div>' : ''}<div class="task-layout"><div class="task-center">${t.error ? `<div class="error-panel">${icon('stop')}<div><strong>This workflow needs attention</strong><p>${e(t.error)}</p><small>Add context below, inspect the workspace, then resume when ready.</small></div></div>` : ''}${t.status === 'awaiting_plan' ? planGate(t) : ''}${t.status === 'awaiting_final' ? `<div class="approval-panel final-panel"><div class="approval-icon">${icon('check')}</div><div><span class="eyebrow">YOUR FINAL LOOK</span><h2>The specialists are done. Over to you.</h2><p>Verification passed and independent review is complete. Inspect the handoffs and diff before accepting.</p><div class="approval-actions">${button('task-action', 'Accept result', 'primary', 'check', 'data-operation="accept"')}${button('request-changes', 'Request changes', 'secondary')}</div></div></div>` : ''}<div class="detail-tabs" role="tablist">${[
+  return `<div class="task-heading"><button class="back-link" data-action="navigate" data-view="tasks">← All tasks</button><div class="task-title-row"><h1>${e(t.title)}</h1>${t.demo ? '<span class="demo-label large">SIMULATED DEMO</span>' : ''}</div><div class="task-subtitle">${badge(t.status)}<span>${e((t.repositories?.length ? t.repositories.map((r) => r.repository.name) : [t.repository.name]).join(' + '))}</span><span>·</span><span>${t.id.slice(0, 8)}</span><span>·</span><span>Created ${ago(t.createdAt).toLowerCase()}</span></div><div class="task-controls">${t.status === 'draft' ? button('task-action', 'Start workflow', 'primary', 'bolt', 'data-operation="start"') : ''}${['blocked', 'interrupted', 'paused'].includes(t.status) ? button('task-action', 'Resume workflow', 'primary', 'arrow', 'data-operation="resume"') : ''}${live ? button('task-action', 'Pause', 'secondary small', 'pause', 'data-operation="pause"') : ''}${!['completed', 'cancelled'].includes(t.status) ? button('confirm-cancel', 'Cancel', 'text small') : ''}<a class="btn text small" href="/api/tasks/${t.id}/export" download>${icon('download')}Export</a></div></div>${t.demo ? '<div class="demo-banner">' + icon('spark') + 'Demo mode. Harness responses and checks are simulated; no repository files are changed.</div>' : ''}<div class="task-layout"><div class="task-center">${t.error ? `<div class="error-panel">${icon('stop')}<div><strong>This workflow needs attention</strong><p>${e(t.error)}</p><small>Add context below, inspect the workspace, then resume when ready.</small></div></div>` : ''}${t.status === 'awaiting_plan' ? planGate(t) : ''}${t.status === 'awaiting_final' ? `<div class="approval-panel final-panel"><div class="approval-icon">${icon('check')}</div><div><span class="eyebrow">YOUR FINAL LOOK</span><h2>The specialists are done. Over to you.</h2><p>Verification passed and independent review is complete. Inspect the handoffs and diff before accepting.</p><div class="approval-actions">${button('task-action', 'Accept result', 'primary', 'check', 'data-operation="accept"')}${button('request-changes', 'Request changes', 'secondary')}</div></div></div>` : ''}<div class="detail-tabs" role="tablist">${[
     ['thread', 'Activity thread'],
     ['handoffs', 'Handoffs'],
     ['diff', 'Code changes'],
@@ -175,9 +177,23 @@ function taskView() {
       const h = stage === 'verify' ? 'checks' : t.routing[stage];
       return `<li class="${active ? 'current' : done ? 'done' : ''}"><span class="stage-number">${done && !active ? icon('check') : i + 1}</span><div><strong>${stageNames[stage]}</strong><small>${h === 'checks' ? 'Repository checks' : h.charAt(0).toUpperCase() + h.slice(1)}${a?.finishedAt ? ' · ' + duration(new Date(a.finishedAt) - new Date(a.startedAt)) : active && live ? ' · Working' : ''}</small></div>${active && live ? '<span class="pulse-dot"></span>' : ''}</li>`;
     })
+    .join('')}</ol></section>${(t.repositories?.length > 1 ? t.repositories : [t])
+    .map(
+      (r) =>
+        `<section class="context-card"><div class="context-title">REPOSITORY WORKSPACE ${icon('git')}</div><dl><dt>Repository</dt><dd>${e(r.repository.name)}</dd><dt>Prerequisites</dt><dd>${e(
+          (t.dependencies ?? [])
+            .filter((d) => d.repositoryId === r.repository.id)
+            .map(
+              (d) =>
+                (t.repositories ?? [t]).find((x) => x.repository.id === d.dependsOn)?.repository
+                  .name ?? d.dependsOn,
+            )
+            .join(', ') || 'Independent',
+        )}</dd><dt>Branch</dt><dd class="mono wrap">${e(r.branch || 'Assigned when started')}</dd><dt>Directory</dt><dd class="mono wrap">${e(r.workspace || 'Created when started')}</dd></dl>${t.status === 'completed' && !t.demo && r.repository.prCommand && !r.submission ? button('confirm-submit', 'Commit & submit draft PR', 'primary small', 'git', `data-repository-id="${e(r.repository.id)}"`) : ''}${r.submission ? `<p>Submission: <strong>${e(r.submission.status)}</strong></p><pre class="submission-output">${e(r.submission.stdout || r.submission.error || 'See execution log.')}${e(r.submission.stderr || '')}</pre>` : ''}</section>`,
+    )
     .join(
       '',
-    )}</ol></section><section class="context-card"><div class="context-title">SHARED WORKSPACE ${icon('git')}</div><dl><dt>Repository</dt><dd>${e(t.repository.name)}</dd><dt>Branch</dt><dd class="mono">${e(t.branch || 'Assigned when started')}</dd><dt>Directory</dt><dd class="mono wrap">${e(t.workspace || 'Created when started')}</dd><dt>Repair rounds</dt><dd>${t.round}</dd></dl></section>${t.chosenApproach ? `<section class="context-card approved-card"><div class="context-title">APPROVED APPROACH ${icon('check')}</div><strong>${e(t.chosenApproach.title)}</strong><p>${e(t.chosenApproach.description)}</p></section>` : ''}${t.description ? `<section class="context-card"><div class="context-title">ORIGINAL TASK ${icon('book')}</div><details><summary>View requirements</summary><div class="prose compact">${prose(t.description)}</div></details>${t.ticket ? `<div class="ticket-ref mono wrap">${e(t.ticket)}</div>` : ''}</section>` : ''}${t.submission ? `<section class="context-card"><div class="context-title">PROVIDER SUBMISSION</div><strong>${e(t.submission.status)}</strong><pre class="submission-output">${e(t.submission.stdout || t.submission.error || 'Command is running. See execution log.')}${e(t.submission.stderr || '')}</pre></section>` : ''}<div class="context-foot">${icon('eye')}You approve the approach.<br>You accept the final result.</div></aside></div>`;
+    )}${t.chosenApproach ? `<section class="context-card approved-card"><div class="context-title">APPROVED APPROACH ${icon('check')}</div><strong>${e(t.chosenApproach.title)}</strong><p>${e(t.chosenApproach.description)}</p></section>` : ''}${t.description ? `<section class="context-card"><div class="context-title">ORIGINAL TASK ${icon('book')}</div><details><summary>View requirements</summary><div class="prose compact">${prose(t.description)}</div></details>${t.ticket ? `<div class="ticket-ref mono wrap">${e(t.ticket)}</div>` : ''}</section>` : ''}<div class="context-foot">${icon('eye')}You approve the approach.<br>You accept the final result.</div></aside></div>`;
 }
 function planGate(t) {
   const plan = t.attempts.findLast((a) => a.stage === 'plan' && a.handoff)?.handoff;
@@ -218,7 +234,7 @@ function handoffsView(t) {
     ? attempts
         .map(
           (a) =>
-            `<article class="handoff-card"><div class="handoff-top">${harnessBadge(a.harness)}<div><h3>${e(stageNames[a.stage])}</h3><small>${e(a.harness)} · ${duration(new Date(a.finishedAt) - new Date(a.startedAt))}${a.round ? ` · Repair ${a.round}` : ''}</small></div><span class="verdict ${a.handoff?.verdict === 'complete' ? 'pass' : 'fail'}">${e(a.handoff?.verdict?.replaceAll('_', ' ') || 'failed')}</span></div><h3>${e(a.handoff?.summary || a.error)}</h3><div class="prose">${prose(a.handoff?.details || '')}</div>${handoffExtras(a.handoff)}${a.handoff?.evidence?.length ? `<details><summary>Evidence (${a.handoff.evidence.length})</summary><ul class="evidence-list">${a.handoff.evidence.map((s) => `<li>${e(s)}</li>`).join('')}</ul></details>` : ''}${a.handoff?.risks?.length ? `<div class="risk-note"><strong>Risks & limitations</strong><ul>${a.handoff.risks.map((s) => `<li>${e(s)}</li>`).join('')}</ul></div>` : ''}</article>`,
+            `<article class="handoff-card"><div class="handoff-top">${harnessBadge(a.harness)}<div><h3>${e(stageNames[a.stage])}</h3><small>${e(a.harness)}${a.repositoryId ? ` · ${e((t.repositories ?? [t]).find((r) => r.repository.id === a.repositoryId)?.repository.name ?? a.repositoryId)}` : ' · Shared'} · ${duration(new Date(a.finishedAt) - new Date(a.startedAt))}${a.round ? ` · Repair ${a.round}` : ''}</small></div><span class="verdict ${a.handoff?.verdict === 'complete' ? 'pass' : 'fail'}">${e(a.handoff?.verdict?.replaceAll('_', ' ') || 'failed')}</span></div><h3>${e(a.handoff?.summary || a.error)}</h3><div class="prose">${prose(a.handoff?.details || '')}</div>${handoffExtras(a.handoff)}${a.handoff?.evidence?.length ? `<details><summary>Evidence (${a.handoff.evidence.length})</summary><ul class="evidence-list">${a.handoff.evidence.map((s) => `<li>${e(s)}</li>`).join('')}</ul></details>` : ''}${a.handoff?.risks?.length ? `<div class="risk-note"><strong>Risks & limitations</strong><ul>${a.handoff.risks.map((s) => `<li>${e(s)}</li>`).join('')}</ul></div>` : ''}</article>`,
         )
         .join('')
     : empty(
@@ -227,7 +243,7 @@ function handoffsView(t) {
         'Each specialist leaves evidence and a clear next step.',
       );
 }
-function diffView(t) {
+function diffView(t, suppliedDiff) {
   if (t.demo)
     return empty(
       'code',
@@ -237,7 +253,17 @@ function diffView(t) {
   if (!t.workspace)
     return empty('git', 'No workspace yet', 'Start this task to prepare its workspace.');
   if (!state.diff) return '<div class="boot">Loading changes…</div>';
-  const d = state.diff;
+  const d = suppliedDiff ?? state.diff;
+  if (d.repositories)
+    return (
+      `<div class="diff-heading"><strong>${d.repositories.length} repository diffs</strong>${button('refresh-diff', 'Refresh all', 'text small')}</div>` +
+      d.repositories
+        .map(
+          (r) =>
+            `<details open class="repository-diff"><summary>${e(r.name)}</summary>${diffView({ ...t, baseCommit: r.baseCommit }, r)}</details>`,
+        )
+        .join('')
+    );
   if (d.error) return `<div class="error-panel">${e(d.error)}</div>`;
   return `<div class="diff-heading"><span>Changes since <code>${e(t.baseCommit?.slice(0, 10))}</code></span>${button('refresh-diff', 'Refresh', 'text small')}</div>${d.stat ? `<pre class="diff-stat">${e(d.stat)}</pre>` : ''}${
     d.text
@@ -272,7 +298,7 @@ function transcriptView() {
   }`;
 }
 function repositoriesView() {
-  return `${pageHeading('ONE WORKSPACE PER TASK', 'Repositories', 'Bring your own codebase. Keep its conventions and tooling.', button('add-repository', 'Add repository', 'primary', 'plus'))}<div class="repository-grid">${state.config.repositories.map((r) => `<article class="repository-card"><div class="repo-top"><span class="repo-icon">${icon('folder')}</span>${button('edit-repository', 'Edit profile', 'text small', '', `data-id="${e(r.id)}"`)}</div><h2>${e(r.name)}</h2><p class="mono wrap">${e(r.path)}</p><div class="repo-tags"><span>${icon('git')}${r.strategy === 'attach' ? 'Attach existing checkout' : 'Isolated worktrees'}</span><span>${icon('check')}${r.checks.length} verification ${r.checks.length === 1 ? 'command' : 'commands'}</span></div><div class="repo-footer"><small>Working directory <code>${e(r.cwd)}</code></small>${r.prCommand ? '<span class="configured-dot">Provider configured</span>' : '<span class="muted">Local only</span>'}</div></article>`).join('')}${!state.config.repositories.length ? empty('folder', 'Connect your first repository', 'Add a checkout and its verification commands to start real work.', button('add-repository', 'Add repository', 'primary', 'plus')) : ''}</div><div class="info-panel">${icon('git')}<div><strong>Your repository stays yours.</strong><p>Every specialist uses the same task workspace. Relay preserves changes and worktrees when a task finishes. Repository-specific policies and private integrations stay in your ignored local configuration.</p></div></div>`;
+  return `${pageHeading('ONE TASK, CONNECTED REPOSITORIES', 'Repositories', 'Bring your own codebase. Keep its conventions and tooling.', button('add-repository', 'Add repository', 'primary', 'plus'))}<div class="repository-grid">${state.config.repositories.map((r) => `<article class="repository-card"><div class="repo-top"><span class="repo-icon">${icon('folder')}</span>${button('edit-repository', 'Edit profile', 'text small', '', `data-id="${e(r.id)}"`)}</div><h2>${e(r.name)}</h2><p class="mono wrap">${e(r.path)}</p><div class="repo-tags"><span>${icon('git')}${r.strategy === 'attach' ? 'Attach existing checkout' : 'Isolated worktrees'}</span><span>${icon('check')}${r.checks.length} verification ${r.checks.length === 1 ? 'command' : 'commands'}</span></div><div class="repo-footer"><small>Working directory <code>${e(r.cwd)}</code></small>${r.prCommand ? '<span class="configured-dot">Provider configured</span>' : '<span class="muted">Local only</span>'}</div></article>`).join('')}${!state.config.repositories.length ? empty('folder', 'Connect your first repository', 'Add a checkout and its verification commands to start real work.', button('add-repository', 'Add repository', 'primary', 'plus')) : ''}</div><div class="info-panel">${icon('git')}<div><strong>Your repository stays yours.</strong><p>Every specialist uses the same task workspace. Relay preserves changes and worktrees when a task finishes. Repository-specific policies and private integrations stay in your ignored local configuration.</p></div></div>`;
 }
 function harnessesView() {
   return `${pageHeading('THE RIGHT SPECIALIST, EACH STEP', 'Harnesses', 'Use your existing CLI accounts. Choose models and route work your way.')}<form id="harness-form"><div class="harness-grid">${[
@@ -331,7 +357,17 @@ function closeModal() {
 function createTaskModal() {
   showModal(
     'Give your team a task',
-    `<form id="create-task-form"><p class="modal-description">Start with a ticket or describe the outcome. Relay connects the specialists and brings decisions back to you.</p><label class="field-label" for="new-repository">Repository</label><select class="input" id="new-repository" name="repositoryId" required><option value="">Choose a repository…</option>${state.config.repositories.map((r) => `<option value="${e(r.id)}">${e(r.name)}</option>`).join('')}</select>${!state.config.repositories.length ? `<div class="form-help">Add a repository first, or ${button('demo', 'try a demo', 'text small')}.</div>` : ''}<label class="field-label" for="new-ticket">Import an issue <span>Optional</span></label><div class="input-with-button"><input class="input" id="new-ticket" name="ticket" placeholder="Issue URL or number">${button('import-ticket', 'Import', 'secondary small')}</div><label class="field-label" for="new-title">Task title</label><input class="input" id="new-title" name="title" placeholder="What should be different when this is done?" maxlength="240" required><label class="field-label" for="new-description">Description & acceptance criteria</label><textarea class="input" id="new-description" name="description" rows="5" placeholder="The problem, expected behavior, useful context, and how to verify it…" maxlength="50000"></textarea><label class="toggle-label"><input type="checkbox" name="smartRouting"> Let the triage specialist recommend harness routing</label><p class="form-help">Implementation waits for your approach approval. Final acceptance always comes back to you.</p><div class="modal-footer">${button('close-modal', 'Cancel', 'text')}<button class="btn primary" type="submit">Create task ${icon('arrow')}</button></div></form>`,
+    `<form id="create-task-form"><p class="modal-description">Start with a ticket or describe the outcome. Relay connects the specialists and brings decisions back to you.</p><label class="field-label" for="new-repository">Repository</label><select class="input" id="new-repository" name="repositoryId" required><option value="">Choose a repository…</option>${state.config.repositories.map((r) => `<option value="${e(r.id)}">${e(r.name)}</option>`).join('')}</select><details class="advanced-fields"><summary>Coordinate additional repositories</summary><p class="form-help">Choose every repository needed for this ticket. Set prerequisites to control implementation order. All repositories share the plan and approval gates.</p>${state.config.repositories
+      .map(
+        (r) =>
+          `<div class="repo-participant"><label class="toggle-label"><input type="checkbox" name="additionalRepository" value="${e(r.id)}"> ${e(r.name)}</label><label class="field-label">Implement after <span>Optional prerequisites</span><select class="input" multiple name="depends-${e(r.id)}" aria-label="Prerequisites for ${e(r.name)}">${state.config.repositories
+            .filter((o) => o.id !== r.id)
+            .map((o) => `<option value="${e(o.id)}">${e(o.name)}</option>`)
+            .join('')}</select></label></div>`,
+      )
+      .join(
+        '',
+      )}<p class="form-help">Prerequisites must be selected repositories. Use Command/Ctrl to select several. No selection means independent. The primary repository is also included.</p></details>${!state.config.repositories.length ? `<div class="form-help">Add a repository first, or ${button('demo', 'try a demo', 'text small')}.</div>` : ''}<label class="field-label" for="new-ticket">Import an issue <span>Optional</span></label><div class="input-with-button"><input class="input" id="new-ticket" name="ticket" placeholder="Issue URL or number">${button('import-ticket', 'Import', 'secondary small')}</div><label class="field-label" for="new-title">Task title</label><input class="input" id="new-title" name="title" placeholder="What should be different when this is done?" maxlength="240" required><label class="field-label" for="new-description">Description & acceptance criteria</label><textarea class="input" id="new-description" name="description" rows="5" placeholder="The problem, expected behavior, useful context, and how to verify it…" maxlength="50000"></textarea><label class="toggle-label"><input type="checkbox" name="smartRouting"> Let the triage specialist recommend harness routing</label><p class="form-help">Implementation waits for your approach approval. Final acceptance always comes back to you.</p><div class="modal-footer">${button('close-modal', 'Cancel', 'text')}<button class="btn primary" type="submit">Create task ${icon('arrow')}</button></div></form>`,
     true,
   );
 }
@@ -460,11 +496,16 @@ document.addEventListener('click', async (event) => {
         'Cancel this task?',
         `<p class="modal-description">Execution will stop. The branch, workspace, and existing changes will be kept for you to inspect.</p><div class="modal-footer">${button('close-modal', 'Keep working', 'text')}${button('task-action', 'Cancel task', 'danger', 'stop', 'data-operation="cancel"')}</div>`,
       );
-    if (action === 'confirm-submit')
+    if (action === 'confirm-submit') {
+      const repositoryId = element.dataset.repositoryId;
+      const entry = (
+        state.task.repositories?.length > 1 ? state.task.repositories : [state.task]
+      ).find((r) => r.repository.id === repositoryId);
       return showModal(
         'Commit & submit a draft PR?',
-        `<p class="modal-description">Relay will commit the accepted changes in this task’s workspace, then execute the repository’s configured provider command. Review its full output when it finishes.</p><pre class="code-block">${e(JSON.stringify(state.task.repository.prCommand, null, 2))}</pre><div class="modal-footer">${button('close-modal', 'Cancel', 'text')}${button('submit-pr', 'Commit & submit', 'primary', 'git')}</div>`,
+        `<p class="modal-description">Relay will commit the accepted changes in this repository’s workspace, then execute the repository’s configured provider command. Other repositories are submitted separately. Publication is not atomic. Review its full output when it finishes.</p><pre class="code-block">${e(JSON.stringify(entry.repository.prCommand, null, 2))}</pre><div class="modal-footer">${button('close-modal', 'Cancel', 'text')}${button('submit-pr', 'Commit & submit', 'primary', 'git', `data-repository-id="${e(repositoryId)}"`)}</div>`,
       );
+    }
     if (action === 'import-profile')
       return showModal(
         'Import a private local profile',
@@ -497,7 +538,9 @@ document.addEventListener('click', async (event) => {
       await refresh();
     }
     if (action === 'submit-pr') {
-      await api(`/tasks/${state.selected}/submit`, 'POST', {});
+      await api(`/tasks/${state.selected}/submit`, 'POST', {
+        repositoryId: element.dataset.repositoryId,
+      });
       closeModal();
       toast('Provider submission started. Full output will appear in the thread.');
       await refresh();
@@ -542,6 +585,12 @@ document.addEventListener('submit', async (event) => {
     if (form.id === 'create-task-form') {
       const task = await api('/tasks', 'POST', {
         ...values,
+        repositoryIds: [
+          ...new Set([data.get('repositoryId'), ...data.getAll('additionalRepository')]),
+        ],
+        dependencies: [...data.entries()]
+          .filter(([key, value]) => key.startsWith('depends-') && value)
+          .map(([key, value]) => ({ repositoryId: key.slice(8), dependsOn: value })),
         smartRouting: data.has('smartRouting'),
       });
       closeModal();

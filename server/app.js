@@ -1,4 +1,5 @@
 import http from 'node:http';
+import { workspaces, workspaceView } from './task-repositories.js';
 import { readFile, realpath } from 'node:fs/promises';
 import { resolve, extname, relative, isAbsolute } from 'node:path';
 import { randomBytes, timingSafeEqual } from 'node:crypto';
@@ -34,6 +35,9 @@ function summary(task) {
   const { attempts, approvals, messages, repository, ...rest } = task;
   return {
     ...rest,
+    repositories: workspaces(task).map((e) => ({
+      repository: { id: e.repository.id, name: e.repository.name },
+    })),
     repository: { id: repository.id, name: repository.name },
     attemptCount: attempts.length,
     latestSummary: attempts.findLast((a) => a.handoff)?.handoff.summary ?? '',
@@ -207,85 +211,119 @@ export function createApp({ directory, publicDirectory, engineOptions = {} }) {
             'Accept a live task before submitting a PR',
             409,
           );
-          requireValue(task.repository.prCommand, 'No PR command configured for this repository');
+          const request = await body(req);
+          const entry = workspaces(task).find(
+            (e) => e.repository.id === (request.repositoryId ?? task.repository.id),
+          );
+          requireValue(entry, 'Select a task repository');
+          const target = workspaceView(task, entry);
+          const submissionKey = `${id}:${entry.repository.id}`;
+          const saveSubmission = (update) => {
+            const current = store.get(id);
+            const currentEntry = workspaces(current).find(
+              (e) => e.repository.id === entry.repository.id,
+            );
+            currentEntry.submission = { ...currentEntry.submission, ...update };
+            return current;
+          };
+          requireValue(target.repository.prCommand, 'No PR command configured for this repository');
           requireValue(
-            !external.has(id) && !task.submission,
+            ![...external.keys()].some((key) => key.startsWith(`${id}:`)) && !entry.submission,
             'PR submission already exists or is running',
             409,
           );
-          const owner = engine.workspaceReservations.get(task.workspaceRoot);
+          const owner = engine.workspaceReservations.get(target.workspaceRoot);
           requireValue(!owner || owner === id, 'This workspace is reserved by another task', 409);
           requireValue(
-            (await fingerprint(task)) === task.reviewedFingerprint,
+            (await fingerprint(target)) === (entry.acceptedFingerprint ?? task.reviewedFingerprint),
             'Workspace changed since acceptance; inspect it before submitting',
             409,
           );
-          engine.workspaceReservations.set(task.workspaceRoot, id);
+          requireValue(
+            ![...external.keys()].some((key) => key.startsWith(`${id}:`)) &&
+              !workspaces(store.get(id)).find((e) => e.repository.id === entry.repository.id)
+                .submission,
+            'Another submission started; refresh before continuing',
+            409,
+          );
+          requireValue(
+            !engine.workspaceReservations.has(target.workspaceRoot) ||
+              engine.workspaceReservations.get(target.workspaceRoot) === id,
+            'Workspace was reserved by another task',
+            409,
+          );
+          engine.workspaceReservations.set(target.workspaceRoot, id);
           const controller = new AbortController();
-          external.set(id, controller);
-          task.submission = { status: 'running', startedAt: new Date().toISOString() };
-          store.save(task, {
+          external.set(submissionKey, controller);
+          entry.submission = { status: 'running', startedAt: new Date().toISOString() };
+          store.save(saveSubmission(entry.submission), {
             type: 'submission',
-            summary: 'Submitting through the configured repository provider.',
+            summary: `Submitting ${entry.repository.name} through its configured provider.`,
           });
-          const cmd = task.repository.prCommand;
+          const cmd = target.repository.prCommand;
           (async () => {
             const log = (line, stream) =>
-              store.event(id, { type: 'transcript', stage: 'submission', stream, text: line });
-            const dirty = await git(task.workspaceRoot, [
+              store.event(id, {
+                type: 'transcript',
+                stage: 'submission',
+                repositoryId: entry.repository.id,
+                stream,
+                text: line,
+              });
+            const dirty = await git(target.workspaceRoot, [
               'status',
               '--porcelain',
               '--untracked-files=normal',
             ]);
             if (dirty) {
               requireValue(
-                (await fingerprint(task)) === task.reviewedFingerprint,
+                (await fingerprint(target)) ===
+                  (entry.acceptedFingerprint ?? task.reviewedFingerprint),
                 'Workspace changed before committing',
               );
-              await git(task.workspaceRoot, ['add', '--all'], {
+              await git(target.workspaceRoot, ['add', '--all'], {
                 signal: controller.signal,
                 onLine: log,
               });
-              const expectedTree = await git(task.workspaceRoot, ['write-tree']);
+              const expectedTree = await git(target.workspaceRoot, ['write-tree']);
               const commitSubject = `feat: ${task.title.replace(/[\r\n]/g, ' ').trim()}`.slice(
                 0,
                 59,
               );
-              await git(task.workspaceRoot, ['commit', '-m', commitSubject], {
+              await git(target.workspaceRoot, ['commit', '-m', commitSubject], {
                 signal: controller.signal,
                 onLine: log,
               });
               requireValue(
-                (await git(task.workspaceRoot, ['rev-parse', 'HEAD^{tree}'])) === expectedTree &&
-                  !(await git(task.workspaceRoot, [
+                (await git(target.workspaceRoot, ['rev-parse', 'HEAD^{tree}'])) === expectedTree &&
+                  !(await git(target.workspaceRoot, [
                     'status',
                     '--porcelain',
                     '--untracked-files=normal',
                   ])),
                 'Commit hooks changed the accepted workspace. Inspect and reverify it before submitting.',
               );
-              const current = store.get(id);
-              current.submission.commit = await git(task.workspaceRoot, ['rev-parse', 'HEAD']);
+              const current = saveSubmission({
+                commit: await git(target.workspaceRoot, ['rev-parse', 'HEAD']),
+              });
               store.save(current, {
                 type: 'submission',
                 summary: `Accepted changes committed: ${commitSubject}`,
               });
             }
             return runProcess(cmd.command, cmd.args, {
-              cwd: task.workspace,
+              cwd: target.workspace,
               signal: controller.signal,
               timeout: 600000,
               onLine: log,
             });
           })()
             .then((result) => {
-              const current = store.get(id);
-              current.submission = {
-                ...current.submission,
+              const current = saveSubmission({
                 status: result.code === 0 ? 'complete' : 'failed',
                 ...result,
                 finishedAt: new Date().toISOString(),
-              };
+              });
               store.save(current, {
                 type: 'submission',
                 summary:
@@ -296,17 +334,16 @@ export function createApp({ directory, publicDirectory, engineOptions = {} }) {
               });
             })
             .catch((error) => {
-              const current = store.get(id);
-              current.submission = {
-                ...current.submission,
+              const current = saveSubmission({
                 status: 'failed',
                 error: error.message,
-              };
+              });
               store.save(current, { type: 'submission', summary: error.message });
             })
             .finally(() => {
-              external.delete(id);
-              engine.releaseReservation(id);
+              external.delete(submissionKey);
+              if (engine.workspaceReservations.get(target.workspaceRoot) === id)
+                engine.workspaceReservations.delete(target.workspaceRoot);
             });
           return json(res, 202, task);
         }
