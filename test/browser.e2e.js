@@ -1,9 +1,11 @@
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { createApp } from '../server/app.js';
+import { git } from '../server/workspace.js';
+import { demoHandoff } from '../server/harness.js';
 
 const { chromium } = await import(process.env.RELAY_PLAYWRIGHT_MODULE || 'playwright');
 const screenshots = process.env.RELAY_SCREENSHOTS || 'docs/screenshots';
@@ -119,6 +121,102 @@ try {
     'Mobile dialog must fit',
   );
   await page.keyboard.press('Escape');
+  if (localApp) {
+    const repositories = [];
+    for (const id of ['service', 'client']) {
+      const path = join(fixture, id);
+      await mkdir(path);
+      await git(path, ['init', '-b', 'feature/browser']);
+      await writeFile(join(path, 'contract.txt'), 'v1');
+      await git(path, ['add', '.']);
+      await git(path, [
+        '-c',
+        'user.name=Test',
+        '-c',
+        'user.email=test@example.test',
+        'commit',
+        '-m',
+        'test: browser',
+      ]);
+      repositories.push({
+        id,
+        name: id,
+        path,
+        cwd: '.',
+        strategy: 'attach',
+        setup: [],
+        checks: [{ command: process.execPath, args: ['-e', 'process.exit(0)'] }],
+        instructions: '',
+        prCommand: { command: process.execPath, args: ['-e', 'console.log("provider")'] },
+      });
+    }
+    localApp.store.setConfig({
+      ...localApp.store.config,
+      repositories,
+      harnesses: Object.fromEntries(
+        ['codex', 'claude', 'pi'].map((id) => [
+          id,
+          { command: process.execPath, model: '', enabled: true },
+        ]),
+      ),
+    });
+    localApp.engine.harness = async ({ task, stage }) => {
+      if (stage === 'implement') await writeFile(join(task.workspace, 'contract.txt'), 'v2');
+      return demoHandoff(task, stage);
+    };
+    await page.setViewportSize({ width: 1440, height: 1100 });
+    await page.reload();
+    await page.getByRole('button', { name: 'New task', exact: true }).click();
+    await page.locator('#new-repository').selectOption('client');
+    await page.getByText('Coordinate additional repositories', { exact: true }).click();
+    await page.locator('input[name="additionalRepository"][value="service"]').check();
+    await page.getByRole('listbox', { name: 'Prerequisites for client' }).selectOption(['service']);
+    await page.locator('#new-title').fill('Upgrade service and client');
+    await page.getByRole('button', { name: 'Create task', exact: false }).click();
+    await page.getByRole('button', { name: 'Start workflow' }).click();
+    await page.getByRole('heading', { name: 'Choose the way forward.' }).waitFor();
+    await page.getByRole('button', { name: 'Approve & implement' }).click();
+    await page.getByRole('heading', { name: 'The specialists are done. Over to you.' }).waitFor();
+    assert.equal(
+      await page
+        .locator('.task-context')
+        .getByText('REPOSITORY WORKSPACE', { exact: true })
+        .count(),
+      2,
+    );
+    await page.getByRole('tab', { name: 'Code changes' }).click();
+    await page.getByText('2 repository diffs', { exact: true }).waitFor();
+    assert.equal(await page.locator('.repository-diff').count(), 2);
+    await page.getByRole('button', { name: 'Accept result', exact: true }).click();
+    await page.locator('.task-subtitle .badge.completed').waitFor();
+    assert.equal(
+      await page.getByRole('button', { name: 'Commit & submit draft PR', exact: true }).count(),
+      2,
+    );
+    await page
+      .getByRole('button', { name: 'Commit & submit draft PR', exact: true })
+      .first()
+      .click();
+    await page
+      .getByRole('dialog')
+      .getByText('Publication is not atomic.', { exact: false })
+      .waitFor();
+    await page.keyboard.press('Escape');
+    await page.setViewportSize({ width: 390, height: 844 });
+    assert.ok(
+      await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
+      'Multi-repository mobile view must fit',
+    );
+    await page.reload();
+    await page.locator('.task-subtitle .badge.completed').waitFor();
+    assert.equal(
+      await page
+        .locator('.task-context')
+        .getByText('REPOSITORY WORKSPACE', { exact: true })
+        .count(),
+      2,
+    );
+  }
   assert.deepEqual(errors, []);
   process.stdout.write(
     'Browser checks passed: approvals, feedback loops, reload, search, repository profile, escaped task content, navigation, and mobile layout.\n',

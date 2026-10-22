@@ -510,7 +510,7 @@ export class Engine {
     } else if (
       scoped &&
       handoff.verdict === 'complete' &&
-      !handoff.findings.length &&
+      (stage !== 'review' || !handoff.findings.length) &&
       (task.repositoryCursor ?? 0) < entries.length - 1
     ) {
       task.repositoryCursor = (task.repositoryCursor ?? 0) + 1;

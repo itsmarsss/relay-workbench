@@ -218,3 +218,91 @@ test('accepted task submission commits changes before provider execution', async
   assert.equal(await git(repo, ['status', '--porcelain']), '');
   assert.match(done.submission.stdout, /provider accepted/);
 });
+
+test('multi-repo submission preserves partial outcomes and accepted diffs', async (t) => {
+  const f = await fixture(t, {
+    harness: async ({ task, stage }) => {
+      if (stage === 'implement') await writeFile(join(task.workspace, 'value.txt'), 'after');
+      return demoHandoff(task, stage);
+    },
+  });
+  const repositories = [];
+  for (const id of ['one', 'two']) {
+    const path = join(f.directory, id);
+    await mkdir(path);
+    await git(path, ['init', '-b', 'feature/task']);
+    await writeFile(join(path, 'value.txt'), 'before');
+    await git(path, ['add', '.']);
+    await git(path, [
+      '-c',
+      'user.name=Test',
+      '-c',
+      'user.email=test@example.test',
+      'commit',
+      '-m',
+      'test: fixture',
+    ]);
+    repositories.push({
+      id,
+      name: id,
+      path,
+      cwd: '.',
+      strategy: 'attach',
+      checks: [{ command: process.execPath, args: ['-e', 'process.exit(0)'] }],
+      setup: [],
+      instructions: '',
+      prCommand: {
+        command: process.execPath,
+        args: ['-e', `console.log('${id} provider');process.exit(${id === 'two' ? 1 : 0})`],
+      },
+    });
+  }
+  const identity = {
+    GIT_AUTHOR_NAME: 'Test',
+    GIT_AUTHOR_EMAIL: 'test@example.test',
+    GIT_COMMITTER_NAME: 'Test',
+    GIT_COMMITTER_EMAIL: 'test@example.test',
+  };
+  const old = Object.fromEntries(Object.keys(identity).map((key) => [key, process.env[key]]));
+  Object.assign(process.env, identity);
+  t.after(() => {
+    for (const [key, value] of Object.entries(old))
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+  });
+  f.app.store.setConfig({ ...DEFAULT_CONFIG, repositories });
+  const task = f.app.engine.create({ title: 'Coordinate values', repositoryIds: ['one', 'two'] });
+  await f.app.engine.action(task.id, 'start');
+  await waitFor(f.app, task.id, 'awaiting_plan');
+  await f.app.engine.action(task.id, 'approve-plan', { optionId: 'shared-boundary' });
+  await waitFor(f.app, task.id, 'awaiting_final');
+  await f.app.engine.action(task.id, 'accept');
+  assert.equal(
+    (await f.request(`/api/tasks/${task.id}/submit`, 'POST', { repositoryId: 'unknown' })).status,
+    400,
+  );
+  const submit = async (repositoryId) => {
+    const result = await f.request(`/api/tasks/${task.id}/submit`, 'POST', { repositoryId });
+    assert.equal(result.status, 202, JSON.stringify(result.data));
+    for (let i = 0; i < 1000; i++) {
+      const current = f.app.store
+        .get(task.id)
+        .repositories.find((e) => e.repository.id === repositoryId);
+      if (current.submission.status !== 'running') return current.submission;
+      await new Promise((r) => setTimeout(r, 10));
+    }
+    throw new Error('Submission timeout');
+  };
+  assert.equal((await submit('one')).status, 'complete');
+  // A commit in one repository must not invalidate the other accepted diff.
+  assert.equal((await submit('two')).status, 'failed');
+  const final = f.app.store.get(task.id);
+  assert.equal(final.repositories[0].submission.status, 'complete');
+  assert.equal(final.repositories[1].submission.status, 'failed');
+  assert.ok(final.repositories.every((e) => e.submission.commit));
+  assert.equal(
+    (await f.request(`/api/tasks/${task.id}/submit`, 'POST', { repositoryId: 'one' })).status,
+    409,
+  );
+  assert.equal(f.app.engine.workspaceReservations.size, 0);
+});
