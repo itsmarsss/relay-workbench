@@ -306,3 +306,20 @@ test('multi-repo submission preserves partial outcomes and accepted diffs', asyn
   );
   assert.equal(f.app.engine.workspaceReservations.size, 0);
 });
+
+test('saved transcripts expose historical assistant text to the activity thread', async (t) => {
+  const f = await fixture(t);
+  const task = f.app.engine.create({ title: 'History', demo: true });
+  f.app.store.event(task.id, {
+    type: 'transcript',
+    stream: 'stdout',
+    harness: 'codex',
+    text: JSON.stringify({
+      type: 'item.completed',
+      item: { type: 'agent_message', text: 'Located the old failure.' },
+    }),
+  });
+  const result = await f.request(`/api/tasks/${task.id}/events`);
+  assert.deepEqual(result.data.at(-1).agentMessages, ['Located the old failure.']);
+  assert.equal(result.data.at(-1).type, 'transcript');
+});
