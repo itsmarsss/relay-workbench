@@ -257,6 +257,100 @@ export function parseHandoff(value) {
   }
 }
 
+export function taskOptions(raw, config) {
+  const routing = { ...config.routing, ...(raw.routing ?? {}) };
+  requireValue(
+    Object.keys(routing).length === Object.keys(config.routing).length &&
+      Object.entries(routing).every(
+        ([stage, id]) => Object.hasOwn(config.routing, stage) && HARNESSES.includes(id),
+      ),
+    'Invalid harness routing',
+  );
+  const models = raw.models ?? {};
+  requireValue(
+    models &&
+      typeof models === 'object' &&
+      !Array.isArray(models) &&
+      Object.keys(models).every((stage) => Object.hasOwn(config.routing, stage)),
+    'Invalid stage models',
+  );
+  const execution = raw.execution ?? {};
+  requireValue(
+    execution &&
+      typeof execution === 'object' &&
+      !Array.isArray(execution) &&
+      Object.keys(execution).every((key) => ['timeoutMinutes', 'maxRepairRounds'].includes(key)),
+    'Invalid execution settings',
+  );
+  const settings = {};
+  for (const [key, min, max] of [
+    ['timeoutMinutes', 1, 240],
+    ['maxRepairRounds', 1, 10],
+  ]) {
+    settings[key] = execution[key] ?? config[key];
+    requireValue(
+      Number.isInteger(settings[key]) && settings[key] >= min && settings[key] <= max,
+      `${key} must be between ${min} and ${max}`,
+    );
+  }
+  requireValue(
+    raw.smartRouting === undefined || typeof raw.smartRouting === 'boolean',
+    'Smart routing must be a boolean',
+  );
+  return {
+    routing,
+    models: Object.fromEntries(
+      Object.entries(models).map(([stage, model]) => [stage, text(model, 'Model', 200, true)]),
+    ),
+    execution: settings,
+  };
+}
+function applyRepositorySettings(repositories, settings = []) {
+  requireValue(Array.isArray(settings) && settings.length <= 12, 'Invalid repository settings');
+  const seen = new Set();
+  for (const setting of settings) {
+    requireValue(
+      setting &&
+        typeof setting === 'object' &&
+        !Array.isArray(setting) &&
+        Object.keys(setting).every((key) =>
+          ['id', 'cwd', 'checks', 'setup', 'instructions'].includes(key),
+        ),
+      'Invalid task repository settings',
+    );
+    const entry = repositories.find((entry) => entry.repository.id === setting.id);
+    requireValue(
+      entry && !seen.has(setting.id),
+      'Repository settings must match distinct selected repositories',
+    );
+    seen.add(setting.id);
+    if (setting.cwd !== undefined)
+      entry.repository.cwd = text(setting.cwd, 'Working subdirectory', 2000);
+    if (setting.instructions !== undefined)
+      entry.repository.instructions = text(
+        setting.instructions,
+        'Repository instructions',
+        50000,
+        true,
+      );
+    for (const key of ['checks', 'setup'])
+      if (setting[key] !== undefined) {
+        requireValue(
+          Array.isArray(setting[key]) && setting[key].length <= 30,
+          'Too many repository commands',
+        );
+        entry.repository[key] = setting[key].map(command);
+      }
+  }
+}
+export function executionConfig(task, config, stage) {
+  const result = { ...structuredClone(config), ...(task.execution ?? {}) };
+  const harness = task.routing[stage];
+  if (task.models?.[stage] && result.harnesses[harness])
+    result.harnesses[harness].model = task.models[stage];
+  return result;
+}
+
 export function newTask(raw, config) {
   const demo = raw.demo === true;
   const repository = config.repositories.find((r) => r.id === raw.repositoryId);
@@ -282,6 +376,8 @@ export function newTask(raw, config) {
       branch: null,
     };
   });
+  applyRepositorySettings(repositories, raw.repositorySettings);
+  const options = taskOptions(raw, config);
   const dependencies = raw.dependencies ?? [];
   requireValue(
     Array.isArray(dependencies) && dependencies.length <= 132,
@@ -332,8 +428,12 @@ export function newTask(raw, config) {
           setup: [],
           instructions: '',
         }
-      : structuredClone(repository ?? repositories[0].repository),
-    routing: { ...config.routing, ...(raw.routing ?? {}) },
+      : structuredClone(
+          repositories.find((entry) => entry.repository.id === raw.repositoryId)?.repository ??
+            repositories[0].repository,
+        ),
+    ...options,
+    configRevision: 0,
     smartRouting: raw.smartRouting === true,
     status: 'draft',
     stage: 'triage',
@@ -350,4 +450,141 @@ export function newTask(raw, config) {
     updatedAt: new Date().toISOString(),
     error: null,
   };
+}
+
+export function reconfigureTask(task, raw, config) {
+  requireValue(
+    raw && typeof raw === 'object' && !Array.isArray(raw),
+    'Task settings must be an object',
+  );
+  const allowed = [
+    'expectedRevision',
+    'title',
+    'description',
+    'ticket',
+    'repositoryId',
+    'repositoryIds',
+    'dependencies',
+    'repositorySettings',
+    'routing',
+    'models',
+    'execution',
+    'smartRouting',
+  ];
+  requireValue(
+    Object.keys(raw).every((key) => allowed.includes(key)),
+    'Unknown task setting',
+  );
+  requireValue(
+    Number.isInteger(raw.expectedRevision) && raw.expectedRevision === (task.configRevision ?? 0),
+    'Task settings changed. Reopen the editor to use the latest settings.',
+    409,
+  );
+  requireValue(
+    ['draft', 'paused', 'blocked', 'interrupted', 'awaiting_plan', 'awaiting_final'].includes(
+      task.status,
+    ),
+    'Pause the workflow before editing. Finished tasks can be duplicated.',
+    409,
+  );
+  const current = task.repositories?.length > 1 ? task.repositories : [task];
+  const profiles = new Map(config.repositories.map((profile) => [profile.id, profile]));
+  for (const entry of current) if (!task.demo) profiles.set(entry.repository.id, entry.repository);
+  const candidate = newTask(
+    {
+      title: task.title,
+      description: task.description,
+      ticket: task.ticket,
+      repositoryId: task.demo ? undefined : task.repository.id,
+      repositoryIds: task.demo ? [] : current.map((entry) => entry.repository.id),
+      dependencies: task.dependencies ?? [],
+      routing: task.routing,
+      models: task.models ?? {},
+      execution: task.execution ?? {},
+      smartRouting: task.smartRouting,
+      ...raw,
+      demo: task.demo,
+    },
+    { ...config, repositories: [...profiles.values()] },
+  );
+  const proposed = candidate.repositories.length ? candidate.repositories : [candidate];
+  const started =
+    task.status !== 'draft' ||
+    task.attempts.length > 0 ||
+    current.some((entry) => entry.workspace || entry.baseCommit);
+  if (started) {
+    const structural = (entries) =>
+      entries.map((entry) => ({
+        id: entry.repository.id,
+        path: entry.repository.path,
+        cwd: entry.repository.cwd,
+        strategy: entry.repository.strategy,
+        setup: entry.repository.setup,
+      }));
+    requireValue(
+      candidate.repository.id === task.repository.id &&
+        JSON.stringify(structural(current)) === JSON.stringify(structural(proposed)) &&
+        JSON.stringify(candidate.dependencies) === JSON.stringify(task.dependencies ?? []),
+      'Repositories, dependencies, setup, and working directories are locked after starting. Duplicate the task to change them.',
+      409,
+    );
+  }
+  const scopeChanged =
+    task.title !== candidate.title ||
+    task.description !== candidate.description ||
+    current.some(
+      (entry) =>
+        entry.repository.instructions !==
+        proposed.find((item) => item.repository.id === entry.repository.id)?.repository
+          .instructions,
+    );
+  const checksChanged = current.some(
+    (entry) =>
+      JSON.stringify(entry.repository.checks) !==
+      JSON.stringify(
+        proposed.find((item) => item.repository.id === entry.repository.id)?.repository.checks,
+      ),
+  );
+  for (const key of [
+    'title',
+    'description',
+    'ticket',
+    'routing',
+    'models',
+    'execution',
+    'smartRouting',
+  ])
+    task[key] = candidate[key];
+  if (!started) {
+    task.repository = candidate.repository;
+    task.repositories = candidate.repositories;
+    task.dependencies = candidate.dependencies;
+  } else {
+    for (const entry of current)
+      entry.repository = structuredClone(
+        proposed.find((item) => item.repository.id === entry.repository.id).repository,
+      );
+    task.repository = structuredClone(
+      proposed.find((item) => item.repository.id === task.repository.id).repository,
+    );
+    if (scopeChanged || checksChanged) {
+      task.status = 'paused';
+      task.stage = scopeChanged || !task.chosenApproach ? 'investigate' : 'verify';
+      task.repositoryCursor = 0;
+      if (scopeChanged) task.chosenApproach = null;
+      task.reviewedFingerprint = null;
+      task.verifiedFingerprint = null;
+      task.error = null;
+      task.round = 0;
+      task.messages.push({
+        at: new Date().toISOString(),
+        role: 'user',
+        text: scopeChanged
+          ? 'Task requirements or repository guidance changed. Reinvestigate the current requirements and existing diff, then obtain a new approach approval before implementation.'
+          : 'Verification commands changed. Rerun all repository verification and independent review before final acceptance.',
+      });
+    }
+  }
+  task.configRevision = (task.configRevision ?? 0) + 1;
+  return { task, reset: started && (scopeChanged || checksChanged) };
 }

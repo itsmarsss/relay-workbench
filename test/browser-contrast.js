@@ -16,7 +16,7 @@ export async function assertReadableText(page) {
         .map((value) => (value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4))
         .reduce((sum, value, i) => sum + value * [0.2126, 0.7152, 0.0722][i], 0);
     const failures = [];
-    for (const element of document.querySelectorAll('main *, .sidebar *, .topbar *')) {
+    for (const element of document.querySelectorAll('main *, dialog *, .sidebar *, .topbar *')) {
       if (
         ![...element.childNodes].some((node) => node.nodeType === 3 && node.textContent.trim()) ||
         !element.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true })

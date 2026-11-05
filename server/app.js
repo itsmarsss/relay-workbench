@@ -193,7 +193,13 @@ export function createApp({ directory, publicDirectory, engineOptions = {} }) {
         const [, id, operation] = match;
         const task = store.get(id);
         requireValue(task, 'Task not found', 404);
-        if (!operation && req.method === 'GET') return json(res, 200, task);
+        if (!operation && req.method === 'GET')
+          return json(res, 200, {
+            ...task,
+            executionActive: engine.running.has(id) || engine.manualRuns.has(id),
+          });
+        if (!operation && req.method === 'PATCH')
+          return json(res, 200, engine.update(id, await body(req)));
         if (operation === 'events' && req.method === 'GET') {
           const after = Number(url.searchParams.get('after') || 0);
           requireValue(Number.isSafeInteger(after) && after >= 0, 'Invalid event cursor');

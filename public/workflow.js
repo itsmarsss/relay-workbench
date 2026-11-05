@@ -31,12 +31,14 @@ export function nextStep(task) {
   if (['completed', 'cancelled'].includes(task.status)) return 'View result';
   return `${task.routing?.[task.stage] === undefined || task.stage === 'verify' ? 'Checks' : task.routing[task.stage]} · ${stageNames[task.stage] ?? task.stage}`;
 }
-export function workflowBoard(tasks) {
+export function workflowBoard(tasks, { showEmpty = false } = {}) {
   const visibleColumns = columns.filter(
-    ([id]) => id !== 'cancelled' || tasks.some((t) => workflowColumn(t) === id),
+    ([id]) => (showEmpty && id !== 'cancelled') || tasks.some((t) => workflowColumn(t) === id),
   );
   return `<nav class="board-stage-nav" aria-label="Jump to workflow stage">${visibleColumns.map(([id, title]) => `<button data-action="board-lane" data-lane="${id}">${title} <span>${tasks.filter((t) => workflowColumn(t) === id).length}</span></button>`).join('')}<small>Scroll across stages →</small></nav><div class="workflow-board" aria-label="Task workflow board">${columns
-    .filter(([id]) => id !== 'cancelled' || tasks.some((t) => workflowColumn(t) === id))
+    .filter(
+      ([id]) => (showEmpty && id !== 'cancelled') || tasks.some((t) => workflowColumn(t) === id),
+    )
     .map(([id, title, hint]) => {
       const lane = tasks.filter((t) => workflowColumn(t) === id);
       return `<section class="board-column column-${id}" data-lane="${id}" data-count="${lane.length}" aria-label="${title}"><header><h2>${title} <span>${lane.length}</span></h2><p>${hint}</p></header><div class="board-cards">${lane.map((t) => `<button class="board-card" data-action="open-task" data-id="${e(t.id)}"><div class="board-card-meta"><span>${e(t.id.slice(0, 8))}</span>${t.demo ? '<em class="demo-label">DEMO</em>' : ''}</div><strong>${e(t.title)}</strong><small>${e((t.repositories?.length ? t.repositories : [t]).map((r) => r.repository.name).join(' + '))}</small>${badge(t.status)}${t.error || t.latestSummary ? `<p>${e(t.error || t.latestSummary)}</p>` : ''}<footer><span>${e(nextStep(t))}</span><span>${harnessBadge(t.stage === 'verify' ? 'checks' : t.routing[t.stage])}</span></footer><time>${ago(t.updatedAt)}</time></button>`).join('') || '<div class="board-empty">No tasks</div>'}</div></section>`;

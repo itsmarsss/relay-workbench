@@ -225,19 +225,29 @@ test('event decoders extract final handoffs and failures', () => {
   );
   assert.throws(() => parseHandoff('no JSON'), /invalid structured/);
 });
-test('live pipeline uses one worktree and catches edits after review', async (t) => {
+test('live pipeline applies task settings and catches edits after review', async (t) => {
   const f = await fixture(t);
   const repo = await makeRepo(f.directory);
   f.store.setConfig({ ...DEFAULT_CONFIG, repositories: [profile(repo)] });
   const workspaces = new Set();
   const engine = f.makeEngine({
-    harness: async ({ task, stage }) => {
+    harness: async ({ task, stage, harness, config }) => {
+      assert.equal(config.timeoutMinutes, 17);
+      assert.equal(config.maxRepairRounds, 4);
+      assert.equal(config.harnesses[harness].model, `${stage}-model`);
       workspaces.add(task.workspace);
       if (stage === 'implement') await writeFile(join(task.workspace, 'value.txt'), 'after\n');
       return { ...demoHandoff(task, stage), risks: [] };
     },
   });
-  const task = engine.create({ title: 'Update value', repositoryId: 'repo' });
+  const task = engine.create({
+    title: 'Update value',
+    repositoryId: 'repo',
+    models: Object.fromEntries(
+      Object.keys(DEFAULT_CONFIG.routing).map((stage) => [stage, `${stage}-model`]),
+    ),
+    execution: { timeoutMinutes: 17, maxRepairRounds: 4 },
+  });
   await engine.action(task.id, 'start');
   await waitFor(f.store, task.id, (t) => t.status === 'awaiting_plan');
   await engine.action(task.id, 'approve-plan', { optionId: 'shared-boundary' });
