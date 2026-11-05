@@ -6,6 +6,7 @@ import { spawnSync } from 'node:child_process';
 import { createApp } from '../server/app.js';
 import { git } from '../server/workspace.js';
 import { demoHandoff } from '../server/harness.js';
+import { assertReadableText } from './browser-contrast.js';
 
 const { chromium } = await import(process.env.RELAY_PLAYWRIGHT_MODULE || 'playwright');
 const screenshots = process.env.RELAY_SCREENSHOTS || 'docs/screenshots';
@@ -35,6 +36,7 @@ try {
   page.on('pageerror', (error) => errors.push(error.message));
   await page.goto(origin);
   await page.getByRole('heading', { name: /Let’s make progress/ }).waitFor();
+  await assertReadableText(page);
   await page.screenshot({ path: join(screenshots, 'overview.png'), fullPage: true });
   await page.getByRole('button', { name: 'Try a demo', exact: true }).click();
   await page.getByRole('heading', { name: 'Choose the way forward.' }).waitFor();
@@ -138,11 +140,29 @@ try {
   await page.locator('#new-repository').selectOption({ label: 'Browser fixture' });
   await page.locator('#new-title').fill('<img src=x onerror=alert(1)> Literal task title');
   await page.locator('#new-description').fill('A browser test task; do not launch a live harness.');
+  await page.locator('#new-ticket').fill('https://github.com/example/service/issues/42');
   await page.getByRole('button', { name: 'Create task', exact: true }).click();
   await page
     .getByRole('heading', { name: '<img src=x onerror=alert(1)> Literal task title', exact: true })
     .waitFor();
   assert.equal(await page.locator('.task-title-row img').count(), 0);
+  await page
+    .getByRole('region', { name: 'Description and requirements', exact: true })
+    .getByText('A browser test task; do not launch a live harness.', { exact: true })
+    .waitFor();
+  const issueLink = page.getByRole('link', { name: 'GitHub · example/service#42' });
+  assert.equal(
+    await issueLink.getAttribute('href'),
+    'https://github.com/example/service/issues/42',
+  );
+  assert.equal(await issueLink.getAttribute('target'), '_blank');
+  await page
+    .getByRole('region', { name: 'Live terminals', exact: true })
+    .getByText('No workspace yet.', { exact: false })
+    .waitFor();
+  await page.getByRole('tab', { name: 'Agent terminal', exact: true }).waitFor();
+  await assertReadableText(page);
+  await page.screenshot({ path: join(screenshots, 'task-description.png'), fullPage: true });
 
   await page.getByRole('button', { name: 'Harnesses', exact: true }).click();
   await page.getByRole('heading', { name: 'Specialist routing' }).waitFor();
@@ -232,11 +252,49 @@ try {
       .click();
     await page.getByRole('heading', { name: 'You have control', exact: true }).waitFor();
     await page.getByRole('button', { name: 'Copy attach command', exact: true }).waitFor();
+    await page.getByRole('tab', { name: 'Your shell Live', exact: true }).waitFor();
+    await page
+      .getByLabel('Terminal output preview', { exact: true })
+      .getByText('Detach:', { exact: false })
+      .waitFor();
+    const manualTaskId = page.url().split('/').at(-1);
+    const manualTask = localApp.store.get(manualTaskId);
+    const marker = 'browser-preview-verified';
+    spawnSync('tmux', [
+      '-S',
+      manualTask.manual.socket,
+      'send-keys',
+      '-t',
+      manualTask.manual.session,
+      '-l',
+      `echo ${marker}`,
+    ]);
+    spawnSync('tmux', [
+      '-S',
+      manualTask.manual.socket,
+      'send-keys',
+      '-t',
+      manualTask.manual.session,
+      'Enter',
+    ]);
+    await page
+      .getByLabel('Terminal output preview', { exact: true })
+      .getByText(marker, { exact: false })
+      .waitFor();
+    await page.getByRole('button', { name: 'Follow latest', exact: true }).click();
+    assert.equal(
+      await page
+        .getByRole('button', { name: 'Follow latest', exact: true })
+        .getAttribute('aria-pressed'),
+      'false',
+    );
+
     await page.setViewportSize({ width: 390, height: 844 });
     assert.ok(
       await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
       'Manual terminal must fit on mobile',
     );
+    await assertReadableText(page);
     await page.screenshot({ path: join(screenshots, 'manual-terminal.png'), fullPage: true });
     await page.setViewportSize({ width: 1440, height: 1100 });
     await page.getByRole('button', { name: 'Return to automation', exact: true }).click();

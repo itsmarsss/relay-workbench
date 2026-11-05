@@ -1,4 +1,6 @@
 import { workflowBoard } from './workflow.js';
+import { issueLink, taskDetails } from './task-details.js';
+import { terminalView, terminalSelection } from './terminals.js';
 import {
   e,
   icon,
@@ -29,6 +31,9 @@ const state = {
   diff: null,
   modal: null,
   busy: false,
+  terminalId: '',
+  terminalPreview: null,
+  terminalFollow: true,
 };
 const app = document.querySelector('#app');
 let refreshTimer, stream, modalReturnFocus;
@@ -63,6 +68,8 @@ function renderMain() {
   const main = document.querySelector('#main');
   if (!main) return;
   const scroll = main.scrollTop;
+  const terminalScroll = main.querySelector('.terminal-preview')?.scrollTop;
+  const descriptionScroll = main.querySelector('.task-description')?.scrollTop;
   const boardScroll = main.querySelector('.workflow-board')?.scrollLeft;
   const focused = document.activeElement;
   const focusId = main.contains(focused) ? focused.id : null;
@@ -101,6 +108,13 @@ function renderMain() {
   if (selectedApproach)
     for (const input of main.querySelectorAll('input[name="optionId"]'))
       input.checked = input.value === selectedApproach;
+  const preview = main.querySelector('.terminal-preview');
+  if (preview)
+    preview.scrollTop = state.terminalFollow ? preview.scrollHeight : (terminalScroll ?? 0);
+  const description = main.querySelector('.task-description');
+  if (description && descriptionScroll !== undefined) description.scrollTop = descriptionScroll;
+  if (focusId && !inputs.some((i) => i.id === focusId))
+    document.getElementById(focusId)?.focus({ preventScroll: true });
   main.scrollTop = scroll;
   const board = main.querySelector('.workflow-board');
   if (board) {
@@ -189,7 +203,7 @@ function taskView() {
   if (!t) return '<div class="boot">Loading task…</div>';
   const live = ['running', 'queued'].includes(t.status);
   const last = t.attempts.findLast((a) => a.handoff)?.handoff;
-  return `<div class="task-heading"><button class="back-link" data-action="navigate" data-view="tasks">← All tasks</button><div class="task-title-row"><h1>${e(t.title)}</h1>${t.demo ? '<span class="demo-label large">SIMULATED DEMO</span>' : ''}</div><div class="task-subtitle">${badge(t.status)}<span>${e((t.repositories?.length ? t.repositories.map((r) => r.repository.name) : [t.repository.name]).join(' + '))}</span><span>·</span><span>${t.id.slice(0, 8)}</span><span>·</span><span>Created ${ago(t.createdAt).toLowerCase()}</span></div><div class="task-controls">${t.status === 'draft' ? button('task-action', 'Start workflow', 'primary', 'bolt', 'data-operation="start"') : ''}${['blocked', 'interrupted', 'paused'].includes(t.status) ? button('task-action', 'Resume workflow', 'primary', 'arrow', 'data-operation="resume"') : ''}${t.status === 'manual' ? button('task-action', 'Return to automation', 'primary', 'arrow', 'data-operation="return-control"') : ''}${live ? button('task-action', 'Pause', 'secondary small', 'pause', 'data-operation="pause"') : ''}${!['completed', 'cancelled'].includes(t.status) ? button('confirm-cancel', 'Cancel', 'text small') : ''}<a class="btn text small" href="/api/tasks/${t.id}/export" download>${icon('download')}Export</a></div></div>${t.demo ? '<div class="demo-banner">' + icon('spark') + 'Demo mode. Harness responses and checks are simulated; no repository files are changed.</div>' : ''}<div class="task-layout"><div class="task-center">${t.error ? `<div class="error-panel">${icon('stop')}<div><strong>This workflow needs attention</strong><p>${e(t.error)}</p><small>Add context below, inspect the workspace, then resume when ready.</small></div></div>` : ''}${terminalView(t)}${t.status === 'awaiting_plan' ? planGate(t) : ''}${t.status === 'awaiting_final' ? `<div class="approval-panel final-panel"><div class="approval-icon">${icon('check')}</div><div><span class="eyebrow">YOUR FINAL LOOK</span><h2>The specialists are done. Over to you.</h2><p>Verification passed and independent review is complete. Inspect the handoffs and diff before accepting.</p><div class="approval-actions">${button('task-action', 'Accept result', 'primary', 'check', 'data-operation="accept"')}${button('request-changes', 'Request changes', 'secondary')}</div></div></div>` : ''}<div class="detail-tabs" role="tablist">${[
+  return `<div class="task-heading"><button class="back-link" data-action="navigate" data-view="tasks">← All tasks</button><div class="task-title-row"><h1>${e(t.title)}</h1>${t.demo ? '<span class="demo-label large">SIMULATED DEMO</span>' : ''}</div><div class="task-subtitle">${badge(t.status)}<span>${e((t.repositories?.length ? t.repositories.map((r) => r.repository.name) : [t.repository.name]).join(' + '))}</span><span>·</span><span>${t.id.slice(0, 8)}</span>${t.ticket ? `<span>·</span>${issueLink(t.ticket)}` : ''}<span>·</span><span>Created ${ago(t.createdAt).toLowerCase()}</span></div><div class="task-controls">${t.status === 'draft' ? button('task-action', 'Start workflow', 'primary', 'bolt', 'data-operation="start"') : ''}${['blocked', 'interrupted', 'paused'].includes(t.status) ? button('task-action', 'Resume workflow', 'primary', 'arrow', 'data-operation="resume"') : ''}${t.status === 'manual' ? button('task-action', 'Return to automation', 'primary', 'arrow', 'data-operation="return-control"') : ''}${live ? button('task-action', 'Pause', 'secondary small', 'pause', 'data-operation="pause"') : ''}${!['completed', 'cancelled'].includes(t.status) ? button('confirm-cancel', 'Cancel', 'text small') : ''}<a class="btn text small" href="/api/tasks/${t.id}/export" download>${icon('download')}Export</a></div></div>${t.demo ? '<div class="demo-banner">' + icon('spark') + 'Demo mode. Harness responses and checks are simulated; no repository files are changed.</div>' : ''}<div class="task-layout"><div class="task-center">${t.error ? `<div class="error-panel">${icon('stop')}<div><strong>This workflow needs attention</strong><p>${e(t.error)}</p><small>Add context below, inspect the workspace, then resume when ready.</small></div></div>` : ''}${terminalView(t, state)}${taskDetails(t)}${t.status === 'awaiting_plan' ? planGate(t) : ''}${t.status === 'awaiting_final' ? `<div class="approval-panel final-panel"><div class="approval-icon">${icon('check')}</div><div><span class="eyebrow">YOUR FINAL LOOK</span><h2>The specialists are done. Over to you.</h2><p>Verification passed and independent review is complete. Inspect the handoffs and diff before accepting.</p><div class="approval-actions">${button('task-action', 'Accept result', 'primary', 'check', 'data-operation="accept"')}${button('request-changes', 'Request changes', 'secondary')}</div></div></div>` : ''}<div class="detail-tabs" role="tablist">${[
     ['thread', 'Activity thread'],
     ['handoffs', 'Handoffs'],
     ['diff', 'Code changes'],
@@ -228,33 +242,7 @@ function taskView() {
     )
     .join(
       '',
-    )}${t.chosenApproach ? `<section class="context-card approved-card"><div class="context-title">APPROVED APPROACH ${icon('check')}</div><strong>${e(t.chosenApproach.title)}</strong><p>${e(t.chosenApproach.description)}</p></section>` : ''}${t.description ? `<section class="context-card"><div class="context-title">ORIGINAL TASK ${icon('book')}</div><details><summary>View requirements</summary><div class="prose compact">${prose(t.description)}</div></details>${t.ticket ? `<div class="ticket-ref mono wrap">${e(t.ticket)}</div>` : ''}</section>` : ''}<div class="context-foot">${icon('eye')}You approve the approach.<br>You accept the final result.</div></aside></div>`;
-}
-function terminalView(t) {
-  if (t.demo || !t.workspace || ['completed', 'cancelled'].includes(t.status)) return '';
-  const active = t.attempts.filter((a) => a.status === 'running' && a.terminal);
-  const command = (terminal) =>
-    `<div class="terminal-command"><code>${e(terminal.attachCommand)}</code>${button('copy-terminal', 'Copy attach command', 'secondary small', 'code', `data-command="${e(terminal.attachCommand)}"`)}</div>`;
-  return `<section class="terminal-panel"><div class="context-title">LIVE TERMINALS ${icon('code')}</div>${
-    t.status === 'manual'
-      ? `<h2>You have control</h2><p>Automation is paused. ${t.manual?.active ? 'Attach to the shell below and use your preferred tools.' : 'The terminal is starting or has closed. Return control to continue.'}</p>${t.manual?.active ? command(t.manual) : ''}<p class="muted">Returning control closes this shell and reruns ${t.chosenApproach ? 'verification and independent review' : 'investigation and approach approval'}.</p>`
-      : `${active.length ? active.map((a) => `<strong>${e(a.harness)} · ${e(stageNames[a.stage])}</strong>${command(a.terminal)}`).join('') : '<p>The next agent run will appear here.</p>'}<p class="muted">Attach to watch the agent’s output. Use Take over to stop automation before making edits. Ctrl+B, then D detaches.</p><div class="inline-actions">${(t
-          .repositories?.length > 1
-          ? t.repositories
-          : [t]
-        )
-          .filter((r) => r.workspace && r.setupCompleted)
-          .map((r) =>
-            button(
-              'takeover',
-              `Take over · ${e(r.repository.name)}`,
-              'secondary small',
-              'code',
-              `data-repository-id="${e(r.repository.id)}"`,
-            ),
-          )
-          .join('')}</div>`
-  }</section>`;
+    )}${t.chosenApproach ? `<section class="context-card approved-card"><div class="context-title">APPROVED APPROACH ${icon('check')}</div><strong>${e(t.chosenApproach.title)}</strong><p>${e(t.chosenApproach.description)}</p></section>` : ''}<div class="context-foot">${icon('eye')}You approve the approach.<br>You accept the final result.</div></aside></div>`;
 }
 function planGate(t) {
   const plan = t.attempts.findLast((a) => a.stage === 'plan' && a.handoff)?.handoff;
@@ -520,9 +508,26 @@ async function refresh() {
     if (state.selected === selected) {
       state.task = task;
       state.events = events;
+      await refreshTerminal(task);
     }
   }
   renderMain();
+}
+async function refreshTerminal(task) {
+  const selected = terminalSelection(task, state.terminalId);
+  const id = selected?.id;
+  state.terminalPreview = null;
+  if (!id || !selected.live) return;
+  try {
+    const preview = await api(
+      `/tasks/${task.id}/terminal-preview?attemptId=${encodeURIComponent(id)}`,
+    );
+    if (state.selected === task.id && terminalSelection(state.task, state.terminalId)?.id === id)
+      state.terminalPreview = { ...preview, id };
+  } catch (error) {
+    if (state.selected === task.id)
+      state.terminalPreview = { id, available: false, message: error.message };
+  }
 }
 async function openTask(id) {
   state.selected = id;
@@ -531,6 +536,9 @@ async function openTask(id) {
   state.events = [];
   state.diff = null;
   state.tab = 'thread';
+  state.terminalId = '';
+  state.terminalPreview = null;
+  state.terminalFollow = true;
   shell();
   await refresh();
   history.replaceState(null, '', `#task/${id}`);
@@ -603,6 +611,17 @@ document.addEventListener('click', async (event) => {
       state.filter = element.dataset.filter;
       renderMain();
       focusBoard();
+      return;
+    }
+    if (action === 'terminal-tab') {
+      state.terminalId = element.dataset.terminalId;
+      await refreshTerminal(state.task);
+      renderMain();
+      return;
+    }
+    if (action === 'terminal-follow') {
+      state.terminalFollow = !state.terminalFollow;
+      renderMain();
       return;
     }
     if (action === 'tab') {
