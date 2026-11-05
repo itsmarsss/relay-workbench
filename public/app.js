@@ -209,7 +209,7 @@ function taskView() {
     )
     .join(
       '',
-    )}</div><div class="detail-content">${state.tab === 'overview' ? taskDetails(t) || empty('book', 'No description yet', 'Configure this task to add requirements.') : state.tab === 'terminals' ? terminalView(t, state) : state.tab === 'thread' ? threadView(t) : state.tab === 'handoffs' ? handoffsView(t) : state.tab === 'diff' ? diffView(t) : transcriptView(t)}</div>${!['completed', 'cancelled'].includes(t.status) ? `<form id="message-form" class="message-box">${markdownEditor({ id: 'task-message', name: 'message', label: 'Add direction or context', rows: 3, max: 20000 })}<div><small>Delivered at the next stage handoff.</small><button class="btn secondary small" type="submit">Add context ${icon('arrow')}</button></div></form>` : ''}</div><aside class="task-context"><section class="context-card"><div class="context-title">WORKFLOW <span class="live-label ${live ? 'is-live' : ''}">${live ? '● LIVE' : '6 STAGES'}</span></div><ol class="stage-list">${Object.keys(
+    )}</div><div class="detail-content">${state.tab === 'overview' ? taskDetails(t) || empty('book', 'No description yet', 'Configure this task to add requirements.') : state.tab === 'terminals' ? terminalView(t, state) : state.tab === 'thread' ? threadView(t) : state.tab === 'handoffs' ? handoffsView(t) : state.tab === 'diff' ? diffView(t) : transcriptView(t)}</div>${!['completed', 'cancelled'].includes(t.status) ? `<form id="message-form" class="message-box">${markdownEditor({ id: 'task-message', name: 'message', label: 'Add direction or context', rows: 3, max: 20000 })}<div><small>${t.canSteer ? 'Steer sends direction to the active session; Claude interrupts and resumes.' : 'Context stays pending until an agent receives it.'} ${t.messages.filter((m) => m.delivery === 'pending').length} pending.</small>${t.canSteer ? '<label><input type="checkbox" name="steer" checked> Steer active agent</label>' : ''}<button class="btn secondary small" type="submit">Send direction ${icon('arrow')}</button></div></form>` : ''}</div><aside class="task-context"><section class="context-card"><div class="context-title">WORKFLOW <span class="live-label ${live ? 'is-live' : ''}">${live ? '● LIVE' : '6 STAGES'}</span></div><ol class="stage-list">${Object.keys(
     stageNames,
   )
     .map((stage, i) => {
@@ -624,6 +624,15 @@ document.addEventListener('click', async (event) => {
       toast('Attach command copied. Paste it in your terminal.');
       return;
     }
+    if (action === 'resume-session') {
+      await api(`/tasks/${state.selected}/takeover`, 'POST', {
+        repositoryId: element.dataset.repositoryId,
+        sessionAttemptId: element.dataset.attemptId,
+      });
+      state.tab = 'terminals';
+      await refresh();
+      return;
+    }
     if (action === 'takeover') {
       showModal(
         'Take control of this workspace',
@@ -835,12 +844,16 @@ document.addEventListener('submit', async (event) => {
       await refresh();
     }
     if (form.id === 'message-form') {
-      await api(`/tasks/${state.selected}/message`, 'POST', {
+      await api(`/tasks/${state.selected}/${data.has('steer') ? 'steer' : 'message'}`, 'POST', {
         message: document.querySelector('#task-message').value,
       });
       document.querySelector('#task-message').value = '';
       await refresh();
-      toast('Context saved for the next handoff.');
+      toast(
+        data.has('steer')
+          ? 'Direction sent to the native session.'
+          : 'Context saved; pending until the next agent.',
+      );
     }
     if (form.id === 'repository-form') {
       await api('/repositories/inspect', 'POST', { path: values.path, cwd: values.cwd });

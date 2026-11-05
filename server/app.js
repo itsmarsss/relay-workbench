@@ -222,6 +222,11 @@ export function createApp({ directory, publicDirectory, engineOptions = {} }) {
           return json(res, 200, {
             ...task,
             executionActive: engine.running.has(id) || engine.manualRuns.has(id),
+            canSteer:
+              engine.controls.has(id) ||
+              (task.status === 'running' &&
+                task.attempts.findLast((a) => a.status === 'running')?.harness === 'claude' &&
+                !!task.attempts.findLast((a) => a.status === 'running')?.sessionId),
           });
         if (!operation && req.method === 'PATCH')
           return json(res, 200, engine.update(id, await body(req)));
@@ -423,6 +428,7 @@ export function createApp({ directory, publicDirectory, engineOptions = {} }) {
             'pause',
             'cancel',
             'message',
+            'steer',
             'takeover',
             'return-control',
           ].includes(operation)
