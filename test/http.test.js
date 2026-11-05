@@ -468,3 +468,62 @@ test('task PATCH persists configuration with revision and writer guards', async 
   assert.equal(f.app.store.get(task.id).chosenApproach, null);
   assert.ok(f.app.store.events(task.id).some((e) => e.type === 'configuration'));
 });
+
+test('image attachments validate bytes, protect uploads, and serve durable private files', async (t) => {
+  const f = await fixture(t);
+  const { token } = await fetch(f.origin + '/api/bootstrap').then((r) => r.json());
+  const png = Buffer.from(
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jNHkAAAAASUVORK5CYII=',
+    'base64',
+  );
+  const upload = (bytes, type = 'image/png', headers = {}) =>
+    fetch(f.origin + '/api/attachments', {
+      method: 'POST',
+      headers: { 'X-Relay-Token': token, 'Content-Type': type, ...headers },
+      body: bytes,
+    });
+  assert.equal((await upload(png, 'image/png', { 'X-Relay-Token': '' })).status, 403);
+  assert.equal((await upload(png, 'image/png', { Origin: 'https://example.test' })).status, 403);
+  assert.equal(
+    (await upload(Buffer.from('<svg onload="alert(1)"></svg>'), 'image/svg+xml')).status,
+    415,
+  );
+  assert.equal((await upload(Buffer.from('<script>alert(1)</script>'))).status, 400);
+  assert.equal((await upload(png, 'image/jpeg')).status, 400);
+  assert.equal((await upload(Buffer.alloc(10 * 1024 * 1024 + 1))).status, 413);
+  const giant = Buffer.from(png);
+  giant.writeUInt32BE(16001, 16);
+  assert.equal((await upload(giant)).status, 400);
+  const saved = await upload(png);
+  assert.equal(saved.status, 201);
+  const attachment = await saved.json();
+  assert.equal(attachment.width, 1);
+  assert.equal(attachment.height, 1);
+  assert.match(attachment.url, /^\/api\/attachments\/[a-f0-9-]{36}\.png$/);
+  const result = await fetch(f.origin + attachment.url);
+  assert.equal(result.headers.get('content-type'), 'image/png');
+  assert.equal(result.headers.get('x-content-type-options'), 'nosniff');
+  assert.equal(result.headers.get('cross-origin-resource-policy'), 'same-origin');
+  assert.match(result.headers.get('cache-control'), /private.*immutable/);
+  assert.deepEqual(Buffer.from(await result.arrayBuffer()), png);
+  const head = await fetch(f.origin + attachment.url, { method: 'HEAD' });
+  assert.equal(head.status, 200);
+  assert.equal(head.headers.get('content-length'), String(png.length));
+  assert.equal((await head.arrayBuffer()).byteLength, 0);
+  const { readImage } = await import('../server/attachments.js');
+  assert.deepEqual((await readImage(attachment.url, join(f.directory, 'state'))).bytes, png);
+  const { stat, symlink } = await import('node:fs/promises');
+  assert.equal(
+    (await stat(join(f.directory, 'state', attachment.url.replace('/api/', '')))).mode & 0o777,
+    0o600,
+  );
+  const linked = '/api/attachments/00000000-0000-0000-0000-000000000000.png';
+  await writeFile(join(f.directory, 'outside.png'), png);
+  await symlink(
+    join(f.directory, 'outside.png'),
+    join(f.directory, 'state', linked.replace('/api/', '')),
+  );
+  assert.equal((await f.request(linked)).status, 404);
+  assert.equal((await f.request('/api/attachments/not-a-file.png')).status, 404);
+  assert.equal((await f.request('/api/attachments/%2e%2e%2fconfig.json')).status, 404);
+});
