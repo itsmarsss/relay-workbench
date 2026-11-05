@@ -1,3 +1,4 @@
+import { routingOutcomes } from './outcomes.js';
 import { snapshotDiff } from './review-comments.js';
 import { inbox, acknowledge } from './inbox.js';
 import { uploadImage, readImage } from './attachments.js';
@@ -188,6 +189,12 @@ export function createApp({ directory, publicDirectory, engineOptions = {} }) {
           ticket: typeof issue.url === 'string' ? issue.url : ticket,
         });
       }
+      if (path === '/api/outcomes' && req.method === 'GET')
+        return json(
+          res,
+          200,
+          routingOutcomes(store.all(), store.config, url.searchParams.get('repositoryId') || ''),
+        );
       if (path === '/api/tasks' && req.method === 'GET')
         return json(res, 200, store.all().map(summary));
       if (path === '/api/tasks' && req.method === 'POST')
