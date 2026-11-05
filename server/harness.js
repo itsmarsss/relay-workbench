@@ -197,7 +197,8 @@ export async function executeHarness({
   await writeFile(join(artifactDirectory, 'prompt.txt'), prompt, { mode: 0o600 });
   const invocation = buildInvocation(harness, config.harnesses[harness], schemaPath, stage);
   let final, harnessError;
-  if (!(await executableExists('tmux')))
+  const useTerminal = await executableExists('tmux');
+  if (!useTerminal)
     onEvent({
       type: 'activity',
       summary: 'tmux is unavailable. Agent output remains available in the activity thread.',
@@ -205,7 +206,7 @@ export async function executeHarness({
   const result = await runProcess(invocation.command, invocation.args, {
     cwd: task.workspace,
     input: prompt,
-    terminal: (await executableExists('tmux'))
+    terminal: useTerminal
       ? { name: `${task.id.slice(0, 8)}-${attemptId.slice(0, 8)}-${harness}`, harness }
       : null,
     onTerminal,

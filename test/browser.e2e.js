@@ -110,7 +110,17 @@ try {
   await page.getByRole('textbox', { name: 'Search tasks' }).fill('does-not-exist');
   await page.getByRole('heading', { name: 'No tasks here yet' }).waitFor();
   await page.getByRole('textbox', { name: 'Search tasks' }).fill('Unify');
+  await page.locator('.board-card').first().waitFor();
+  await page
+    .getByRole('region', { name: 'Done', exact: true })
+    .locator('.board-card')
+    .first()
+    .waitFor();
+  await page.getByRole('button', { name: 'Table', exact: true }).click();
   await page.locator('.task-row').first().waitFor();
+  await page.getByRole('button', { name: 'Board', exact: true }).click();
+  await page.locator('.workflow-board').waitFor();
+  await page.screenshot({ path: join(screenshots, 'workflow-board.png'), fullPage: true });
 
   await page.getByRole('button', { name: 'Repositories', exact: true }).click();
   await page.getByRole('button', { name: 'Add repository', exact: true }).first().click();
@@ -214,6 +224,22 @@ try {
     await page.locator('#new-title').fill('Upgrade service and client');
     await page.getByRole('button', { name: 'Create task', exact: false }).click();
     await page.getByRole('button', { name: 'Start workflow' }).click();
+    await page.getByRole('heading', { name: 'Choose the way forward.' }).waitFor();
+    await page.getByRole('button', { name: 'Take over · service', exact: true }).click();
+    await page
+      .getByRole('dialog')
+      .getByRole('button', { name: 'Take control', exact: true })
+      .click();
+    await page.getByRole('heading', { name: 'You have control', exact: true }).waitFor();
+    await page.getByRole('button', { name: 'Copy attach command', exact: true }).waitFor();
+    await page.setViewportSize({ width: 390, height: 844 });
+    assert.ok(
+      await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
+      'Manual terminal must fit on mobile',
+    );
+    await page.screenshot({ path: join(screenshots, 'manual-terminal.png'), fullPage: true });
+    await page.setViewportSize({ width: 1440, height: 1100 });
+    await page.getByRole('button', { name: 'Return to automation', exact: true }).click();
     await page.getByRole('heading', { name: 'Choose the way forward.' }).waitFor();
     await page.getByRole('button', { name: 'Approve & implement' }).click();
     await page.getByRole('heading', { name: 'The specialists are done. Over to you.' }).waitFor();

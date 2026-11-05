@@ -66,6 +66,7 @@ export class Engine {
     });
   }
   async action(id, action, data = {}) {
+    requireValue(!this.stopping, 'Relay is shutting down', 409);
     requireValue(!this.actionLocks.has(id), 'Another action is in progress', 409);
     this.actionLocks.add(id);
     try {
@@ -114,6 +115,7 @@ export class Engine {
         });
         this.running.get(id)?.abort();
         while (this.running.has(id)) await delay(25);
+        requireValue(!this.stopping, 'Relay is shutting down', 409);
         const controller = new AbortController();
         const run = { controller, done: null };
         this.manualRuns.set(id, run);

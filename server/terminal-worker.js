@@ -78,6 +78,12 @@ function shutdown(code = 1) {
     process.exit(code);
   }, 1500);
 }
+function notify(message) {
+  if (!process.connected) return shutdown();
+  process.send(message, (error) => {
+    if (error) shutdown();
+  });
+}
 process.on('disconnect', () => shutdown());
 for (const signal of ['SIGTERM', 'SIGINT']) process.on(signal, () => shutdown());
 server = spawn('tmux', ['-D', '-S', spec.socket, '-f', '/dev/null'], {
@@ -124,7 +130,7 @@ polling = setInterval(() => {
       return;
     }
     started = true;
-    process.send?.({ type: 'terminal-ready' });
+    notify({ type: 'terminal-ready' });
   }
   try {
     flush();
@@ -143,7 +149,7 @@ polling = setInterval(() => {
     const result = JSON.parse(readFileSync(spec.result, 'utf8'));
     flush();
     // Pass the actual command outcome to runProcess, independently of tmux.
-    process.send?.({ type: 'terminal-result', result });
+    notify({ type: 'terminal-result', result });
     shutdown(0);
   } catch (error) {
     if (error.code !== 'ENOENT') {
