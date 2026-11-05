@@ -1,3 +1,4 @@
+import { installImageUploads, openImageViewer } from './image-uploads.js';
 import { tasksPage } from './tasks.js';
 import { taskForm, syncTaskForm, readTaskForm } from './task-editor.js';
 import { markdownEditor, handleMarkdownAction } from './markdown.js';
@@ -72,7 +73,7 @@ function shell() {
 }
 function renderMain() {
   const main = document.querySelector('#main');
-  if (!main) return;
+  if (!main || main.querySelector('[data-uploading]')) return;
   const editorModes = [...main.querySelectorAll('[data-editor]')].map((el) => ({
     id: el.dataset.editor,
     preview: el.querySelector('[data-mode="preview"]')?.getAttribute('aria-selected') === 'true',
@@ -581,8 +582,14 @@ document.addEventListener('click', async (event) => {
       renderMain();
       return;
     }
-    if (action === 'markdown-tab' || action === 'markdown-format') {
+    if (['markdown-tab', 'markdown-format', 'markdown-image'].includes(action)) {
       handleMarkdownAction(element);
+      return;
+    }
+    if (action === 'view-image') {
+      const image = element.matches('img') ? element : element.querySelector('img');
+      if (!image) return;
+      openImageViewer(image);
       return;
     }
     if (action === 'copy-terminal') {
@@ -746,6 +753,10 @@ document.addEventListener('click', async (event) => {
 document.addEventListener('submit', async (event) => {
   event.preventDefault();
   const form = event.target;
+  if (form.querySelector('[data-uploading]')) {
+    toast('Wait for the image uploads to finish before saving.', true);
+    return;
+  }
   if (state.busy || !form.reportValidity()) return;
   const data = new FormData(form);
   const values = Object.fromEntries(data);
@@ -964,4 +975,6 @@ async function boot() {
     app.innerHTML = `<div class="boot"><h1>Couldn’t connect to Relay.</h1><p>${e(error.message)}</p><p>Check the server terminal, then reload this page.</p></div>`;
   }
 }
+installImageUploads({ getToken: () => state.token, onError: (message) => toast(message, true) });
+document.addEventListener('relay-images-updated', () => renderMain());
 boot();

@@ -2,12 +2,51 @@ import { Marked } from './vendor/marked.js';
 import DOMPurify from './vendor/purify.js';
 import { escapeHTML as e } from './escape.js';
 
+function imageSource(value) {
+  try {
+    const url = new URL(value, window.location.href);
+    if (url.username || url.password) return null;
+    if (url.origin === window.location.origin)
+      return /^\/api\/attachments\/[a-f0-9-]{36}\.(png|jpg|gif|webp)$/.test(url.pathname) &&
+        !url.search
+        ? url.href
+        : null;
+    return url.protocol === 'https:' ? url.href : null;
+  } catch {
+    return null;
+  }
+}
+function imageMarkup(href, alt, title) {
+  const source = imageSource(href);
+  return source
+    ? `<img class="markdown-image" src="${e(source)}" alt="${e(alt || 'Image')}"${title ? ` title="${e(title)}"` : ''}>`
+    : null;
+}
+function rawHtml(token) {
+  // GitHub issue uploads can use a single HTML img tag. Other HTML stays literal.
+  if (DOMPurify.isSupported && /^\s*<img\b[^>]*>\s*$/i.test(token.text)) {
+    const fragment = DOMPurify.sanitize(token.text, {
+      RETURN_DOM_FRAGMENT: true,
+      ALLOWED_TAGS: ['img'],
+      ALLOWED_ATTR: ['src', 'alt', 'title'],
+      ALLOW_DATA_ATTR: false,
+      ALLOW_ARIA_ATTR: false,
+    });
+    const image = fragment.querySelector('img');
+    if (image) {
+      const rendered = imageMarkup(image.getAttribute('src'), image.alt, image.title);
+      if (rendered) return rendered;
+    }
+  }
+  return e(token.text);
+}
 const parser = new Marked({
   gfm: true,
   breaks: false,
   renderer: {
-    html: (token) => e(token.text),
-    image: (token) => `<a href="${e(token.href)}">Image: ${e(token.text || 'attachment')}</a>`,
+    html: rawHtml,
+    image: (token) =>
+      imageMarkup(token.href, token.text, token.title) ?? e(token.text || 'Image unavailable'),
   },
 });
 export function markdown(value) {
@@ -43,8 +82,20 @@ export function markdown(value) {
       'th',
       'td',
       'input',
+      'img',
     ],
-    ALLOWED_ATTR: ['href', 'title', 'class', 'type', 'checked', 'disabled', 'start', 'align'],
+    ALLOWED_ATTR: [
+      'href',
+      'title',
+      'class',
+      'type',
+      'checked',
+      'disabled',
+      'start',
+      'align',
+      'src',
+      'alt',
+    ],
     ALLOW_DATA_ATTR: false,
     ALLOW_ARIA_ATTR: false,
   });
@@ -59,6 +110,27 @@ export function markdown(value) {
       link.removeAttribute('href');
     }
   }
+  for (const image of fragment.querySelectorAll('img')) {
+    const source = imageSource(image.getAttribute('src'));
+    if (!source) {
+      image.replaceWith(document.createTextNode(image.alt || 'Image unavailable'));
+      continue;
+    }
+    image.src = source;
+    image.className = 'markdown-image';
+    image.loading = 'lazy';
+    image.decoding = 'async';
+    image.referrerPolicy = 'no-referrer';
+    if (!image.closest('a')) {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'markdown-image-button';
+      button.dataset.action = 'view-image';
+      button.setAttribute('aria-label', `Enlarge image: ${image.alt}`);
+      image.replaceWith(button);
+      button.append(image);
+    }
+  }
   for (const input of fragment.querySelectorAll('input')) {
     input.setAttribute('type', 'checkbox');
     input.setAttribute('disabled', '');
@@ -68,12 +140,16 @@ export function markdown(value) {
   return container.innerHTML;
 }
 export function markdownEditor({ id, name, label, value = '', max = 50000, rows = 8 }) {
-  return `<section class="markdown-editor" data-editor="${e(id)}"><label class="field-label" for="${e(id)}">${e(label)}</label><div class="markdown-toolbar"><div role="tablist" aria-label="${e(label)} editor"><button type="button" role="tab" aria-selected="true" aria-controls="${e(id)}-write" data-action="markdown-tab" data-mode="write">Write</button><button type="button" role="tab" aria-selected="false" aria-controls="${e(id)}-preview" data-action="markdown-tab" data-mode="preview">Preview</button></div><div class="markdown-tools" aria-label="Formatting"><button type="button" data-action="markdown-format" data-format="bold" aria-label="Bold">B</button><button type="button" data-action="markdown-format" data-format="italic" aria-label="Italic">I</button><button type="button" data-action="markdown-format" data-format="code" aria-label="Code">&lt;/&gt;</button><button type="button" data-action="markdown-format" data-format="link" aria-label="Insert link">Link</button><button type="button" data-action="markdown-format" data-format="task" aria-label="Task list">Checklist</button></div></div><div id="${e(id)}-write" role="tabpanel"><textarea class="input" id="${e(id)}" name="${e(name)}" rows="${rows}" maxlength="${max}">${e(value)}</textarea></div><div id="${e(id)}-preview" class="prose markdown-preview" role="tabpanel" hidden></div><p class="form-help">Markdown supported: headings, lists, checklists, tables, quotes, links, and fenced code.</p></section>`;
+  return `<section class="markdown-editor" data-editor="${e(id)}"><label class="field-label" for="${e(id)}">${e(label)}</label><div class="markdown-toolbar"><div role="tablist" aria-label="${e(label)} editor"><button type="button" role="tab" aria-selected="true" aria-controls="${e(id)}-write" data-action="markdown-tab" data-mode="write">Write</button><button type="button" role="tab" aria-selected="false" aria-controls="${e(id)}-preview" data-action="markdown-tab" data-mode="preview">Preview</button></div><div class="markdown-tools" aria-label="Formatting"><button type="button" data-action="markdown-format" data-format="bold" aria-label="Bold">B</button><button type="button" data-action="markdown-format" data-format="italic" aria-label="Italic">I</button><button type="button" data-action="markdown-format" data-format="code" aria-label="Code">&lt;/&gt;</button><button type="button" data-action="markdown-format" data-format="link" aria-label="Insert link">Link</button><button type="button" data-action="markdown-format" data-format="task" aria-label="Task list">Checklist</button></div></div><div id="${e(id)}-write" role="tabpanel"><textarea class="input" id="${e(id)}" name="${e(name)}" rows="${rows}" maxlength="${max}">${e(value)}</textarea></div><div id="${e(id)}-preview" class="prose markdown-preview" role="tabpanel" hidden></div><div class="image-upload-footer"><button type="button" class="btn text small" data-action="markdown-image">Attach images</button><input type="file" data-image-upload accept="image/png,image/jpeg,image/gif,image/webp" multiple hidden aria-label="Images for ${e(label)}"><span>Paste a screenshot or drop images here · 10 MB each</span><span role="status" data-upload-status></span></div><p class="form-help">Markdown supported: headings, lists, checklists, tables, quotes, links, and fenced code.</p></section>`;
 }
 export function handleMarkdownAction(element) {
   const editor = element.closest('[data-editor]');
   if (!editor) return false;
   const input = editor.querySelector('textarea');
+  if (element.dataset.action === 'markdown-image') {
+    editor.querySelector('[data-image-upload]').click();
+    return true;
+  }
   if (element.dataset.action === 'markdown-tab') {
     const preview = element.dataset.mode === 'preview';
     editor.querySelector(`#${input.id}-write`).hidden = preview;
