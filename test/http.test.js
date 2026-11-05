@@ -527,3 +527,43 @@ test('image attachments validate bytes, protect uploads, and serve durable priva
   assert.equal((await f.request('/api/attachments/not-a-file.png')).status, 404);
   assert.equal((await f.request('/api/attachments/%2e%2e%2fconfig.json')).status, 404);
 });
+
+test('HTTP inbox and pending direction preserve the approval gate', async (t) => {
+  const f = await fixture(t);
+  const { data: task } = await f.request('/api/tasks', 'POST', {
+    title: 'Decision fixture',
+    demo: true,
+  });
+  await f.request(`/api/tasks/${task.id}/start`, 'POST', {});
+  await waitFor(f.app, task.id, 'awaiting_plan');
+  const inbox = await f.request('/api/inbox');
+  assert.equal(inbox.data.length, 1);
+  assert.equal((await f.request('/api/inbox/seen', 'POST', { key: 'stale' })).status, 409);
+  assert.equal(
+    (await f.request('/api/inbox/seen', 'POST', { key: inbox.data[0].key })).status,
+    200,
+  );
+  assert.equal((await f.request('/api/inbox')).data[0].seen, true);
+  await f.request(`/api/tasks/${task.id}/message`, 'POST', {
+    message: 'Include one more constraint',
+  });
+  assert.equal(
+    (await f.request(`/api/tasks/${task.id}/approve-plan`, 'POST', { optionId: 'shared-boundary' }))
+      .status,
+    409,
+  );
+  assert.equal(
+    (await f.request(`/api/tasks/${task.id}/steer`, 'POST', { message: 'Steer idle task' })).status,
+    409,
+  );
+  assert.equal((await f.request(`/api/tasks/${task.id}/review-comment`, 'POST', {})).status, 409);
+  await f.request(`/api/tasks/${task.id}/request-changes`, 'POST', {
+    note: 'Revise with the pending constraint',
+  });
+  await waitFor(f.app, task.id, 'awaiting_plan');
+  assert.equal(
+    (await f.request(`/api/tasks/${task.id}/approve-plan`, 'POST', { optionId: 'shared-boundary' }))
+      .status,
+    200,
+  );
+});

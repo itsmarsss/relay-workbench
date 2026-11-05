@@ -160,9 +160,25 @@ export async function diff(task) {
   }
   if (!task.workspace || task.demo) return { text: '', stat: '', untracked: [], demo: task.demo };
   const [text, stat, names] = await Promise.all([
-    git(task.workspaceRoot, ['diff', '--no-ext-diff', '--no-textconv', task.baseCommit, '--'], {
-      maxBytes: 4 * 1024 * 1024,
-    }),
+    git(
+      task.workspaceRoot,
+      [
+        '-c',
+        'core.quotePath=false',
+        'diff',
+        '--no-color',
+        '--no-renames',
+        '--src-prefix=a/',
+        '--dst-prefix=b/',
+        '--no-ext-diff',
+        '--no-textconv',
+        task.baseCommit,
+        '--',
+      ],
+      {
+        maxBytes: 4 * 1024 * 1024,
+      },
+    ),
     git(task.workspaceRoot, ['diff', '--stat', task.baseCommit, '--']),
     git(task.workspaceRoot, ['ls-files', '--others', '--exclude-standard', '-z']),
   ]);

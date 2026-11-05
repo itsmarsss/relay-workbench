@@ -1,3 +1,4 @@
+import { snapshotDiff } from './review-comments.js';
 import { inbox, acknowledge } from './inbox.js';
 import { uploadImage, readImage } from './attachments.js';
 import http from 'node:http';
@@ -267,7 +268,8 @@ export function createApp({ directory, publicDirectory, engineOptions = {} }) {
             });
           return json(res, 200, await captureTerminal(terminal));
         }
-        if (operation === 'diff' && req.method === 'GET') return json(res, 200, await diff(task));
+        if (operation === 'diff' && req.method === 'GET')
+          return json(res, 200, await snapshotDiff(task));
         if (operation === 'export' && req.method === 'GET') {
           res.setHeader(
             'Content-Disposition',
@@ -429,6 +431,8 @@ export function createApp({ directory, publicDirectory, engineOptions = {} }) {
             'cancel',
             'message',
             'steer',
+            'review-comment',
+            'resolve-comment',
             'takeover',
             'return-control',
           ].includes(operation)

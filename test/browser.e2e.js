@@ -240,7 +240,7 @@ try {
       ),
     );
   }
-  await page.getByRole('button', { name: 'Add context', exact: false }).click();
+  await page.getByRole('button', { name: 'Send direction', exact: false }).click();
   await page.waitForFunction(() => document.querySelector('#task-message')?.value === '');
   await assertReadableText(page);
   await page.screenshot({ path: join(screenshots, 'task-description.png'), fullPage: true });
@@ -588,6 +588,29 @@ try {
     await page.getByRole('tab', { name: 'Code changes' }).click();
     await page.getByText('2 repository diffs', { exact: true }).waitFor();
     assert.equal(await page.locator('.repository-diff').count(), 2);
+    await page
+      .getByRole('button', { name: /Comment on contract.txt line/ })
+      .first()
+      .click();
+    await page.locator('#line-comment').fill('Check empty values at this boundary.');
+    await page.getByRole('button', { name: 'Save inline comment', exact: true }).click();
+    await page.getByText('Check empty values at this boundary.', { exact: true }).waitFor();
+    await page.getByRole('button', { name: 'Mark resolved', exact: true }).click();
+    await page
+      .getByRole('button', { name: /Comment on contract.txt line/ })
+      .first()
+      .click();
+    await page.locator('#line-comment').fill('Preserve the cross-repository contract.');
+    await page.getByRole('button', { name: 'Save inline comment', exact: true }).click();
+    await page.getByRole('button', { name: 'Send open comments for repair', exact: true }).click();
+    await page.getByRole('heading', { name: 'The specialists are done. Over to you.' }).waitFor();
+    await page.getByRole('button', { name: 'Refresh all', exact: true }).click();
+    await page.getByText('Preserve the cross-repository contract.', { exact: true }).waitFor();
+    assert.equal(
+      localApp.store.get(page.url().split('/').at(-1)).reviewComments.length,
+      2,
+    );
+    await page.screenshot({ path: join(screenshots, 'inline-feedback.png'), fullPage: true });
     await page.getByRole('button', { name: 'Accept result', exact: true }).click();
     await page.locator('.task-subtitle .badge.completed').waitFor();
     assert.equal(
