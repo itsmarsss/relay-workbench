@@ -1,3 +1,4 @@
+import { outcomesView } from './outcomes.js';
 import { diffLines } from './diff-lines.js';
 import { inboxPage, notifyInbox } from './inbox.js';
 import { installImageUploads, openImageViewer } from './image-uploads.js';
@@ -20,6 +21,8 @@ import {
 } from './ui.js';
 
 const state = {
+  outcomes: null,
+  outcomesRepository: '',
   inbox: [],
   config: null,
   tasks: [],
@@ -407,7 +410,7 @@ function harnessesView() {
     )
     .join(
       '',
-    )}</div></section><div class="form-footer"><span>Model IDs and permissions follow your installed harness configuration.</span><button class="btn primary" type="submit">Save harness configuration ${icon('check')}</button></div></form>`;
+    )}</div></section><div class="form-footer"><span>Model IDs and permissions follow your installed harness configuration.</span><button class="btn primary" type="submit">Save harness configuration ${icon('check')}</button></div></form>${outcomesView(state.outcomes, state.config, state.outcomesRepository)}`;
 }
 function settingsView() {
   return `${pageHeading('MAKE IT YOURS', 'Settings', 'Local configuration, execution limits, and private integration profiles.')}<form id="settings-form" class="settings-panel"><h2>Execution</h2><p>Quality-first workflows, with explicit limits on runaway retries.</p><div class="settings-fields"><label>Concurrent tasks<input id="setting-concurrency" class="input" type="number" name="concurrency" min="1" max="8" value="${state.config.concurrency}" required><small>Work in different repositories concurrently.</small></label><label>Automatic repair rounds<input id="setting-rounds" class="input" type="number" name="maxRepairRounds" min="1" max="10" value="${state.config.maxRepairRounds}" required><small>Pause for your input after repeated failures.</small></label><label>Stage timeout (minutes)<input id="setting-timeout" class="input" type="number" name="timeoutMinutes" min="1" max="240" value="${state.config.timeoutMinutes}" required><small>Applied to each harness or check process.</small></label></div><button class="btn primary" type="submit">Save execution settings</button></form><section class="settings-panel"><h2>Private integration profiles</h2><p>Import a repository profile or complete configuration as JSON. Private hostnames, paths, instructions, and provider commands stay in ignored local state.</p><div class="inline-actions">${button('import-profile', 'Import local profile', 'secondary', 'download')}${button('view-config', 'View configuration', 'text', 'code')}</div></section><section class="settings-panel"><h2>Local by design</h2><p>Relay listens on <code>127.0.0.1</code>. Task history, transcripts, and approvals are stored on this machine. Your harness CLIs handle authentication; Relay does not store API keys.</p><p>Harness and verification commands run with your user account. Use an isolated environment for untrusted code. Read the project README for execution and recovery details.</p></section>`;
@@ -503,6 +506,10 @@ function repositoryModal(id) {
 async function refresh() {
   [state.tasks, state.inbox] = await Promise.all([api('/tasks'), api('/inbox')]);
   notifyInbox(state.inbox);
+  if (state.view === 'harnesses')
+    state.outcomes = await api(
+      `/outcomes?repositoryId=${encodeURIComponent(state.outcomesRepository)}`,
+    );
   if (state.selected) {
     const selected = state.selected;
     const task = await api(`/tasks/${selected}`);
@@ -583,6 +590,18 @@ document.addEventListener('click', async (event) => {
   if (state.busy) return;
   const action = element.dataset.action;
   try {
+    if (action === 'apply-routing-advice') {
+      const report = await api(
+        `/outcomes?repositoryId=${encodeURIComponent(state.outcomesRepository)}`,
+      );
+      const config = structuredClone(state.config);
+      for (const recommendation of report.recommendations)
+        config.routing[recommendation.stage] = recommendation.harness;
+      await saveConfig(config);
+      renderMain();
+      toast('Routing defaults updated for new tasks; models preserved.');
+      return;
+    }
     if (action === 'enable-notifications') {
       if (!('Notification' in window))
         throw new Error('Desktop notifications are unavailable in this browser.');
@@ -652,7 +671,13 @@ document.addEventListener('click', async (event) => {
       await refresh();
       return;
     }
-    if (action === 'navigate') return await navigate(element.dataset.view);
+    if (action === 'navigate') {
+      if (element.dataset.view === 'harnesses')
+        state.outcomes = await api(
+          `/outcomes?repositoryId=${encodeURIComponent(state.outcomesRepository)}`,
+        );
+      return await navigate(element.dataset.view);
+    }
     if (action === 'new-task') return createTaskModal();
     if (action === 'configure-task' || action === 'duplicate-task') {
       if (state.busy) return;
@@ -970,7 +995,19 @@ document.addEventListener('submit', async (event) => {
     if (submit) submit.disabled = false;
   }
 });
-document.addEventListener('change', (event) => {
+document.addEventListener('change', async (event) => {
+  if (event.target.id === 'outcomes-repository') {
+    state.outcomesRepository = event.target.value;
+    try {
+      state.outcomes = await api(
+        `/outcomes?repositoryId=${encodeURIComponent(state.outcomesRepository)}`,
+      );
+      renderMain();
+    } catch (error) {
+      toast(error.message, true);
+    }
+    return;
+  }
   const filters = {
     'task-repository-filter': 'repositoryFilter',
     'task-stage-filter': 'stageFilter',
@@ -1058,6 +1095,10 @@ async function boot() {
       shell();
     }
     state.inbox = await api('/inbox');
+    if (state.view === 'harnesses') {
+      state.outcomes = await api('/outcomes');
+      renderMain();
+    }
     if (state.view === 'inbox') renderMain();
     notifyInbox(state.inbox);
     connect();
