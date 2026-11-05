@@ -36,6 +36,35 @@ try {
   page.on('pageerror', (error) => errors.push(error.message));
   await page.goto(origin);
   await page.getByRole('heading', { name: /Let’s make progress/ }).waitFor();
+  const photo = Buffer.from(
+    await page.evaluate(() => {
+      const canvas = document.createElement('canvas');
+      canvas.width = 960;
+      canvas.height = 480;
+      const context = canvas.getContext('2d');
+      context.fillStyle = '#eef4e8';
+      context.fillRect(0, 0, 960, 480);
+      context.fillStyle = '#173d32';
+      context.font = 'bold 42px sans-serif';
+      context.fillText('Expected behavior', 48, 76);
+      context.font = '24px sans-serif';
+      context.fillText('A screenshot attached to a Relay task', 48, 120);
+      context.fillStyle = '#557b55';
+      context.fillRect(48, 180, 240, 220);
+      context.fillStyle = '#8fa98a';
+      context.fillRect(328, 240, 240, 160);
+      context.fillStyle = '#b7c9aa';
+      context.fillRect(608, 290, 240, 110);
+      return canvas.toDataURL('image/png').split(',')[1];
+    }),
+    'base64',
+  );
+  let externalReferrer;
+  await page.route('https://images.example.test/**', (route) => {
+    externalReferrer = route.request().headers().referer;
+    return route.fulfill({ status: 200, contentType: 'image/png', body: photo });
+  });
+
   await assertReadableText(page);
   await page.screenshot({ path: join(screenshots, 'overview.png'), fullPage: true });
   await page.getByRole('button', { name: 'Try a demo', exact: true }).click();
@@ -182,6 +211,37 @@ try {
   }
   await contextEditor.getByRole('heading', { name: 'Context still here', exact: true }).waitFor();
   assert.equal(await contextEditor.locator('textarea').inputValue(), '## Context still here');
+
+  for (const kind of ['paste', 'drop']) {
+    await page.locator('#task-message').evaluate(
+      (input, { kind, bytes }) => {
+        const transfer = new DataTransfer();
+        transfer.items.add(
+          new File([new Uint8Array(bytes)], `${kind}-screenshot.png`, { type: 'image/png' }),
+        );
+        const event =
+          kind === 'paste'
+            ? new ClipboardEvent('paste', {
+                clipboardData: transfer,
+                bubbles: true,
+                cancelable: true,
+              })
+            : new DragEvent('drop', { dataTransfer: transfer, bubbles: true, cancelable: true });
+        input.dispatchEvent(event);
+      },
+      { kind, bytes: [...photo] },
+    );
+    await page.waitForFunction(
+      () => !document.querySelector('[data-editor="task-message"][data-uploading]'),
+    );
+    assert.ok(
+      (await page.locator('#task-message').inputValue()).includes(
+        `![${kind}-screenshot](/api/attachments/`,
+      ),
+    );
+  }
+  await page.getByRole('button', { name: 'Add context', exact: false }).click();
+  await page.waitForFunction(() => document.querySelector('#task-message')?.value === '');
   await assertReadableText(page);
   await page.screenshot({ path: join(screenshots, 'task-description.png'), fullPage: true });
 
@@ -215,6 +275,104 @@ try {
   await page.setViewportSize({ width: 1440, height: 1100 });
   await descriptionEditor.getByRole('tab', { name: 'Write', exact: true }).click();
   assert.equal(await editor.locator('#edit-description').inputValue(), source);
+  // Validate file attachment, in-flight edits, safe external images, and a nested viewer.
+  await page.route('**/api/attachments', async (route) => {
+    await new Promise((resolve) => setTimeout(resolve, 350));
+    await route.continue();
+  });
+  await descriptionEditor
+    .locator('input[type=file]')
+    .setInputFiles({ name: 'expected-behavior.png', mimeType: 'image/png', buffer: photo });
+  await page.waitForFunction(() =>
+    document.querySelector('[data-editor="edit-description"][data-uploading]'),
+  );
+  await editor.getByRole('button', { name: 'Save task settings', exact: true }).click();
+  await page
+    .getByRole('status')
+    .filter({ hasText: 'Wait for the image uploads to finish' })
+    .waitFor();
+  await editor
+    .locator('#edit-description')
+    .fill('Edited during upload.\n\n' + (await editor.locator('#edit-description').inputValue()));
+  await editor.locator('#edit-description').evaluate((input) => input.setSelectionRange(0, 0));
+  await page.waitForFunction(
+    () => !document.querySelector('[data-editor="edit-description"][data-uploading]'),
+  );
+  assert.equal(
+    await editor.locator('#edit-description').evaluate((input) => input.selectionStart),
+    0,
+  );
+  const withUpload = await editor.locator('#edit-description').inputValue();
+  assert.ok(withUpload.startsWith('Edited during upload.'));
+  assert.ok(withUpload.includes('![expected-behavior](/api/attachments/'));
+  await page.unroute('**/api/attachments');
+  await editor
+    .locator('#edit-description')
+    .fill(
+      withUpload +
+        '\n\n![External screenshot](https://images.example.test/example.png)\n\n<img src="https://images.example.test/html.png" alt="HTML screenshot" width="960" onerror="window.previewInjected=true">\n\n![Unsafe](javascript:alert(1))\n\n![Inline SVG](data:image/svg+xml,test)\n\n![Local secrets](/api/bootstrap)',
+    );
+  await descriptionEditor.getByRole('tab', { name: 'Preview', exact: true }).click();
+  await page.waitForFunction(
+    () =>
+      [...document.querySelectorAll('[data-editor="edit-description"] img')].length === 3 &&
+      [...document.querySelectorAll('[data-editor="edit-description"] img')].every(
+        (image) => image.complete && image.naturalWidth === 960,
+      ),
+  );
+  assert.equal(externalReferrer, undefined);
+  assert.equal(
+    await descriptionEditor
+      .locator('img[src^="data:"],img[src^="javascript:"],img[src$="/api/bootstrap"]')
+      .count(),
+    0,
+  );
+  assert.equal(await descriptionEditor.locator('img[onerror],img[onclick],img[srcset]').count(), 0);
+  assert.equal(await page.evaluate(() => window.previewInjected), undefined);
+  const beforeViewer = await editor.locator('#edit-description').inputValue();
+  await descriptionEditor
+    .getByRole('button', { name: 'Enlarge image: expected-behavior', exact: true })
+    .click();
+  await page.getByRole('dialog', { name: 'Image preview', exact: true }).waitFor();
+  await page.screenshot({ path: join(screenshots, 'image-viewer.png'), fullPage: false });
+  await page.keyboard.press('Escape');
+  assert.equal(await page.locator('#edit-description').inputValue(), beforeViewer);
+  await page.setViewportSize({ width: 390, height: 844 });
+  assert.ok(
+    await page.evaluate(
+      () =>
+        document.querySelector('#dialog').scrollWidth <=
+        document.querySelector('#dialog').clientWidth,
+    ),
+    'Embedded images must fit the mobile editor',
+  );
+  await assertReadableText(page);
+  await page.screenshot({ path: join(screenshots, 'mobile-image-preview.png'), fullPage: true });
+  await page.setViewportSize({ width: 1440, height: 1100 });
+  // Rejected and failed uploads leave the written content intact and allow retry.
+  await descriptionEditor.locator('input[type=file]').setInputFiles({
+    name: 'unsafe.svg',
+    mimeType: 'image/svg+xml',
+    buffer: Buffer.from('<svg/>'),
+  });
+  assert.equal(await editor.locator('#edit-description').inputValue(), beforeViewer);
+  await page.route('**/api/attachments', (route) =>
+    route.fulfill({
+      status: 500,
+      contentType: 'application/json',
+      body: JSON.stringify({ error: 'Upload fixture failure' }),
+    }),
+  );
+  await descriptionEditor
+    .locator('input[type=file]')
+    .setInputFiles({ name: 'failed.png', mimeType: 'image/png', buffer: photo });
+  await page.waitForFunction(
+    () => !document.querySelector('[data-editor="edit-description"][data-uploading]'),
+  );
+  assert.ok(!(await editor.locator('#edit-description').inputValue()).includes('relay-upload:'));
+  assert.ok((await editor.locator('#edit-description').inputValue()).includes('expected-behavior'));
+  await page.unroute('**/api/attachments');
+
   await editor.locator('[name="route-review"]').selectOption('codex');
   await editor.locator('[name="model-review"]').fill('review-model');
   await editor.locator('[name="timeoutMinutes"]').fill('22');
@@ -227,6 +385,15 @@ try {
     .getByRole('region', { name: 'Description and requirements', exact: true })
     .getByRole('heading', { name: 'Requirements', exact: true })
     .waitFor();
+
+  await page.waitForFunction(
+    () =>
+      [...document.querySelectorAll('.task-description img')].length === 3 &&
+      [...document.querySelectorAll('.task-description img')].every(
+        (image) => image.complete && image.naturalWidth === 960,
+      ),
+  );
+  await page.screenshot({ path: join(screenshots, 'task-embedded-images.png'), fullPage: true });
   const editedUrl = page.url();
   await page.reload();
   await page.getByRole('button', { name: 'Configure task', exact: true }).click();
@@ -453,7 +620,7 @@ try {
   }
   assert.deepEqual(errors, []);
   process.stdout.write(
-    'Browser checks passed: approvals, task editing and duplication, GFM preview and sanitization, live refresh, filters, history, terminals, and mobile contrast/layout.\n',
+    'Browser checks passed: approvals, task editing and duplication, GFM preview and sanitization, image uploads/paste/drop/viewer, live refresh, filters, history, terminals, and mobile contrast/layout.\n',
   );
 } finally {
   await browser?.close();

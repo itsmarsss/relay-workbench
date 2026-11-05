@@ -1,3 +1,4 @@
+import { uploadImage, readImage } from './attachments.js';
 import http from 'node:http';
 import { captureTerminal } from './terminal.js';
 import { workspaces, workspaceView } from './task-repositories.js';
@@ -63,7 +64,7 @@ export function createApp({ directory, publicDirectory, engineOptions = {} }) {
     res.setHeader('Cache-Control', 'no-store');
     res.setHeader(
       'Content-Security-Policy',
-      "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
+      "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' https:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
     );
     try {
       const expected = `127.0.0.1:${server.address().port}`;
@@ -91,10 +92,24 @@ export function createApp({ directory, publicDirectory, engineOptions = {} }) {
           403,
         );
         requireValue(
-          req.headers['content-type']?.startsWith('application/json'),
+          (path === '/api/attachments' && req.method === 'POST') ||
+            req.headers['content-type']?.startsWith('application/json'),
           'JSON content type required',
           415,
         );
+      }
+      if (path === '/api/attachments' && req.method === 'POST')
+        return json(res, 201, await uploadImage(req, directory));
+      if (path.startsWith('/api/attachments/') && ['GET', 'HEAD'].includes(req.method)) {
+        const image = await readImage(path, directory);
+        res.writeHead(200, {
+          'Content-Type': image.type,
+          'Content-Length': image.size,
+          'Content-Disposition': 'inline',
+          'Cache-Control': 'private, max-age=31536000, immutable',
+          'Cross-Origin-Resource-Policy': 'same-origin',
+        });
+        return res.end(req.method === 'HEAD' ? undefined : image.bytes);
       }
       if (path === '/api/bootstrap' && req.method === 'GET')
         return json(res, 200, { token, config: store.config, version: '0.1.0' });

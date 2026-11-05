@@ -3742,3 +3742,65 @@ textarea::placeholder,
     font-size: 14px;
   }
 }
+
+/* Images stay inside the reading column and can open at full size. */
+.prose .markdown-image {
+  display: block;
+  max-width: 100%;
+  max-height: 560px;
+  height: auto;
+  object-fit: contain;
+  border-radius: 6px;
+}
+.prose .markdown-image-button {
+  display: inline-block;
+  max-width: 100%;
+  padding: 4px;
+  border: 1px solid #c4d1bc;
+  border-radius: 8px;
+  background: #fff;
+  cursor: zoom-in;
+  margin: 8px 0;
+}
+.prose .markdown-image-button:hover,
+.prose .markdown-image-button:focus-visible {
+  outline: 2px solid #254e42;
+  outline-offset: 2px;
+}
+.image-upload-footer {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  padding: 9px;
+  border: 1px solid #bdcbb9;
+  border-top: 0;
+  border-radius: 0 0 8px 8px;
+  color: #435740;
+  background: #f6f8f3;
+  font-size: 11px;
+}
+.image-upload-footer [data-upload-status]:not(:empty) {
+  flex-basis: 100%;
+  font-weight: 600;
+  padding: 3px 6px;
+}
+.markdown-editor.image-drop-target {
+  outline: 3px solid #254e42;
+  outline-offset: 4px;
+  border-radius: 8px;
+}
+.image-lightbox {
+  text-align: center;
+  color: #435740;
+}
+.image-lightbox img {
+  display: block;
+  max-width: 100%;
+  max-height: 70vh;
+  margin: 0 auto 16px;
+  object-fit: contain;
+}
+.image-lightbox p {
+  overflow-wrap: anywhere;
+}
