@@ -3003,3 +3003,209 @@ select.input {
   max-height: 260px;
   overflow: auto;
 }
+
+/* Workflow lanes reflect engine state; transitions remain engine actions. */
+.workflow-board {
+  max-width: 100%;
+  min-width: 0;
+  display: flex;
+  gap: 16px;
+  overflow-x: auto;
+  align-items: stretch;
+  padding: 4px 0 20px;
+  scroll-snap-type: x proximity;
+}
+.board-column {
+  flex: 0 0 270px;
+  background: var(--surface, #f5f6f8);
+  border: 1px solid var(--border, #e2e5eb);
+  border-radius: 12px;
+  min-height: 360px;
+  scroll-snap-align: start;
+}
+.board-column > header {
+  padding: 16px;
+  border-top: 3px solid #a1a7b3;
+  border-radius: 12px 12px 0 0;
+}
+.board-column h2 {
+  font-size: 13px;
+  display: flex;
+  justify-content: space-between;
+  margin: 0;
+}
+.board-column h2 span {
+  color: #747c8c;
+}
+.board-column header p {
+  font-size: 11px;
+  color: #747c8c;
+  margin: 7px 0 0;
+  line-height: 1.5;
+}
+.column-approach > header,
+.column-final > header {
+  border-top-color: #c19745;
+}
+.column-progress > header,
+.column-review > header {
+  border-top-color: #8470d5;
+}
+.column-done > header {
+  border-top-color: #4a9a78;
+}
+.column-attention > header {
+  border-top-color: #ce7765;
+}
+.board-cards {
+  padding: 0 10px 12px;
+  display: grid;
+  gap: 10px;
+}
+.board-card {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: var(--panel, white);
+  border: 1px solid var(--border, #e2e5eb);
+  border-radius: 9px;
+  padding: 14px;
+  cursor: pointer;
+  color: inherit;
+  font: inherit;
+}
+.board-card:hover {
+  border-color: #9d90ca;
+  box-shadow: 0 3px 12px #342d5b12;
+}
+.board-card > strong {
+  display: block;
+  font-size: 13px;
+  line-height: 1.5;
+  margin: 9px 0;
+  overflow-wrap: anywhere;
+}
+.board-card > small {
+  display: block;
+  color: #747c8c;
+  font-size: 11px;
+  margin-bottom: 12px;
+  overflow-wrap: anywhere;
+}
+.board-card-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 10px;
+  color: #747c8c;
+}
+.board-card > p {
+  font-size: 12px;
+  line-height: 1.6;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.board-card footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  margin-top: 14px;
+}
+.board-card time {
+  display: block;
+  font-size: 10px;
+  color: #747c8c;
+  margin-top: 10px;
+}
+.board-empty {
+  color: #858b97;
+  font-size: 12px;
+  text-align: center;
+  padding: 28px;
+  border: 1px dashed #dfe1e7;
+  border-radius: 8px;
+}
+.layout-switch {
+  flex-shrink: 0;
+}
+.terminal-panel {
+  border: 1px solid var(--border, #e2e5eb);
+  background: var(--panel, white);
+  border-radius: 12px;
+  padding: 20px;
+  margin-bottom: 20px;
+}
+.terminal-panel h2 {
+  font-size: 17px;
+  margin: 14px 0;
+}
+.terminal-panel p {
+  font-size: 12px;
+  line-height: 1.7;
+}
+.terminal-command {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 12px;
+  background: #f3f3f7;
+  border-radius: 7px;
+  align-items: center;
+  margin-top: 12px;
+}
+.terminal-command code {
+  font-size: 11px;
+  overflow-wrap: anywhere;
+  flex: 1 1 220px;
+}
+.badge.manual {
+  background: #ebe6fa;
+  color: #6a5399;
+}
+@media (max-width: 900px) {
+  .list-toolbar {
+    flex-wrap: wrap;
+  }
+  .board-column {
+    flex-basis: 255px;
+  }
+}
+
+.terminal-panel .inline-actions {
+  flex-wrap: wrap;
+}
+.terminal-panel .btn {
+  white-space: normal;
+}
+
+.board-stage-nav {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex-wrap: wrap;
+  margin: 0 0 18px;
+}
+.board-stage-nav button {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface);
+  padding: 6px 9px;
+  font-size: 11px;
+}
+.board-stage-nav button:hover {
+  border-color: var(--green);
+}
+.board-stage-nav button span {
+  display: inline-block;
+  margin-left: 5px;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+.board-stage-nav small {
+  color: var(--muted);
+  font-size: 11px;
+}

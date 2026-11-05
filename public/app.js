@@ -1,3 +1,4 @@
+import { workflowBoard } from './workflow.js';
 import {
   e,
   icon,
@@ -21,6 +22,7 @@ const state = {
   events: [],
   tab: 'thread',
   filter: 'all',
+  taskLayout: localStorage.getItem('relay-task-layout') || 'board',
   search: '',
   token: '',
   connected: true,
@@ -61,6 +63,7 @@ function renderMain() {
   const main = document.querySelector('#main');
   if (!main) return;
   const scroll = main.scrollTop;
+  const boardScroll = main.querySelector('.workflow-board')?.scrollLeft;
   const focused = document.activeElement;
   const focusId = main.contains(focused) ? focused.id : null;
   const inputs = [...main.querySelectorAll('textarea,input')]
@@ -99,6 +102,11 @@ function renderMain() {
     for (const input of main.querySelectorAll('input[name="optionId"]'))
       input.checked = input.value === selectedApproach;
   main.scrollTop = scroll;
+  const board = main.querySelector('.workflow-board');
+  if (board) {
+    if (boardScroll !== undefined) board.scrollLeft = boardScroll;
+    else focusBoard();
+  }
 }
 function pageHeading(kicker, title, subtitle, actions = '') {
   return `<div class="page-heading"><div><div class="eyebrow">${kicker}</div><h1>${title}</h1><p>${subtitle}</p></div><div class="heading-actions">${actions}</div></div>`;
@@ -107,7 +115,9 @@ function counts() {
   return {
     active: state.tasks.filter((t) => ['running', 'queued'].includes(t.status)),
     waiting: state.tasks.filter((t) =>
-      ['awaiting_plan', 'awaiting_final', 'blocked', 'interrupted'].includes(t.status),
+      ['awaiting_plan', 'awaiting_final', 'blocked', 'interrupted', 'paused', 'manual'].includes(
+        t.status,
+      ),
     ),
     complete: state.tasks.filter((t) => t.status === 'completed'),
   };
@@ -131,6 +141,15 @@ function overview() {
 function taskTable(tasks) {
   return `<div class="task-table"><div class="table-header"><span>Task</span><span>Status</span><span>Specialists</span><span>Updated</span><span></span></div>${tasks.map((t) => `<button class="task-row" data-action="open-task" data-id="${t.id}"><span class="task-name"><span class="task-symbol">${icon('layers')}</span><span><strong>${e(t.title)} ${t.demo ? '<em class="demo-label">DEMO</em>' : ''}</strong><small>${e((t.repositories?.length ? t.repositories.map((r) => r.repository.name) : [t.repository.name]).join(' + '))} <span>·</span> ${e(stageNames[t.stage] || 'Ready')}</small></span></span><span>${badge(t.status)}</span><span class="avatar-stack">${[...new Set(Object.values(t.routing).filter((h) => h !== 'checks'))].map((h) => harnessBadge(h)).join('')}</span><span class="muted">${ago(t.updatedAt)}</span>${icon('chevron')}</button>`).join('')}</div>`;
 }
+function focusBoard(lane) {
+  const board = document.querySelector('.workflow-board');
+  if (!board) return;
+  const column = lane
+    ? [...board.querySelectorAll('.board-column')].find((el) => el.dataset.lane === lane)
+    : board.querySelector('.board-column:not([data-count="0"])');
+  if (column)
+    board.scrollLeft += column.getBoundingClientRect().left - board.getBoundingClientRect().left;
+}
 function tasksView() {
   const filtered = state.tasks.filter(
     (t) =>
@@ -138,13 +157,20 @@ function tasksView() {
         (state.filter === 'active'
           ? ['running', 'queued'].includes(t.status)
           : state.filter === 'attention'
-            ? ['awaiting_plan', 'awaiting_final', 'blocked', 'interrupted'].includes(t.status)
+            ? [
+                'awaiting_plan',
+                'awaiting_final',
+                'blocked',
+                'interrupted',
+                'paused',
+                'manual',
+              ].includes(t.status)
             : t.status === 'completed')) &&
       `${t.title} ${(t.repositories ?? [t]).map((r) => r.repository.name).join(' ')}`
         .toLowerCase()
         .includes(state.search.toLowerCase()),
   );
-  return `${pageHeading('THE BIG PICTURE', 'All tasks', 'Every handoff, decision, and result. In one place.')}<div class="list-toolbar"><div class="segmented">${[
+  return `${pageHeading('THE BIG PICTURE', 'All tasks', 'Agents move work forward automatically. Approval columns are your turn.')}<div class="list-toolbar"><div class="segmented">${[
     ['all', 'All tasks'],
     ['active', 'In motion'],
     ['attention', 'Needs input'],
@@ -156,14 +182,14 @@ function tasksView() {
     )
     .join(
       '',
-    )}</div><label class="search-box">${icon('search')}<input id="task-search" placeholder="Search tasks…" aria-label="Search tasks" value="${e(state.search)}"></label></div>${filtered.length ? taskTable(filtered) : empty('layers', 'No tasks here yet', 'Create a task or change your filters.', button('new-task', 'New task', 'primary', 'plus'))}`;
+    )}</div><label class="search-box">${icon('search')}<input id="task-search" placeholder="Search tasks…" aria-label="Search tasks" value="${e(state.search)}"></label><div class="segmented layout-switch" aria-label="Task layout">${['board', 'table'].map((layout) => `<button data-action="task-layout" data-layout="${layout}" class="${state.taskLayout === layout ? 'selected' : ''}" aria-pressed="${state.taskLayout === layout}">${layout === 'board' ? 'Board' : 'Table'}</button>`).join('')}</div></div>${filtered.length ? (state.taskLayout === 'board' ? workflowBoard(filtered) : taskTable(filtered)) : empty('layers', 'No tasks here yet', 'Create a task or change your filters.', button('new-task', 'New task', 'primary', 'plus'))}`;
 }
 function taskView() {
   const t = state.task;
   if (!t) return '<div class="boot">Loading task…</div>';
   const live = ['running', 'queued'].includes(t.status);
   const last = t.attempts.findLast((a) => a.handoff)?.handoff;
-  return `<div class="task-heading"><button class="back-link" data-action="navigate" data-view="tasks">← All tasks</button><div class="task-title-row"><h1>${e(t.title)}</h1>${t.demo ? '<span class="demo-label large">SIMULATED DEMO</span>' : ''}</div><div class="task-subtitle">${badge(t.status)}<span>${e((t.repositories?.length ? t.repositories.map((r) => r.repository.name) : [t.repository.name]).join(' + '))}</span><span>·</span><span>${t.id.slice(0, 8)}</span><span>·</span><span>Created ${ago(t.createdAt).toLowerCase()}</span></div><div class="task-controls">${t.status === 'draft' ? button('task-action', 'Start workflow', 'primary', 'bolt', 'data-operation="start"') : ''}${['blocked', 'interrupted', 'paused'].includes(t.status) ? button('task-action', 'Resume workflow', 'primary', 'arrow', 'data-operation="resume"') : ''}${live ? button('task-action', 'Pause', 'secondary small', 'pause', 'data-operation="pause"') : ''}${!['completed', 'cancelled'].includes(t.status) ? button('confirm-cancel', 'Cancel', 'text small') : ''}<a class="btn text small" href="/api/tasks/${t.id}/export" download>${icon('download')}Export</a></div></div>${t.demo ? '<div class="demo-banner">' + icon('spark') + 'Demo mode. Harness responses and checks are simulated; no repository files are changed.</div>' : ''}<div class="task-layout"><div class="task-center">${t.error ? `<div class="error-panel">${icon('stop')}<div><strong>This workflow needs attention</strong><p>${e(t.error)}</p><small>Add context below, inspect the workspace, then resume when ready.</small></div></div>` : ''}${t.status === 'awaiting_plan' ? planGate(t) : ''}${t.status === 'awaiting_final' ? `<div class="approval-panel final-panel"><div class="approval-icon">${icon('check')}</div><div><span class="eyebrow">YOUR FINAL LOOK</span><h2>The specialists are done. Over to you.</h2><p>Verification passed and independent review is complete. Inspect the handoffs and diff before accepting.</p><div class="approval-actions">${button('task-action', 'Accept result', 'primary', 'check', 'data-operation="accept"')}${button('request-changes', 'Request changes', 'secondary')}</div></div></div>` : ''}<div class="detail-tabs" role="tablist">${[
+  return `<div class="task-heading"><button class="back-link" data-action="navigate" data-view="tasks">← All tasks</button><div class="task-title-row"><h1>${e(t.title)}</h1>${t.demo ? '<span class="demo-label large">SIMULATED DEMO</span>' : ''}</div><div class="task-subtitle">${badge(t.status)}<span>${e((t.repositories?.length ? t.repositories.map((r) => r.repository.name) : [t.repository.name]).join(' + '))}</span><span>·</span><span>${t.id.slice(0, 8)}</span><span>·</span><span>Created ${ago(t.createdAt).toLowerCase()}</span></div><div class="task-controls">${t.status === 'draft' ? button('task-action', 'Start workflow', 'primary', 'bolt', 'data-operation="start"') : ''}${['blocked', 'interrupted', 'paused'].includes(t.status) ? button('task-action', 'Resume workflow', 'primary', 'arrow', 'data-operation="resume"') : ''}${t.status === 'manual' ? button('task-action', 'Return to automation', 'primary', 'arrow', 'data-operation="return-control"') : ''}${live ? button('task-action', 'Pause', 'secondary small', 'pause', 'data-operation="pause"') : ''}${!['completed', 'cancelled'].includes(t.status) ? button('confirm-cancel', 'Cancel', 'text small') : ''}<a class="btn text small" href="/api/tasks/${t.id}/export" download>${icon('download')}Export</a></div></div>${t.demo ? '<div class="demo-banner">' + icon('spark') + 'Demo mode. Harness responses and checks are simulated; no repository files are changed.</div>' : ''}<div class="task-layout"><div class="task-center">${t.error ? `<div class="error-panel">${icon('stop')}<div><strong>This workflow needs attention</strong><p>${e(t.error)}</p><small>Add context below, inspect the workspace, then resume when ready.</small></div></div>` : ''}${terminalView(t)}${t.status === 'awaiting_plan' ? planGate(t) : ''}${t.status === 'awaiting_final' ? `<div class="approval-panel final-panel"><div class="approval-icon">${icon('check')}</div><div><span class="eyebrow">YOUR FINAL LOOK</span><h2>The specialists are done. Over to you.</h2><p>Verification passed and independent review is complete. Inspect the handoffs and diff before accepting.</p><div class="approval-actions">${button('task-action', 'Accept result', 'primary', 'check', 'data-operation="accept"')}${button('request-changes', 'Request changes', 'secondary')}</div></div></div>` : ''}<div class="detail-tabs" role="tablist">${[
     ['thread', 'Activity thread'],
     ['handoffs', 'Handoffs'],
     ['diff', 'Code changes'],
@@ -204,6 +230,32 @@ function taskView() {
       '',
     )}${t.chosenApproach ? `<section class="context-card approved-card"><div class="context-title">APPROVED APPROACH ${icon('check')}</div><strong>${e(t.chosenApproach.title)}</strong><p>${e(t.chosenApproach.description)}</p></section>` : ''}${t.description ? `<section class="context-card"><div class="context-title">ORIGINAL TASK ${icon('book')}</div><details><summary>View requirements</summary><div class="prose compact">${prose(t.description)}</div></details>${t.ticket ? `<div class="ticket-ref mono wrap">${e(t.ticket)}</div>` : ''}</section>` : ''}<div class="context-foot">${icon('eye')}You approve the approach.<br>You accept the final result.</div></aside></div>`;
 }
+function terminalView(t) {
+  if (t.demo || !t.workspace || ['completed', 'cancelled'].includes(t.status)) return '';
+  const active = t.attempts.filter((a) => a.status === 'running' && a.terminal);
+  const command = (terminal) =>
+    `<div class="terminal-command"><code>${e(terminal.attachCommand)}</code>${button('copy-terminal', 'Copy attach command', 'secondary small', 'code', `data-command="${e(terminal.attachCommand)}"`)}</div>`;
+  return `<section class="terminal-panel"><div class="context-title">LIVE TERMINALS ${icon('code')}</div>${
+    t.status === 'manual'
+      ? `<h2>You have control</h2><p>Automation is paused. ${t.manual?.active ? 'Attach to the shell below and use your preferred tools.' : 'The terminal is starting or has closed. Return control to continue.'}</p>${t.manual?.active ? command(t.manual) : ''}<p class="muted">Returning control closes this shell and reruns ${t.chosenApproach ? 'verification and independent review' : 'investigation and approach approval'}.</p>`
+      : `${active.length ? active.map((a) => `<strong>${e(a.harness)} · ${e(stageNames[a.stage])}</strong>${command(a.terminal)}`).join('') : '<p>The next agent run will appear here.</p>'}<p class="muted">Attach to watch the agent’s output. Use Take over to stop automation before making edits. Ctrl+B, then D detaches.</p><div class="inline-actions">${(t
+          .repositories?.length > 1
+          ? t.repositories
+          : [t]
+        )
+          .filter((r) => r.workspace && r.setupCompleted)
+          .map((r) =>
+            button(
+              'takeover',
+              `Take over · ${e(r.repository.name)}`,
+              'secondary small',
+              'code',
+              `data-repository-id="${e(r.repository.id)}"`,
+            ),
+          )
+          .join('')}</div>`
+  }</section>`;
+}
 function planGate(t) {
   const plan = t.attempts.findLast((a) => a.stage === 'plan' && a.handoff)?.handoff;
   return `<div class="approval-panel"><div class="gate-heading"><div class="approval-icon">${icon('git')}</div><div><span class="eyebrow">A DECISION FOR YOU</span><h2>Choose the way forward.</h2><p>The investigation is complete. Review the approaches before implementation starts.</p></div></div><form id="approve-form"><div class="approach-options">${(plan?.options ?? []).map((o, i) => `<label class="approach-option"><input type="radio" name="optionId" value="${e(o.id)}" ${i === 0 ? 'checked' : ''}><span><strong>${e(o.title)}${i === 0 ? '<em>Recommended</em>' : ''}</strong><span>${e(o.description)}</span><small>${e(o.tradeoffs)}</small></span></label>`).join('')}</div><label class="field-label" for="approval-note">Any additional direction? <span>Optional</span></label><input id="approval-note" class="input" placeholder="Constraints, preferences, things to keep in mind…" maxlength="10000"><div class="approval-actions"><button class="btn primary" type="submit">Approve & implement ${icon('arrow')}</button>${button('request-changes', 'Revise the proposal', 'text')}</div></form></div>`;
@@ -225,6 +277,8 @@ function threadView(t) {
     'cancelled',
     'accepted',
     'submission',
+    'manual',
+    'terminal',
   ]);
   const knownMessages = new Set(
     state.events
@@ -514,13 +568,42 @@ document.addEventListener('click', async (event) => {
   if (state.busy) return;
   const action = element.dataset.action;
   try {
+    if (action === 'board-lane') return focusBoard(element.dataset.lane);
+    if (action === 'task-layout') {
+      state.taskLayout = element.dataset.layout;
+      localStorage.setItem('relay-task-layout', state.taskLayout);
+      renderMain();
+      return;
+    }
+    if (action === 'copy-terminal') {
+      await navigator.clipboard.writeText(element.dataset.command);
+      toast('Attach command copied. Paste it in your terminal.');
+      return;
+    }
+    if (action === 'takeover') {
+      showModal(
+        'Take control of this workspace',
+        `<p class="modal-description">Relay will stop the active agent, then open a shell in this task’s worktree. Attach with the command shown on the task. You can run your preferred harness there. Return control when ready; Relay will rerun ${state.task.chosenApproach ? 'all checks and independent review' : 'investigation and approach approval'}.</p><p class="modal-description">Use Ctrl+B, then D to detach. Detaching keeps manual control; returning to automation closes the shell and its processes.</p><div class="modal-footer">${button('close-modal', 'Keep automation', 'text')}${button('takeover-confirm', 'Take control', 'primary', 'code', `data-repository-id="${e(element.dataset.repositoryId)}"`)}</div>`,
+      );
+      return;
+    }
+    if (action === 'takeover-confirm') {
+      await api(`/tasks/${state.selected}/takeover`, 'POST', {
+        repositoryId: element.dataset.repositoryId,
+      });
+      closeModal();
+      await refresh();
+      return;
+    }
     if (action === 'navigate') return await navigate(element.dataset.view);
     if (action === 'new-task') return createTaskModal();
     if (action === 'close-modal') return closeModal();
     if (action === 'open-task') return await openTask(element.dataset.id);
     if (action === 'filter') {
       state.filter = element.dataset.filter;
-      return renderMain();
+      renderMain();
+      focusBoard();
+      return;
     }
     if (action === 'tab') {
       state.tab = element.dataset.tab;
@@ -734,6 +817,7 @@ document.addEventListener('input', (event) => {
   if (event.target.id === 'task-search') {
     state.search = event.target.value;
     renderMain();
+    focusBoard();
   }
 });
 document.addEventListener('keydown', (event) => {
