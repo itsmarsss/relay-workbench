@@ -1,3 +1,7 @@
+import { createBackup, previewBackup, restoreBackup, backupPath } from './backups.js';
+import { lifecycleReport, cleanupWorktree } from './lifecycle.js';
+import { createReadStream } from 'node:fs';
+import { pipeline } from 'node:stream/promises';
 import { routingOutcomes } from './outcomes.js';
 import { snapshotDiff } from './review-comments.js';
 import { inbox, acknowledge } from './inbox.js';
@@ -5,7 +9,7 @@ import { uploadImage, readImage } from './attachments.js';
 import http from 'node:http';
 import { captureTerminal } from './terminal.js';
 import { workspaces, workspaceView } from './task-repositories.js';
-import { readFile, realpath } from 'node:fs/promises';
+import { readFile, realpath, rm, lstat } from 'node:fs/promises';
 import { resolve, extname, relative, isAbsolute } from 'node:path';
 import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { Store } from './store.js';
@@ -60,6 +64,29 @@ export function createApp({ directory, publicDirectory, engineOptions = {} }) {
   const token = randomBytes(32).toString('hex');
   const streams = new Set();
   const external = new Map();
+  const restorePreviews = new Map();
+  let maintenance = false,
+    mutations = 0;
+  function requireIdle() {
+    requireValue(
+      engine.running.size === 0 &&
+        engine.manualRuns.size === 0 &&
+        external.size === 0 &&
+        !store.all().some((t) => ['running', 'queued', 'manual'].includes(t.status)),
+      'Pause active workflows and submissions before maintenance',
+      409,
+    );
+  }
+  async function exclusive(operation) {
+    requireValue(!maintenance && mutations === 1, 'Wait for other writes before maintenance', 409);
+    requireIdle();
+    maintenance = true;
+    try {
+      return await operation();
+    } finally {
+      maintenance = false;
+    }
+  }
   const server = http.createServer(async (req, res) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('X-Frame-Options', 'DENY');
@@ -86,6 +113,9 @@ export function createApp({ directory, publicDirectory, engineOptions = {} }) {
       const url = new URL(req.url, origin);
       const path = url.pathname;
       if (!['GET', 'HEAD'].includes(req.method)) {
+        requireValue(!maintenance, 'Maintenance in progress; retry shortly', 409);
+        mutations++;
+        req.relayMutation = true;
         const supplied = req.headers['x-relay-token'];
         requireValue(
           typeof supplied === 'string' &&
@@ -96,10 +126,104 @@ export function createApp({ directory, publicDirectory, engineOptions = {} }) {
         );
         requireValue(
           (path === '/api/attachments' && req.method === 'POST') ||
+            (path === '/api/backups/preview' &&
+              req.method === 'POST' &&
+              req.headers['content-type'] === 'application/gzip') ||
             req.headers['content-type']?.startsWith('application/json'),
           'JSON content type required',
           415,
         );
+      }
+      if (path === '/api/storage' && req.method === 'GET')
+        return json(res, 200, await lifecycleReport(store));
+      if (path === '/api/storage/cleanup' && req.method === 'POST') {
+        const data = await body(req);
+        return json(res, 200, await exclusive(() => cleanupWorktree(store, data)));
+      }
+      if (path === '/api/backups' && req.method === 'POST')
+        return json(res, 201, await exclusive(() => createBackup(store)));
+      if (path === '/api/backups/preview' && req.method === 'POST') {
+        requireValue(
+          req.headers['content-type'] === 'application/gzip',
+          'Upload a .relay.gz backup',
+          415,
+        );
+        requireValue(
+          restorePreviews.size < 3,
+          'Close an existing restore preview before uploading another',
+          409,
+        );
+        let preview;
+        try {
+          preview = await previewBackup(req, directory);
+        } catch (error) {
+          throw new InputError(`Invalid backup: ${error.message}`, error.status || 400);
+        }
+        preview.timer = setTimeout(
+          () => {
+            restorePreviews.delete(preview.id);
+            rm(preview.directory, { recursive: true, force: true }).catch(() => {});
+          },
+          15 * 60 * 1000,
+        );
+        preview.timer.unref();
+        restorePreviews.set(preview.id, preview);
+        return json(res, 200, { id: preview.id, ...preview.summary });
+      }
+      if (path === '/api/backups/discard' && req.method === 'POST') {
+        const preview = restorePreviews.get((await body(req)).previewId);
+        if (preview) {
+          clearTimeout(preview.timer);
+          restorePreviews.delete(preview.id);
+          await rm(preview.directory, { recursive: true, force: true });
+        }
+        return json(res, 200, { ok: true });
+      }
+      if (path === '/api/backups/restore' && req.method === 'POST') {
+        const data = await body(req),
+          preview = restorePreviews.get(data.previewId);
+        requireValue(preview, 'Restore preview expired; upload again', 409);
+        requireValue(data.confirm === true, 'Confirm replacement after reviewing the backup', 409);
+        return json(
+          res,
+          200,
+          await exclusive(async () => {
+            const safetyBackup = await createBackup(store);
+            clearTimeout(preview.timer);
+            restorePreviews.delete(preview.id);
+            const restored = await restoreBackup(store, preview);
+            engine.workspaceReservations.clear();
+            for (const task of store.all())
+              for (const entry of workspaces(task))
+                if (
+                  entry.repository.strategy === 'attach' &&
+                  entry.workspaceRoot &&
+                  !['completed', 'cancelled'].includes(task.status)
+                )
+                  engine.workspaceReservations.set(entry.workspaceRoot, task.id);
+            store.notify({ seq: 0, taskId: '', type: 'restored' });
+            return { ...restored, safetyBackup };
+          }),
+        );
+      }
+      const archive = path.match(/^\/api\/backups\/([a-f0-9-]{36})$/);
+      if (archive && req.method === 'GET') {
+        const file = backupPath(directory, archive[1]);
+        let stat;
+        try {
+          stat = await lstat(file);
+        } catch (error) {
+          if (error.code === 'ENOENT') throw new InputError('Backup not found', 404);
+          throw error;
+        }
+        requireValue(stat.isFile() && !stat.isSymbolicLink(), 'Invalid backup file', 403);
+        res.writeHead(200, {
+          'Content-Type': 'application/gzip',
+          'Content-Length': stat.size,
+          'Content-Disposition': `attachment; filename="${archive[1]}.relay.gz"`,
+        });
+        await pipeline(createReadStream(file), res);
+        return;
       }
       if (path === '/api/attachments' && req.method === 'POST')
         return json(res, 201, await uploadImage(req, directory));
@@ -473,9 +597,16 @@ export function createApp({ directory, publicDirectory, engineOptions = {} }) {
       }
       const status = error.status || 500;
       json(res, status, { error: error.message || 'Unexpected server error' });
+    } finally {
+      if (req.relayMutation) mutations--;
     }
   });
   async function close() {
+    for (const preview of restorePreviews.values()) {
+      clearTimeout(preview.timer);
+      await rm(preview.directory, { recursive: true, force: true });
+    }
+    restorePreviews.clear();
     for (const stream of streams) stream.end();
     for (const controller of external.values()) controller.abort();
     await engine.stop();

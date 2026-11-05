@@ -60,7 +60,10 @@ export function routingOutcomes(tasks, config, repositoryId = '') {
         continue;
       }
       let success = attempt.status === 'complete' && attempt.handoff?.verdict === 'complete';
-      if (success && attempt.stage === 'review') success = !attempt.handoff.findings?.length;
+      if (attempt.stage === 'review')
+        success =
+          attempt.status === 'complete' &&
+          ['complete', 'changes_requested'].includes(attempt.handoff?.verdict);
       if (success && attempt.stage === 'implement') {
         let next = task.attempts.slice(index + 1);
         const stop = next.findIndex(
@@ -136,6 +139,6 @@ export function routingOutcomes(tasks, config, repositoryId = '') {
     minimumSamples: 3,
     minimumTasks: 2,
     notes:
-      'Observational evidence, not a controlled comparison. Difficulty, task mix, reviewer strictness, configuration and provider defaults can affect results. Implementation success requires passing checks and clean review before the next implementation. Interrupted attempts are excluded. Unknown historical models are never recommended. No routing changes are automatic.',
+      'Observational evidence, not a controlled comparison. Difficulty, task mix, reviewer strictness, configuration and provider defaults can affect results. Implementation success requires passing checks and clean review before the next implementation. Interrupted attempts are excluded. Review success counts usable structured reviews, including actionable findings; finding defects does not penalize a reviewer. Unknown historical models are never recommended. No routing changes are automatic.',
   };
 }

@@ -3831,3 +3831,24 @@ textarea::placeholder,
   gap: 1rem;
   margin: 1rem 0;
 }
+
+.diff-code .diff-line {
+  display: inline-block;
+  min-height: 1.5em;
+  position: relative;
+}
+.diff-code .diff-line.has-anchor {
+  padding-left: 7rem;
+}
+.diff-code .diff-line-number {
+  position: absolute;
+  left: 2rem;
+  width: 4rem;
+  text-align: right;
+  font: inherit;
+  color: #52594b;
+  user-select: none;
+}
+.diff-code .diff-comment-button {
+  left: 0.3rem;
+}

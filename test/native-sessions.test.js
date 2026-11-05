@@ -28,6 +28,7 @@ createInterface({input:process.stdin}).on('line',line=>{
  const method=r.method||r.type;
  const result=method==='thread/resume'?{thread:{id:'session-fixture'}}:method==='turn/start'?{turn:{id:'turn-fixture'}}:{};
  if(method==='initialized') return;
+ if(method==='turn/start') emit({method:'item/started',params:{item:{type:'commandExecution',command:'example-check'}}});
  if(${JSON.stringify(harness)}==='codex') emit({id:r.id,result}); else emit({id:r.id,type:'response',success:true,data:{disposition:'queued'}});
  if(method==='turn/steer'||method==='steer') setTimeout(()=>{
    if(${JSON.stringify(harness)}==='codex') {
@@ -42,6 +43,7 @@ createInterface({input:process.stdin}).on('line',line=>{
     config.harnesses[harness].command = binary;
     let session;
     let steering;
+    const activities = [];
     const result = await executeHarness({
       task,
       stage: 'investigate',
@@ -50,7 +52,9 @@ createInterface({input:process.stdin}).on('line',line=>{
       directory,
       attemptId: randomUUID(),
       sessionId: 'session-fixture',
-      onEvent() {},
+      onEvent(event) {
+        activities.push(event);
+      },
       onSession: (id) => (session = id),
       onControl: (control) => {
         if (control) steering = control(randomUUID(), 'Cover boundary values');
@@ -60,6 +64,8 @@ createInterface({input:process.stdin}).on('line',line=>{
     await steering;
     assert.equal(session, 'session-fixture');
     assert.equal(result.summary, handoff.summary);
+    if (harness === 'codex')
+      assert.ok(activities.some((e) => e.summary === 'Running: example-check'));
     const requests = (await readFile(recording, 'utf8'))
       .split('\n')
       .filter(Boolean)
@@ -80,6 +86,7 @@ createInterface({input:process.stdin}).on('line',line=>{
   });
 
 test('interactive native resume uses exact session and preserves approval limits', () => {
+  assert.throws(() => resumeInvocation('codex', { command: 'codex' }, '--ephemeral'), /identifier/);
   for (const harness of ['codex', 'claude', 'pi']) {
     const invocation = resumeInvocation(
       harness,

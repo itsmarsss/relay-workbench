@@ -32,3 +32,45 @@ test('attention receipts persist and new decisions become unread', async () => {
     await rm(dir, { recursive: true, force: true });
   }
 });
+
+test('notifications require opt-in, deduplicate decisions and skip seen items', async () => {
+  const { notifyInbox } = await import('../public/inbox.js');
+  const original = {
+    window: globalThis.window,
+    Notification: globalThis.Notification,
+    localStorage: globalThis.localStorage,
+  };
+  const values = new Map(),
+    sent = [];
+  class Notification {
+    static permission = 'granted';
+    constructor(title, options) {
+      sent.push({ title, options });
+    }
+  }
+  globalThis.window = { Notification };
+  globalThis.Notification = Notification;
+  globalThis.localStorage = {
+    getItem: (key) => values.get(key) ?? null,
+    setItem: (key, value) => values.set(key, value),
+  };
+  try {
+    const item = { key: 'one', title: 'Review work', action: 'Choose an approach', seen: false };
+    notifyInbox([item]);
+    assert.equal(sent.length, 0);
+    values.set('relay-notifications', 'enabled');
+    notifyInbox([item]);
+    notifyInbox([item]);
+    assert.equal(sent.length, 1);
+    notifyInbox([{ ...item, key: 'seen', seen: true }]);
+    assert.equal(sent.length, 1);
+    Notification.permission = 'denied';
+    notifyInbox([{ ...item, key: 'denied' }]);
+    assert.equal(sent.length, 1);
+  } finally {
+    for (const [key, value] of Object.entries(original)) {
+      if (value === undefined) delete globalThis[key];
+      else globalThis[key] = value;
+    }
+  }
+});

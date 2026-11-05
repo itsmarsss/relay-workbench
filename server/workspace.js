@@ -6,10 +6,14 @@ import { requireValue } from './domain.js';
 import { workspaces, workspaceView } from './task-repositories.js';
 
 export async function git(cwd, args, options = {}) {
-  const result = await runProcess('git', ['-C', cwd, ...args], { timeout: 120000, ...options });
+  const { raw = false, ...processOptions } = options;
+  const result = await runProcess('git', ['-C', cwd, ...args], {
+    timeout: 120000,
+    ...processOptions,
+  });
   if (result.code !== 0)
     throw new Error(`git ${args[0]} failed: ${result.stderr.trim() || result.stdout.trim()}`);
-  return result.stdout.trimEnd();
+  return raw ? result.stdout : result.stdout.trimEnd();
 }
 export async function inspectRepository(profile) {
   requireValue(isAbsolute(profile.path), 'Repository path must be absolute');
@@ -130,8 +134,8 @@ export async function fingerprint(task) {
   const root = task.workspaceRoot;
   const hash = createHash('sha256');
   hash.update(await git(root, ['rev-parse', 'HEAD']));
-  hash.update(await git(root, ['diff', '--binary', 'HEAD', '--']));
-  hash.update(await git(root, ['diff', '--cached', '--binary', '--']));
+  hash.update(await git(root, ['diff', '--binary', 'HEAD', '--'], { raw: true }));
+  hash.update(await git(root, ['diff', '--cached', '--binary', '--'], { raw: true }));
   const names = await git(root, ['ls-files', '--others', '--exclude-standard', '-z']);
   for (const name of names.split('\0').filter(Boolean).sort()) {
     const path = join(root, name);
@@ -177,6 +181,7 @@ export async function diff(task) {
       ],
       {
         maxBytes: 4 * 1024 * 1024,
+        raw: true,
       },
     ),
     git(task.workspaceRoot, ['diff', '--stat', task.baseCommit, '--']),
