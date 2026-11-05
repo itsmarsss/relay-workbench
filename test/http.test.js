@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { createApp } from '../server/app.js';
 import { DEFAULT_CONFIG } from '../server/domain.js';
-import { runProcess } from '../server/process.js';
+import { runProcess, executableExists } from '../server/process.js';
 import { git } from '../server/workspace.js';
 import { demoHandoff } from '../server/harness.js';
 import http from 'node:http';
@@ -323,3 +323,86 @@ test('saved transcripts expose historical assistant text to the activity thread'
   assert.deepEqual(result.data.at(-1).agentMessages, ['Located the old failure.']);
   assert.equal(result.data.at(-1).type, 'transcript');
 });
+
+test(
+  'terminal preview is scoped to a live task terminal and survives terminal exit',
+  { skip: !(await executableExists('tmux')) },
+  async (t) => {
+    const f = await fixture(t);
+    const task = f.app.engine.create({ title: 'Preview fixture', demo: true });
+    assert.equal((await f.request(`/api/tasks/${task.id}/terminal-preview`)).status, 400);
+    assert.equal(
+      (
+        await f.request(
+          `/api/tasks/${task.id}/terminal-preview?attemptId=unknown&socket=/tmp/other`,
+        )
+      ).data.available,
+      false,
+    );
+    const controller = new AbortController();
+    let terminal;
+    const running = runProcess(
+      process.execPath,
+      [
+        '-e',
+        'console.log("preview sentinel <script>literal</script>"); setInterval(() => {}, 1000)',
+      ],
+      {
+        cwd: f.directory,
+        signal: controller.signal,
+        terminal: { name: 'http-preview' },
+        onTerminal: (info) => {
+          terminal = info;
+        },
+      },
+    );
+    const settled = running.catch(() => {});
+    t.after(async () => {
+      controller.abort();
+      await settled;
+    });
+    for (let i = 0; !terminal && i < 200; i++) await new Promise((r) => setTimeout(r, 20));
+    assert.ok(terminal);
+    task.status = 'running';
+    task.attempts = [{ id: 'preview-attempt', status: 'running', terminal }];
+    f.app.store.save(task);
+    let preview;
+    for (let i = 0; i < 100; i++) {
+      preview = await f.request(`/api/tasks/${task.id}/terminal-preview?attemptId=preview-attempt`);
+      if (preview.data.output.includes('preview sentinel')) break;
+      await new Promise((r) => setTimeout(r, 20));
+    }
+    assert.equal(preview.data.available, true);
+    assert.match(preview.data.output, /preview sentinel <script>literal<\/script>/);
+    const other = f.app.engine.create({ title: 'Other task', demo: true });
+    assert.equal(
+      (await f.request(`/api/tasks/${other.id}/terminal-preview?attemptId=preview-attempt`)).data
+        .available,
+      false,
+    );
+    task.status = 'manual';
+    task.manual = { ...terminal, active: true };
+    f.app.store.save(task);
+    assert.equal(
+      (await f.request(`/api/tasks/${task.id}/terminal-preview?attemptId=manual`)).data.available,
+      true,
+    );
+    assert.equal(
+      (await f.request(`/api/tasks/${task.id}/terminal-preview?attemptId=preview-attempt`)).data
+        .available,
+      false,
+    );
+    controller.abort();
+    await settled;
+    assert.equal(
+      (await f.request(`/api/tasks/${task.id}/terminal-preview?attemptId=manual`)).data.available,
+      false,
+    );
+    task.status = 'completed';
+    f.app.store.save(task);
+    assert.equal(
+      (await f.request(`/api/tasks/${task.id}/terminal-preview?attemptId=manual`)).data.available,
+      false,
+    );
+  },
+);

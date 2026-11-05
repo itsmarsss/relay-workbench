@@ -1,4 +1,5 @@
 import http from 'node:http';
+import { captureTerminal } from './terminal.js';
 import { workspaces, workspaceView } from './task-repositories.js';
 import { readFile, realpath } from 'node:fs/promises';
 import { resolve, extname, relative, isAbsolute } from 'node:path';
@@ -209,6 +210,26 @@ export function createApp({ directory, publicDirectory, engineOptions = {} }) {
               return messages.length ? { ...event, agentMessages: messages } : event;
             }),
           );
+        }
+        if (operation === 'terminal-preview' && req.method === 'GET') {
+          const attemptId = url.searchParams.get('attemptId');
+          requireValue(
+            typeof attemptId === 'string' && attemptId.length <= 100,
+            'Select a terminal',
+          );
+          const attempt = task.attempts.find((a) => a.id === attemptId);
+          const terminal =
+            attemptId === 'manual'
+              ? task.status === 'manual' && task.manual?.active && task.manual
+              : task.status === 'running' && attempt?.status === 'running' && attempt.terminal;
+          if (!terminal)
+            return json(res, 200, {
+              available: false,
+              output: '',
+              message:
+                'No live terminal for this selection. Retained output remains in the activity thread.',
+            });
+          return json(res, 200, await captureTerminal(terminal));
         }
         if (operation === 'diff' && req.method === 'GET') return json(res, 200, await diff(task));
         if (operation === 'export' && req.method === 'GET') {

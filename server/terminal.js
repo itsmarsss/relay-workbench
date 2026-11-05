@@ -1,3 +1,5 @@
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import { mkdtemp, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -40,4 +42,27 @@ export async function prepareTerminal(command, args, options) {
     },
     cleanup: () => rm(directory, { recursive: true, force: true }),
   };
+}
+
+const execute = promisify(execFile);
+export async function captureTerminal(terminal) {
+  try {
+    const { stdout } = await execute(
+      'tmux',
+      ['-S', terminal.socket, 'capture-pane', '-p', '-J', '-S', '-200', '-t', terminal.session],
+      { timeout: 1500, maxBuffer: 262144, encoding: 'utf8' },
+    );
+    // Keep printable text, tabs and newlines; browser rendering never interprets terminal escapes.
+    const output = stdout
+      .replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, '')
+      .replace(/[\x00-\x08\x0b-\x1f\x7f]/g, '')
+      .trimEnd();
+    return { available: true, output, capturedAt: new Date().toISOString() };
+  } catch {
+    return {
+      available: false,
+      output: '',
+      message: 'Terminal is no longer available. Retained output remains in the activity thread.',
+    };
+  }
 }
