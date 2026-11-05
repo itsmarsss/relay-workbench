@@ -1,3 +1,4 @@
+import { inboxPage, notifyInbox } from './inbox.js';
 import { installImageUploads, openImageViewer } from './image-uploads.js';
 import { tasksPage } from './tasks.js';
 import { taskForm, syncTaskForm, readTaskForm } from './task-editor.js';
@@ -18,6 +19,7 @@ import {
 } from './ui.js';
 
 const state = {
+  inbox: [],
   config: null,
   tasks: [],
   harnesses: [],
@@ -68,7 +70,7 @@ function nav(view, label, name, extra = '') {
   return `<button class="nav-item ${state.view === view ? 'active' : ''}" data-action="navigate" data-view="${view}">${icon(name)}<span>${label}</span>${extra}</button>`;
 }
 function shell() {
-  app.innerHTML = `<aside class="sidebar"><a class="brand" href="#" data-action="navigate" data-view="overview"><span class="brand-mark">${icon('relay')}</span>relay<span class="brand-caption">WORKBENCH</span></a><div class="workspace-label"><span class="workspace-avatar">Y</span><div>Your workspace<small>Local · Personal</small></div><span class="local-dot"></span></div><div class="nav-label">WORKSPACE</div><nav>${nav('overview', 'Overview', 'grid')}${nav('tasks', 'All tasks', 'layers', `<span class="nav-count">${state.tasks.length}</span>`)}${nav('repositories', 'Repositories', 'folder')}${nav('harnesses', 'Harnesses', 'bolt')}</nav><div class="sidebar-bottom"><div class="sidebar-note">${icon('spark')}<p>Different minds.<br>One shared workspace.</p></div>${nav('settings', 'Settings', 'settings')}<div class="connection"><span class="local-dot ${state.connected ? '' : 'offline'}"></span><span>${state.connected ? 'Connected locally' : 'Reconnecting…'}</span><small>v0.1</small></div></div></aside><div class="main-shell"><header class="topbar"><div class="breadcrumb">Workspace ${icon('chevron')} <span>${state.view === 'task' ? 'Task workspace' : state.view.charAt(0).toUpperCase() + state.view.slice(1)}</span></div><div class="top-actions"><span class="keyboard-hint">N <span>new task</span></span>${button('new-task', 'New task', 'primary small', 'plus')}</div></header><main id="main"></main></div>`;
+  app.innerHTML = `<aside class="sidebar"><a class="brand" href="#" data-action="navigate" data-view="overview"><span class="brand-mark">${icon('relay')}</span>relay<span class="brand-caption">WORKBENCH</span></a><div class="workspace-label"><span class="workspace-avatar">Y</span><div>Your workspace<small>Local · Personal</small></div><span class="local-dot"></span></div><div class="nav-label">WORKSPACE</div><nav>${nav('overview', 'Overview', 'grid')}${nav('tasks', 'All tasks', 'layers', `<span class="nav-count">${state.tasks.length}</span>`)}${nav('inbox', 'Approval inbox', 'eye')}${nav('repositories', 'Repositories', 'folder')}${nav('harnesses', 'Harnesses', 'bolt')}</nav><div class="sidebar-bottom"><div class="sidebar-note">${icon('spark')}<p>Different minds.<br>One shared workspace.</p></div>${nav('settings', 'Settings', 'settings')}<div class="connection"><span class="local-dot ${state.connected ? '' : 'offline'}"></span><span>${state.connected ? 'Connected locally' : 'Reconnecting…'}</span><small>v0.1</small></div></div></aside><div class="main-shell"><header class="topbar"><div class="breadcrumb">Workspace ${icon('chevron')} <span>${state.view === 'task' ? 'Task workspace' : state.view.charAt(0).toUpperCase() + state.view.slice(1)}</span></div><div class="top-actions"><span class="keyboard-hint">N <span>new task</span></span>${button('new-task', 'New task', 'primary small', 'plus')}</div></header><main id="main"></main></div>`;
   renderMain();
 }
 function renderMain() {
@@ -92,17 +94,19 @@ function renderMain() {
   );
   const selectedApproach = main.querySelector('input[name="optionId"]:checked')?.value;
   main.innerHTML =
-    state.view === 'overview'
-      ? overview()
-      : state.view === 'tasks'
-        ? tasksView()
-        : state.view === 'task'
-          ? taskView()
-          : state.view === 'repositories'
-            ? repositoriesView()
-            : state.view === 'harnesses'
-              ? harnessesView()
-              : settingsView();
+    state.view === 'inbox'
+      ? inboxPage(state.inbox)
+      : state.view === 'overview'
+        ? overview()
+        : state.view === 'tasks'
+          ? tasksView()
+          : state.view === 'task'
+            ? taskView()
+            : state.view === 'repositories'
+              ? repositoriesView()
+              : state.view === 'harnesses'
+                ? harnessesView()
+                : settingsView();
   for (const i of inputs) {
     const element = document.getElementById(i.id);
     if (element && !['checkbox', 'radio'].includes(element.type)) {
@@ -494,7 +498,8 @@ function repositoryModal(id) {
   );
 }
 async function refresh() {
-  state.tasks = await api('/tasks');
+  [state.tasks, state.inbox] = await Promise.all([api('/tasks'), api('/inbox')]);
+  notifyInbox(state.inbox);
   if (state.selected) {
     const selected = state.selected;
     const task = await api(`/tasks/${selected}`);
@@ -575,6 +580,28 @@ document.addEventListener('click', async (event) => {
   if (state.busy) return;
   const action = element.dataset.action;
   try {
+    if (action === 'enable-notifications') {
+      if (!('Notification' in window))
+        throw new Error('Desktop notifications are unavailable in this browser.');
+      const permission = await Notification.requestPermission();
+      localStorage.setItem(
+        'relay-notifications',
+        permission === 'granted' ? 'enabled' : 'disabled',
+      );
+      toast(
+        permission === 'granted'
+          ? 'Notifications enabled while Relay is open.'
+          : 'Notifications were not enabled.',
+      );
+      notifyInbox(state.inbox);
+      return;
+    }
+    if (action === 'inbox-open' || action === 'inbox-seen') {
+      await api('/inbox/seen', 'POST', { key: element.dataset.key });
+      await refresh();
+      if (action === 'inbox-open') await openTask(element.dataset.id);
+      return;
+    }
     if (action === 'board-lane') return focusBoard(element.dataset.lane);
     if (action === 'task-layout') {
       state.taskLayout = element.dataset.layout;
@@ -927,7 +954,9 @@ window.addEventListener('popstate', () => {
   const operation = hash.startsWith('task/')
     ? openTask(hash.slice(5), false)
     : navigate(
-        ['tasks', 'repositories', 'harnesses', 'settings'].includes(hash) ? hash : 'overview',
+        ['tasks', 'inbox', 'repositories', 'harnesses', 'settings'].includes(hash)
+          ? hash
+          : 'overview',
         false,
       );
   operation.catch((error) => toast(error.message, true));
@@ -962,11 +991,16 @@ async function boot() {
     const hash = location.hash.slice(1);
     if (hash.startsWith('task/')) await openTask(hash.slice(5), false);
     else {
-      state.view = ['overview', 'tasks', 'repositories', 'harnesses', 'settings'].includes(hash)
+      state.view = ['overview', 'tasks', 'inbox', 'repositories', 'harnesses', 'settings'].includes(
+        hash,
+      )
         ? hash
         : 'overview';
       shell();
     }
+    state.inbox = await api('/inbox');
+    if (state.view === 'inbox') renderMain();
+    notifyInbox(state.inbox);
     connect();
     setInterval(() => {
       if (state.view === 'task' && !state.busy) refresh().catch(() => {});

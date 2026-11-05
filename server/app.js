@@ -1,3 +1,4 @@
+import { inbox, acknowledge } from './inbox.js';
 import { uploadImage, readImage } from './attachments.js';
 import http from 'node:http';
 import { captureTerminal } from './terminal.js';
@@ -113,6 +114,15 @@ export function createApp({ directory, publicDirectory, engineOptions = {} }) {
       }
       if (path === '/api/bootstrap' && req.method === 'GET')
         return json(res, 200, { token, config: store.config, version: '0.1.0' });
+      if (path === '/api/inbox' && req.method === 'GET') return json(res, 200, inbox(store));
+      if (path === '/api/inbox/seen' && req.method === 'POST') {
+        requireValue(
+          acknowledge(store, (await body(req)).key),
+          'Attention item changed; refresh the inbox',
+          409,
+        );
+        return json(res, 200, { ok: true });
+      }
       if (path === '/api/health' && req.method === 'GET')
         return json(res, 200, { ok: true, running: engine.running.size, version: '0.1.0' });
       if (path === '/api/harnesses' && req.method === 'GET') {
