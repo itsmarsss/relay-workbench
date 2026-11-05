@@ -1,10 +1,12 @@
 import { attachmentContext } from './attachments.js';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
+import { fileURLToPath } from 'node:url';
+import { mkdir, writeFile, rename } from 'node:fs/promises';
 import { join } from 'node:path';
 import { HANDOFF_SCHEMA, parseHandoff, validateHandoff } from './domain.js';
 import { runProcess, executableExists } from './process.js';
 
-export function buildInvocation(id, config, schemaPath, stage) {
+export function buildInvocation(id, config, schemaPath, stage, sessionId) {
   const model = config.model ? ['--model', config.model] : [];
   const writable = stage === 'implement';
   if (id === 'codex')
@@ -38,6 +40,7 @@ export function buildInvocation(id, config, schemaPath, stage) {
         '--permission-prompts',
         'none',
         ...model,
+        ...(sessionId ? ['--resume', sessionId] : []),
       ],
     };
   if (id === 'pi')
@@ -47,7 +50,7 @@ export function buildInvocation(id, config, schemaPath, stage) {
         '--print',
         '--mode',
         'json',
-        '--no-session',
+        ...(sessionId ? ['--session-id', sessionId] : ['--no-session']),
         '--no-extensions',
         '--no-mcp',
         '--tools',
@@ -74,6 +77,9 @@ export function decodeEvent(id, line) {
   } catch {
     return { activity: line.slice(0, 1200), details: line, kind: 'output' };
   }
+  if (event.type === 'relay.activity')
+    return { activity: event.summary, details: event.details ?? '', kind: 'tool' };
+  if (event.type === 'relay.error') return { error: event.error };
   if (id === 'codex') {
     if (event.type === 'item.completed' && event.item?.type === 'agent_message')
       return { final: event.item.text, ...messageActivity(event.item.text) };
@@ -189,6 +195,9 @@ export async function executeHarness({
   signal,
   onEvent,
   onTerminal,
+  onSession = () => {},
+  onControl = () => {},
+  sessionId,
 }) {
   const artifactDirectory = join(directory, 'artifacts', task.id, attemptId);
   await mkdir(artifactDirectory, { recursive: true, mode: 0o700 });
@@ -199,7 +208,51 @@ export async function executeHarness({
   );
   await writeFile(schemaPath, JSON.stringify(HANDOFF_SCHEMA));
   await writeFile(join(artifactDirectory, 'prompt.txt'), prompt, { mode: 0o600 });
-  const invocation = buildInvocation(harness, config.harnesses[harness], schemaPath, stage);
+  let invocation = buildInvocation(
+    harness,
+    config.harnesses[harness],
+    schemaPath,
+    stage,
+    sessionId,
+  );
+  const native = !task.demo && ['codex', 'pi'].includes(harness);
+  const deliveries = new Map();
+  let controlDirectory;
+  if (native) {
+    controlDirectory = join(artifactDirectory, 'control');
+    await mkdir(controlDirectory, { recursive: true, mode: 0o700 });
+    sessionId ||= harness === 'pi' ? randomUUID() : undefined;
+    const args =
+      harness === 'codex'
+        ? ['app-server', '--listen', 'stdio://']
+        : invocation.args.filter((a) => !['--print', 'json', '--no-session'].includes(a));
+    if (harness === 'pi') {
+      args.splice(args.indexOf('--mode') + 1, 0, 'rpc');
+      if (!args.includes('--session-id')) args.push('--session-id', sessionId);
+    }
+    const specPath = join(artifactDirectory, 'native.json');
+    await writeFile(
+      specPath,
+      JSON.stringify({
+        harness,
+        command: invocation.command,
+        args,
+        cwd: task.workspace,
+        prompt,
+        schema: HANDOFF_SCHEMA,
+        writable: stage === 'implement',
+        model: config.harnesses[harness].model,
+        sessionId,
+        controlDirectory,
+      }),
+      { mode: 0o600 },
+    );
+    invocation = {
+      command: process.execPath,
+      args: [fileURLToPath(new URL('./native-worker.js', import.meta.url)), specPath],
+    };
+  }
+
   let final, harnessError;
   const useTerminal = await executableExists('tmux');
   if (!useTerminal)
@@ -207,30 +260,79 @@ export async function executeHarness({
       type: 'activity',
       summary: 'tmux is unavailable. Agent output remains available in the activity thread.',
     });
-  const result = await runProcess(invocation.command, invocation.args, {
-    cwd: task.workspace,
-    input: prompt,
-    terminal: useTerminal
-      ? { name: `${task.id.slice(0, 8)}-${attemptId.slice(0, 8)}-${harness}`, harness }
-      : null,
-    onTerminal,
-    signal,
-    timeout: config.timeoutMinutes * 60000,
-    onLine(line, stream) {
-      onEvent({ type: 'transcript', stream, text: line.slice(0, 40000) });
-      if (stream !== 'stdout') return;
-      const decoded = decodeEvent(harness, line);
-      if (decoded.final !== undefined) final = decoded.final;
-      if (decoded.error) harnessError = decoded.error;
-      for (const activity of decoded.activities ?? (decoded.activity ? [decoded] : []))
-        onEvent({
-          type: 'activity',
-          kind: activity.kind ?? 'tool',
-          summary: activity.activity.slice(0, 1200),
-          details: (activity.details ?? '').slice(0, 40000),
-        });
-    },
-  });
+  let result;
+  try {
+    result = await runProcess(invocation.command, invocation.args, {
+      cwd: task.workspace,
+      input: prompt,
+      terminal: useTerminal
+        ? { name: `${task.id.slice(0, 8)}-${attemptId.slice(0, 8)}-${harness}`, harness }
+        : null,
+      onTerminal,
+      signal,
+      timeout: config.timeoutMinutes * 60000,
+      onLine(line, stream) {
+        onEvent({ type: 'transcript', stream, text: line.slice(0, 40000) });
+        if (stream !== 'stdout') return;
+        let event;
+        try {
+          event = JSON.parse(line);
+        } catch {}
+        const nativeId =
+          event?.type === 'relay.session'
+            ? event.sessionId
+            : harness === 'codex' && event?.type === 'thread.started'
+              ? event.thread_id
+              : harness === 'claude' && event?.type === 'system' && event.subtype === 'init'
+                ? event.session_id
+                : null;
+        if (nativeId) onSession(nativeId);
+        if (event?.type === 'relay.ready')
+          onControl(async (id, message) => {
+            return new Promise((resolve, reject) => {
+              const timer = setTimeout(() => {
+                deliveries.delete(id);
+                reject(new Error('Steering was not acknowledged; direction remains pending'));
+              }, 12000);
+              deliveries.set(id, {
+                resolve: (value) => {
+                  clearTimeout(timer);
+                  resolve(value);
+                },
+                reject: (error) => {
+                  clearTimeout(timer);
+                  reject(error);
+                },
+              });
+              writeFile(join(controlDirectory, `${id}.tmp`), JSON.stringify({ id, message }), {
+                mode: 0o600,
+                flag: 'wx',
+              }).then(() => rename(join(controlDirectory, `${id}.tmp`), join(controlDirectory, `${id}.json`))).catch(error => { const call=deliveries.get(id); deliveries.delete(id); call?.reject(error); });
+            });
+          });
+        if (event?.type === 'relay.delivery') {
+          const call = deliveries.get(event.id);
+          deliveries.delete(event.id);
+          if (event.delivery === 'accepted') call?.resolve();
+          else call?.reject(new Error(event.error));
+        }
+        const decoded = decodeEvent(harness, line);
+        if (decoded.final !== undefined) final = decoded.final;
+        if (decoded.error) harnessError = decoded.error;
+        for (const activity of decoded.activities ?? (decoded.activity ? [decoded] : []))
+          onEvent({
+            type: 'activity',
+            kind: activity.kind ?? 'tool',
+            summary: activity.activity.slice(0, 1200),
+            details: (activity.details ?? '').slice(0, 40000),
+          });
+      },
+    });
+  } finally {
+    onControl(null);
+    for (const call of deliveries.values())
+      call.reject(new Error('Session ended before direction was acknowledged'));
+  }
   await writeFile(join(artifactDirectory, 'stdout.jsonl'), result.stdout, { mode: 0o600 });
   await writeFile(join(artifactDirectory, 'stderr.txt'), result.stderr, { mode: 0o600 });
   if (result.code !== 0 || harnessError)
@@ -296,4 +398,44 @@ export function demoHandoff(task, stage) {
       'Simulated review checked the intended behavior, boundary cases and regression coverage. No real diff was reviewed.';
   }
   return h;
+}
+
+export function resumeInvocation(harness, config, sessionId, writable = false) {
+  const model = config.model ? ['--model', config.model] : [];
+  if (harness === 'codex')
+    return {
+      command: config.command,
+      args: [
+        'resume',
+        sessionId,
+        '--sandbox',
+        writable ? 'workspace-write' : 'read-only',
+        ...model,
+      ],
+    };
+  if (harness === 'claude')
+    return {
+      command: config.command,
+      args: [
+        '--resume',
+        sessionId,
+        '--permission-mode',
+        writable ? 'acceptEdits' : 'plan',
+        ...model,
+      ],
+    };
+  if (harness === 'pi')
+    return {
+      command: config.command,
+      args: [
+        '--session-id',
+        sessionId,
+        '--no-extensions',
+        '--no-mcp',
+        '--tools',
+        writable ? 'read,bash,edit,write,grep,find,ls' : 'read,grep,find,ls',
+        ...model,
+      ],
+    };
+  throw new Error('Unsupported harness session');
 }

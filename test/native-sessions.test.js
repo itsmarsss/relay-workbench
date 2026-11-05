@@ -1,0 +1,94 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { mkdtemp, writeFile, rm, readFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { randomUUID } from 'node:crypto';
+import { executeHarness, demoHandoff, resumeInvocation } from '../server/harness.js';
+import { DEFAULT_CONFIG, newTask } from '../server/domain.js';
+
+for (const harness of ['codex', 'pi'])
+  test(`${harness} native protocol resumes, steers and validates handoffs`, async (t) => {
+    const directory = await mkdtemp(join(tmpdir(), 'relay-native-'));
+    t.after(() => rm(directory, { recursive: true, force: true }));
+    const task = newTask({ title: 'Protocol fixture', demo: true }, DEFAULT_CONFIG);
+    task.demo = false;
+    task.workspace = directory;
+    const handoff = demoHandoff(task, 'investigate');
+    const binary = join(directory, 'fixture.js');
+    const recording = join(directory, 'requests.jsonl');
+    await writeFile(
+      binary,
+      `#!${process.execPath}
+import {createInterface} from 'node:readline';
+import {appendFileSync} from 'node:fs';
+const emit=e=>console.log(JSON.stringify(e));
+createInterface({input:process.stdin}).on('line',line=>{
+ const r=JSON.parse(line); appendFileSync(${JSON.stringify(recording)},line+'\\n');
+ const method=r.method||r.type;
+ const result=method==='thread/resume'?{thread:{id:'session-fixture'}}:method==='turn/start'?{turn:{id:'turn-fixture'}}:{};
+ if(method==='initialized') return;
+ if(${JSON.stringify(harness)}==='codex') emit({id:r.id,result}); else emit({id:r.id,type:'response',success:true,data:{disposition:'queued'}});
+ if(method==='turn/steer'||method==='steer') setTimeout(()=>{
+   if(${JSON.stringify(harness)}==='codex') {
+    emit({method:'item/completed',params:{item:{type:'agentMessage',text:${JSON.stringify(JSON.stringify(handoff))}}}});
+    emit({method:'turn/completed',params:{turn:{status:'completed'}}});
+   } else { emit({type:'message_end',message:{role:'assistant',content:[{type:'text',text:${JSON.stringify(JSON.stringify(handoff))}}]}}); emit({type:'agent_end'}); }
+ },150);
+});`,
+      { mode: 0o700 },
+    );
+    const config = structuredClone(DEFAULT_CONFIG);
+    config.harnesses[harness].command = binary;
+    let session;
+    let steering;
+    const result = await executeHarness({
+      task,
+      stage: 'investigate',
+      harness,
+      config,
+      directory,
+      attemptId: randomUUID(),
+      sessionId: 'session-fixture',
+      onEvent() {},
+      onSession: (id) => (session = id),
+      onControl: (control) => {
+        if (control) steering = control(randomUUID(), 'Cover boundary values');
+      },
+      signal: AbortSignal.timeout(10000),
+    });
+    await steering;
+    assert.equal(session, 'session-fixture');
+    assert.equal(result.summary, handoff.summary);
+    const requests = (await readFile(recording, 'utf8'))
+      .split('\n')
+      .filter(Boolean)
+      .map(JSON.parse);
+    assert.ok(
+      requests.some((r) => (r.method || r.type) === (harness === 'codex' ? 'turn/steer' : 'steer')),
+    );
+    if (harness === 'codex') {
+      assert.equal(
+        requests.find((r) => r.method === 'thread/resume').params.approvalPolicy,
+        'never',
+      );
+      assert.equal(
+        requests.find((r) => r.method === 'turn/start').params.sandboxPolicy.type,
+        'readOnly',
+      );
+    }
+  });
+
+test('interactive native resume uses exact session and preserves approval limits', () => {
+  for (const harness of ['codex', 'claude', 'pi']) {
+    const invocation = resumeInvocation(
+      harness,
+      { command: harness, model: '' },
+      'specific-session',
+      false,
+    );
+    assert.ok(invocation.args.includes('specific-session'));
+    assert.ok(!invocation.args.includes('--last'));
+    assert.ok(!invocation.args.includes('--dangerously-bypass-approvals-and-sandbox'));
+  }
+});

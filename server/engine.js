@@ -10,7 +10,7 @@ import {
   HARNESSES,
 } from './domain.js';
 import { prepareWorkspace, fingerprint, inspectRepository } from './workspace.js';
-import { executeHarness, demoHandoff } from './harness.js';
+import { executeHarness, demoHandoff, resumeInvocation } from './harness.js';
 import { runProcess, executableExists } from './process.js';
 
 export class Engine {
@@ -20,6 +20,7 @@ export class Engine {
     this.demoDelay = demoDelay;
     this.running = new Map();
     this.manualRuns = new Map();
+    this.controls = new Map();
     this.actionLocks = new Set();
     this.workspaceReservations = new Map();
     this.stopping = false;
@@ -128,6 +129,18 @@ export class Engine {
           'Wait for interrupted workers to stop',
           409,
         );
+        const sessionAttempt = data.sessionAttemptId
+          ? task.attempts.find(
+              (a) =>
+                a.id === data.sessionAttemptId &&
+                a.sessionId &&
+                a.repositoryId === entry.repository.id,
+            )
+          : null;
+        requireValue(
+          !data.sessionAttemptId || sessionAttempt,
+          'No matching native session in this repository',
+        );
         task.status = 'manual';
         task.stage = task.chosenApproach ? 'verify' : 'investigate';
         task.repositoryCursor = 0;
@@ -146,10 +159,18 @@ export class Engine {
         this.running.get(id)?.abort();
         while (this.running.has(id)) await delay(25);
         requireValue(!this.stopping, 'Relay is shutting down', 409);
+        const invocation = sessionAttempt
+          ? resumeInvocation(
+              sessionAttempt.harness,
+              this.store.config.harnesses[sessionAttempt.harness],
+              sessionAttempt.sessionId,
+              !!task.chosenApproach,
+            )
+          : { command: process.env.SHELL || '/bin/sh', args: ['-i'] };
         const controller = new AbortController();
         const run = { controller, done: null };
         this.manualRuns.set(id, run);
-        run.done = runProcess(process.env.SHELL || '/bin/sh', ['-i'], {
+        run.done = runProcess(invocation.command, invocation.args, {
           cwd: entry.workspace,
           signal: controller.signal,
           timeout: 24 * 60 * 60 * 1000,
@@ -250,6 +271,11 @@ export class Engine {
               : `Resuming ${task.stage} after explicit approval.`,
         });
       } else if (action === 'approve-plan') {
+        requireValue(
+          !task.messages.some((m) => m.delivery === 'pending'),
+          'Pending direction must be processed before approval. Request proposal changes first.',
+          409,
+        );
         requireValue(status === 'awaiting_plan', 'Task is not awaiting an approach', 409);
         const plan = task.attempts.findLast(
           (a) => a.stage === 'plan' && a.status === 'complete',
@@ -286,6 +312,11 @@ export class Engine {
         task.reviewedFingerprint = null;
         this.store.save(task, { type: 'feedback', summary: 'Changes requested.', details: note });
       } else if (action === 'accept') {
+        requireValue(
+          !task.messages.some((m) => m.delivery === 'pending'),
+          'Pending direction must be processed before acceptance. Request changes first.',
+          409,
+        );
         requireValue(status === 'awaiting_final', 'Task is not awaiting final approval', 409);
         if (!task.demo)
           requireValue(
@@ -326,14 +357,78 @@ export class Engine {
               : 'Cancelled. Existing code and worktree retained.',
         });
         this.running.get(id)?.abort();
-      } else if (action === 'message') {
-        const message = text(data.message, 'Message', 20000);
-        task.messages.push({ at: new Date().toISOString(), text: message, role: 'user' });
+      } else if (action === 'message' || action === 'steer') {
+        requireValue(
+          !['completed', 'cancelled'].includes(status),
+          'Finished tasks cannot receive direction',
+          409,
+        );
+        const message = {
+          id: randomUUID(),
+          at: new Date().toISOString(),
+          text: text(data.message, 'Message', 20000),
+          role: 'user',
+          delivery: 'pending',
+        };
+        if (action === 'steer')
+          requireValue(
+            status === 'running' &&
+              (this.controls.has(id) ||
+                task.attempts.findLast((a) => a.status === 'running')?.harness === 'claude'),
+            'Live steering is not ready for this stage',
+            409,
+          );
+        task.messages.push(message);
         this.store.save(task, {
           type: 'feedback',
-          summary: 'Context added for the next stage.',
-          details: message,
+          summary:
+            action === 'steer'
+              ? 'Sending direction to the active session.'
+              : 'Context pending for the next agent.',
+          details: message.text,
         });
+        if (action === 'steer') {
+          if (this.controls.has(id)) {
+            try {
+              const activeAttemptId = task.attempts.findLast((a) => a.status === 'running')?.id;
+              await this.controls.get(id)(message.id, message.text);
+              const current = this.store.get(id);
+              Object.assign(
+                current.messages.find((m) => m.id === message.id),
+                {
+                  delivery: 'accepted',
+                  attemptId: activeAttemptId,
+                },
+              );
+              this.store.save(current, {
+                type: 'feedback',
+                summary:
+                  'Active harness accepted direction. Completion still requires a valid handoff.',
+                details: message.text,
+              });
+            } catch (error) {
+              this.store.event(id, {
+                type: 'feedback',
+                summary: error.message,
+                details: message.text,
+              });
+              throw error;
+            }
+          } else {
+            const active = task.attempts.findLast((a) => a.status === 'running');
+            requireValue(active?.sessionId, 'Wait for Claude to report its native session', 409);
+            task.status = 'paused';
+            this.store.save(task);
+            this.running.get(id)?.abort();
+            while (this.running.has(id)) await delay(25);
+            const current = this.store.get(id);
+            current.status = 'queued';
+            this.store.save(current, {
+              type: 'feedback',
+              summary: 'Claude interrupted; resuming its native conversation with your direction.',
+            });
+          }
+        }
       } else throw new Error('Unknown task action');
       this.tick();
       return this.store.get(id);
@@ -525,6 +620,17 @@ export class Engine {
       status: 'running',
       startedAt: new Date().toISOString(),
     };
+    const previousSession = task.attempts.findLast(
+      (a) =>
+        a.stage === stage &&
+        a.harness === harness &&
+        a.repositoryId === attempt.repositoryId &&
+        a.sessionId &&
+        ['failed', 'interrupted'].includes(a.status),
+    );
+    attempt.model = executionConfig(task, this.store.config, stage).harnesses[harness]?.model || '';
+    for (const message of task.messages)
+      if (stage !== 'verify' && message.delivery === 'pending') message.attemptId = attempt.id;
     task.attempts.push(attempt);
     this.store.save(task, {
       type: 'stage_started',
@@ -655,6 +761,16 @@ export class Engine {
         directory: this.store.directory,
         attemptId: attempt.id,
         signal,
+        sessionId: previousSession?.sessionId,
+        onSession: (sessionId) => {
+          const current = this.store.get(id);
+          current.attempts.find((a) => a.id === attempt.id).sessionId = sessionId;
+          this.store.save(current);
+        },
+        onControl: (control) => {
+          if (control) this.controls.set(id, control);
+          else this.controls.delete(id);
+        },
         onTerminal: (terminal) => {
           const current = this.store.get(id);
           const active = current.attempts.find((a) => a.id === attempt.id);
@@ -697,6 +813,8 @@ export class Engine {
     task = this.store.get(id);
     const savedAttempt = task.attempts.find((a) => a.id === attempt.id);
     savedAttempt.handoff = handoff;
+    for (const message of task.messages)
+      if (message.attemptId === attempt.id) message.delivery = 'included';
     savedAttempt.finishedAt = new Date().toISOString();
     savedAttempt.status = 'complete';
     savedAttempt.fingerprint = after;
