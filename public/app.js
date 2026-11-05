@@ -1,3 +1,4 @@
+import { diffLines } from './diff-lines.js';
 import { inboxPage, notifyInbox } from './inbox.js';
 import { installImageUploads, openImageViewer } from './image-uploads.js';
 import { tasksPage } from './tasks.js';
@@ -336,28 +337,30 @@ function diffView(t, suppliedDiff) {
     return empty('git', 'No workspace yet', 'Start this task to prepare its workspace.');
   if (!state.diff) return '<div class="boot">Loading changes…</div>';
   const d = suppliedDiff ?? state.diff;
+  const canComment = t.status === 'awaiting_final';
   if (d.repositories)
     return (
       `<div class="diff-heading"><strong>${d.repositories.length} repository diffs</strong>${button('refresh-diff', 'Refresh all', 'text small')}</div>` +
       d.repositories
         .map(
           (r) =>
-            `<details open class="repository-diff"><summary>${e(r.name)}</summary>${diffView({ ...t, baseCommit: r.baseCommit }, r)}</details>`,
+            `<details open class="repository-diff"><summary>${e(r.name)}</summary>${diffView({ ...t, baseCommit: r.baseCommit }, { ...r, fingerprint: d.fingerprint })}</details>`,
         )
         .join('')
     );
   if (d.error) return `<div class="error-panel">${e(d.error)}</div>`;
-  return `<div class="diff-heading"><span>Changes since <code>${e(t.baseCommit?.slice(0, 10))}</code></span>${button('refresh-diff', 'Refresh', 'text small')}</div>${d.stat ? `<pre class="diff-stat">${e(d.stat)}</pre>` : ''}${
-    d.text
-      ? `<pre class="diff-code">${d.text
-          .split('\n')
-          .map(
-            (line) =>
-              `<span class="${line.startsWith('+') && !line.startsWith('+++') ? 'addition' : line.startsWith('-') && !line.startsWith('---') ? 'deletion' : line.startsWith('@@') ? 'hunk' : ''}">${e(line)}</span>`,
-          )
-          .join('\n')}</pre>`
-      : ''
-  }${d.untracked.map((f) => `<details class="untracked-file" open><summary>${icon('plus')}${e(f.name)} <span>New file</span></summary><pre class="code-block">${e(f.content)}</pre></details>`).join('')}${!d.text && !d.untracked.length ? empty('check', 'No changes yet', 'Changes made in the shared workspace will appear here.') : ''}`;
+  const repositoryId = d.repositoryId ?? t.repository.id;
+  const comments = (t.reviewComments || []).filter((c) => c.repositoryId === repositoryId);
+  return `<div class="diff-heading"><span>Changes since <code>${e(t.baseCommit?.slice(0, 10))}</code></span>${button('refresh-diff', 'Refresh', 'text small')}</div>${canComment ? '<p>Click + beside a line to leave feedback. Send focused repairs when ready.</p>' : ''}${d.stat ? `<pre class="diff-stat">${e(d.stat)}</pre>` : ''}<pre class="diff-code">${diffLines(
+    d,
+  )
+    .map(
+      (line, index) =>
+        `<span class="diff-line ${line.kind}">${canComment && line.anchor ? `<button class="diff-comment-button" data-action="comment-line" data-repository-id="${e(repositoryId)}" data-line="${index}" aria-label="Comment on ${e(line.anchor.path)} line ${line.anchor.line}">+</button>` : ''}${e(line.text)}</span>`,
+    )
+    .join(
+      '\n',
+    )}</pre>${comments.length ? `<section class="context-card"><h3>Inline feedback</h3>${comments.map((c) => `<article class="review-comment"><strong>${e(c.anchor.path)}:${c.anchor.line} · ${e(c.status)}${c.fingerprint !== d.fingerprint ? ' · Earlier workspace' : ''}</strong><div class="prose">${prose(c.text)}</div>${canComment && c.status !== 'resolved' ? button('resolve-comment', 'Mark resolved', 'text small', '', `data-comment-id="${e(c.id)}"`) : ''}</article>`).join('')}${canComment && comments.some((c) => c.status === 'open') ? button('focused-repair', 'Send open comments for repair', 'primary small') : ''}</section>` : ''}${!d.text && !d.untracked.length ? empty('check', 'No changes yet', 'Changes appear here as the workspace changes.') : ''}`;
 }
 function transcriptView() {
   const events = state.events.filter((ev) => ev.type === 'transcript');
@@ -693,6 +696,39 @@ document.addEventListener('click', async (event) => {
       if (state.tab === 'diff') await loadDiff();
       return;
     }
+    if (action === 'comment-line') {
+      const d =
+        state.diff.repositories?.find((r) => r.repositoryId === element.dataset.repositoryId) ??
+        state.diff;
+      const anchor = diffLines(d)[Number(element.dataset.line)]?.anchor;
+      if (!anchor) throw new Error('Refresh the diff before commenting.');
+      showModal(
+        `Comment on ${e(anchor.path)}:${anchor.line}`,
+        `<form id="line-comment-form">${markdownEditor({ id: 'line-comment', name: 'text', label: 'Requested change', rows: 4, max: 10000 })}<div class="modal-footer"><button class="btn primary" type="submit">Save inline comment</button></div></form>`,
+      );
+      state.modal ??= {};
+      state.modal.comment = {
+        repositoryId: element.dataset.repositoryId,
+        anchor,
+        fingerprint: state.diff.fingerprint,
+      };
+      return;
+    }
+    if (action === 'resolve-comment') {
+      await api(`/tasks/${state.selected}/resolve-comment`, 'POST', {
+        commentId: element.dataset.commentId,
+      });
+      await refresh();
+      return;
+    }
+    if (action === 'focused-repair') {
+      await api(`/tasks/${state.selected}/request-changes`, 'POST', {
+        note: 'Address these focused inline review requests. Keep unrelated code unchanged; rerun all checks and review.',
+        commentIds: state.task.reviewComments.filter((c) => c.status === 'open').map((c) => c.id),
+      });
+      await refresh();
+      return;
+    }
     if (action === 'refresh-diff') return await loadDiff();
     if (action === 'add-repository' || action === 'edit-repository')
       return repositoryModal(element.dataset.id);
@@ -800,6 +836,16 @@ document.addEventListener('submit', async (event) => {
   const submit = form.querySelector('button[type="submit"]');
   if (submit) submit.disabled = true;
   try {
+    if (form.id === 'line-comment-form') {
+      await api(`/tasks/${state.selected}/review-comment`, 'POST', {
+        ...state.modal.comment,
+        text: values.text,
+      });
+      closeModal();
+      await refresh();
+      await loadDiff();
+      toast('Inline feedback saved.');
+    }
     if (['create-task-form', 'edit-task-form'].includes(form.id)) {
       const editing = form.id === 'edit-task-form';
       const snapshot = state.modal?.taskSnapshot;

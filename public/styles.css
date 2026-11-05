@@ -3804,3 +3804,23 @@ textarea::placeholder,
 .image-lightbox p {
   overflow-wrap: anywhere;
 }
+
+.diff-line {
+  position: relative;
+  display: block;
+  min-height: 1.5em;
+  padding-left: 2rem;
+}
+.diff-comment-button {
+  position: absolute;
+  left: 0;
+  width: 1.5rem;
+  color: #fff;
+  background: #2455a4;
+  border: 1px solid #7297d4;
+  cursor: pointer;
+}
+.review-comment {
+  padding: 1rem 0;
+  border-bottom: 1px solid var(--border);
+}

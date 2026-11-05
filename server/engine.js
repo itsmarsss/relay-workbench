@@ -1,3 +1,4 @@
+import { addComment, focusedFeedback } from './review-comments.js';
 import { randomUUID } from 'node:crypto';
 import { workspaces, workspaceView, syncPrimary } from './task-repositories.js';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -104,7 +105,23 @@ export class Engine {
       const task = this.store.get(id);
       requireValue(task, 'Task not found', 404);
       const status = task.status;
-      if (action === 'takeover') {
+      if (action === 'review-comment') {
+        const comment = await addComment(task, data);
+        this.store.save(task, {
+          type: 'feedback',
+          summary: `Inline comment on ${comment.anchor.path}:${comment.anchor.line}`,
+          details: comment.text,
+        });
+      } else if (action === 'resolve-comment') {
+        requireValue(task.status === 'awaiting_final', 'Resolve comments at final approval', 409);
+        const comment = task.reviewComments?.find((c) => c.id === data.commentId);
+        requireValue(comment, 'Review comment not found', 404);
+        comment.status = 'resolved';
+        this.store.save(task, {
+          type: 'feedback',
+          summary: `Resolved feedback on ${comment.anchor.path}:${comment.anchor.line}`,
+        });
+      } else if (action === 'takeover') {
         requireValue(
           !task.demo && !['draft', 'completed', 'cancelled'].includes(status),
           'Start a real workflow before taking over',
@@ -304,7 +321,15 @@ export class Engine {
           'Task is not awaiting approval',
           409,
         );
-        const note = text(data.note, 'Feedback', 20000);
+        let note = text(data.note, 'Feedback', 20000);
+        if (data.commentIds?.length) {
+          requireValue(
+            status === 'awaiting_final',
+            'Focused code repair requires final review',
+            409,
+          );
+          note += '\n\nFocused inline feedback:\n' + (await focusedFeedback(task, data.commentIds));
+        }
         task.messages.push({ at: new Date().toISOString(), text: note, role: 'user' });
         task.stage = status === 'awaiting_plan' ? 'plan' : 'implement';
         task.repositoryCursor = 0;
@@ -312,6 +337,11 @@ export class Engine {
         task.reviewedFingerprint = null;
         this.store.save(task, { type: 'feedback', summary: 'Changes requested.', details: note });
       } else if (action === 'accept') {
+        requireValue(
+          !task.reviewComments?.some((c) => c.status === 'open'),
+          'Resolve inline comments or request focused repairs before acceptance',
+          409,
+        );
         requireValue(
           !task.messages.some((m) => m.delivery === 'pending'),
           'Pending direction must be processed before acceptance. Request changes first.',
