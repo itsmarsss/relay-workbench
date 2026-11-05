@@ -406,3 +406,65 @@ test(
     );
   },
 );
+
+test('task PATCH persists configuration with revision and writer guards', async (t) => {
+  const f = await fixture(t);
+  const task = f.app.engine.create({ title: 'Editable', demo: true });
+  const path = `/api/tasks/${task.id}`;
+  assert.equal(
+    (
+      await f.request(
+        path,
+        'PATCH',
+        { expectedRevision: 0, title: 'Changed' },
+        { 'X-Relay-Token': '' },
+      )
+    ).status,
+    403,
+  );
+  const saved = await f.request(path, 'PATCH', {
+    expectedRevision: 0,
+    title: 'Changed',
+    models: { review: 'reviewer' },
+    execution: { timeoutMinutes: 14, maxRepairRounds: 4 },
+  });
+  assert.equal(saved.status, 200);
+  assert.equal(saved.data.configRevision, 1);
+  assert.equal((await f.request(path)).data.title, 'Changed');
+  assert.equal(
+    (await f.request(path, 'PATCH', { expectedRevision: 0, title: 'Stale' })).status,
+    409,
+  );
+  assert.equal(
+    (await f.request(path, 'PATCH', { expectedRevision: 1, workspace: '/tmp/other' })).status,
+    400,
+  );
+  f.app.engine.running.set(task.id, {});
+  assert.equal((await f.request(path)).data.executionActive, true);
+  assert.equal(
+    (await f.request(path, 'PATCH', { expectedRevision: 1, title: 'Race' })).status,
+    409,
+  );
+  f.app.engine.running.delete(task.id);
+  f.app.engine.manualRuns.set(task.id, {});
+  assert.equal(
+    (await f.request(path, 'PATCH', { expectedRevision: 1, title: 'Race' })).status,
+    409,
+  );
+  f.app.engine.manualRuns.delete(task.id);
+  await f.app.engine.action(task.id, 'start');
+  await waitFor(f.app, task.id, 'awaiting_plan');
+  const before = f.app.store.get(task.id);
+  const changed = await f.request(path, 'PATCH', {
+    expectedRevision: 1,
+    description: 'Revised requirements',
+  });
+  assert.equal(changed.status, 200);
+  assert.equal(changed.data.status, 'paused');
+  assert.equal(changed.data.stage, 'investigate');
+  assert.deepEqual(changed.data.attempts, before.attempts);
+  await f.app.engine.action(task.id, 'resume');
+  await waitFor(f.app, task.id, 'awaiting_plan');
+  assert.equal(f.app.store.get(task.id).chosenApproach, null);
+  assert.ok(f.app.store.events(task.id).some((e) => e.type === 'configuration'));
+});

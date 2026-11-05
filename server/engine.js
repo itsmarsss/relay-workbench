@@ -1,7 +1,14 @@
 import { randomUUID } from 'node:crypto';
 import { workspaces, workspaceView, syncPrimary } from './task-repositories.js';
 import { setTimeout as delay } from 'node:timers/promises';
-import { newTask, requireValue, text, HARNESSES } from './domain.js';
+import {
+  newTask,
+  reconfigureTask,
+  executionConfig,
+  requireValue,
+  text,
+  HARNESSES,
+} from './domain.js';
 import { prepareWorkspace, fingerprint, inspectRepository } from './workspace.js';
 import { executeHarness, demoHandoff } from './harness.js';
 import { runProcess, executableExists } from './process.js';
@@ -63,6 +70,29 @@ export class Engine {
       summary: task.demo
         ? 'Demo task created. All results will be simulated.'
         : 'Task created. Ready to start.',
+    });
+  }
+  update(id, data) {
+    requireValue(!this.stopping && !this.actionLocks.has(id), 'Another action is in progress', 409);
+    requireValue(
+      !this.running.has(id) && !this.manualRuns.has(id),
+      'Wait for the active process to stop before editing.',
+      409,
+    );
+    const task = this.store.get(id);
+    requireValue(task, 'Task not found', 404);
+    requireValue(
+      !task.recoveryNotBefore || Date.now() >= task.recoveryNotBefore,
+      'Wait for interrupted workers to stop before editing.',
+      409,
+    );
+    const result = reconfigureTask(task, data, this.store.config);
+    return this.store.save(result.task, {
+      type: 'configuration',
+      summary: result.reset
+        ? 'Task settings updated. Workflow paused for fresh validation and approval.'
+        : 'Task settings updated.',
+      revision: result.task.configRevision,
     });
   }
   async action(id, action, data = {}) {
@@ -445,7 +475,7 @@ export class Engine {
                   Object.fromEntries(workspaces(task).map((e) => [e.repository.id, e.workspace])),
                 ),
               },
-              timeout: this.store.config.timeoutMinutes * 60000,
+              timeout: executionConfig(task, this.store.config).timeoutMinutes * 60000,
               onLine: (line, stream) =>
                 this.store.event(id, {
                   type: 'transcript',
@@ -556,7 +586,7 @@ export class Engine {
                 ),
               },
               signal,
-              timeout: this.store.config.timeoutMinutes * 60000,
+              timeout: executionConfig(task, this.store.config, stage).timeoutMinutes * 60000,
               onLine: (line, stream) =>
                 this.store.event(id, {
                   type: 'transcript',
@@ -621,7 +651,7 @@ export class Engine {
         task: view,
         stage,
         harness,
-        config: structuredClone(this.store.config),
+        config: executionConfig(task, this.store.config, stage),
         directory: this.store.directory,
         attemptId: attempt.id,
         signal,
@@ -744,7 +774,7 @@ export class Engine {
     task.repositoryCursor = 0;
     task.stage = 'implement';
     task.reviewedFingerprint = null;
-    if (task.round > this.store.config.maxRepairRounds) {
+    if (task.round > (task.execution?.maxRepairRounds ?? this.store.config.maxRepairRounds)) {
       task.status = 'blocked';
       task.error = `Repair limit reached. ${reason} Add feedback and resume explicitly to continue.`;
     } else task.status = 'queued';
