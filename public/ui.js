@@ -1,8 +1,6 @@
-export const escapeHTML = (value) =>
-  String(value ?? '').replace(
-    /[&<>"']/g,
-    (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c],
-  );
+import { escapeHTML } from './escape.js';
+import { markdown } from './markdown.js';
+export { escapeHTML };
 export const e = escapeHTML;
 const icons = {
   relay: '<path d="M4 4h10a5 5 0 0 1 0 10H9l-5 5V4Z"/><path d="M9 9v5m4-5h2"/>',
@@ -74,25 +72,7 @@ export function ago(value) {
         ? `${Math.floor(min / 60)}h ago`
         : new Date(value).toLocaleDateString();
 }
-export function prose(value) {
-  return String(value ?? '')
-    .split(/(```[\s\S]*?```)/g)
-    .map((part) =>
-      part.startsWith('```')
-        ? `<pre class="code-block">${e(part.replace(/^```[^\n]*\n?/, '').replace(/```$/, ''))}</pre>`
-        : part
-            .split('\n\n')
-            .map(
-              (p) =>
-                `<p>${e(p)
-                  .replace(/\n/g, '<br>')
-                  .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
-                  .replace(/`([^`]+)`/g, '<code>$1</code>')}</p>`,
-            )
-            .join(''),
-    )
-    .join('');
-}
+export const prose = markdown;
 export function empty(iconName, title, description, action = '') {
   return `<div class="empty-state">${icon(iconName, 'empty-icon')}<h3>${e(title)}</h3><p>${e(description)}</p>${action}</div>`;
 }

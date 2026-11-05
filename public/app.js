@@ -1,4 +1,6 @@
-import { workflowBoard } from './workflow.js';
+import { tasksPage } from './tasks.js';
+import { taskForm, syncTaskForm, readTaskForm } from './task-editor.js';
+import { markdownEditor, handleMarkdownAction } from './markdown.js';
 import { issueLink, taskDetails } from './task-details.js';
 import { terminalView, terminalSelection } from './terminals.js';
 import {
@@ -22,9 +24,13 @@ const state = {
   selected: null,
   task: null,
   events: [],
-  tab: 'thread',
+  tab: 'overview',
   filter: 'all',
-  taskLayout: localStorage.getItem('relay-task-layout') || 'board',
+  taskLayout: localStorage.getItem('relay-task-layout') === 'board' ? 'board' : 'list',
+  repositoryFilter: '',
+  stageFilter: '',
+  taskSort: 'priority',
+  showEmptyStages: false,
   search: '',
   token: '',
   connected: true,
@@ -67,6 +73,10 @@ function shell() {
 function renderMain() {
   const main = document.querySelector('#main');
   if (!main) return;
+  const editorModes = [...main.querySelectorAll('[data-editor]')].map((el) => ({
+    id: el.dataset.editor,
+    preview: el.querySelector('[data-mode="preview"]')?.getAttribute('aria-selected') === 'true',
+  }));
   const scroll = main.scrollTop;
   const terminalScroll = main.querySelector('.terminal-preview')?.scrollTop;
   const descriptionScroll = main.querySelector('.task-description')?.scrollTop;
@@ -74,7 +84,7 @@ function renderMain() {
   const focused = document.activeElement;
   const focusId = main.contains(focused) ? focused.id : null;
   const inputs = [...main.querySelectorAll('textarea,input')]
-    .filter((i) => i.id)
+    .filter((i) => i.id && i.id !== 'task-search')
     .map((i) => ({ id: i.id, value: i.value, start: i.selectionStart, end: i.selectionEnd }));
   const expanded = new Set(
     [...main.querySelectorAll('details[data-event-key][open]')].map((d) => d.dataset.eventKey),
@@ -108,6 +118,14 @@ function renderMain() {
   if (selectedApproach)
     for (const input of main.querySelectorAll('input[name="optionId"]'))
       input.checked = input.value === selectedApproach;
+  for (const mode of editorModes)
+    if (mode.preview) {
+      const editor = [...main.querySelectorAll('[data-editor]')].find(
+        (el) => el.dataset.editor === mode.id,
+      );
+      const tab = editor?.querySelector('[data-mode="preview"]');
+      if (tab) handleMarkdownAction(tab);
+    }
   const preview = main.querySelector('.terminal-preview');
   if (preview)
     preview.scrollTop = state.terminalFollow ? preview.scrollHeight : (terminalScroll ?? 0);
@@ -165,46 +183,17 @@ function focusBoard(lane) {
     board.scrollLeft += column.getBoundingClientRect().left - board.getBoundingClientRect().left;
 }
 function tasksView() {
-  const filtered = state.tasks.filter(
-    (t) =>
-      (state.filter === 'all' ||
-        (state.filter === 'active'
-          ? ['running', 'queued'].includes(t.status)
-          : state.filter === 'attention'
-            ? [
-                'awaiting_plan',
-                'awaiting_final',
-                'blocked',
-                'interrupted',
-                'paused',
-                'manual',
-              ].includes(t.status)
-            : t.status === 'completed')) &&
-      `${t.title} ${(t.repositories ?? [t]).map((r) => r.repository.name).join(' ')}`
-        .toLowerCase()
-        .includes(state.search.toLowerCase()),
-  );
-  return `${pageHeading('THE BIG PICTURE', 'All tasks', 'Agents move work forward automatically. Approval columns are your turn.')}<div class="list-toolbar"><div class="segmented">${[
-    ['all', 'All tasks'],
-    ['active', 'In motion'],
-    ['attention', 'Needs input'],
-    ['completed', 'Completed'],
-  ]
-    .map(
-      ([id, label]) =>
-        `<button class="${state.filter === id ? 'selected' : ''}" data-action="filter" data-filter="${id}">${label}</button>`,
-    )
-    .join(
-      '',
-    )}</div><label class="search-box">${icon('search')}<input id="task-search" placeholder="Search tasks…" aria-label="Search tasks" value="${e(state.search)}"></label><div class="segmented layout-switch" aria-label="Task layout">${['board', 'table'].map((layout) => `<button data-action="task-layout" data-layout="${layout}" class="${state.taskLayout === layout ? 'selected' : ''}" aria-pressed="${state.taskLayout === layout}">${layout === 'board' ? 'Board' : 'Table'}</button>`).join('')}</div></div>${filtered.length ? (state.taskLayout === 'board' ? workflowBoard(filtered) : taskTable(filtered)) : empty('layers', 'No tasks here yet', 'Create a task or change your filters.', button('new-task', 'New task', 'primary', 'plus'))}`;
+  return tasksPage(state);
 }
 function taskView() {
   const t = state.task;
   if (!t) return '<div class="boot">Loading task…</div>';
   const live = ['running', 'queued'].includes(t.status);
   const last = t.attempts.findLast((a) => a.handoff)?.handoff;
-  return `<div class="task-heading"><button class="back-link" data-action="navigate" data-view="tasks">← All tasks</button><div class="task-title-row"><h1>${e(t.title)}</h1>${t.demo ? '<span class="demo-label large">SIMULATED DEMO</span>' : ''}</div><div class="task-subtitle">${badge(t.status)}<span>${e((t.repositories?.length ? t.repositories.map((r) => r.repository.name) : [t.repository.name]).join(' + '))}</span><span>·</span><span>${t.id.slice(0, 8)}</span>${t.ticket ? `<span>·</span>${issueLink(t.ticket)}` : ''}<span>·</span><span>Created ${ago(t.createdAt).toLowerCase()}</span></div><div class="task-controls">${t.status === 'draft' ? button('task-action', 'Start workflow', 'primary', 'bolt', 'data-operation="start"') : ''}${['blocked', 'interrupted', 'paused'].includes(t.status) ? button('task-action', 'Resume workflow', 'primary', 'arrow', 'data-operation="resume"') : ''}${t.status === 'manual' ? button('task-action', 'Return to automation', 'primary', 'arrow', 'data-operation="return-control"') : ''}${live ? button('task-action', 'Pause', 'secondary small', 'pause', 'data-operation="pause"') : ''}${!['completed', 'cancelled'].includes(t.status) ? button('confirm-cancel', 'Cancel', 'text small') : ''}<a class="btn text small" href="/api/tasks/${t.id}/export" download>${icon('download')}Export</a></div></div>${t.demo ? '<div class="demo-banner">' + icon('spark') + 'Demo mode. Harness responses and checks are simulated; no repository files are changed.</div>' : ''}<div class="task-layout"><div class="task-center">${t.error ? `<div class="error-panel">${icon('stop')}<div><strong>This workflow needs attention</strong><p>${e(t.error)}</p><small>Add context below, inspect the workspace, then resume when ready.</small></div></div>` : ''}${terminalView(t, state)}${taskDetails(t)}${t.status === 'awaiting_plan' ? planGate(t) : ''}${t.status === 'awaiting_final' ? `<div class="approval-panel final-panel"><div class="approval-icon">${icon('check')}</div><div><span class="eyebrow">YOUR FINAL LOOK</span><h2>The specialists are done. Over to you.</h2><p>Verification passed and independent review is complete. Inspect the handoffs and diff before accepting.</p><div class="approval-actions">${button('task-action', 'Accept result', 'primary', 'check', 'data-operation="accept"')}${button('request-changes', 'Request changes', 'secondary')}</div></div></div>` : ''}<div class="detail-tabs" role="tablist">${[
+  return `<div class="task-heading"><button class="back-link" data-action="navigate" data-view="tasks">← All tasks</button><div class="task-title-row"><h1>${e(t.title)}</h1>${t.demo ? '<span class="demo-label large">SIMULATED DEMO</span>' : ''}</div><div class="task-subtitle">${badge(t.status)}<span>${e((t.repositories?.length ? t.repositories.map((r) => r.repository.name) : [t.repository.name]).join(' + '))}</span><span>·</span><span>${t.id.slice(0, 8)}</span>${t.ticket ? `<span>·</span>${issueLink(t.ticket)}` : ''}<span>·</span><span>Created ${ago(t.createdAt).toLowerCase()}</span></div><div class="task-controls">${!['completed', 'cancelled'].includes(t.status) ? button('configure-task', ['running', 'queued', 'manual'].includes(t.status) ? 'Pause & configure' : 'Configure task', 'secondary', 'settings') : ''}${button('duplicate-task', 'Duplicate task', 'text small', 'plus')}${t.status === 'draft' ? button('task-action', 'Start workflow', 'primary', 'bolt', 'data-operation="start"') : ''}${['blocked', 'interrupted', 'paused'].includes(t.status) ? button('task-action', 'Resume workflow', 'primary', 'arrow', 'data-operation="resume"') : ''}${t.status === 'manual' ? button('task-action', 'Return to automation', 'primary', 'arrow', 'data-operation="return-control"') : ''}${live ? button('task-action', 'Pause', 'secondary small', 'pause', 'data-operation="pause"') : ''}${!['completed', 'cancelled'].includes(t.status) ? button('confirm-cancel', 'Cancel', 'text small') : ''}<a class="btn text small" href="/api/tasks/${t.id}/export" download>${icon('download')}Export</a></div></div>${t.demo ? '<div class="demo-banner">' + icon('spark') + 'Demo mode. Harness responses and checks are simulated; no repository files are changed.</div>' : ''}<div class="task-layout"><div class="task-center">${t.error ? `<div class="error-panel">${icon('stop')}<div><strong>This workflow needs attention</strong><p>${e(t.error)}</p><small>Add context below, inspect the workspace, then resume when ready.</small></div></div>` : ''}${t.status === 'awaiting_plan' ? planGate(t) : ''}${t.status === 'awaiting_final' ? `<div class="approval-panel final-panel"><div class="approval-icon">${icon('check')}</div><div><span class="eyebrow">YOUR FINAL LOOK</span><h2>The specialists are done. Over to you.</h2><p>Verification passed and independent review is complete. Inspect the handoffs and diff before accepting.</p><div class="approval-actions">${button('task-action', 'Accept result', 'primary', 'check', 'data-operation="accept"')}${button('request-changes', 'Request changes', 'secondary')}</div></div></div>` : ''}<div class="detail-tabs" role="tablist">${[
+    ['overview', 'Overview'],
     ['thread', 'Activity thread'],
+    ['terminals', 'Live terminals'],
     ['handoffs', 'Handoffs'],
     ['diff', 'Code changes'],
     ['transcript', 'Execution log'],
@@ -215,7 +204,7 @@ function taskView() {
     )
     .join(
       '',
-    )}</div><div class="detail-content">${state.tab === 'thread' ? threadView(t) : state.tab === 'handoffs' ? handoffsView(t) : state.tab === 'diff' ? diffView(t) : transcriptView(t)}</div>${!['completed', 'cancelled'].includes(t.status) ? `<form id="message-form" class="message-box"><label for="task-message">Add direction or context</label><textarea id="task-message" placeholder="A constraint, a useful file, something the next specialist should know…" rows="2" required maxlength="20000"></textarea><div><small>Delivered at the next stage handoff.</small><button class="btn secondary small" type="submit">Add context ${icon('arrow')}</button></div></form>` : ''}</div><aside class="task-context"><section class="context-card"><div class="context-title">WORKFLOW <span class="live-label ${live ? 'is-live' : ''}">${live ? '● LIVE' : '6 STAGES'}</span></div><ol class="stage-list">${Object.keys(
+    )}</div><div class="detail-content">${state.tab === 'overview' ? taskDetails(t) || empty('book', 'No description yet', 'Configure this task to add requirements.') : state.tab === 'terminals' ? terminalView(t, state) : state.tab === 'thread' ? threadView(t) : state.tab === 'handoffs' ? handoffsView(t) : state.tab === 'diff' ? diffView(t) : transcriptView(t)}</div>${!['completed', 'cancelled'].includes(t.status) ? `<form id="message-form" class="message-box">${markdownEditor({ id: 'task-message', name: 'message', label: 'Add direction or context', rows: 3, max: 20000 })}<div><small>Delivered at the next stage handoff.</small><button class="btn secondary small" type="submit">Add context ${icon('arrow')}</button></div></form>` : ''}</div><aside class="task-context"><section class="context-card"><div class="context-title">WORKFLOW <span class="live-label ${live ? 'is-live' : ''}">${live ? '● LIVE' : '6 STAGES'}</span></div><ol class="stage-list">${Object.keys(
     stageNames,
   )
     .map((stage, i) => {
@@ -251,6 +240,7 @@ function planGate(t) {
 function threadView(t) {
   const meaningful = new Set([
     'created',
+    'configuration',
     'queued',
     'workspace',
     'stage_started',
@@ -442,21 +432,29 @@ function closeModal() {
   document.querySelector('#dialog')?.close();
 }
 function createTaskModal() {
+  state.modal = {};
+  showModal('Give your team a task', taskForm(null, state.config), true);
+  syncTaskForm(document.querySelector('[data-task-editor]'));
+}
+async function configureTask(duplicate = false) {
+  if (!duplicate && ['running', 'queued', 'manual'].includes(state.task.status)) {
+    toast('Pausing the workflow before editing…');
+    await api(`/tasks/${state.selected}/pause`, 'POST', {});
+  }
+  let task = await api(`/tasks/${state.selected}`);
+  for (let i = 0; !duplicate && task.executionActive && i < 150; i++) {
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    task = await api(`/tasks/${state.selected}`);
+  }
+  if (task.executionActive && !duplicate)
+    throw new Error('The worker is still stopping. Try Configure task again shortly.');
+  state.modal = { taskSnapshot: task, duplicate };
   showModal(
-    'Give your team a task',
-    `<form id="create-task-form"><p class="modal-description">Start with a ticket or describe the outcome. Relay connects the specialists and brings decisions back to you.</p><label class="field-label" for="new-repository">Repository</label><select class="input" id="new-repository" name="repositoryId" required><option value="">Choose a repository…</option>${state.config.repositories.map((r) => `<option value="${e(r.id)}">${e(r.name)}</option>`).join('')}</select><details class="advanced-fields"><summary>Coordinate additional repositories</summary><p class="form-help">Choose every repository needed for this ticket. Set prerequisites to control implementation order. All repositories share the plan and approval gates.</p>${state.config.repositories
-      .map(
-        (r) =>
-          `<div class="repo-participant"><label class="toggle-label"><input type="checkbox" name="additionalRepository" value="${e(r.id)}"> ${e(r.name)}</label><label class="field-label">Implement after <span>Optional prerequisites</span><select class="input" multiple name="depends-${e(r.id)}" aria-label="Prerequisites for ${e(r.name)}">${state.config.repositories
-            .filter((o) => o.id !== r.id)
-            .map((o) => `<option value="${e(o.id)}">${e(o.name)}</option>`)
-            .join('')}</select></label></div>`,
-      )
-      .join(
-        '',
-      )}<p class="form-help">Prerequisites must be selected repositories. Use Command/Ctrl to select several. No selection means independent. The primary repository is also included.</p></details>${!state.config.repositories.length ? `<div class="form-help">Add a repository first, or ${button('demo', 'try a demo', 'text small')}.</div>` : ''}<label class="field-label" for="new-ticket">Import an issue <span>Optional</span></label><div class="input-with-button"><input class="input" id="new-ticket" name="ticket" placeholder="Issue URL or number">${button('import-ticket', 'Import', 'secondary small')}</div><label class="field-label" for="new-title">Task title</label><input class="input" id="new-title" name="title" placeholder="What should be different when this is done?" maxlength="240" required><label class="field-label" for="new-description">Description & acceptance criteria</label><textarea class="input" id="new-description" name="description" rows="5" placeholder="The problem, expected behavior, useful context, and how to verify it…" maxlength="50000"></textarea><label class="toggle-label"><input type="checkbox" name="smartRouting"> Let the triage specialist recommend harness routing</label><p class="form-help">A separate task worktree is prepared when you start, unless a repository profile explicitly uses attach mode. Implementation waits for your approach approval. Final acceptance always comes back to you.</p><div class="modal-footer">${button('close-modal', 'Cancel', 'text')}<button class="btn primary" type="submit">Create task ${icon('arrow')}</button></div></form>`,
+    duplicate ? 'Duplicate task' : 'Configure task',
+    taskForm(task, state.config, { duplicate }),
     true,
   );
+  syncTaskForm(document.querySelector('[data-task-editor]'));
 }
 function commandsInput(commands) {
   return commands.map((c) => JSON.stringify([c.command, ...c.args])).join('\n');
@@ -529,26 +527,26 @@ async function refreshTerminal(task) {
       state.terminalPreview = { id, available: false, message: error.message };
   }
 }
-async function openTask(id) {
+async function openTask(id, recordHistory = true) {
   state.selected = id;
   state.view = 'task';
   state.task = null;
   state.events = [];
   state.diff = null;
-  state.tab = 'thread';
+  state.tab = 'overview';
   state.terminalId = '';
   state.terminalPreview = null;
   state.terminalFollow = true;
   shell();
   await refresh();
-  history.replaceState(null, '', `#task/${id}`);
+  if (recordHistory) history.pushState(null, '', `#task/${id}`);
 }
-async function navigate(view) {
+async function navigate(view, recordHistory = true) {
   state.view = view;
   state.selected = null;
   state.task = null;
   shell();
-  history.replaceState(null, '', `#${view}`);
+  if (recordHistory) history.pushState(null, '', `#${view}`);
   if (view === 'harnesses') {
     state.harnesses = await api('/harnesses');
     renderMain();
@@ -583,6 +581,10 @@ document.addEventListener('click', async (event) => {
       renderMain();
       return;
     }
+    if (action === 'markdown-tab' || action === 'markdown-format') {
+      handleMarkdownAction(element);
+      return;
+    }
     if (action === 'copy-terminal') {
       await navigator.clipboard.writeText(element.dataset.command);
       toast('Attach command copied. Paste it in your terminal.');
@@ -600,13 +602,31 @@ document.addEventListener('click', async (event) => {
         repositoryId: element.dataset.repositoryId,
       });
       closeModal();
+      state.tab = 'terminals';
       await refresh();
       return;
     }
     if (action === 'navigate') return await navigate(element.dataset.view);
     if (action === 'new-task') return createTaskModal();
+    if (action === 'configure-task' || action === 'duplicate-task') {
+      if (state.busy) return;
+      state.busy = true;
+      try {
+        return await configureTask(action === 'duplicate-task');
+      } finally {
+        state.busy = false;
+      }
+    }
     if (action === 'close-modal') return closeModal();
     if (action === 'open-task') return await openTask(element.dataset.id);
+    if (action === 'clear-task-filters') {
+      state.filter = 'all';
+      state.search = '';
+      state.repositoryFilter = '';
+      state.stageFilter = '';
+      renderMain();
+      return;
+    }
     if (action === 'filter') {
       state.filter = element.dataset.filter;
       renderMain();
@@ -636,7 +656,7 @@ document.addEventListener('click', async (event) => {
     if (action === 'request-changes')
       return showModal(
         'Give the team direction',
-        `<form id="changes-form"><label class="field-label" for="change-note">What should change?</label><textarea class="input" id="change-note" name="note" rows="5" required maxlength="20000" placeholder="Be specific about the outcome or concern…"></textarea><p class="form-help">The team will receive your feedback and return with an updated result.</p><div class="modal-footer">${button('close-modal', 'Cancel', 'text')}<button class="btn primary" type="submit">Send feedback & continue ${icon('arrow')}</button></div></form>`,
+        `<form id="changes-form">${markdownEditor({ id: 'change-note', name: 'note', label: 'What should change?', rows: 5, max: 20000 })}<p class="form-help">The team will receive your feedback and return with an updated result.</p><div class="modal-footer">${button('close-modal', 'Cancel', 'text')}<button class="btn primary" type="submit">Send feedback & continue ${icon('arrow')}</button></div></form>`,
       );
     if (action === 'confirm-cancel')
       return showModal(
@@ -681,6 +701,7 @@ document.addEventListener('click', async (event) => {
     }
     if (action === 'task-action') {
       await api(`/tasks/${state.selected}/${element.dataset.operation}`, 'POST', {});
+      if (['start', 'resume'].includes(element.dataset.operation)) state.tab = 'thread';
       closeModal();
       await refresh();
     }
@@ -701,16 +722,19 @@ document.addEventListener('click', async (event) => {
       toast('Repository profile removed. Existing tasks retain their configuration.');
     }
     if (action === 'import-ticket') {
-      const form = document.querySelector('#create-task-form');
-      const data = new FormData(form);
-      const issue = await api('/tickets/import', 'POST', {
-        repositoryId: data.get('repositoryId'),
-        ticket: data.get('ticket'),
+      const form = element.closest('form');
+      const repositoryId = form.elements.namedItem('repositoryId').value;
+      const imported = await api('/tickets/import', 'POST', {
+        repositoryId,
+        ticket: form.elements.namedItem('ticket').value,
       });
-      form.elements.title.value = issue.title;
-      form.elements.description.value = issue.description;
-      form.elements.ticket.value = issue.ticket;
-      toast('Issue imported. Review it before creating the task.');
+      for (const key of ['title', 'description', 'ticket'])
+        form.elements.namedItem(key).value = imported[key] ?? '';
+      for (const editor of form.querySelectorAll('[data-editor]'))
+        if (editor.querySelector('[data-mode="preview"]').getAttribute('aria-selected') === 'true')
+          handleMarkdownAction(editor.querySelector('[data-mode="preview"]'));
+      toast('Issue imported. Review the description before saving.');
+      return;
     }
   } catch (error) {
     toast(error.message, true);
@@ -729,19 +753,36 @@ document.addEventListener('submit', async (event) => {
   const submit = form.querySelector('button[type="submit"]');
   if (submit) submit.disabled = true;
   try {
-    if (form.id === 'create-task-form') {
-      const task = await api('/tasks', 'POST', {
-        ...values,
-        repositoryIds: [
-          ...new Set([data.get('repositoryId'), ...data.getAll('additionalRepository')]),
-        ],
-        dependencies: [...data.entries()]
-          .filter(([key, value]) => key.startsWith('depends-') && value)
-          .map(([key, value]) => ({ repositoryId: key.slice(8), dependsOn: value })),
-        smartRouting: data.has('smartRouting'),
-      });
+    if (['create-task-form', 'edit-task-form'].includes(form.id)) {
+      const editing = form.id === 'edit-task-form';
+      const snapshot = state.modal?.taskSnapshot;
+      const payload = readTaskForm(
+        form,
+        state.config,
+        parseCommands,
+        editing ? snapshot : undefined,
+      );
+      if (editing) payload.expectedRevision = snapshot.configRevision ?? 0;
+      if (snapshot?.demo) {
+        payload.repositoryIds = [];
+        payload.repositorySettings = [];
+        delete payload.repositoryId;
+        payload.dependencies = [];
+        if (!editing) payload.demo = true;
+      }
+      const task = await api(
+        editing ? `/tasks/${snapshot.id}` : '/tasks',
+        editing ? 'PATCH' : 'POST',
+        payload,
+      );
       closeModal();
       await openTask(task.id);
+      if (editing)
+        toast(
+          task.status === 'paused'
+            ? 'Settings saved. Resume when ready to rebuild validation and approval.'
+            : 'Task settings saved.',
+        );
     }
     if (form.id === 'approve-form') {
       await api(`/tasks/${state.selected}/approve-plan`, 'POST', {
@@ -832,6 +873,24 @@ document.addEventListener('submit', async (event) => {
     if (submit) submit.disabled = false;
   }
 });
+document.addEventListener('change', (event) => {
+  const filters = {
+    'task-repository-filter': 'repositoryFilter',
+    'task-stage-filter': 'stageFilter',
+    'task-sort': 'taskSort',
+  };
+  if (filters[event.target.id]) {
+    state[filters[event.target.id]] = event.target.value;
+    renderMain();
+    return;
+  }
+  if (event.target.id === 'show-empty-stages') {
+    state.showEmptyStages = event.target.checked;
+    renderMain();
+    return;
+  }
+  if (event.target.closest('[data-task-editor]')) syncTaskForm(event.target.closest('form'));
+});
 document.addEventListener('input', (event) => {
   if (event.target.id === 'task-search') {
     state.search = event.target.value;
@@ -851,6 +910,16 @@ document.addEventListener('keydown', (event) => {
     event.preventDefault();
     createTaskModal();
   }
+});
+window.addEventListener('popstate', () => {
+  const hash = location.hash.slice(1);
+  const operation = hash.startsWith('task/')
+    ? openTask(hash.slice(5), false)
+    : navigate(
+        ['tasks', 'repositories', 'harnesses', 'settings'].includes(hash) ? hash : 'overview',
+        false,
+      );
+  operation.catch((error) => toast(error.message, true));
 });
 function connect() {
   stream = new EventSource('/api/events');
@@ -880,7 +949,7 @@ async function boot() {
     state.config = bootstrap.config;
     [state.tasks, state.harnesses] = await Promise.all([api('/tasks'), api('/harnesses')]);
     const hash = location.hash.slice(1);
-    if (hash.startsWith('task/')) await openTask(hash.slice(5));
+    if (hash.startsWith('task/')) await openTask(hash.slice(5), false);
     else {
       state.view = ['overview', 'tasks', 'repositories', 'harnesses', 'settings'].includes(hash)
         ? hash

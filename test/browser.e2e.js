@@ -108,18 +108,26 @@ try {
   }
   await page.reload();
   await page.locator('.task-subtitle .badge.completed').waitFor();
+  await page.getByRole('tab', { name: 'Activity thread', exact: true }).click();
+  if (localApp)
+    await page
+      .locator('.agent-message')
+      .getByText('I found the caller mismatch.', { exact: false })
+      .waitFor();
   await page.getByRole('button', { name: 'All tasks', exact: false }).first().click();
   await page.getByRole('textbox', { name: 'Search tasks' }).fill('does-not-exist');
   await page.getByRole('heading', { name: 'No tasks here yet' }).waitFor();
   await page.getByRole('textbox', { name: 'Search tasks' }).fill('Unify');
+  await page.locator('.task-list-row').first().waitFor();
+  await page.getByRole('button', { name: 'Board', exact: true }).click();
   await page.locator('.board-card').first().waitFor();
   await page
     .getByRole('region', { name: 'Done', exact: true })
     .locator('.board-card')
     .first()
     .waitFor();
-  await page.getByRole('button', { name: 'Table', exact: true }).click();
-  await page.locator('.task-row').first().waitFor();
+  await page.getByRole('button', { name: 'List', exact: true }).click();
+  await page.locator('.task-list-row').first().waitFor();
   await page.getByRole('button', { name: 'Board', exact: true }).click();
   await page.locator('.workflow-board').waitFor();
   await page.screenshot({ path: join(screenshots, 'workflow-board.png'), fullPage: true });
@@ -156,13 +164,106 @@ try {
     'https://github.com/example/service/issues/42',
   );
   assert.equal(await issueLink.getAttribute('target'), '_blank');
+  await page.getByRole('tab', { name: 'Live terminals', exact: true }).click();
   await page
     .getByRole('region', { name: 'Live terminals', exact: true })
     .getByText('No workspace yet.', { exact: false })
     .waitFor();
   await page.getByRole('tab', { name: 'Agent terminal', exact: true }).waitFor();
+  const contextEditor = page.locator('[data-editor="task-message"]');
+  await contextEditor.locator('textarea').fill('## Context still here');
+  await contextEditor.getByRole('tab', { name: 'Preview', exact: true }).click();
+  if (localApp) {
+    localApp.store.event(page.url().split('/').at(-1), {
+      type: 'configuration',
+      summary: 'Refresh fixture',
+    });
+    await page.waitForTimeout(700);
+  }
+  await contextEditor.getByRole('heading', { name: 'Context still here', exact: true }).waitFor();
+  assert.equal(await contextEditor.locator('textarea').inputValue(), '## Context still here');
   await assertReadableText(page);
   await page.screenshot({ path: join(screenshots, 'task-description.png'), fullPage: true });
+
+  // Edit a saved draft, render GFM safely, and retain task-local configuration.
+  await page.getByRole('button', { name: 'Configure task', exact: true }).click();
+  const editor = page.getByRole('dialog');
+  await editor.locator('#edit-title').fill('Configurable draft');
+  const source =
+    '# Requirements\n\n**Bold** and _italic_.\n\n- [x] Investigate\n- [ ] Implement\n\n> Keep compatibility.\n\n```js\nconst n = 1;\n```\n\n| Field | Value |\n| --- | --- |\n| mode | strict |\n\n[Reference](https://example.com)\n\n<script>window.previewInjected = true</script>\n\n[bad](javascript:alert(1))\n\n<img src=x onerror="window.previewInjected=true">';
+  await editor.locator('#edit-description').fill(source);
+  const descriptionEditor = editor.locator('[data-editor="edit-description"]');
+  await descriptionEditor.getByRole('tab', { name: 'Preview', exact: true }).click();
+  await descriptionEditor.getByRole('heading', { name: 'Requirements', exact: true }).waitFor();
+  assert.equal(await descriptionEditor.locator('table tbody tr').count(), 1);
+  assert.equal(await descriptionEditor.locator('input[type=checkbox][disabled]').count(), 2);
+  assert.equal(await descriptionEditor.locator('pre code').textContent(), 'const n = 1;\n');
+  assert.equal(await descriptionEditor.locator('script,img,svg,iframe').count(), 0);
+  assert.equal(await descriptionEditor.locator('a[href^="javascript:"]').count(), 0);
+  assert.equal(await page.evaluate(() => window.previewInjected), undefined);
+  await page.setViewportSize({ width: 390, height: 844 });
+  assert.ok(
+    await page.evaluate(
+      () =>
+        document.querySelector('dialog').scrollWidth <=
+        document.querySelector('dialog').clientWidth,
+    ),
+    'Markdown editor must fit on mobile',
+  );
+  await assertReadableText(page);
+  await page.screenshot({ path: join(screenshots, 'mobile-markdown-preview.png'), fullPage: true });
+  await page.setViewportSize({ width: 1440, height: 1100 });
+  await descriptionEditor.getByRole('tab', { name: 'Write', exact: true }).click();
+  assert.equal(await editor.locator('#edit-description').inputValue(), source);
+  await editor.locator('[name="route-review"]').selectOption('codex');
+  await editor.locator('[name="model-review"]').fill('review-model');
+  await editor.locator('[name="timeoutMinutes"]').fill('22');
+  await editor.locator('[name="maxRepairRounds"]').fill('5');
+  await editor.getByText('Browser fixture · checks & guidance', { exact: true }).click();
+  await editor.locator('textarea[name$="-checks"]').fill('["node","--version"]');
+  await editor.getByRole('button', { name: 'Save task settings', exact: true }).click();
+  await page.getByRole('heading', { name: 'Configurable draft', exact: true }).waitFor();
+  await page
+    .getByRole('region', { name: 'Description and requirements', exact: true })
+    .getByRole('heading', { name: 'Requirements', exact: true })
+    .waitFor();
+  const editedUrl = page.url();
+  await page.reload();
+  await page.getByRole('button', { name: 'Configure task', exact: true }).click();
+  assert.equal(await editor.locator('[name="model-review"]').inputValue(), 'review-model');
+  assert.equal(await editor.locator('[name="timeoutMinutes"]').inputValue(), '22');
+  assert.equal(await editor.locator('[name="maxRepairRounds"]').inputValue(), '5');
+  await assertReadableText(page);
+  await page.screenshot({ path: join(screenshots, 'task-configuration.png'), fullPage: true });
+  await page.keyboard.press('Escape');
+  await page.getByRole('button', { name: 'Duplicate task', exact: true }).click();
+  await editor.locator('#new-title').fill('Draft duplicate');
+  await editor.getByRole('button', { name: 'Create task', exact: true }).click();
+  await page.getByRole('heading', { name: 'Draft duplicate', exact: true }).waitFor();
+  assert.notEqual(page.url(), editedUrl);
+  await page.getByRole('button', { name: 'All tasks', exact: false }).first().click();
+  await page.getByRole('button', { name: 'List', exact: true }).click();
+  await page.locator('#task-stage-filter').selectOption('backlog');
+  assert.equal(await page.locator('.task-list-row').count(), 2);
+  await page.locator('#task-search').fill('Configurable draft');
+  assert.equal(await page.locator('.task-list-row').count(), 1);
+  await page.locator('.task-list-open').click();
+  await page.getByRole('heading', { name: 'Configurable draft', exact: true }).waitFor();
+  await page.goBack();
+  await page.locator('#task-search').waitFor();
+  assert.equal(await page.locator('#task-search').inputValue(), 'Configurable draft');
+  await page.getByRole('button', { name: 'Clear filters', exact: true }).click();
+  assert.equal(await page.locator('#task-stage-filter').inputValue(), '');
+  assert.equal(await page.locator('#task-search').inputValue(), '');
+  await page.screenshot({ path: join(screenshots, 'task-list.png'), fullPage: true });
+  await page.setViewportSize({ width: 390, height: 844 });
+  assert.ok(
+    await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
+    'Task list must fit on mobile',
+  );
+  await assertReadableText(page);
+  await page.screenshot({ path: join(screenshots, 'mobile-task-list.png'), fullPage: true });
+  await page.setViewportSize({ width: 1440, height: 1100 });
 
   await page.getByRole('button', { name: 'Harnesses', exact: true }).click();
   await page.getByRole('heading', { name: 'Specialist routing' }).waitFor();
@@ -245,6 +346,15 @@ try {
     await page.getByRole('button', { name: 'Create task', exact: false }).click();
     await page.getByRole('button', { name: 'Start workflow' }).click();
     await page.getByRole('heading', { name: 'Choose the way forward.' }).waitFor();
+    await page.getByRole('tab', { name: 'Live terminals', exact: true }).click();
+    await page.getByRole('button', { name: 'Configure task', exact: true }).click();
+    assert.equal(await page.locator('#edit-repository').isDisabled(), true);
+    assert.equal(await page.locator('textarea[name=repo-service-setup]').isDisabled(), true);
+    await page
+      .getByRole('dialog')
+      .getByText('Your worktree and history are preserved.', { exact: false })
+      .waitFor();
+    await page.keyboard.press('Escape');
     await page.getByRole('button', { name: 'Take over · service', exact: true }).click();
     await page
       .getByRole('dialog')
@@ -343,7 +453,7 @@ try {
   }
   assert.deepEqual(errors, []);
   process.stdout.write(
-    'Browser checks passed: approvals, feedback loops, reload, search, repository profile, escaped task content, navigation, and mobile layout.\n',
+    'Browser checks passed: approvals, task editing and duplication, GFM preview and sanitization, live refresh, filters, history, terminals, and mobile contrast/layout.\n',
   );
 } finally {
   await browser?.close();
