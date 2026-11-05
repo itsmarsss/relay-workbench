@@ -1,3 +1,4 @@
+import { recoverRestore } from './backup-state.js';
 import { DatabaseSync } from 'node:sqlite';
 import {
   mkdirSync,
@@ -18,6 +19,7 @@ export class Store {
     mkdirSync(directory, { recursive: true, mode: 0o700 });
     chmodSync(directory, 0o700);
     this.lockPath = join(directory, 'server.lock');
+    this.ownsLock = false;
     this.acquireLock();
     try {
       this.db = new DatabaseSync(join(directory, 'relay.sqlite'));
@@ -26,9 +28,13 @@ export class Store {
         CREATE TABLE IF NOT EXISTS events (seq INTEGER PRIMARY KEY AUTOINCREMENT, task_id TEXT NOT NULL, body TEXT NOT NULL);
         CREATE INDEX IF NOT EXISTS events_task ON events(task_id, seq);
         CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);`);
+      recoverRestore(directory, this.db);
       this.listeners = new Set();
       this.config = this.loadConfig();
     } catch (error) {
+      try {
+        this.db?.close();
+      } catch {}
       this.releaseLock();
       throw error;
     }
@@ -39,6 +45,7 @@ export class Store {
         const fd = openSync(this.lockPath, 'wx', 0o600);
         writeFileSync(fd, String(process.pid));
         closeSync(fd);
+        this.ownsLock = true;
         return;
       } catch (error) {
         if (error.code !== 'EEXIST') throw error;
@@ -55,6 +62,8 @@ export class Store {
     throw new Error('Could not acquire state lock');
   }
   releaseLock() {
+    if (!this.ownsLock) return;
+    this.ownsLock = false;
     try {
       unlinkSync(this.lockPath);
     } catch {}
@@ -134,6 +143,7 @@ export class Store {
   }
   close() {
     this.db?.close();
+    this.db = null;
     this.releaseLock();
   }
 }

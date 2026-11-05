@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { mkdir, writeFile, rename } from 'node:fs/promises';
 import { join } from 'node:path';
-import { HANDOFF_SCHEMA, parseHandoff, validateHandoff } from './domain.js';
+import { HANDOFF_SCHEMA, parseHandoff, validateHandoff, requireValue } from './domain.js';
 import { runProcess, executableExists } from './process.js';
 
 export function buildInvocation(id, config, schemaPath, stage, sessionId) {
@@ -286,7 +286,13 @@ export async function executeHarness({
               : harness === 'claude' && event?.type === 'system' && event.subtype === 'init'
                 ? event.session_id
                 : null;
-        if (nativeId) onSession(nativeId);
+        if (nativeId) {
+          requireValue(
+            typeof nativeId === 'string' && /^[A-Za-z0-9][A-Za-z0-9_-]{0,199}$/.test(nativeId),
+            'Invalid native session identifier',
+          );
+          onSession(nativeId);
+        }
         if (event?.type === 'relay.ready')
           onControl(async (id, message) => {
             return new Promise((resolve, reject) => {
@@ -409,6 +415,10 @@ export function demoHandoff(task, stage) {
 }
 
 export function resumeInvocation(harness, config, sessionId, writable = false) {
+  requireValue(
+    typeof sessionId === 'string' && /^[A-Za-z0-9][A-Za-z0-9_-]{0,199}$/.test(sessionId),
+    'Invalid native session identifier',
+  );
   const model = config.model ? ['--model', config.model] : [];
   if (harness === 'codex')
     return {

@@ -61,15 +61,13 @@ export function diffLines(diff) {
     lines.push({ text: `New file: ${file.name}`, kind: 'hunk', anchor: null });
     const inspectOnly =
       file.content.startsWith('[Binary file;') || file.content.startsWith('[File over 200 KB');
-    file.content
-      .split('\n')
-      .forEach((content, index) =>
-        lines.push({
-          text: '+' + content,
-          kind: 'addition',
-          anchor: inspectOnly ? null : { path: file.name, side: 'new', line: index + 1, content },
-        }),
-      );
+    file.content.split('\n').forEach((content, index) =>
+      lines.push({
+        text: '+' + content,
+        kind: 'addition',
+        anchor: inspectOnly ? null : { path: file.name, side: 'new', line: index + 1, content },
+      }),
+    );
   }
   return lines;
 }

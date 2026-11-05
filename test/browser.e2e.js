@@ -602,14 +602,23 @@ try {
       .click();
     await page.locator('#line-comment').fill('Preserve the cross-repository contract.');
     await page.getByRole('button', { name: 'Save inline comment', exact: true }).click();
-    await page.getByRole('button', { name: 'Send open comments for repair', exact: true }).click();
+    await page
+      .getByRole('button', { name: 'Send all open comments for repair', exact: true })
+      .click();
+    await page.waitForFunction(async () => {
+      const id = location.hash.slice('#task/'.length);
+      const task = await fetch(`/api/tasks/${id}`).then((r) => r.json());
+      return (
+        task.status === 'awaiting_final' &&
+        task.attempts.filter((a) => a.stage === 'implement' && a.status === 'complete').length >= 4
+      );
+    });
+    await page.getByRole('button', { name: 'Configure task', exact: true }).waitFor();
+
     await page.getByRole('heading', { name: 'The specialists are done. Over to you.' }).waitFor();
     await page.getByRole('button', { name: 'Refresh all', exact: true }).click();
     await page.getByText('Preserve the cross-repository contract.', { exact: true }).waitFor();
-    assert.equal(
-      localApp.store.get(page.url().split('/').at(-1)).reviewComments.length,
-      2,
-    );
+    assert.equal(localApp.store.get(page.url().split('/').at(-1)).reviewComments.length, 2);
     await page.screenshot({ path: join(screenshots, 'inline-feedback.png'), fullPage: true });
     await page.getByRole('button', { name: 'Accept result', exact: true }).click();
     await page.locator('.task-subtitle .badge.completed').waitFor();
@@ -641,9 +650,45 @@ try {
       2,
     );
   }
+  if (localApp) {
+    await page.setViewportSize({ width: 1440, height: 1100 });
+    await page.getByRole('button', { name: 'Approval inbox', exact: true }).click();
+    await page.getByRole('heading', { name: 'Approval inbox', exact: true }).waitFor();
+    await assertReadableText(page);
+    await page.getByRole('button', { name: 'Harnesses', exact: true }).click();
+    await page.getByRole('heading', { name: 'Routing evidence', exact: true }).waitFor();
+    await page.locator('#outcomes-repository').selectOption('service');
+    await page.getByRole('heading', { name: 'Suggested defaults', exact: true }).waitFor();
+    await page.getByRole('button', { name: 'Settings', exact: true }).click();
+    await page.getByRole('button', { name: 'Refresh storage', exact: true }).click();
+    await page.getByRole('heading', { name: 'Backup and restore', exact: true }).waitFor();
+    await assertReadableText(page);
+    await page.getByRole('button', { name: 'Create downloadable backup', exact: true }).click();
+    await page.getByRole('heading', { name: 'Backup ready', exact: true }).waitFor();
+    const downloading = page.waitForEvent('download');
+    await page.getByRole('link', { name: 'Download private archive', exact: true }).click();
+    const downloaded = await downloading;
+    const archivePath = await downloaded.path();
+    assert.ok(archivePath);
+    await page.keyboard.press('Escape');
+    await page.locator('#backup-file').setInputFiles(archivePath);
+    await page.getByRole('button', { name: 'Inspect backup', exact: true }).click();
+    await page.getByRole('heading', { name: 'Review this restore', exact: true }).waitFor();
+    await page.getByRole('button', { name: 'Restore this backup', exact: true }).click();
+    await page.getByRole('heading', { name: 'Backup restored', exact: true }).waitFor();
+    await page
+      .getByRole('link', { name: 'Download pre-restore safety backup', exact: true })
+      .waitFor();
+    await page.screenshot({ path: join(screenshots, 'backup-restore.png'), fullPage: true });
+    await page.keyboard.press('Escape');
+    assert.equal(localApp.engine.running.size, 0);
+    assert.ok(
+      localApp.store.all().every((t) => !['running', 'queued', 'manual'].includes(t.status)),
+    );
+  }
   assert.deepEqual(errors, []);
   process.stdout.write(
-    'Browser checks passed: approvals, task editing and duplication, GFM preview and sanitization, image uploads/paste/drop/viewer, live refresh, filters, history, terminals, and mobile contrast/layout.\n',
+    'Browser checks passed: approvals, task editing and duplication, GFM preview and sanitization, image uploads/paste/drop/viewer, live refresh, filters, history, terminals, inbox, routing evidence, inline repairs, backup/restore, and mobile contrast/layout.\n',
   );
 } finally {
   await browser?.close();

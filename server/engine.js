@@ -151,13 +151,24 @@ export class Engine {
               (a) =>
                 a.id === data.sessionAttemptId &&
                 a.sessionId &&
-                a.repositoryId === entry.repository.id,
+                (a.workspaceRepositoryId ?? a.repositoryId ?? workspaces(task)[0].repository.id) ===
+                  entry.repository.id,
             )
           : null;
         requireValue(
           !data.sessionAttemptId || sessionAttempt,
           'No matching native session in this repository',
         );
+        const invocation = sessionAttempt
+          ? resumeInvocation(
+              sessionAttempt.harness,
+              executionConfig(task, this.store.config, sessionAttempt.stage).harnesses[
+                sessionAttempt.harness
+              ],
+              sessionAttempt.sessionId,
+              !!task.chosenApproach && sessionAttempt.stage === 'implement',
+            )
+          : { command: process.env.SHELL || '/bin/sh', args: ['-i'] };
         task.status = 'manual';
         task.stage = task.chosenApproach ? 'verify' : 'investigate';
         task.repositoryCursor = 0;
@@ -176,14 +187,6 @@ export class Engine {
         this.running.get(id)?.abort();
         while (this.running.has(id)) await delay(25);
         requireValue(!this.stopping, 'Relay is shutting down', 409);
-        const invocation = sessionAttempt
-          ? resumeInvocation(
-              sessionAttempt.harness,
-              this.store.config.harnesses[sessionAttempt.harness],
-              sessionAttempt.sessionId,
-              !!task.chosenApproach,
-            )
-          : { command: process.env.SHELL || '/bin/sh', args: ['-i'] };
         const controller = new AbortController();
         const run = { controller, done: null };
         this.manualRuns.set(id, run);
@@ -647,6 +650,7 @@ export class Engine {
       harness,
       round: task.round,
       repositoryId: scoped ? entry.repository.id : null,
+      workspaceRepositoryId: entry.repository.id,
       status: 'running',
       startedAt: new Date().toISOString(),
     };

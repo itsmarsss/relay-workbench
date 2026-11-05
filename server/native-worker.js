@@ -128,18 +128,36 @@ createInterface({ input: child.stdout }).on('line', (line) => {
   }
   const { method, params = {} } = event;
   if (method === 'turn/started') turnId = params.turn.id;
-  if (method === 'item/completed') {
-    const item = params.item;
-    if (item.type === 'agentMessage')
-      emit({ type: 'item.completed', item: { type: 'agent_message', text: item.text } });
-    else emit({ type: 'relay.activity', summary: item.type, details: JSON.stringify(item) });
+  if (['item/started', 'item/completed'].includes(method) && params.item) {
+    const item = params.item,
+      completed = method === 'item/completed';
+    if (item.type === 'agentMessage') {
+      if (completed)
+        emit({ type: 'item.completed', item: { type: 'agent_message', text: item.text } });
+    } else if (item.type === 'commandExecution')
+      emit({
+        type: completed ? 'item.completed' : 'item.started',
+        item: {
+          type: 'command_execution',
+          command: item.command,
+          aggregated_output: item.aggregatedOutput,
+          exit_code: item.exitCode,
+        },
+      });
+    else if (item.type === 'fileChange' && completed)
+      emit({ type: 'item.completed', item: { type: 'file_change', changes: item.changes } });
+    else if (item.type !== 'reasoning')
+      emit({
+        type: 'relay.activity',
+        summary:
+          item.type === 'mcpToolCall'
+            ? `${completed ? 'Finished' : 'Calling'} ${item.server}/${item.tool}`
+            : item.type === 'webSearch'
+              ? `Searching: ${item.query || ''}`
+              : `${completed ? 'Finished' : 'Starting'} ${item.type}`,
+        details: JSON.stringify(item),
+      });
   }
-  if (method === 'item/started' && params.item?.type !== 'agentMessage')
-    emit({
-      type: 'relay.activity',
-      summary: params.item.type,
-      details: JSON.stringify(params.item),
-    });
   if (method === 'turn/completed')
     completed(
       params.turn.status === 'completed'

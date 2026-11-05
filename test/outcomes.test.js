@@ -75,4 +75,9 @@ test('failed checks, review findings, unfinished and interrupted attempts stay d
   assert.equal(row.interrupted, 1);
   assert.equal(row.successful, 0);
   assert.equal(row.eligible, false);
+  const review = routingOutcomes(
+    [failed, findings, pending, interrupted],
+    DEFAULT_CONFIG,
+  ).rows.find((r) => r.stage === 'review');
+  assert.equal(review.successful, 3, 'Finding defects must not penalize the reviewer');
 });

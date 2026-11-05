@@ -1,3 +1,4 @@
+import { storageView, bytes } from './storage.js';
 import { outcomesView } from './outcomes.js';
 import { diffLines } from './diff-lines.js';
 import { inboxPage, notifyInbox } from './inbox.js';
@@ -21,6 +22,7 @@ import {
 } from './ui.js';
 
 const state = {
+  storage: null,
   outcomes: null,
   outcomesRepository: '',
   inbox: [],
@@ -91,8 +93,14 @@ function renderMain() {
   const focused = document.activeElement;
   const focusId = main.contains(focused) ? focused.id : null;
   const inputs = [...main.querySelectorAll('textarea,input')]
-    .filter((i) => i.id && i.id !== 'task-search')
-    .map((i) => ({ id: i.id, value: i.value, start: i.selectionStart, end: i.selectionEnd }));
+    .filter((i) => i.id && i.id !== 'task-search' && i.type !== 'file')
+    .map((i) => ({
+      id: i.id,
+      value: i.value,
+      start: i.selectionStart,
+      end: i.selectionEnd,
+      checked: i.checked,
+    }));
   const expanded = new Set(
     [...main.querySelectorAll('details[data-event-key][open]')].map((d) => d.dataset.eventKey),
   );
@@ -113,6 +121,7 @@ function renderMain() {
                 : settingsView();
   for (const i of inputs) {
     const element = document.getElementById(i.id);
+    if (element?.type === 'checkbox') element.checked = i.checked;
     if (element && !['checkbox', 'radio'].includes(element.type)) {
       element.value = i.value;
       if (i.id === focusId) {
@@ -213,7 +222,7 @@ function taskView() {
     )
     .join(
       '',
-    )}</div><div class="detail-content">${state.tab === 'overview' ? taskDetails(t) || empty('book', 'No description yet', 'Configure this task to add requirements.') : state.tab === 'terminals' ? terminalView(t, state) : state.tab === 'thread' ? threadView(t) : state.tab === 'handoffs' ? handoffsView(t) : state.tab === 'diff' ? diffView(t) : transcriptView(t)}</div>${!['completed', 'cancelled'].includes(t.status) ? `<form id="message-form" class="message-box">${markdownEditor({ id: 'task-message', name: 'message', label: 'Add direction or context', rows: 3, max: 20000 })}<div><small>${t.canSteer ? 'Steer sends direction to the active session; Claude interrupts and resumes.' : 'Context stays pending until an agent receives it.'} ${t.messages.filter((m) => m.delivery === 'pending').length} pending.</small>${t.canSteer ? '<label><input type="checkbox" name="steer" checked> Steer active agent</label>' : ''}<button class="btn secondary small" type="submit">Send direction ${icon('arrow')}</button></div></form>` : ''}</div><aside class="task-context"><section class="context-card"><div class="context-title">WORKFLOW <span class="live-label ${live ? 'is-live' : ''}">${live ? '● LIVE' : '6 STAGES'}</span></div><ol class="stage-list">${Object.keys(
+    )}</div><div class="detail-content">${state.tab === 'overview' ? taskDetails(t) || empty('book', 'No description yet', 'Configure this task to add requirements.') : state.tab === 'terminals' ? terminalView(t, state) : state.tab === 'thread' ? threadView(t) : state.tab === 'handoffs' ? handoffsView(t) : state.tab === 'diff' ? diffView(t) : transcriptView(t)}</div>${!['completed', 'cancelled'].includes(t.status) ? `<form id="message-form" class="message-box">${markdownEditor({ id: 'task-message', name: 'message', label: 'Add direction or context', rows: 3, max: 20000 })}<div><small>${t.canSteer ? 'Steer sends direction to the active session; Claude interrupts and resumes.' : 'Context stays pending until an agent receives it.'} ${t.messages.filter((m) => m.delivery === 'pending').length} pending.</small>${t.canSteer ? '<label><input id="steer-active" type="checkbox" name="steer" checked> Steer active agent</label>' : ''}<button class="btn secondary small" type="submit">Send direction ${icon('arrow')}</button></div></form>` : ''}</div><aside class="task-context"><section class="context-card"><div class="context-title">WORKFLOW <span class="live-label ${live ? 'is-live' : ''}">${live ? '● LIVE' : '6 STAGES'}</span></div><ol class="stage-list">${Object.keys(
     stageNames,
   )
     .map((stage, i) => {
@@ -336,8 +345,14 @@ function diffView(t, suppliedDiff) {
       'No real files changed',
       'Demo mode simulates the workflow. Live tasks show tracked changes and untracked files here.',
     );
-  if (!t.workspace)
-    return empty('git', 'No workspace yet', 'Start this task to prepare its workspace.');
+  if (!t.workspace && !t.repositories?.some((r) => r.workspace))
+    return t.cleanedWorkspace
+      ? empty(
+          'git',
+          'Worktree cleaned',
+          'The branch, task history and artifacts are retained. Create a checkout of the retained branch to inspect the code.',
+        )
+      : empty('git', 'No workspace yet', 'Start this task to prepare its workspace.');
   if (!state.diff) return '<div class="boot">Loading changes…</div>';
   const d = suppliedDiff ?? state.diff;
   const canComment = t.status === 'awaiting_final';
@@ -359,11 +374,11 @@ function diffView(t, suppliedDiff) {
   )
     .map(
       (line, index) =>
-        `<span class="diff-line ${line.kind}">${canComment && line.anchor ? `<button class="diff-comment-button" data-action="comment-line" data-repository-id="${e(repositoryId)}" data-line="${index}" aria-label="Comment on ${e(line.anchor.path)} line ${line.anchor.line}">+</button>` : ''}${e(line.text)}</span>`,
+        `<span class="diff-line ${line.kind} ${line.anchor ? 'has-anchor' : ''}">${canComment && line.anchor ? `<button class="diff-comment-button" data-action="comment-line" data-repository-id="${e(repositoryId)}" data-line="${index}" aria-label="Comment on ${e(line.anchor.path)} line ${line.anchor.line}">+</button>` : ''}${line.anchor ? `<small class="diff-line-number">${line.anchor.side === 'old' ? 'old' : 'new'} ${line.anchor.line}</small>` : ''}${e(line.text)}</span>`,
     )
     .join(
       '\n',
-    )}</pre>${comments.length ? `<section class="context-card"><h3>Inline feedback</h3>${comments.map((c) => `<article class="review-comment"><strong>${e(c.anchor.path)}:${c.anchor.line} · ${e(c.status)}${c.fingerprint !== d.fingerprint ? ' · Earlier workspace' : ''}</strong><div class="prose">${prose(c.text)}</div>${canComment && c.status !== 'resolved' ? button('resolve-comment', 'Mark resolved', 'text small', '', `data-comment-id="${e(c.id)}"`) : ''}</article>`).join('')}${canComment && comments.some((c) => c.status === 'open') ? button('focused-repair', 'Send open comments for repair', 'primary small') : ''}</section>` : ''}${!d.text && !d.untracked.length ? empty('check', 'No changes yet', 'Changes appear here as the workspace changes.') : ''}`;
+    )}</pre>${comments.length ? `<section class="context-card"><h3>Inline feedback</h3>${comments.map((c) => `<article class="review-comment"><strong>${e(c.anchor.path)}:${c.anchor.line} · ${e(c.status)}${c.fingerprint !== d.fingerprint ? ' · Earlier workspace' : ''}</strong><div class="prose">${prose(c.text)}</div>${canComment && c.status !== 'resolved' ? button('resolve-comment', 'Mark resolved', 'text small', '', `data-comment-id="${e(c.id)}"`) : ''}</article>`).join('')}${canComment && comments.some((c) => c.status === 'open') ? button('focused-repair', 'Send all open comments for repair', 'primary small') : ''}</section>` : ''}${!d.text && !d.untracked.length ? empty('check', 'No changes yet', 'Changes appear here as the workspace changes.') : ''}`;
 }
 function transcriptView() {
   const events = state.events.filter((ev) => ev.type === 'transcript');
@@ -413,7 +428,7 @@ function harnessesView() {
     )}</div></section><div class="form-footer"><span>Model IDs and permissions follow your installed harness configuration.</span><button class="btn primary" type="submit">Save harness configuration ${icon('check')}</button></div></form>${outcomesView(state.outcomes, state.config, state.outcomesRepository)}`;
 }
 function settingsView() {
-  return `${pageHeading('MAKE IT YOURS', 'Settings', 'Local configuration, execution limits, and private integration profiles.')}<form id="settings-form" class="settings-panel"><h2>Execution</h2><p>Quality-first workflows, with explicit limits on runaway retries.</p><div class="settings-fields"><label>Concurrent tasks<input id="setting-concurrency" class="input" type="number" name="concurrency" min="1" max="8" value="${state.config.concurrency}" required><small>Work in different repositories concurrently.</small></label><label>Automatic repair rounds<input id="setting-rounds" class="input" type="number" name="maxRepairRounds" min="1" max="10" value="${state.config.maxRepairRounds}" required><small>Pause for your input after repeated failures.</small></label><label>Stage timeout (minutes)<input id="setting-timeout" class="input" type="number" name="timeoutMinutes" min="1" max="240" value="${state.config.timeoutMinutes}" required><small>Applied to each harness or check process.</small></label></div><button class="btn primary" type="submit">Save execution settings</button></form><section class="settings-panel"><h2>Private integration profiles</h2><p>Import a repository profile or complete configuration as JSON. Private hostnames, paths, instructions, and provider commands stay in ignored local state.</p><div class="inline-actions">${button('import-profile', 'Import local profile', 'secondary', 'download')}${button('view-config', 'View configuration', 'text', 'code')}</div></section><section class="settings-panel"><h2>Local by design</h2><p>Relay listens on <code>127.0.0.1</code>. Task history, transcripts, and approvals are stored on this machine. Your harness CLIs handle authentication; Relay does not store API keys.</p><p>Harness and verification commands run with your user account. Use an isolated environment for untrusted code. Read the project README for execution and recovery details.</p></section>`;
+  return `${pageHeading('MAKE IT YOURS', 'Settings', 'Local configuration, execution limits, and private integration profiles.')}${storageView(state.storage)}<form id="settings-form" class="settings-panel"><h2>Execution</h2><p>Quality-first workflows, with explicit limits on runaway retries.</p><div class="settings-fields"><label>Concurrent tasks<input id="setting-concurrency" class="input" type="number" name="concurrency" min="1" max="8" value="${state.config.concurrency}" required><small>Work in different repositories concurrently.</small></label><label>Automatic repair rounds<input id="setting-rounds" class="input" type="number" name="maxRepairRounds" min="1" max="10" value="${state.config.maxRepairRounds}" required><small>Pause for your input after repeated failures.</small></label><label>Stage timeout (minutes)<input id="setting-timeout" class="input" type="number" name="timeoutMinutes" min="1" max="240" value="${state.config.timeoutMinutes}" required><small>Applied to each harness or check process.</small></label></div><button class="btn primary" type="submit">Save execution settings</button></form><section class="settings-panel"><h2>Private integration profiles</h2><p>Import a repository profile or complete configuration as JSON. Private hostnames, paths, instructions, and provider commands stay in ignored local state.</p><div class="inline-actions">${button('import-profile', 'Import local profile', 'secondary', 'download')}${button('view-config', 'View configuration', 'text', 'code')}</div></section><section class="settings-panel"><h2>Local by design</h2><p>Relay listens on <code>127.0.0.1</code>. Task history, transcripts, and approvals are stored on this machine. Your harness CLIs handle authentication; Relay does not store API keys.</p><p>Harness and verification commands run with your user account. Use an isolated environment for untrusted code. Read the project README for execution and recovery details.</p></section>`;
 }
 
 function showModal(title, contents, wide = false) {
@@ -423,6 +438,11 @@ function showModal(title, contents, wide = false) {
   const dialog = document.querySelector('#dialog');
   dialog.showModal();
   dialog.addEventListener('close', () => {
+    if (state.modal?.restoreId) {
+      const previewId = state.modal.restoreId;
+      state.modal.restoreId = null;
+      api('/backups/discard', 'POST', { previewId }).catch(() => {});
+    }
     document.querySelector('#modal-root').innerHTML = '';
     modalReturnFocus?.focus();
   });
@@ -590,6 +610,59 @@ document.addEventListener('click', async (event) => {
   if (state.busy) return;
   const action = element.dataset.action;
   try {
+    if (action === 'refresh-storage') {
+      state.busy = true;
+      state.storage = await api('/storage');
+      renderMain();
+      return;
+    }
+    if (action === 'preview-cleanup') {
+      const entry = state.storage.entries[Number(element.dataset.entry)];
+      state.modal = { cleanup: entry };
+      showModal(
+        'Remove this finished worktree?',
+        `<p>${e(entry.title)} · ${e(entry.repository)}</p><p class="wrap mono">${e(entry.path)}</p><p>${bytes(entry.bytes)}. Relay will recheck cleanliness and commit preservation. The Git branch, task, approvals and artifacts are retained.</p><div class="modal-footer"><button class="btn secondary" data-action="close-modal">Keep worktree</button><button class="btn primary" data-action="confirm-cleanup">Remove clean worktree</button></div>`,
+      );
+      return;
+    }
+    if (action === 'confirm-cleanup') {
+      state.busy = true;
+      await api('/storage/cleanup', 'POST', state.modal.cleanup);
+      closeModal();
+      state.storage = await api('/storage');
+      renderMain();
+      toast('Clean worktree removed; branch and history retained.');
+      return;
+    }
+    if (action === 'create-backup') {
+      state.busy = true;
+      toast('Creating archive and workspace recovery snapshots…');
+      const archive = await api('/backups', 'POST', {});
+      showModal(
+        'Backup ready',
+        `<p>${archive.tasks} tasks · ${archive.files} files · ${bytes(archive.bytes)}</p><a class="btn primary" href="${e(archive.downloadUrl)}" download>Download private archive</a>`,
+      );
+      return;
+    }
+    if (action === 'confirm-restore') {
+      state.busy = true;
+      const restored = await api('/backups/restore', 'POST', {
+        previewId: state.modal.restoreId,
+        confirm: true,
+      });
+      state.modal.restoreId = null;
+      closeModal();
+      state.config = (await api('/bootstrap')).config;
+      state.storage = null;
+      state.selected = null;
+      await refresh();
+      await navigate('tasks');
+      showModal(
+        'Backup restored',
+        `<p>${restored.tasks} tasks restored. Workflows are stopped for inspection.</p><a class="btn secondary" href="${e(restored.safetyBackup.downloadUrl)}" download>Download pre-restore safety backup</a>`,
+      );
+      return;
+    }
     if (action === 'apply-routing-advice') {
       const report = await api(
         `/outcomes?repositoryId=${encodeURIComponent(state.outcomesRepository)}`,
@@ -603,6 +676,12 @@ document.addEventListener('click', async (event) => {
       return;
     }
     if (action === 'enable-notifications') {
+      if (localStorage.getItem('relay-notifications') === 'enabled') {
+        localStorage.setItem('relay-notifications', 'disabled');
+        renderMain();
+        toast('Desktop notifications disabled.');
+        return;
+      }
       if (!('Notification' in window))
         throw new Error('Desktop notifications are unavailable in this browser.');
       const permission = await Notification.requestPermission();
@@ -616,6 +695,7 @@ document.addEventListener('click', async (event) => {
           : 'Notifications were not enabled.',
       );
       notifyInbox(state.inbox);
+      renderMain();
       return;
     }
     if (action === 'inbox-open' || action === 'inbox-seen') {
@@ -861,6 +941,24 @@ document.addEventListener('submit', async (event) => {
   const submit = form.querySelector('button[type="submit"]');
   if (submit) submit.disabled = true;
   try {
+    if (form.id === 'backup-preview-form') {
+      const file = document.querySelector('#backup-file').files[0];
+      if (!file) throw new Error('Choose a backup.');
+      if (file.size > 512 * 1024 * 1024) throw new Error('Backup exceeds 512 MB.');
+      const response = await fetch('/api/backups/preview', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/gzip', 'X-Relay-Token': state.token },
+        body: file,
+      });
+      const preview = await response.json();
+      if (!response.ok) throw new Error(preview.error);
+      state.modal = { restoreId: preview.id };
+      showModal(
+        'Review this restore',
+        `<p>${preview.tasks} tasks · ${preview.events} events · ${preview.files} files</p><p>${e(preview.external)}</p><p>This replaces current Relay history, profiles and assets. A safety archive is created first. Existing repository checkouts stay in place; unfinished workflows require inspection and explicit resume.</p><details><summary>Repository paths and configured commands</summary><pre class="code-block">${e(JSON.stringify(preview.repositories, null, 2))}</pre></details><div class="modal-footer"><button class="btn secondary" data-action="close-modal">Cancel</button><button class="btn primary" data-action="confirm-restore">Restore this backup</button></div>`,
+        true,
+      );
+    }
     if (form.id === 'line-comment-form') {
       await api(`/tasks/${state.selected}/review-comment`, 'POST', {
         ...state.modal.comment,

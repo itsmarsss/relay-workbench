@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, rm, writeFile, mkdir } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile, mkdir, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { createApp } from '../server/app.js';
@@ -566,4 +566,91 @@ test('HTTP inbox and pending direction preserve the approval gate', async (t) =>
       .status,
     200,
   );
+});
+
+test('HTTP backup preview, confirmation and safety archive preserve local history', async (t) => {
+  const f = await fixture(t);
+  const { data: task } = await f.request('/api/tasks', 'POST', { title: 'Saved task', demo: true });
+  await mkdir(join(f.app.store.directory, 'attachments'), { recursive: true });
+  await writeFile(
+    join(f.app.store.directory, 'attachments', 'fixture.png'),
+    Buffer.from([137, 80, 78, 71]),
+  );
+  const exported = await f.request('/api/backups', 'POST', {});
+  assert.equal(exported.status, 201);
+  const archive = await fetch(f.origin + exported.data.downloadUrl);
+  assert.equal(archive.headers.get('content-type'), 'application/gzip');
+  const data = Buffer.from(await archive.arrayBuffer());
+  const token = (await f.request('/api/bootstrap')).data.token;
+  const upload = async (bytes) => {
+    const response = await fetch(f.origin + '/api/backups/preview', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/gzip', 'X-Relay-Token': token },
+      body: bytes,
+    });
+    return { status: response.status, data: await response.json() };
+  };
+  assert.equal((await upload(Buffer.from('invalid gzip'))).status, 400);
+  const preview = await upload(data);
+  assert.equal(preview.status, 200);
+  assert.equal(preview.data.tasks, 1);
+  const { data: later } = await f.request('/api/tasks', 'POST', {
+    title: 'Later task',
+    demo: true,
+  });
+  assert.equal(
+    (await f.request('/api/backups/restore', 'POST', { previewId: preview.data.id })).status,
+    409,
+  );
+  const restored = await f.request('/api/backups/restore', 'POST', {
+    previewId: preview.data.id,
+    confirm: true,
+  });
+  assert.equal(restored.status, 200);
+  assert.ok(restored.data.safetyBackup.downloadUrl);
+  assert.equal(f.app.store.get(later.id), null);
+  assert.equal(f.app.store.get(task.id).title, 'Saved task');
+  assert.deepEqual(
+    await readFile(join(f.app.store.directory, 'attachments', 'fixture.png')),
+    Buffer.from([137, 80, 78, 71]),
+  );
+  assert.equal(
+    (await f.request('/api/backups/restore', 'POST', { previewId: preview.data.id, confirm: true }))
+      .status,
+    409,
+  );
+  const storage = await f.request('/api/storage');
+  assert.equal(storage.status, 200);
+  assert.equal(storage.data.backups.length, 2);
+  const again = await upload(data);
+  assert.equal(
+    (await f.request('/api/backups/discard', 'POST', { previewId: again.data.id })).status,
+    200,
+  );
+  assert.equal(
+    (await f.request('/api/backups/restore', 'POST', { previewId: again.data.id, confirm: true }))
+      .status,
+    409,
+  );
+  assert.equal((await f.request('/api/outcomes')).data.rows.length, 0);
+});
+test('HTTP maintenance refuses active agents and requires local authorization', async (t) => {
+  const f = await fixture(t, { demoDelay: 10000 });
+  const { data: task } = await f.request('/api/tasks', 'POST', {
+    title: 'Active demo',
+    demo: true,
+  });
+  await f.request(`/api/tasks/${task.id}/start`, 'POST', {});
+  assert.equal((await f.request('/api/backups', 'POST', {})).status, 409);
+  assert.equal(
+    (
+      await f.request('/api/storage/cleanup', 'POST', {
+        taskId: task.id,
+        repositoryId: 'demo',
+        token: 'stale',
+      })
+    ).status,
+    409,
+  );
+  assert.equal((await f.request('/api/backups', 'POST', {}, { 'X-Relay-Token': '' })).status, 403);
 });
