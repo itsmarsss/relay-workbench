@@ -7,7 +7,9 @@ import { Store } from '../server/store.js';
 import { Engine } from '../server/engine.js';
 import { DEFAULT_CONFIG, validateConfig, parseHandoff } from '../server/domain.js';
 import { buildInvocation, decodeEvent, demoHandoff } from '../server/harness.js';
-import { runProcess } from '../server/process.js';
+import { runProcess, executableExists } from '../server/process.js';
+
+const hasTmux = await executableExists('tmux');
 import { git, fingerprint, inspectRepository } from '../server/workspace.js';
 
 async function fixture(t) {
@@ -342,3 +344,135 @@ test('a failed workspace reservation is released when cancelled', async (t) => {
   await engine.action(task.id, 'cancel');
   assert.equal(engine.workspaceReservations.size, 0);
 });
+
+test(
+  'manual control preserves approval and reruns checks before final review',
+  { skip: !hasTmux },
+  async (t) => {
+    const f = await fixture(t);
+    const repo = await makeRepo(f.directory);
+    f.store.setConfig({
+      ...f.store.config,
+      repositories: [profile(repo, { strategy: 'attach' })],
+      harnesses: Object.fromEntries(
+        Object.entries(f.store.config.harnesses).map(([id, h]) => [
+          id,
+          { ...h, enabled: true, command: process.execPath },
+        ]),
+      ),
+    });
+    let engine;
+    const stages = [];
+    engine = f.makeEngine({
+      harness: async ({ task, stage }) => {
+        stages.push(stage);
+        return demoHandoff(task, stage);
+      },
+    });
+    const task = engine.create({ title: 'Manual handoff', repositoryId: 'repo' });
+    await engine.action(task.id, 'start');
+    await waitFor(f.store, task.id, (t) => t.status === 'awaiting_plan');
+    await engine.action(task.id, 'takeover');
+    await waitFor(f.store, task.id, (t) => t.manual?.active);
+    await assert.rejects(
+      engine.action(task.id, 'approve-plan', { optionId: 'shared-boundary' }),
+      /not awaiting/,
+    );
+    await assert.rejects(engine.action(task.id, 'resume'), /cannot start/);
+    await engine.action(task.id, 'return-control');
+    let planned = await waitFor(f.store, task.id, (t) => t.status === 'awaiting_plan');
+    assert.equal(stages.filter((s) => s === 'investigate').length, 2);
+    await engine.action(task.id, 'approve-plan', {
+      optionId: planned.attempts.findLast((a) => a.stage === 'plan').handoff.options[0].id,
+    });
+    await waitFor(f.store, task.id, (t) => t.status === 'awaiting_final');
+    const before = f.store.get(task.id).attempts.filter((a) => a.stage === 'verify').length;
+    await engine.action(task.id, 'takeover');
+    await waitFor(f.store, task.id, (t) => t.manual?.active);
+    await writeFile(join(repo, 'manual.txt'), 'Manual code change\n');
+    await assert.rejects(engine.action(task.id, 'accept'), /not awaiting/);
+    await engine.action(task.id, 'return-control');
+    const reviewed = await waitFor(f.store, task.id, (t) => t.status === 'awaiting_final');
+    assert.equal(reviewed.attempts.filter((a) => a.stage === 'verify').length, before + 1);
+    assert.equal(reviewed.approvals.filter((a) => a.type === 'approach').length, 1);
+    await engine.action(task.id, 'accept');
+    assert.equal(f.store.get(task.id).status, 'completed');
+  },
+);
+
+test('startup interrupts manual control and restores checkout reservation', async (t) => {
+  const f = await fixture(t);
+  const engine = f.makeEngine();
+  const task = engine.create({ title: 'Manual recovery', demo: true });
+  task.demo = false;
+  task.repository.strategy = 'attach';
+  task.workspaceRoot = '/tmp/relay-manual-recovery';
+  task.workspace = task.workspaceRoot;
+  task.stage = 'verify';
+  task.status = 'manual';
+  task.manual = { active: true };
+  f.store.save(task);
+  const recovered = f.makeEngine();
+  assert.equal(f.store.get(task.id).status, 'interrupted');
+  assert.equal(f.store.get(task.id).manual.active, false);
+  assert.equal(recovered.workspaceReservations.get(task.workspaceRoot), task.id);
+  await assert.rejects(recovered.action(task.id, 'resume'), /Wait a few seconds/);
+});
+
+test(
+  'takeover waits for an active writer before opening the manual shell',
+  { skip: !hasTmux },
+  async (t) => {
+    const f = await fixture(t);
+    const repo = await makeRepo(f.directory);
+    f.store.setConfig({
+      ...f.store.config,
+      repositories: [profile(repo, { strategy: 'attach' })],
+      harnesses: Object.fromEntries(
+        Object.entries(f.store.config.harnesses).map(([id, h]) => [
+          id,
+          { ...h, command: process.execPath, enabled: true },
+        ]),
+      ),
+    });
+    let writing = false,
+      stopped = false;
+    const engine = f.makeEngine({
+      harness: async ({ task, stage, signal }) => {
+        if (stage === 'implement') {
+          writing = true;
+          await new Promise((resolve) =>
+            signal.addEventListener(
+              'abort',
+              () =>
+                setTimeout(() => {
+                  stopped = true;
+                  resolve();
+                }, 150),
+              { once: true },
+            ),
+          );
+        }
+        return demoHandoff(task, stage);
+      },
+    });
+    const task = engine.create({ title: 'Stop active writer', repositoryId: 'repo' });
+    await engine.action(task.id, 'start');
+    const planned = await waitFor(f.store, task.id, (t) => t.status === 'awaiting_plan');
+    await engine.action(task.id, 'approve-plan', {
+      optionId: planned.attempts.findLast((a) => a.stage === 'plan').handoff.options[0].id,
+    });
+    await waitFor(f.store, task.id, () => writing);
+    await engine.action(task.id, 'takeover');
+    assert.equal(stopped, true);
+    assert.equal(engine.running.has(task.id), false);
+    await waitFor(f.store, task.id, (t) => t.manual?.active);
+    assert.equal(
+      f.store.get(task.id).attempts.findLast((a) => a.stage === 'implement').status,
+      'interrupted',
+    );
+    await engine.action(task.id, 'cancel');
+    assert.equal(engine.manualRuns.size, 0);
+    assert.equal(engine.workspaceReservations.size, 0);
+  },
+);

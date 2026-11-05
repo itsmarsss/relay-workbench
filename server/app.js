@@ -371,6 +371,8 @@ export function createApp({ directory, publicDirectory, engineOptions = {} }) {
             'pause',
             'cancel',
             'message',
+            'takeover',
+            'return-control',
           ].includes(operation)
         )
           return json(res, 200, await engine.action(id, operation, await body(req)));

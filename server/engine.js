@@ -12,6 +12,7 @@ export class Engine {
     this.harness = harness;
     this.demoDelay = demoDelay;
     this.running = new Map();
+    this.manualRuns = new Map();
     this.actionLocks = new Set();
     this.workspaceReservations = new Map();
     this.stopping = false;
@@ -36,7 +37,8 @@ export class Engine {
           });
         }
       }
-      if (['running', 'queued'].includes(task.status)) {
+      if (['running', 'queued', 'manual'].includes(task.status)) {
+        if (task.manual) task.manual.active = false;
         task.status = 'interrupted';
         task.recoveryNotBefore = Date.now() + 3000;
         task.error =
@@ -64,13 +66,109 @@ export class Engine {
     });
   }
   async action(id, action, data = {}) {
+    requireValue(!this.stopping, 'Relay is shutting down', 409);
     requireValue(!this.actionLocks.has(id), 'Another action is in progress', 409);
     this.actionLocks.add(id);
     try {
       const task = this.store.get(id);
       requireValue(task, 'Task not found', 404);
       const status = task.status;
-      if (action === 'start' || action === 'resume') {
+      if (action === 'takeover') {
+        requireValue(
+          !task.demo && !['draft', 'completed', 'cancelled'].includes(status),
+          'Start a real workflow before taking over',
+          409,
+        );
+        requireValue(
+          !this.manualRuns.has(id) && status !== 'manual',
+          'Manual control is already active',
+          409,
+        );
+        const entry = workspaces(task).find(
+          (r) => r.repository.id === (data.repositoryId ?? task.repository.id),
+        );
+        requireValue(
+          entry?.workspace && entry.setupCompleted,
+          'Wait for repository workspace setup to finish',
+          409,
+        );
+        requireValue(await executableExists('tmux'), 'Install tmux to use terminal takeover');
+        requireValue(
+          !task.recoveryNotBefore || Date.now() >= task.recoveryNotBefore,
+          'Wait for interrupted workers to stop',
+          409,
+        );
+        task.status = 'manual';
+        task.stage = task.chosenApproach ? 'verify' : 'investigate';
+        task.repositoryCursor = 0;
+        task.reviewedFingerprint = null;
+        task.verifiedFingerprint = null;
+        task.error = null;
+        task.manual = {
+          repositoryId: entry.repository.id,
+          startedAt: new Date().toISOString(),
+          active: false,
+        };
+        this.store.save(task, {
+          type: 'manual',
+          summary: `Stopping automation for manual control of ${entry.repository.name}.`,
+        });
+        this.running.get(id)?.abort();
+        while (this.running.has(id)) await delay(25);
+        requireValue(!this.stopping, 'Relay is shutting down', 409);
+        const controller = new AbortController();
+        const run = { controller, done: null };
+        this.manualRuns.set(id, run);
+        run.done = runProcess(process.env.SHELL || '/bin/sh', ['-i'], {
+          cwd: entry.workspace,
+          signal: controller.signal,
+          timeout: 24 * 60 * 60 * 1000,
+          terminal: { name: `${id.slice(0, 8)}-manual`, interactive: true },
+          env: { RELAY_TASK_ID: id, RELAY_REPOSITORY_ID: entry.repository.id },
+          onTerminal: (terminal) => {
+            const current = this.store.get(id);
+            current.manual = { ...current.manual, ...terminal, active: true };
+            this.store.save(current, {
+              type: 'terminal',
+              summary: 'Manual terminal ready. Automation is paused.',
+              details: terminal.attachCommand,
+            });
+          },
+        })
+          .catch((error) => {
+            const current = this.store.get(id);
+            if (!controller.signal.aborted)
+              this.store.event(id, {
+                type: 'activity',
+                summary: `Manual terminal stopped: ${error.message}`,
+              });
+          })
+          .finally(() => {
+            this.manualRuns.delete(id);
+            const current = this.store.get(id);
+            if (current?.manual) {
+              current.manual.active = false;
+              this.store.save(current, {
+                type: 'terminal',
+                summary: 'Manual terminal closed. Return control when ready to continue.',
+              });
+            }
+          });
+      } else if (action === 'return-control') {
+        requireValue(status === 'manual', 'Task is not under manual control', 409);
+        const run = this.manualRuns.get(id);
+        run?.controller.abort();
+        await run?.done;
+        const current = this.store.get(id);
+        current.manual = null;
+        current.status = 'queued';
+        this.store.save(current, {
+          type: 'queued',
+          summary: current.chosenApproach
+            ? 'Control returned. Running all repository checks and independent review.'
+            : 'Control returned. Rebuilding the investigation and proposal for approval.',
+        });
+      } else if (action === 'start' || action === 'resume') {
         requireValue(
           action === 'start'
             ? status === 'draft'
@@ -179,6 +277,10 @@ export class Engine {
           summary: 'Final result accepted. Workspace and branch retained.',
         });
       } else if (action === 'pause' || action === 'cancel') {
+        const manual = this.manualRuns.get(id);
+        manual?.controller.abort();
+        await manual?.done;
+        if (task.manual) task.manual.active = false;
         requireValue(
           !['completed', 'cancelled'].includes(status),
           'Task has already finished',
@@ -228,7 +330,7 @@ export class Engine {
       this.run(task.id, controller.signal)
         .catch((error) => {
           const current = this.store.get(task.id);
-          if (current && !['paused', 'cancelled'].includes(current.status)) {
+          if (current && !['paused', 'cancelled', 'manual'].includes(current.status)) {
             current.status = 'blocked';
             current.error = error.message;
             const attempt = current.attempts.findLast((a) => a.status === 'running');
@@ -523,6 +625,19 @@ export class Engine {
         directory: this.store.directory,
         attemptId: attempt.id,
         signal,
+        onTerminal: (terminal) => {
+          const current = this.store.get(id);
+          const active = current.attempts.find((a) => a.id === attempt.id);
+          active.terminal = terminal;
+          this.store.save(current, {
+            type: 'terminal',
+            stage,
+            harness,
+            attemptId: attempt.id,
+            summary: `${harness} terminal ready. Attach to watch; use Take over before editing.`,
+            details: terminal.attachCommand,
+          });
+        },
         onEvent: (event) =>
           this.store.event(id, {
             ...event,
@@ -641,6 +756,7 @@ export class Engine {
   async stop() {
     this.stopping = true;
     for (const controller of this.running.values()) controller.abort();
-    while (this.running.size) await delay(25);
+    for (const run of this.manualRuns.values()) run.controller.abort();
+    while (this.running.size || this.manualRuns.size) await delay(25);
   }
 }

@@ -48,6 +48,7 @@ export const statusNames = {
   awaiting_final: 'Final review',
   completed: 'Completed',
   paused: 'Paused',
+  manual: 'Manual control',
   blocked: 'Needs attention',
   interrupted: 'Interrupted',
   cancelled: 'Cancelled',

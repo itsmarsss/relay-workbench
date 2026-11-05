@@ -1,7 +1,7 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { HANDOFF_SCHEMA, parseHandoff, validateHandoff } from './domain.js';
-import { runProcess } from './process.js';
+import { runProcess, executableExists } from './process.js';
 
 export function buildInvocation(id, config, schemaPath, stage) {
   const model = config.model ? ['--model', config.model] : [];
@@ -187,6 +187,7 @@ export async function executeHarness({
   attemptId,
   signal,
   onEvent,
+  onTerminal,
 }) {
   const artifactDirectory = join(directory, 'artifacts', task.id, attemptId);
   await mkdir(artifactDirectory, { recursive: true, mode: 0o700 });
@@ -196,9 +197,19 @@ export async function executeHarness({
   await writeFile(join(artifactDirectory, 'prompt.txt'), prompt, { mode: 0o600 });
   const invocation = buildInvocation(harness, config.harnesses[harness], schemaPath, stage);
   let final, harnessError;
+  const useTerminal = await executableExists('tmux');
+  if (!useTerminal)
+    onEvent({
+      type: 'activity',
+      summary: 'tmux is unavailable. Agent output remains available in the activity thread.',
+    });
   const result = await runProcess(invocation.command, invocation.args, {
     cwd: task.workspace,
     input: prompt,
+    terminal: useTerminal
+      ? { name: `${task.id.slice(0, 8)}-${attemptId.slice(0, 8)}-${harness}`, harness }
+      : null,
+    onTerminal,
     signal,
     timeout: config.timeoutMinutes * 60000,
     onLine(line, stream) {

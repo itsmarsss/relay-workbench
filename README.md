@@ -4,7 +4,7 @@ A local workbench that coordinates Codex, Claude Code and Pi across investigatio
 
 ## Start
 
-Requires **Node.js 24 or newer** and Git on macOS or Linux. No install step or API keys are required by Relay; harnesses use their existing CLI authentication.
+Requires **Node.js 24 or newer** and Git on macOS or Linux. Install **tmux** to watch agent terminals and use manual takeover; automatic execution and the activity thread still work without it. No install step or API keys are required by Relay; harnesses use their existing CLI authentication.
 
 ```sh
 node server/index.js
@@ -22,6 +22,18 @@ Click **Try a demo** to exercise the entire workflow with clearly labeled simula
 5. Relay implements, runs configured checks, asks an independent harness to review, and loops over requested fixes. Approve the final diff when ready.
 
 **New worktree** creates an isolated branch and worktree per task. **Attach existing checkout** uses an existing branch and requires a clean checkout when starting; it is useful for repositories with their own workspace managers. Relay neither removes worktrees nor merges or pushes target branches automatically.
+
+## Workflow board and live terminals
+
+**All tasks** opens a board with Backlog, Investigation & design, Approach approval, In progress, In review, Final approval, Done, and Needs attention. Cancelled work has its own column when present. Cards show the current specialist, latest result or blocker, and next action. Use filters/search to narrow work and switch to Table when useful. The view choice is remembered locally. Columns follow real workflow transitions; opening a card gives you the appropriate actions without skipping checks or approval gates.
+
+When tmux is installed, each agent attempt runs inside its own session. In the task's **Live terminals** panel, copy the attach command and paste it into your terminal. Agent messages and tool evidence are formatted for watching; raw structured events still feed Relay's activity thread and artifacts. Use **Ctrl+B, then D** to detach. Agent sessions close when the attempt finishes, while their output remains in Relay. Demo runs are simulated and do not create terminals.
+
+Use **Take over** on the repository you want to work in. Relay stops the active automatic process before opening an interactive shell in that task's worktree. You can inspect files, edit, run tests, or launch your preferred harness from that shell. In a task spanning repositories, automation pauses for the whole task and existing checkout reservations remain held. Detaching or exiting the shell does not resume automation. A takeover shell has a 24-hour execution limit.
+
+**Return to automation** closes the shell and its jobs. After an approved approach, Relay reruns every repository's verification commands and independent reviews before asking for final acceptance. Before approach approval, it reruns investigation and planning and still asks you to choose an approach. Manual changes never count as a successful structured agent handoff. Restarting Relay interrupts manual control and requires explicit resume.
+
+Each attempt uses a dedicated tmux server and private socket, leaving your other tmux sessions alone. Cancellation, timeouts, server crashes, and return of control terminate the supervised terminal processes; terminal launch files are private and removed on cleanup. Ordinary background jobs are included in cleanup. Processes deliberately daemonized out of the supervised tree are outside that boundary. Attach commands grant access to local execution, so keep them private.
 
 ## Local integration profiles
 
