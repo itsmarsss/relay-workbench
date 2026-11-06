@@ -21,7 +21,7 @@
     BlinkMacSystemFont,
     'Segoe UI',
     sans-serif;
-  font-size: 16px;
+  font-size: 15px;
   line-height: 1.55;
   color: var(--ink);
   background: var(--bg);
@@ -85,12 +85,12 @@ h1 {
   font-weight: 650;
 }
 h2 {
-  font-size: 19px;
+  font-size: 18px;
   letter-spacing: -0.4px;
   font-weight: 620;
 }
 h3 {
-  font-size: 17px;
+  font-size: 16px;
   font-weight: 600;
 }
 small {
@@ -3140,7 +3140,7 @@ select.input {
   margin-bottom: 20px;
 }
 .terminal-panel h2 {
-  font-size: 19px;
+  font-size: 18px;
   margin: 14px 0;
 }
 .terminal-panel p {
@@ -3433,7 +3433,7 @@ textarea::placeholder,
 .task-list-copy > strong {
   display: block;
   color: #22372b;
-  font-size: 17px;
+  font-size: 16px;
   font-weight: 650;
   line-height: 1.5;
   overflow-wrap: anywhere;
@@ -3865,12 +3865,12 @@ textarea::placeholder,
   border-radius: var(--radius);
 }
 .task-summary h2 {
-  font-size: 21px;
+  font-size: 19px;
   margin: 5px 0 8px;
 }
 .task-summary p {
-  font-size: 16px;
-  line-height: 1.65;
+  font-size: 15px;
+  line-height: 1.6;
   overflow-wrap: anywhere;
 }
 .summary-next {
@@ -3897,7 +3897,7 @@ textarea::placeholder,
 }
 .agent-message {
   max-width: 75ch;
-  line-height: 1.7;
+  line-height: 1.6;
 }
 .timeline-body h3 {
   line-height: 1.6;
