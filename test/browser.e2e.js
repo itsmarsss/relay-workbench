@@ -833,6 +833,73 @@ try {
       localApp.store.all().every((t) => !['running', 'queued', 'manual'].includes(t.status)),
     );
   }
+  if (localApp) {
+    const debugTask = localApp.engine.create({
+      title: 'Choose a diagnostic direction',
+      demo: true,
+    });
+    debugTask.status = 'blocked';
+    debugTask.stage = 'implement';
+    debugTask.error = 'Fixture identity import failed';
+    debugTask.blockerDecision = {
+      id: 'debug-decision',
+      summary: 'Fixture identity import failed in the configured runtime.',
+      explanation: 'The isolated check reproduced the failure; source was preserved.',
+      required: ['Choose a supported runtime or request a revised approach.'],
+      evidence: [
+        'Isolated fixture test failed before identity creation.',
+        'Existing runtime was queried without changing security settings.',
+      ],
+      options: [
+        {
+          id: 'runtime',
+          title: 'Use another supported runtime',
+          description: 'Reproduce the documented check in a working runtime.',
+          tradeoffs: 'Preserves the current source change.',
+        },
+      ],
+      debugAttempts: 2,
+      resolved: false,
+    };
+    localApp.store.save(debugTask, {
+      type: 'decision',
+      summary: debugTask.blockerDecision.summary,
+    });
+    await page.goto(`${origin}/#task/${debugTask.id}`);
+    await page.getByRole('region', { name: 'Blocker decision', exact: true }).waitFor();
+    await page.getByText('What needs your input', { exact: true }).waitFor();
+    await page.getByText('What was tried & evidence', { exact: false }).click();
+    await page
+      .getByText('Isolated fixture test failed before identity creation.', { exact: true })
+      .waitFor();
+    for (const width of [1440, 390]) {
+      await page.setViewportSize({ width, height: 1100 });
+      await assertReadableText(page);
+      assert.ok(
+        await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
+        JSON.stringify(
+          await page.evaluate(() =>
+            [...document.querySelectorAll('body *')]
+              .filter((el) => el.getBoundingClientRect().right > innerWidth + 1)
+              .map((el) => ({
+                tag: el.tagName,
+                class: el.className,
+                width: el.getBoundingClientRect().width,
+              }))
+              .slice(0, 15),
+          ),
+        ),
+      );
+      await page.screenshot({
+        path: join(screenshots, `blocker-decision-${width}.png`),
+        fullPage: true,
+      });
+    }
+    await page.getByRole('button', { name: 'Revise approach', exact: true }).click();
+    await page.getByRole('heading', { name: 'Choose the way forward.', exact: true }).waitFor();
+    assert.equal(localApp.store.get(debugTask.id).chosenApproach, null);
+    assert.equal(localApp.store.get(debugTask.id).approvals.length, 0);
+  }
   assert.deepEqual(errors, []);
   process.stdout.write(
     'Browser checks passed: approvals, task editing and duplication, GFM preview and sanitization, image uploads/paste/drop/viewer, live refresh, filters, history, terminals, inbox, routing evidence, inline repairs, backup/restore, and mobile contrast/layout.\n',

@@ -1,3 +1,4 @@
+import { blockerDecisionView } from '../public/blocker-decision.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { recoverBlocked, resumableAttempt, recoveryHarnesses } from '../server/recovery.js';
@@ -144,4 +145,58 @@ test('recovery starts fresh, carries evidence, and uses only enabled alternative
     handoff: { verdict: 'complete' },
   });
   assert.equal(resumableAttempt(task, 'investigate', 'codex', null), undefined);
+});
+
+test('blocker decisions expose safe choices and escape imported evidence', () => {
+  const html = blockerDecisionView({
+    status: 'blocked',
+    blockerDecision: {
+      id: 'decision',
+      summary: '<script>unsafe</script>',
+      explanation: 'A diagnostic failed',
+      required: ['Runtime access is needed'],
+      evidence: ['Attempted isolated reproduction'],
+      debugAttempts: 2,
+      options: [
+        {
+          id: 'runtime',
+          title: 'Choose runtime',
+          description: 'Use a supported test host',
+          tradeoffs: 'Keeps scope unchanged',
+        },
+      ],
+    },
+  });
+  assert.match(html, /YOUR DECISION/);
+  assert.match(html, /What needs your input/);
+  assert.match(html, /Revise approach/);
+  assert.match(html, /&lt;script&gt;/);
+  assert.doesNotMatch(html, /<script>/);
+  assert.equal(blockerDecisionView({ status: 'running' }), '');
+});
+
+test('genuine design choices escalate without spending another retry', () => {
+  const task = {
+    stage: 'implement',
+    attempts: [{ id: 'diagnosis', role: 'debug', stage: 'implement' }],
+  };
+  const handoff = {
+    summary: 'A product decision is required',
+    evidence: ['Both approaches pass'],
+    risks: ['Choose compatibility or simplicity'],
+    options: [
+      {
+        id: 'design-compatible',
+        title: 'Preserve compatibility',
+        description: 'Keep the existing contract',
+        tradeoffs: 'More implementation complexity',
+      },
+    ],
+  };
+  assert.equal(recoverBlocked(task, handoff), false);
+  assert.equal(task.recovery.attempts, 0);
+  assert.equal(task.blockerDecision.id, 'diagnosis');
+  assert.deepEqual(task.blockerDecision.options, handoff.options);
+  assert.match(blockerDecisionView(task), /Plan this direction/);
+  assert.equal(recoverBlocked(task, handoff, 2, true), true);
 });

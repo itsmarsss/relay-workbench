@@ -17,13 +17,13 @@ export function taskSummary(task, events = []) {
   );
   const recovering = task.recovery?.active && ['running', 'queued'].includes(task.status);
   const next = recovering
-    ? 'Agent is resolving the blocker. No action needed.'
+    ? 'Debugger is investigating the blocker. No action needed.'
     : ({
         draft: 'Start when ready.',
         awaiting_plan: 'Choose an approach below.',
         awaiting_final: 'Review the code changes and accept or request repairs.',
         blocked: task.recovery?.exhausted
-          ? `Recovery stopped after ${task.recovery.attempts} attempts. Inspect the latest handoff, add direction, and resume.`
+          ? `Recovery stopped after ${task.recovery.attempts} attempts. Choose a direction in the blocker decision below.`
           : 'Inspect the latest handoff, add direction, and resume.',
         interrupted: 'Resume to continue from the saved conversation.',
         paused: 'Resume when ready.',
@@ -40,7 +40,7 @@ export function taskSummary(task, events = []) {
         (live
           ? `${stageNames[task.stage] ?? 'Work'} is starting with the saved task context.`
           : latest?.summary));
-  return `<section class="task-summary" aria-label="Current task context"><div><span class="eyebrow">${recovering ? 'RESOLVING A BLOCKER' : 'CURRENT STATUS'}</span><h2>${e(recovering ? 'Automatic recovery' : (stageNames[task.stage] ?? 'Ready'))}</h2><p>${e(concise(summary || task.title))}</p></div><div class="summary-next"><strong>${['awaiting_plan', 'awaiting_final', 'blocked', 'manual', 'interrupted', 'paused', 'draft'].includes(task.status) ? 'Your next step' : 'What happens next'}</strong><p>${e(next)}</p></div></section>`;
+  return `<section class="task-summary" aria-label="Current task context"><div><span class="eyebrow">${recovering ? 'RESOLVING A BLOCKER' : 'CURRENT STATUS'}</span><h2>${e(recovering ? 'Debugger investigation' : (stageNames[task.stage] ?? 'Ready'))}</h2><p>${e(concise(summary || task.title))}</p></div><div class="summary-next"><strong>${['awaiting_plan', 'awaiting_final', 'blocked', 'manual', 'interrupted', 'paused', 'draft'].includes(task.status) ? 'Your next step' : 'What happens next'}</strong><p>${e(next)}</p></div></section>`;
 }
 
 export function activityArchiveCount(task, events) {

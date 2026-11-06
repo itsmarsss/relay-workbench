@@ -4140,3 +4140,50 @@ textarea::placeholder,
   color: var(--muted);
   padding: 10px 0;
 }
+
+.blocker-decision {
+  padding: 24px;
+  margin: 20px 0;
+  border: 1px solid #b7c8ac;
+  border-radius: 10px;
+  background: #f5f8f1;
+  overflow-wrap: anywhere;
+}
+.blocker-decision h2 {
+  font-size: 19px;
+  margin: 10px 0;
+}
+.blocker-decision h3 {
+  font-size: 15px;
+  margin: 16px 0 8px;
+}
+.blocker-decision p,
+.blocker-decision li {
+  line-height: 1.6;
+}
+.blocker-decision details {
+  margin: 18px 0;
+}
+.blocker-decision summary {
+  cursor: pointer;
+}
+.blocker-options {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(240px, 100%), 1fr));
+  gap: 14px;
+  margin: 20px 0;
+}
+.blocker-options article {
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: white;
+  min-width: 0;
+}
+.blocker-options button {
+  white-space: normal;
+}
+
+.blocker-decision .inline-actions {
+  flex-wrap: wrap;
+}

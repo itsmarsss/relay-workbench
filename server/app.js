@@ -646,6 +646,8 @@ export function createApp({ directory, publicDirectory, engineOptions = {} }) {
           req.method === 'POST' &&
           [
             'start',
+            'debug',
+            'resolve-blocker',
             'resume',
             'approve-plan',
             'request-changes',

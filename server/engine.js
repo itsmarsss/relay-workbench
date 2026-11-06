@@ -1,5 +1,10 @@
 import { developmentAccess } from './access.js';
-import { recoverBlocked, resumableAttempt, recoveryHarnesses } from './recovery.js';
+import {
+  recoverBlocked,
+  resumableAttempt,
+  recoveryHarnesses,
+  blockerDecision,
+} from './recovery.js';
 import { addComment, focusedFeedback } from './review-comments.js';
 import { randomUUID } from 'node:crypto';
 import { workspaces, workspaceView, syncPrimary } from './task-repositories.js';
@@ -258,6 +263,83 @@ export class Engine {
             ? 'Control returned. Running all repository checks and independent review.'
             : 'Control returned. Rebuilding the investigation and proposal for approval.',
         });
+      } else if (action === 'debug' || action === 'resolve-blocker') {
+        requireValue(
+          status === 'blocked' && !this.running.has(id),
+          'Wait for a blocked, idle task',
+          409,
+        );
+        requireValue(
+          !task.recoveryNotBefore || Date.now() >= task.recoveryNotBefore,
+          'Wait for interrupted workers to stop',
+          409,
+        );
+        if (action === 'resolve-blocker') {
+          requireValue(
+            task.blockerDecision &&
+              !task.blockerDecision.resolved &&
+              data.decisionId === task.blockerDecision.id,
+            'This blocker decision has changed. Refresh before deciding.',
+            409,
+          );
+          requireValue(
+            ['retry', 'replan', 'pause'].includes(data.resolution),
+            'Choose a blocker resolution',
+          );
+          const option = data.optionId
+            ? task.blockerDecision.options.find((o) => o.id === data.optionId)
+            : null;
+          requireValue(!data.optionId || option, 'Choose a current debugging option');
+          task.blockerDecision.resolved = true;
+          task.blockerDecision.resolution = data.resolution;
+          if (option)
+            task.messages.push({
+              id: randomUUID(),
+              at: new Date().toISOString(),
+              text: `Debugger direction selected: ${option.title}. ${option.description} Tradeoffs: ${option.tradeoffs}. Diagnose within existing permissions; any new source scope needs a revised approach.`,
+              role: 'user',
+              delivery: 'pending',
+            });
+        }
+        if (data.resolution === 'pause') task.status = 'paused';
+        else if (data.resolution === 'replan') {
+          task.stage = 'plan';
+          task.repositoryCursor = 0;
+          task.chosenApproach = null;
+          task.round = 0;
+          task.verifiedFingerprint = null;
+          task.reviewedFingerprint = null;
+          task.recovery = null;
+          task.error = null;
+          task.status = 'queued';
+        } else {
+          const handoff = task.attempts.findLast((a) => a.handoff)?.handoff ?? {
+            summary: task.error || 'Diagnose the blocked workflow',
+            details: '',
+            evidence: [],
+            risks: [],
+            options: [],
+          };
+          task.recovery = null;
+          recoverBlocked(
+            task,
+            handoff,
+            Math.max(
+              1,
+              task.execution?.maxRecoveryAttempts ?? this.store.config.maxRecoveryAttempts ?? 2,
+            ),
+            true,
+          );
+        }
+        this.store.save(task, {
+          type: 'decision',
+          summary:
+            data.resolution === 'replan'
+              ? 'Requested a revised approach; new implementation approval required.'
+              : data.resolution === 'pause'
+                ? 'Paused after blocker review.'
+                : 'Requested a dedicated diagnostic agent.',
+        });
       } else if (action === 'start' || action === 'resume') {
         requireValue(
           action === 'start'
@@ -273,6 +355,7 @@ export class Engine {
           409,
         );
         task.recovery = null;
+        task.blockerDecision = null;
         if (!task.demo) {
           const roots = new Set();
           for (const entry of workspaces(task)) {
@@ -506,7 +589,7 @@ export class Engine {
       const controller = new AbortController();
       this.running.set(task.id, controller);
       this.run(task.id, controller.signal)
-        .catch((error) => {
+        .catch(async (error) => {
           const current = this.store.get(task.id);
           if (current && !['paused', 'cancelled', 'manual'].includes(current.status)) {
             current.status = 'blocked';
@@ -517,7 +600,53 @@ export class Engine {
               attempt.error = error.message;
               attempt.finishedAt = new Date().toISOString();
             }
-            this.store.save(current, { type: 'blocked', summary: error.message });
+            const diagnosticFailure = {
+              summary: error.message,
+              details:
+                'The process failed before a valid handoff. Diagnose the recorded command results and tool access before retrying the interrupted stage.',
+              evidence: [],
+              risks: [error.message],
+              options: [],
+            };
+            const changedDuringAnalysis =
+              attempt?.beforeFingerprint &&
+              (attempt.role === 'debug' || attempt.stage !== 'implement') &&
+              (await fingerprint(current)
+                .then((value) => value !== attempt.beforeFingerprint)
+                .catch(() => true));
+            const latest = this.store.get(task.id);
+            if (['paused', 'cancelled', 'manual'].includes(latest?.status)) {
+              const interrupted = latest.attempts.find((a) => a.id === attempt?.id);
+              if (interrupted?.status === 'running') {
+                interrupted.status = 'interrupted';
+                interrupted.finishedAt = new Date().toISOString();
+                this.store.save(latest);
+              }
+              return;
+            }
+            current.messages = latest.messages;
+            if (
+              current.workspace &&
+              !changedDuringAnalysis &&
+              !/modified.*workspace|another repository|Workspace changed|reservation/i.test(
+                error.message,
+              )
+            ) {
+              recoverBlocked(
+                current,
+                diagnosticFailure,
+                current.execution?.maxRecoveryAttempts ??
+                  this.store.config.maxRecoveryAttempts ??
+                  2,
+              );
+            } else current.blockerDecision = blockerDecision(current, diagnosticFailure);
+            this.store.save(current, {
+              type: current.status === 'queued' ? 'recovery' : 'blocked',
+              summary:
+                current.status === 'queued'
+                  ? `Debugger queued after process failure: ${error.message}`
+                  : error.message,
+            });
           } else if (current) {
             const attempt = current.attempts.findLast((a) => a.status === 'running');
             if (attempt) {
@@ -613,7 +742,7 @@ export class Engine {
         if (signal.aborted) throw new Error('Execution cancelled');
       }
       for (const entry of workspaces(task)) {
-        if (!entry.setupCompleted) {
+        if (!entry.setupCompleted && !(task.recovery?.active && task.recovery.phase === 'debug')) {
           for (const cmd of entry.repository.setup) {
             const result = await runProcess(cmd.command, cmd.args, {
               cwd: entry.workspace,
@@ -651,6 +780,7 @@ export class Engine {
       this.store.save(task);
     }
     const stage = task.stage;
+    const debugging = task.recovery?.active && task.recovery.phase === 'debug';
     const entries = workspaces(task);
     const scoped = entries.length > 1 && ['investigate', 'implement', 'review'].includes(stage);
     const entry = entries[scoped ? (task.repositoryCursor ?? 0) : 0];
@@ -663,9 +793,22 @@ export class Engine {
       baseCommit: e.baseCommit,
     }));
     view.activeRepositoryId = entry.repository.id;
-    let harness = stage === 'verify' ? 'checks' : task.routing[stage];
-    if (stage !== 'verify' && task.recovery?.active) {
-      for (const candidate of recoveryHarnesses(task, harness, this.store.config.harnesses)) {
+    let harness = debugging
+      ? this.store.config.harnesses.codex?.enabled
+        ? 'codex'
+        : task.routing[stage === 'verify' ? 'implement' : stage]
+      : stage === 'verify'
+        ? 'checks'
+        : task.routing[stage];
+    if (debugging) {
+      for (const candidate of [
+        ...new Set([
+          ...recoveryHarnesses(task, harness, this.store.config.harnesses),
+          ...Object.keys(this.store.config.harnesses).filter(
+            (id) => this.store.config.harnesses[id].enabled,
+          ),
+        ]),
+      ]) {
         if (await executableExists(this.store.config.harnesses[candidate].command)) {
           harness = candidate;
           break;
@@ -675,6 +818,7 @@ export class Engine {
     const attempt = {
       id: randomUUID(),
       stage,
+      role: debugging ? 'debug' : 'specialist',
       harness,
       round: task.round,
       repositoryId: scoped ? entry.repository.id : null,
@@ -682,6 +826,26 @@ export class Engine {
       status: 'running',
       startedAt: new Date().toISOString(),
     };
+    if (debugging) {
+      const recent = this.store.db
+        .prepare(
+          "SELECT body FROM events WHERE task_id=? AND json_extract(body,'$.type')='activity' AND json_extract(body,'$.kind')='tool' ORDER BY seq DESC LIMIT 12",
+        )
+        .all(id)
+        .reverse()
+        .map((row) => JSON.parse(row.body));
+      view.debugContext = {
+        blockedStage: stage,
+        reason: task.recovery.reason,
+        priorDiagnoses: task.recovery.evidence,
+        capabilities: developmentAccess(view, 'investigate'),
+        recentCommandResults: recent.map((e) => ({
+          summary: e.summary,
+          details: e.details?.slice(-6000),
+          repositoryId: e.repositoryId,
+        })),
+      };
+    }
     const previousSession = resumableAttempt(task, stage, harness, attempt.repositoryId);
     if (task.recovery?.active)
       attempt.recovery = { strategy: task.recovery.strategy, freshSession: true };
@@ -693,13 +857,17 @@ export class Engine {
       type: 'stage_started',
       stage,
       harness,
-      summary:
-        stage === 'verify'
+      summary: debugging
+        ? `${harness} debugger is diagnosing the ${stage} blocker.`
+        : stage === 'verify'
           ? 'Running repository verification commands.'
           : `${harness} is working on ${stage}${scoped ? ` · ${entry.repository.name}` : ''}.${task.recovery?.active ? ' Fresh diagnostic session with prior evidence.' : ''}`,
     });
     const before = !task.demo ? await fingerprint(task) : 'demo';
-    if (stage === 'review')
+    const startedTask = this.store.get(id);
+    startedTask.attempts.find((a) => a.id === attempt.id).beforeFingerprint = before;
+    this.store.save(startedTask);
+    if (stage === 'review' && !debugging)
       requireValue(
         task.demo || task.verifiedFingerprint === before,
         'Workspace changed after verification. Request changes or rerun implementation before review.',
@@ -711,7 +879,7 @@ export class Engine {
           )
         : null;
     let handoff;
-    if (stage === 'verify') {
+    if (stage === 'verify' && !debugging) {
       const checks = [];
       if (task.demo) {
         await delay(this.demoDelay, undefined, { signal });
@@ -794,7 +962,7 @@ export class Engine {
         verdict: passed ? 'complete' : 'changes_requested',
         routing: task.routing,
       };
-    } else if (stage === 'triage' && !task.smartRouting) {
+    } else if (stage === 'triage' && !task.smartRouting && !debugging) {
       handoff = {
         ...demoHandoff(task, stage),
         summary: 'Using your configured specialist routing.',
@@ -807,12 +975,12 @@ export class Engine {
       };
     } else if (task.demo) {
       await delay(this.demoDelay, undefined, { signal });
-      handoff = demoHandoff(task, stage);
+      handoff = demoHandoff(task, debugging ? 'investigate' : stage);
     } else {
       requireValue(this.store.config.harnesses[harness]?.enabled, `${harness} is disabled`);
       handoff = await this.harness({
         task: view,
-        stage,
+        stage: debugging ? 'investigate' : stage,
         harness,
         config: executionConfig(task, this.store.config, stage),
         directory: this.store.directory,
@@ -853,7 +1021,10 @@ export class Engine {
     }
     if (signal.aborted) throw new Error('Execution cancelled');
     const after = !task.demo ? await fingerprint(task) : 'demo';
-    if (['triage', 'investigate', 'plan', 'review'].includes(stage) && before !== after)
+    if (
+      (debugging || ['triage', 'investigate', 'plan', 'review'].includes(stage)) &&
+      before !== after
+    )
       throw new Error(
         `${stage} modified the workspace despite being read-only. Inspect the diff before resuming.`,
       );
@@ -875,7 +1046,14 @@ export class Engine {
     savedAttempt.finishedAt = new Date().toISOString();
     savedAttempt.status = 'complete';
     savedAttempt.fingerprint = after;
-    if (handoff.verdict === 'blocked') {
+    if (debugging && handoff.verdict === 'complete') {
+      task.recovery.active = false;
+      task.recovery.phase = 'retry_stage';
+      task.recovery.lastDiagnosis = { summary: handoff.summary, evidence: handoff.evidence };
+      task.status = 'queued';
+      task.error = null;
+      task.blockerDecision = null;
+    } else if (debugging || handoff.verdict === 'blocked') {
       recoverBlocked(
         task,
         handoff,
@@ -934,7 +1112,11 @@ export class Engine {
       stage,
       harness,
       repositoryId: scoped ? entry.repository.id : null,
-      summary: scoped ? `${entry.repository.name}: ${handoff.summary}` : handoff.summary,
+      summary: debugging
+        ? `Debugger: ${handoff.summary}`
+        : scoped
+          ? `${entry.repository.name}: ${handoff.summary}`
+          : handoff.summary,
       details: handoff.details,
       attemptId: attempt.id,
     });

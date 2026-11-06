@@ -11,7 +11,7 @@ export function terminalSessions(task) {
       const repository =
         task.repositories?.find((r) => r.repository.id === repositoryId)?.repository ??
         task.repository;
-      const harness = attempt.harness.charAt(0).toUpperCase() + attempt.harness.slice(1);
+      const harness = `${attempt.harness.charAt(0).toUpperCase() + attempt.harness.slice(1)}${attempt.role === 'debug' ? ' debugger' : ''}`;
       const live = attempt.status === 'running' && task.status === 'running';
       const status = live
         ? 'Live'
@@ -68,7 +68,7 @@ export function nativeConversations(task) {
 }
 function conversationRow(attempt, repos, latest = false) {
   const repo = repos.find((r) => r.repository.id === attempt.repositoryId) ?? repos[0];
-  const harness = attempt.harness.charAt(0).toUpperCase() + attempt.harness.slice(1);
+  const harness = `${attempt.harness.charAt(0).toUpperCase() + attempt.harness.slice(1)}${attempt.role === 'debug' ? ' debugger' : ''}`;
   const label = `${harness} · ${stageNames[attempt.stage] ?? attempt.stage}`;
   return `<div class="conversation-row"><div class="conversation-copy"><div class="conversation-title"><strong>${e(label)}</strong>${latest ? '<span class="conversation-latest">Latest</span>' : ''}</div><div class="conversation-meta">${e(repo.repository.name ?? 'Repository')}${attempt.count > 1 ? ` · ${attempt.count} attempts` : ''}</div><code class="conversation-id" title="${e(attempt.sessionId)}">${e(attempt.sessionId)}</code></div><button class="btn secondary small" data-action="resume-session" data-attempt-id="${e(attempt.id)}" data-repository-id="${e(attempt.repositoryId ?? repo.repository.id)}" aria-label="${e(`Take over ${label} conversation in ${repo.repository.name ?? 'repository'}, session ${attempt.sessionId}`)}">Take over</button></div>`;
 }

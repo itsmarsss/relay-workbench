@@ -1,14 +1,20 @@
 // Recovery never changes permissions, approves work, or bypasses checks.
-export function recoverBlocked(task, handoff, limit = 2) {
+export function recoverBlocked(task, handoff, limit = 2, explicit = false) {
   const key = `${task.stage}:${task.repositoryCursor ?? 0}`;
   const previous = task.recovery?.key === key ? task.recovery : null;
   const attempts = previous?.attempts ?? 0;
   const repeated = previous?.reason === handoff.summary;
-  const retry = attempts < limit && !(repeated && attempts > 1);
+  const designDecision =
+    !explicit &&
+    task.attempts?.at(-1)?.role === 'debug' &&
+    handoff.options?.length > 0 &&
+    handoff.options.every((option) => option.id.startsWith('design-'));
+  const retry = !designDecision && attempts < limit && !(repeated && attempts > 1);
   task.recovery = {
     key,
     attempts: attempts + (retry ? 1 : 0),
     reason: handoff.summary,
+    phase: 'debug',
     strategy: attempts >= 1 ? 'independent_diagnosis' : 'fresh_diagnosis',
     evidence: (task.attempts ?? [])
       .filter(
@@ -32,6 +38,8 @@ export function recoverBlocked(task, handoff, limit = 2) {
     active: retry,
     exhausted: !retry,
   };
+  if (!retry) task.blockerDecision = blockerDecision(task, handoff);
+  else task.blockerDecision = null;
   task.status = retry ? 'queued' : 'blocked';
   task.error = retry ? null : handoff.summary;
   return retry;
@@ -55,4 +63,21 @@ export function recoveryHarnesses(task, configured, harnesses) {
     ...Object.keys(harnesses).filter((id) => id !== configured && harnesses[id].enabled),
     configured,
   ];
+}
+
+export function blockerDecision(task, handoff) {
+  const debugAttempts = (task.attempts ?? []).filter(
+    (a) => a.role === 'debug' && a.stage === task.stage,
+  );
+  return {
+    id: debugAttempts.at(-1)?.id ?? task.attempts?.at(-1)?.id ?? `${task.stage}:${task.round ?? 0}`,
+    stage: task.stage,
+    summary: handoff.summary,
+    explanation: handoff.details ?? '',
+    evidence: handoff.evidence ?? [],
+    required: handoff.risks ?? [],
+    options: handoff.options ?? [],
+    debugAttempts: debugAttempts.length,
+    resolved: false,
+  };
 }
