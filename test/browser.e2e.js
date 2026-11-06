@@ -157,6 +157,44 @@ try {
       details: 'Second result.',
     });
     await page.getByText('Second result.', { exact: false }).waitFor();
+    localApp.store.event(id, {
+      type: 'activity',
+      kind: 'tool',
+      harness: 'codex',
+      attemptId: 'history',
+      summary: 'Running: /bin/sh -lc ' + 'long-command-argument'.repeat(12),
+      details: 'Long command output: ' + 'unbroken-output'.repeat(100),
+    });
+    await page.locator('.tool-entry').getByText('Running: /bin/sh', { exact: false }).waitFor();
+    const toolGroup = page.locator('.tool-activity').last();
+    for (const width of [1440, 1024, 390]) {
+      await page.setViewportSize({ width, height: 1100 });
+      for (const expanded of [false, true]) {
+        await toolGroup.evaluate((el, open) => {
+          el.open = open;
+        }, expanded);
+        const bounds = await toolGroup.evaluate((el) => {
+          const body = el.closest('.timeline-body').getBoundingClientRect();
+          const summary = el.querySelector('summary').getBoundingClientRect();
+          const entries = [...el.querySelectorAll('.tool-entry')];
+          return {
+            contained: summary.left >= body.left && summary.right <= body.right + 1,
+            entriesFit:
+              !el.open || entries.every((entry) => entry.scrollWidth <= entry.clientWidth + 1),
+            pageFits: document.documentElement.scrollWidth <= window.innerWidth,
+          };
+        });
+        assert.ok(bounds.contained, `Activity summary must stay inside its column at ${width}px`);
+        assert.ok(bounds.entriesFit, `Expanded commands must wrap at ${width}px`);
+        assert.ok(bounds.pageFits, `Activity must not widen the page at ${width}px`);
+      }
+      if (width !== 1024)
+        await page.screenshot({
+          path: join(screenshots, `activity-overflow-${width}.png`),
+          fullPage: true,
+        });
+    }
+    await page.setViewportSize({ width: 1440, height: 1100 });
     assert.equal(await page.locator('.agent-message script').count(), 0);
   }
   await page.reload();

@@ -1682,7 +1682,7 @@ select.input {
 .timeline-body {
   padding: 4px 0 0;
   min-width: 0;
-  width: 100%;
+  flex: 1;
 }
 .event-meta {
   display: flex;
@@ -1698,6 +1698,9 @@ select.input {
   font-weight: 550;
 }
 .event-meta > span:not(.typing-dots) {
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
   font-size: 13px;
   border-left: 1px solid #dfe5d6;
   padding-left: 8px;
@@ -1715,6 +1718,7 @@ select.input {
   line-height: 1.8;
 }
 .event-details {
+  min-width: 0;
   margin-top: 8px;
   color: #55594e;
   font-size: 13px;
@@ -1723,7 +1727,9 @@ select.input {
   cursor: pointer;
   font-size: 13px;
   color: #525a4a;
-  width: max-content;
+  width: fit-content;
+  max-width: 100%;
+  overflow-wrap: anywhere;
 }
 .prose {
   color: #525949;
@@ -3017,6 +3023,10 @@ details.error-panel > p {
 .tool-entry {
   margin-top: 12px;
   min-width: 0;
+}
+.tool-entry > strong {
+  display: block;
+  overflow-wrap: anywhere;
 }
 .tool-entry .code-block {
   max-height: 260px;
