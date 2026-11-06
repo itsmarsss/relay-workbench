@@ -936,3 +936,90 @@ test('recovery requests cannot grant host execution before implementation approv
   );
   await assert.rejects(readFile(marker), { code: 'ENOENT' });
 });
+
+test('implementation requests host verification directly through the real handoff validator', async (t) => {
+  const { validateHandoff } = await import('../server/domain.js');
+  const f = await fixture(t);
+  const repo = await makeRepo(f.directory);
+  const count = join(f.directory, 'direct-check-count');
+  f.store.setConfig({
+    ...DEFAULT_CONFIG,
+    repositories: [
+      profile(repo, {
+        strategy: 'attach',
+        checks: [
+          {
+            command: process.execPath,
+            args: ['-e', `require('fs').appendFileSync(${JSON.stringify(count)}, 'x')`],
+          },
+        ],
+      }),
+    ],
+  });
+  const engine = f.makeEngine({
+    harness: async ({ task, stage, sessionId, onSession }) => {
+      assert.equal(task.debugContext, undefined);
+      const h = demoHandoff(task, stage);
+      if (stage === 'implement' && !task.continuationContext) {
+        onSession('direct-writer');
+        return validateHandoff({ ...h, verdict: 'verification_requested' }, stage);
+      }
+      if (stage === 'implement') {
+        assert.equal(sessionId, 'direct-writer');
+        assert.equal(task.continuationContext.diagnosis.checks[0].code, 0);
+      }
+      return validateHandoff(h, stage);
+    },
+  });
+  const task = engine.create({ title: 'Direct host checks', repositoryId: 'repo' });
+  await engine.action(task.id, 'start');
+  await waitFor(f.store, task.id, (t) => t.status === 'awaiting_plan');
+  await engine.action(task.id, 'approve-plan', { optionId: 'shared-boundary' });
+  const result = await waitFor(f.store, task.id, (t) => t.status === 'awaiting_final');
+  assert.equal(
+    result.attempts.some((a) => a.role === 'debug'),
+    false,
+  );
+  assert.equal(result.attempts.filter((a) => a.role === 'verifier').length, 1);
+  assert.equal(
+    await readFile(count, 'utf8'),
+    'x',
+    'Normal verification reuses the passing check for identical source and command configuration',
+  );
+  assert.ok(result.verifiedFingerprint);
+});
+
+test('repeated direct verification requests reuse evidence and stop without an infinite loop', async (t) => {
+  const f = await fixture(t);
+  const repo = await makeRepo(f.directory);
+  const count = join(f.directory, 'repeated-check-count');
+  f.store.setConfig({
+    ...DEFAULT_CONFIG,
+    maxRecoveryAttempts: 0,
+    repositories: [
+      profile(repo, {
+        strategy: 'attach',
+        checks: [
+          {
+            command: process.execPath,
+            args: ['-e', `require('fs').appendFileSync(${JSON.stringify(count)}, 'x')`],
+          },
+        ],
+      }),
+    ],
+  });
+  const engine = f.makeEngine({
+    harness: async ({ task, stage }) => ({
+      ...demoHandoff(task, stage),
+      ...(stage === 'implement' ? { verdict: 'verification_requested' } : {}),
+    }),
+  });
+  const task = engine.create({ title: 'Bound duplicate requests', repositoryId: 'repo' });
+  await engine.action(task.id, 'start');
+  await waitFor(f.store, task.id, (t) => t.status === 'awaiting_plan');
+  await engine.action(task.id, 'approve-plan', { optionId: 'shared-boundary' });
+  const result = await waitFor(f.store, task.id, (t) => t.status === 'blocked');
+  assert.equal(await readFile(count, 'utf8'), 'x');
+  assert.equal(result.attempts.filter((a) => a.role === 'verifier').length, 3);
+  assert.match(result.error, /already been returned/);
+});
