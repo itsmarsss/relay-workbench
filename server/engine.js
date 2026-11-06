@@ -264,6 +264,51 @@ export class Engine {
             ? 'Control returned. Running all repository checks and independent review.'
             : 'Control returned. Rebuilding the investigation and proposal for approval.',
         });
+      } else if (action === 'verify-blocker') {
+        requireValue(
+          status === 'blocked' && !this.running.has(id),
+          'Wait for a blocked, idle task',
+          409,
+        );
+        requireValue(
+          task.stage === 'implement' && task.chosenApproach,
+          'Trusted checks require an approved implementation',
+          409,
+        );
+        requireValue(
+          !task.recoveryNotBefore || Date.now() >= task.recoveryNotBefore,
+          'Wait for interrupted workers to stop',
+          409,
+        );
+        const entries = workspaces(task);
+        requireValue(
+          entries.every((entry) => entry.workspace && entry.repository.checks.length),
+          'Configure checks and prepare workspaces first',
+          409,
+        );
+        const source = task.attempts.findLast(
+          (a) =>
+            a.role !== 'debug' &&
+            a.role !== 'verifier' &&
+            a.stage === task.stage &&
+            (a.repositoryId ?? null) ===
+              (entries.length > 1 ? entries[task.repositoryCursor ?? 0].repository.id : null),
+        );
+        task.recovery = {
+          ...task.recovery,
+          key: `${task.stage}:${task.repositoryCursor ?? 0}`,
+          sourceAttemptId: source?.id,
+          active: false,
+          phase: 'trusted_verification',
+        };
+        task.status = 'queued';
+        task.error = null;
+        task.blockerDecision = null;
+        this.store.save(task, {
+          type: 'queued',
+          summary:
+            'Running configured host checks before continuing the interrupted implementation.',
+        });
       } else if (action === 'debug' || action === 'resolve-blocker') {
         requireValue(
           status === 'blocked' && !this.running.has(id),
@@ -781,6 +826,7 @@ export class Engine {
       this.store.save(task);
     }
     const stage = task.stage;
+    const trustedVerification = task.recovery?.phase === 'trusted_verification';
     const debugging = task.recovery?.active && task.recovery.phase === 'debug';
     const entries = workspaces(task);
     const scoped = entries.length > 1 && ['investigate', 'implement', 'review'].includes(stage);
@@ -798,7 +844,7 @@ export class Engine {
       ? this.store.config.harnesses.codex?.enabled
         ? 'codex'
         : task.routing[stage === 'verify' ? 'implement' : stage]
-      : stage === 'verify'
+      : stage === 'verify' || trustedVerification
         ? 'checks'
         : task.routing[stage];
     if (debugging) {
@@ -819,18 +865,20 @@ export class Engine {
     const parentAttempt = task.attempts.at(-1);
     const attempt = {
       parentAttemptId: parentAttempt?.id ?? null,
-      relation: debugging
-        ? 'Diagnosis'
-        : task.recovery?.phase === 'continue'
-          ? 'Continue after diagnosis'
-          : parentAttempt && task.round > parentAttempt.round
-            ? 'Repair / backtrack'
-            : parentAttempt?.stage === stage
-              ? 'Retry / next repository'
-              : 'Handoff',
+      relation: trustedVerification
+        ? 'Trusted verification'
+        : debugging
+          ? 'Diagnosis'
+          : task.recovery?.phase === 'continue'
+            ? 'Continue after diagnosis'
+            : parentAttempt && task.round > parentAttempt.round
+              ? 'Repair / backtrack'
+              : parentAttempt?.stage === stage
+                ? 'Retry / next repository'
+                : 'Handoff',
       id: randomUUID(),
       stage,
-      role: debugging ? 'debug' : 'specialist',
+      role: trustedVerification ? 'verifier' : debugging ? 'debug' : 'specialist',
       harness,
       round: task.round,
       repositoryId: scoped ? entry.repository.id : null,
@@ -871,19 +919,22 @@ export class Engine {
       attempt.recovery = { strategy: task.recovery.strategy, freshSession: true };
     attempt.model = executionConfig(task, this.store.config, stage).harnesses[harness]?.model || '';
     for (const message of task.messages)
-      if (stage !== 'verify' && message.delivery === 'pending') message.attemptId = attempt.id;
+      if (stage !== 'verify' && !trustedVerification && message.delivery === 'pending')
+        message.attemptId = attempt.id;
     task.attempts.push(attempt);
     this.store.save(task, {
       type: 'stage_started',
       stage,
       harness,
-      summary: debugging
-        ? `${harness} debugger is diagnosing the ${stage} blocker.`
-        : view.continuationContext
-          ? `Continuing ${stage} from saved progress after diagnosis.`
-          : stage === 'verify'
-            ? 'Running repository verification commands.'
-            : `${harness} is working on ${stage}${scoped ? ` · ${entry.repository.name}` : ''}.${task.recovery?.active ? ' Fresh diagnostic session with prior evidence.' : ''}`,
+      summary: trustedVerification
+        ? 'Running configured host checks; implementation progress is preserved.'
+        : debugging
+          ? `${harness} debugger is diagnosing the ${stage} blocker.`
+          : view.continuationContext
+            ? `Continuing ${stage} from saved progress after diagnosis.`
+            : stage === 'verify'
+              ? 'Running repository verification commands.'
+              : `${harness} is working on ${stage}${scoped ? ` · ${entry.repository.name}` : ''}.${task.recovery?.active ? ' Fresh diagnostic session with prior evidence.' : ''}`,
     });
     const before = !task.demo ? await fingerprint(task) : 'demo';
     const startedTask = this.store.get(id);
@@ -901,7 +952,7 @@ export class Engine {
           )
         : null;
     let handoff;
-    if (stage === 'verify' && !debugging) {
+    if ((stage === 'verify' || trustedVerification) && !debugging) {
       const checks = [];
       const signature = JSON.stringify(
         entries.map((e) => ({
@@ -1096,7 +1147,7 @@ export class Engine {
       throw new Error(
         `${stage} modified the workspace despite being read-only. Inspect the diff before resuming.`,
       );
-    if (stage === 'verify' && !debugging && before !== after)
+    if ((stage === 'verify' || trustedVerification) && !debugging && before !== after)
       throw new Error('Verification modified the workspace. Inspect the diff before resuming.');
     if (otherBefore)
       requireValue(
@@ -1118,7 +1169,24 @@ export class Engine {
     savedAttempt.fingerprint = after;
     if (!debugging && view.continuationContext && handoff.verdict === 'complete')
       task.recovery.phase = 'continued';
-    if (debugging && handoff.verdict === 'complete') {
+    if (trustedVerification) {
+      task.recovery.active = false;
+      task.recovery.phase = 'continue';
+      task.recovery.lastDiagnosis = {
+        summary: handoff.summary,
+        evidence: handoff.evidence,
+        details: handoff.details,
+        checks: handoff.checks.map((check) => ({
+          ...check,
+          stdout: check.stdout.slice(-12000),
+          stderr: check.stderr.slice(-6000),
+        })),
+        fingerprint: after,
+      };
+      task.status = 'queued';
+      task.error = null;
+      task.blockerDecision = null;
+    } else if (debugging && handoff.verdict === 'complete') {
       task.recovery.active = false;
       task.recovery.phase = 'continue';
       task.recovery.lastDiagnosis = { summary: handoff.summary, evidence: handoff.evidence };

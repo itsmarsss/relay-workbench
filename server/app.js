@@ -652,6 +652,7 @@ export function createApp({ directory, publicDirectory, engineOptions = {} }) {
             'start',
             'debug',
             'resolve-blocker',
+            'verify-blocker',
             'resume',
             'approve-plan',
             'request-changes',
