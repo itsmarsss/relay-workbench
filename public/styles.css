@@ -4065,18 +4065,6 @@ textarea::placeholder,
   margin-bottom: 8px;
   font-size: 15px;
 }
-.earlier-activity {
-  margin: 0 0 24px;
-}
-.earlier-activity > summary {
-  cursor: pointer;
-  padding: 14px 18px;
-  background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  margin-bottom: 20px;
-  font-weight: 600;
-}
 .agent-message {
   max-width: 75ch;
   line-height: 1.6;
@@ -4540,5 +4528,272 @@ textarea::placeholder,
     border-left: 0;
     border-top: 1px solid var(--line);
     padding: 14px;
+  }
+}
+
+.activity-browser {
+  display: grid;
+  grid-template-columns: 210px minmax(0, 1fr);
+  gap: 24px;
+  align-items: start;
+}
+.activity-runs {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+  overflow: hidden;
+  position: sticky;
+  top: 16px;
+}
+.activity-runs-heading {
+  display: flex;
+  justify-content: space-between;
+  padding: 14px;
+  border-bottom: 1px solid var(--line);
+  font-size: 14px;
+}
+.activity-runs button {
+  width: 100%;
+  text-align: left;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+  padding: 12px;
+}
+.activity-runs button:hover {
+  background: #f2f4ee;
+}
+.activity-runs button.selected {
+  background: #e9eee1;
+  box-shadow: inset 3px 0 #4c633d;
+}
+.activity-run-follow {
+  display: flex;
+  justify-content: space-between;
+  font-weight: 600 !important;
+}
+.activity-run-list {
+  max-height: 420px;
+  overflow-y: auto;
+}
+.activity-run {
+  display: grid;
+  grid-template-columns: 22px 1fr 12px;
+  gap: 6px;
+  align-items: center;
+}
+.activity-run strong,
+.activity-run small {
+  display: block;
+}
+.activity-run strong {
+  font-size: 13px;
+  line-height: 1.4;
+}
+.activity-run small {
+  font-size: 12px;
+  margin-top: 3px;
+  color: #555f53;
+}
+.activity-run-number {
+  color: #4f5a49;
+  font-size: 12px;
+}
+.activity-run-all {
+  border-top: 1px solid var(--line) !important;
+}
+.run-state.live {
+  color: #436134;
+}
+.activity-run-content {
+  min-width: 0;
+}
+.activity-run-header {
+  padding-bottom: 20px;
+  margin-bottom: 20px;
+  border-bottom: 1px solid var(--line);
+}
+.activity-run-title {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.activity-run-header h2 {
+  font-size: 18px;
+  margin: 0;
+}
+.activity-run-header p {
+  font-size: 13px;
+  line-height: 1.6;
+  color: #555f53;
+  margin: 6px 0 0;
+}
+.host-output {
+  border: 1px solid #d4dacf;
+  border-radius: 8px;
+  background: #f1f3ed;
+  margin-bottom: 24px;
+  overflow: hidden;
+}
+.host-output > div {
+  display: flex;
+  justify-content: space-between;
+  padding: 10px 14px;
+  font-size: 12px;
+  font-weight: 600;
+  border-bottom: 1px solid #d4dacf;
+}
+.host-output pre {
+  margin: 0;
+  padding: 12px 14px;
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 200px;
+  overflow-y: auto;
+}
+@media (max-width: 1050px) {
+  .activity-browser {
+    grid-template-columns: 1fr;
+  }
+  .activity-runs {
+    position: static;
+  }
+  .activity-run-list {
+    display: flex;
+    max-height: none;
+    overflow-x: auto;
+  }
+  .activity-run-list .activity-run {
+    min-width: 180px;
+    width: 180px;
+  }
+}
+
+.graph-legend {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  padding: 12px 24px;
+  border-bottom: 1px solid var(--line);
+  font-size: 12px;
+}
+.graph-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  white-space: nowrap;
+}
+.graph-legend i {
+  width: 9px;
+  height: 9px;
+  border-radius: 3px;
+  background: #668357;
+}
+.graph-legend i.debug {
+  background: #9378b5;
+}
+.graph-legend i.checks {
+  background: #527d98;
+}
+.graph-legend small {
+  margin-left: auto;
+  color: #555f53;
+  font-size: 12px;
+}
+.graph-lane {
+  fill: #f6f8f3;
+  stroke: #e1e6dc;
+  stroke-width: 1;
+}
+.graph-node.checks-branch rect {
+  fill: #eef5fa;
+  stroke: #91b0c3;
+}
+.graph-node.is-blocked rect {
+  stroke: #b08c54;
+}
+.graph-node.selected rect {
+  stroke: #355e3b;
+  stroke-width: 3;
+}
+.graph-node .graph-node-status {
+  font-size: 12px;
+  font-weight: 600;
+}
+.graph-inspector-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 8px;
+}
+.graph-status {
+  display: inline-block;
+  border: 1px solid #d4dacf;
+  border-radius: 5px;
+  padding: 2px 8px;
+  font-size: 12px;
+  margin: 4px 0 12px;
+}
+.graph-metadata {
+  display: grid;
+  grid-template-columns: 60px minmax(0, 1fr);
+  gap: 8px;
+  font-size: 12px;
+}
+.graph-metadata dt {
+  color: #555f53;
+}
+.graph-metadata dd {
+  margin: 0;
+}
+.graph-run-summary {
+  padding: 14px 0;
+  border-top: 1px solid var(--line);
+  font-size: 14px;
+}
+.graph-evidence {
+  padding-left: 18px;
+  font-size: 12px;
+}
+.graph-evidence li {
+  margin-bottom: 10px;
+}
+.graph-handoff {
+  white-space: pre-wrap;
+  font-size: 12px;
+}
+.graph-empty {
+  padding: 24px;
+}
+@media (max-width: 700px) {
+  .graph-legend {
+    flex-wrap: wrap;
+    gap: 10px;
+    padding: 10px 14px;
+  }
+  .graph-legend small {
+    margin-left: 0;
+    width: 100%;
+  }
+}
+
+.activity-runs {
+  min-width: 0;
+}
+.activity-run-content .timeline-body {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.activity-run-content .timeline {
+  min-width: 0;
+}
+@media (max-width: 1050px) {
+  .activity-browser {
+    grid-template-columns: minmax(0, 1fr);
   }
 }

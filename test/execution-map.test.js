@@ -86,3 +86,33 @@ test('graph uses explicit connected nodes and a separate debugger lane', () => {
   assert.match(executionMap(task), /marker-end=/);
   assert.match(executionMap(task), /role="button"/);
 });
+
+test('host verification has a distinct lane and generic command evidence', () => {
+  const task = {
+    attempts: [
+      { id: 'code', stage: 'implement', harness: 'codex' },
+      {
+        id: 'debug',
+        stage: 'implement',
+        harness: 'claude',
+        role: 'debug',
+        parentAttemptId: 'code',
+      },
+      {
+        id: 'host',
+        stage: 'implement',
+        harness: 'checks',
+        role: 'verifier',
+        parentAttemptId: 'debug',
+        status: 'running',
+      },
+    ],
+  };
+  const graph = graphLayout(task);
+  assert.equal(new Set(graph.nodes.map((n) => n.y)).size, 3);
+  assert.ok(graph.nodes.every((n, i) => !i || n.x > graph.nodes[i - 1].x));
+  const html = executionMap(task);
+  assert.match(html, /Host checks/);
+  assert.match(html, /Configured commands/);
+  assert.match(html, /graph-open-activity/);
+});
