@@ -672,6 +672,40 @@ test('process failures run a debugger before retrying the original stage', async
   assert.equal(result.approvals.length, 0);
 });
 
+for (const unresolved of [false, true])
+  test(`current specialist recovers before debugger escalation: ${unresolved ? 'unresolved' : 'resolved'}`, async (t) => {
+    const f = await fixture(t),
+      repo = await makeRepo(f.directory);
+    f.store.setConfig({ ...DEFAULT_CONFIG, repositories: [profile(repo, { strategy: 'attach' })] });
+    let calls = 0,
+      diagnoses = 0;
+    const engine = f.makeEngine({
+      harness: async ({ task, stage, sessionId, onSession }) => {
+        if (task.debugContext) {
+          diagnoses++;
+          return demoHandoff(task, stage);
+        }
+        if (stage === 'investigate') {
+          calls++;
+          if (calls === 2) {
+            assert.equal(sessionId, 'original-specialist');
+            assert.match(task.continuationContext.interruption, /Temporary connection/);
+          }
+          onSession('original-specialist');
+          if (calls === 1 || (unresolved && calls === 2))
+            throw new Error('Temporary connection failure');
+        }
+        return demoHandoff(task, stage);
+      },
+    });
+    const task = engine.create({ title: 'Recover in the current agent', repositoryId: 'repo' });
+    await engine.action(task.id, 'start');
+    const result = await waitFor(f.store, task.id, (t) => t.status === 'awaiting_plan');
+    assert.equal(diagnoses, unresolved ? 1 : 0);
+    assert.equal(calls, unresolved ? 3 : 2);
+    assert.equal(result.approvals.length, 0);
+  });
+
 test('debugger continues the original implementation conversation and preserves completed edits', async (t) => {
   const f = await fixture(t);
   const repo = await makeRepo(f.directory);
@@ -1041,6 +1075,7 @@ for (const failure of [
   null,
   'missing-evidence',
   'failed-check',
+  'check-recovery',
   'source-edit',
   'repair-round',
   'no-command-profile',
@@ -1087,10 +1122,13 @@ for (const failure of [
           assert.equal(task.verificationContext.executionAccess, 'host');
           assert.equal(task.repository.checks.length, 0);
           assert.ok(task.repositoryMap.every((entry) => entry.repository.checks.length === 0));
-          const args = [
-            '-e',
-            "if(require('fs').readFileSync('value.txt','utf8')!=='after\\n')process.exit(1)",
-          ];
+          const args =
+            failure === 'check-recovery' && verificationRuns === 1
+              ? ['-e', 'process.exit(1)']
+              : [
+                  '-e',
+                  "if(require('fs').readFileSync('value.txt','utf8')!=='after\\n')process.exit(1)",
+                ];
           const preserve =
             (failure?.startsWith('report-correction') || failure === 'runtime-budget') &&
             verificationRuns > 1;
@@ -1106,7 +1144,9 @@ for (const failure of [
                 args,
               });
           if (!preserve) executedChecks++;
-          assert.equal(result.code, 0);
+          assert.equal(result.code, failure === 'check-recovery' && verificationRuns === 1 ? 1 : 0);
+          if (failure === 'check-recovery' && verificationRuns > 1)
+            assert.equal(sessionId, 'verification-session');
           onSession('verification-session');
           if (preserve) assert.equal(sessionId, 'verification-session');
           if (failure !== 'missing-evidence')
@@ -1123,7 +1163,11 @@ for (const failure of [
                 command: process.execPath,
                 args,
                 cwd: task.workspace,
-                code: failure === 'failed-check' ? 1 : 0,
+                code:
+                  failure === 'failed-check' ||
+                  (failure === 'check-recovery' && verificationRuns === 1)
+                    ? 1
+                    : 0,
                 summary: 'Verified value contract',
               },
             ],
@@ -1185,6 +1229,14 @@ for (const failure of [
       await engine.action(task.id, 'resume');
       final = await waitFor(f.store, task.id, (t) => t.status === 'awaiting_final');
       assert.equal(executedChecks, 1);
+    }
+    if (failure === 'check-recovery' || failure === 'failed-check') {
+      assert.equal(
+        final.attempts.some((a) => a.role === 'debug'),
+        false,
+      );
+      assert.equal(verificationRuns, failure === 'failed-check' ? 3 : 2);
+      if (failure === 'check-recovery') assert.equal(final.status, 'awaiting_final');
     }
     if (failure?.startsWith('report-correction')) {
       assert.equal(

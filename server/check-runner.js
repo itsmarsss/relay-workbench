@@ -14,9 +14,14 @@ import { setTimeout as wait } from 'node:timers/promises';
 import { runProcess } from './process.js';
 
 // This runner executes explicit argv chosen by the agent. It contains no repository commands.
-export async function runCheck(spec, { repositoryId, cwd, command, args }, signal) {
+export async function runCheck(
+  spec,
+  { repositoryId, cwd, command, args, purpose = 'verification' },
+  signal,
+) {
   const repository = spec.repositories.find((r) => r.id === repositoryId);
   if (
+    !['verification', 'diagnostic'].includes(purpose) ||
     !repository ||
     typeof command !== 'string' ||
     !command ||
@@ -77,6 +82,7 @@ export async function runCheck(spec, { repositoryId, cwd, command, args }, signa
   const startedAt = new Date().toISOString();
   const identity = {
     id,
+    purpose,
     attemptId: spec.attemptId,
     repositoryId,
     command,
@@ -99,6 +105,7 @@ export async function runCheck(spec, { repositoryId, cwd, command, args }, signa
     );
   let outcome;
   try {
+    writeFileSync(logPath, '', { mode: 0o600 });
     appendFileSync(spec.journal, JSON.stringify({ ...identity, status: 'running' }) + '\n', {
       mode: 0o600,
     });
@@ -162,11 +169,17 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   const controller = new AbortController();
   for (const signal of ['SIGTERM', 'SIGINT']) process.on(signal, () => controller.abort());
   try {
-    const [specPath, repositoryId, cwd, separator, command, ...args] = process.argv.slice(2);
+    const [specPath, repositoryId, cwd, ...tail] = process.argv.slice(2);
+    const purpose = tail[0] === '--diagnostic' ? (tail.shift(), 'diagnostic') : 'verification';
+    const [separator, command, ...args] = tail;
     if (separator !== '--')
       throw Error('Usage: check-runner spec repository cwd -- command [args]');
     const spec = JSON.parse(readFileSync(specPath, 'utf8'));
-    const outcome = await runCheck(spec, { repositoryId, cwd, command, args }, controller.signal);
+    const outcome = await runCheck(
+      spec,
+      { repositoryId, cwd, command, args, purpose },
+      controller.signal,
+    );
     process.stdout.write(JSON.stringify(outcome, null, 2) + '\n');
     process.exitCode = outcome.status === 'complete' && outcome.code === 0 ? 0 : 1;
   } catch (error) {

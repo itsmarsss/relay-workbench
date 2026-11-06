@@ -84,11 +84,14 @@ function validateReport(handoff, entries, toolEvidence, context) {
   if (context.journal) {
     const latest = new Map();
     for (const record of context.journal)
-      latest.set(
-        JSON.stringify([record.repositoryId, record.cwd, record.command, record.args]),
-        record,
-      );
-    const failed = [...latest.values()].find((r) => r.status === 'complete' && r.code !== 0);
+      if (record.purpose !== 'diagnostic')
+        latest.set(
+          JSON.stringify([record.repositoryId, record.cwd, record.command, record.args]),
+          record,
+        );
+    const failed = [...latest.values()].find(
+      (r) => r.status === 'complete' && r.code !== 0 && r.purpose !== 'diagnostic',
+    );
     if (failed) {
       const error = new Error(`A supervised check failed: ${failed.command} exited ${failed.code}`);
       error.code = 'VERIFICATION_CHECK_FAILED';
@@ -114,7 +117,7 @@ function validateReport(handoff, entries, toolEvidence, context) {
     );
     const evidence = [...(prior.checks ?? []), ...(prior.report?.checks ?? [])];
     requireValue(
-      evidence.some((p) => p.code === 0 && sameCommand(check, p)),
+      evidence.some((p) => p.code === 0 && p.purpose !== 'diagnostic' && sameCommand(check, p)),
       'Reused check must match a recorded passing command',
     );
     requireValue(
@@ -143,6 +146,7 @@ function validateReport(handoff, entries, toolEvidence, context) {
           context.journal.some(
             (record) =>
               record.status === 'complete' &&
+              record.purpose !== 'diagnostic' &&
               record.sourceFingerprint === context.sourceFingerprint &&
               sameCommand(record, check),
           ),

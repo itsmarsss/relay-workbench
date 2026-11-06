@@ -131,6 +131,7 @@ test('interrupted checks remain incomplete and release their resource reservatio
     args: ['-e', 'process.exit(0)'],
   });
   assert.equal(next.code, 0);
+  assert.equal(await readFile(next.logPath, 'utf8'), '');
   assert.equal((await readCheckJournal(runner)).length, 2);
 });
 test('reused verification needs provenance and fresh impact checks after source changes', () => {
@@ -210,4 +211,91 @@ test('reused verification needs provenance and fresh impact checks after source 
   });
   assert.ok(html.includes('Continue with more time'));
   assert.ok(!html.includes('Run debugger'));
+});
+
+test('exploratory diagnostic failures do not poison passing verification', () => {
+  const check = {
+    repositoryId: 'repo',
+    command: 'test-tool',
+    args: ['required'],
+    cwd: '/tmp/repo',
+    code: 0,
+    summary: 'Passed',
+  };
+  const report = {
+    checks: [check],
+    requirements: [
+      {
+        repositoryId: 'repo',
+        source: 'guidance',
+        requirement: 'Required tests',
+        checkIndices: [0],
+      },
+    ],
+    reuse: [],
+  };
+  const entries = [{ repository: { id: 'repo' } }];
+  const context = {
+    sourceFingerprint: 'current',
+    journal: [
+      { ...check, status: 'complete', sourceFingerprint: 'current' },
+      {
+        ...check,
+        id: 'probe',
+        purpose: 'diagnostic',
+        command: 'inspect-log',
+        code: 1,
+        status: 'complete',
+        sourceFingerprint: 'current',
+      },
+    ],
+  };
+  assert.equal(validateVerification({ verification: report }, entries, true, context), report);
+  const requiredFailure = structuredClone(context);
+  requiredFailure.journal[1].purpose = 'verification';
+  assert.throws(
+    () => validateVerification({ verification: report }, entries, true, requiredFailure),
+    /supervised check failed/,
+  );
+  const hiddenFailure = structuredClone(context);
+  hiddenFailure.journal = [
+    { ...check, code: 1, status: 'complete', sourceFingerprint: 'current' },
+    { ...check, code: 0, purpose: 'diagnostic', status: 'complete', sourceFingerprint: 'current' },
+  ];
+  assert.throws(
+    () => validateVerification({ verification: report }, entries, true, hiddenFailure),
+    /supervised check failed/,
+  );
+  const fakePass = structuredClone(context);
+  fakePass.journal[0].purpose = 'diagnostic';
+  assert.throws(
+    () => validateVerification({ verification: report }, entries, true, fakePass),
+    /completed supervised check/,
+  );
+});
+
+test('diagnostic runner records purpose and retains nonzero exit status', async (t) => {
+  const { root, runner } = await runnerFixture(t);
+  const probe = await runCheck(runner, {
+    repositoryId: 'repo',
+    cwd: root,
+    command: process.execPath,
+    args: ['-e', 'process.exit(1)'],
+    purpose: 'diagnostic',
+  });
+  assert.equal(probe.code, 1);
+  assert.equal(probe.purpose, 'diagnostic');
+  assert.equal(await readFile(probe.logPath, 'utf8'), '');
+  const journal = await readCheckJournal(runner);
+  assert.equal(journal[0].purpose, 'diagnostic');
+  await assert.rejects(
+    runCheck(runner, {
+      repositoryId: 'repo',
+      cwd: root,
+      command: process.execPath,
+      args: [],
+      purpose: 'waived',
+    }),
+    /Invalid/,
+  );
 });

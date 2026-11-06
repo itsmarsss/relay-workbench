@@ -9,6 +9,7 @@ import { validateVerification } from './verification.js';
 import { developmentAccess } from './access.js';
 import {
   recoverBlocked,
+  recoverInPlace,
   resumableAttempt,
   recoveryHarnesses,
   blockerDecision,
@@ -719,14 +720,15 @@ export class Engine {
             }
             if (
               !changedDuringAnalysis &&
-              error.code === 'VERIFICATION_REPORT_INVALID' &&
+              ['VERIFICATION_REPORT_INVALID', 'VERIFICATION_CHECK_FAILED'].includes(error.code) &&
               error.toolEvidence &&
-              error.report?.checks?.some((c) => c.code === 0)
+              error.report?.checks?.length
             ) {
               const count = (current.verificationReportRepair?.count ?? 0) + 1;
               attempt.rejectedVerification = error.report;
               current.verificationReportRepair = {
                 count,
+                mode: error.code === 'VERIFICATION_CHECK_FAILED' ? 'check_recovery' : 'report_only',
                 attemptId: attempt.id,
                 fingerprint: attempt.beforeFingerprint,
                 signature: attempt.verificationSignature,
@@ -734,7 +736,25 @@ export class Engine {
                 error: error.message,
                 toolEvidence: true,
               };
-              current.recovery = null;
+              if (error.code === 'VERIFICATION_REPORT_INVALID') current.recovery = null;
+              if (count > 2 && error.code === 'VERIFICATION_CHECK_FAILED') {
+                current.verificationReportRepair = null;
+                recoverBlocked(
+                  current,
+                  diagnosticFailure,
+                  current.execution?.maxRecoveryAttempts ??
+                    this.store.config.maxRecoveryAttempts ??
+                    2,
+                );
+                this.store.save(current, {
+                  type: current.status === 'queued' ? 'recovery' : 'blocked',
+                  summary:
+                    current.status === 'queued'
+                      ? 'The verifier could not resolve its failed check; debugger queued with its recovery evidence.'
+                      : 'Verifier recovery exhausted; failed checks remain blocking.',
+                });
+                return;
+              }
               if (count <= 2) {
                 current.status = 'queued';
                 current.error = null;
@@ -742,10 +762,15 @@ export class Engine {
               } else
                 current.blockerDecision = {
                   ...blockerDecision(current, {
-                    summary: 'Verification report still needs correction.',
+                    summary:
+                      error.code === 'VERIFICATION_CHECK_FAILED'
+                        ? 'The verifier could not resolve a failed check.'
+                        : 'Verification report still needs correction.',
                     details: error.message,
                     risks: [
-                      'Executed checks are preserved. Inspect the report or resume its correction; no full test rerun is required solely for report formatting.',
+                      error.code === 'VERIFICATION_CHECK_FAILED'
+                        ? 'Inspect the failed command and attempted recovery. Passing checks remain preserved; unresolved failures still block review.'
+                        : 'Executed checks are preserved. Inspect the report or resume its correction; no full test rerun is required solely for report formatting.',
                     ],
                   }),
                   kind: 'verification_report',
@@ -754,8 +779,12 @@ export class Engine {
                 type: current.status === 'queued' ? 'recovery' : 'blocked',
                 summary:
                   count <= 2
-                    ? 'Verifier is correcting its evidence report; completed checks are preserved.'
-                    : 'Report correction limit reached; no debugger was started.',
+                    ? error.code === 'VERIFICATION_CHECK_FAILED'
+                      ? 'Verifier is resolving its failed check in the same conversation; completed checks are preserved.'
+                      : 'Verifier is correcting its evidence report; completed checks are preserved.'
+                    : error.code === 'VERIFICATION_CHECK_FAILED'
+                      ? 'Verifier recovery limit reached; failed checks remain blocking.'
+                      : 'Report correction limit reached; no debugger was started.',
               });
               return;
             }
@@ -766,6 +795,15 @@ export class Engine {
                 error.message,
               )
             ) {
+              if (recoverInPlace(current, error.message)) {
+                this.store.save(current, {
+                  type: 'recovery',
+                  summary:
+                    'Returning the interruption to the current agent before escalating to a debugger.',
+                  details: error.message,
+                });
+                return;
+              }
               recoverBlocked(
                 current,
                 diagnosticFailure,
@@ -961,7 +999,9 @@ export class Engine {
       parentAttemptId: parentAttempt?.id ?? null,
       relation:
         task.verificationReportRepair && agentVerification && !debugging
-          ? 'Report correction'
+          ? task.verificationReportRepair.mode === 'check_recovery'
+            ? 'Resolve failed check'
+            : 'Report correction'
           : trustedVerification
             ? 'Trusted verification'
             : debugging

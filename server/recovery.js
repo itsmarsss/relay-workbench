@@ -1,3 +1,29 @@
+// Give an interrupted specialist its own conversation back before escalating.
+export function recoverInPlace(task, reason) {
+  const attempt = task.attempts?.at(-1);
+  const key = `${task.stage}:${task.repositoryCursor ?? 0}:${task.round ?? 0}`;
+  if (
+    !attempt?.sessionId ||
+    attempt.role === 'debug' ||
+    attempt.harness === 'checks' ||
+    (task.localRecovery?.key === key && task.localRecovery.attempts >= 1)
+  )
+    return false;
+  task.localRecovery = { key, attempts: 1, sourceAttemptId: attempt.id };
+  task.recovery = {
+    ...task.recovery,
+    key: `${task.stage}:${task.repositoryCursor ?? 0}`,
+    phase: 'continue',
+    active: false,
+    sourceAttemptId: attempt.id,
+    reason,
+  };
+  task.status = 'queued';
+  task.error = null;
+  task.blockerDecision = null;
+  return true;
+}
+
 // Recovery does not approve source work or bypass checks; debugger execution is host-level.
 export function recoverBlocked(task, handoff, limit = 2, explicit = false) {
   const key = `${task.stage}:${task.repositoryCursor ?? 0}`;
