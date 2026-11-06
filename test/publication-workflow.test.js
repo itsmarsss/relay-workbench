@@ -419,7 +419,17 @@ test('publication rebases then verifies and independently reviews before publish
     },
     async (input) => {
       seen.push(input.stage);
-      if (input.stage === 'verify') return verification(input);
+      assert.match(input.task.publicationContext.checkScope, /targeted fresh checks/);
+      if (input.stage === 'verify') {
+        assert.ok(Array.isArray(input.task.verificationContext.priorEvidence));
+        const active = f.task.delivery;
+        assert.equal(
+          active.verificationRunner.attemptId,
+          input.task.verificationContext.runner.attemptId,
+        );
+        assert.equal(active.verificationSignature, input.task.verificationContext.signature);
+        return verification(input);
+      }
       assert.equal(input.harness, f.task.routing.review);
       const baseline = JSON.parse(
         await (

@@ -1,3 +1,4 @@
+import { publicationEvidence, PUBLICATION_CHECK_SCOPE } from './publication-evidence.js';
 import { memoryContext } from './memory.js';
 import {
   prepareCheckRunner,
@@ -290,6 +291,12 @@ export class PublicationWorkflow {
     );
     this.update(task.id, entry.repository.id, (e) => {
       e.delivery.memorySnapshot = memorySnapshot;
+      if (verificationContext?.runner)
+        Object.assign(e.delivery, {
+          verificationRunner: verificationContext.runner,
+          verificationSignature: verificationContext.signature,
+          beforeFingerprint: verificationContext.sourceFingerprint,
+        });
     });
     let toolEvidence = false;
     const view = workspaceView(task, entry);
@@ -461,6 +468,7 @@ export class PublicationWorkflow {
       verificationSignature(entries),
       (executionConfig(task, this.store.config, 'implement').timeoutMinutes ?? 30) * 60000,
     );
+    const priorEvidence = publicationEvidence(this.store.get(task.id), runner.signature);
     let correction = null,
       verifiedEvidence = null,
       toolEvidence = false;
@@ -469,7 +477,12 @@ export class PublicationWorkflow {
         task,
         entry,
         signal,
-        { phase: 'verify', preparation, previousValidation: correction },
+        {
+          phase: 'verify',
+          preparation,
+          previousValidation: correction,
+          checkScope: PUBLICATION_CHECK_SCOPE,
+        },
         {
           stage: 'verify',
           verificationContext: {
@@ -478,7 +491,7 @@ export class PublicationWorkflow {
             signature: runner.signature,
             runner,
             repositories: entries.map((e) => e.repository.id),
-            priorEvidence: [],
+            priorEvidence,
           },
         },
       );
@@ -497,12 +510,14 @@ export class PublicationWorkflow {
           journal,
           sourceFingerprint: before,
           signature: runner.signature,
-          priorEvidence: [],
+          priorEvidence,
         });
         this.finishRun(task.id, entry.repository.id, input.result, {
           verificationRunner: runner,
           verificationEvidence: journal,
           verificationReport: input.result.verification,
+          verificationSignature: runner.signature,
+          beforeFingerprint: before,
         });
         verifiedEvidence = { report: input.result.verification, checks: journal };
         correction = null;
@@ -530,6 +545,7 @@ export class PublicationWorkflow {
       {
         phase: 'review',
         preparation,
+        checkScope: PUBLICATION_CHECK_SCOPE,
         verifiedFingerprint: before,
         verification: verifiedEvidence,
         approvedGoal: task.chosenApproach,
@@ -785,12 +801,19 @@ export class PublicationWorkflow {
           (value) => value === content,
           () => false,
         ));
+      const active = workspaces(this.store.get(id)).find(
+        (e) => e.repository.id === repoId,
+      ).delivery;
+      const interruptedEvidence = active.verificationRunner
+        ? await readCheckJournal(active.verificationRunner).catch(() => [])
+        : active.verificationEvidence;
       this.update(
         id,
         repoId,
         (e) =>
           Object.assign(e.delivery, {
             status: signal.aborted ? 'interrupted' : 'blocked',
+            verificationEvidence: interruptedEvidence,
             phase: 'needs_attention',
             summary: signal.aborted
               ? 'Publication paused; work is preserved.'
