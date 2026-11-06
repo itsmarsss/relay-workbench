@@ -8,6 +8,7 @@ import { inbox, acknowledge } from './inbox.js';
 import { uploadImage, readImage } from './attachments.js';
 import http from 'node:http';
 import { captureTerminal } from './terminal.js';
+import { connectTerminal, writeTerminal, resizeTerminal } from './terminal-control.js';
 import { workspaces, workspaceView } from './task-repositories.js';
 import { readFile, realpath, rm, lstat } from 'node:fs/promises';
 import { resolve, extname, relative, isAbsolute } from 'node:path';
@@ -22,6 +23,7 @@ import { diff, fingerprint, inspectRepository, git } from './workspace.js';
 const TYPES = {
   '.html': 'text/html',
   '.js': 'text/javascript',
+  '.mjs': 'text/javascript',
   '.css': 'text/css',
   '.svg': 'image/svg+xml',
 };
@@ -63,6 +65,7 @@ export function createApp({ directory, publicDirectory, engineOptions = {} }) {
   const engine = new Engine(store, engineOptions);
   const token = randomBytes(32).toString('hex');
   const streams = new Set();
+  const terminalStreams = new Map();
   const external = new Map();
   const restorePreviews = new Map();
   let maintenance = false,
@@ -92,9 +95,10 @@ export function createApp({ directory, publicDirectory, engineOptions = {} }) {
     res.setHeader('X-Frame-Options', 'DENY');
     res.setHeader('Referrer-Policy', 'no-referrer');
     res.setHeader('Cache-Control', 'no-store');
+    const styleNonce = randomBytes(18).toString('base64');
     res.setHeader(
       'Content-Security-Policy',
-      "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' https:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
+      `default-src 'self'; script-src 'self'; style-src 'self' 'nonce-${styleNonce}'; img-src 'self' https:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'`,
     );
     try {
       const expected = `127.0.0.1:${server.address().port}`;
@@ -379,6 +383,110 @@ export function createApp({ directory, publicDirectory, engineOptions = {} }) {
             }),
           );
         }
+        if (['terminal-stream', 'terminal-input'].includes(operation)) {
+          const session = url.searchParams.get('session');
+          requireValue(
+            task.status === 'manual' && task.manual?.active,
+            'Take over this task before using the terminal',
+            409,
+          );
+          requireValue(
+            session === task.manual.session,
+            'This terminal session has changed. Reconnect before typing.',
+            409,
+          );
+          const terminal = task.manual;
+          if (operation === 'terminal-input' && req.method === 'POST') {
+            const data = await body(req);
+            const current = store.get(id);
+            requireValue(
+              current?.status === 'manual' &&
+                current.manual?.active &&
+                current.manual.session === session,
+              'Terminal control has ended',
+              409,
+            );
+            if (data.type === 'input') {
+              requireValue(
+                typeof data.data === 'string' &&
+                  Buffer.byteLength(data.data) > 0 &&
+                  Buffer.byteLength(data.data) <= 8192,
+                'Terminal input must be 1–8192 bytes',
+              );
+              await writeTerminal(terminal, data.data);
+            } else if (data.type === 'resize') {
+              requireValue(
+                Number.isInteger(data.cols) &&
+                  data.cols >= 20 &&
+                  data.cols <= 500 &&
+                  Number.isInteger(data.rows) &&
+                  data.rows >= 5 &&
+                  data.rows <= 200,
+                'Invalid terminal dimensions',
+              );
+              await resizeTerminal(terminal, data.cols, data.rows);
+            } else throw new InputError('Invalid terminal input type');
+            return json(res, 200, { ok: true });
+          }
+          requireValue(
+            operation === 'terminal-stream' && req.method === 'GET',
+            'Unsupported terminal operation',
+            405,
+          );
+          requireValue((terminalStreams.get(id)?.size ?? 0) < 3, 'Too many terminal viewers', 429);
+          res.writeHead(200, {
+            'Content-Type': 'text/event-stream',
+            Connection: 'keep-alive',
+            'X-Accel-Buffering': 'no',
+          });
+          res.flushHeaders();
+          const viewers = terminalStreams.get(id) ?? new Set();
+          terminalStreams.set(id, viewers);
+          let disconnect,
+            stopped = false;
+          const stop = () => {
+            if (stopped) return;
+            stopped = true;
+            disconnect?.();
+            clearInterval(heartbeat);
+            store.listeners.delete(check);
+            viewers.delete(stop);
+            streams.delete(res);
+            if (!viewers.size) terminalStreams.delete(id);
+            if (!res.writableEnded && !res.destroyed)
+              res.write(
+                `data: ${JSON.stringify({ type: 'closed', message: 'Terminal control has ended.' })}\n\n`,
+              );
+            res.end();
+          };
+          const check = () => {
+            const current = store.get(id);
+            if (
+              current?.status !== 'manual' ||
+              !current.manual?.active ||
+              current.manual.session !== terminal.session
+            )
+              stop();
+          };
+          const heartbeat = setInterval(() => {
+            check();
+            if (!res.writableEnded) res.write(': heartbeat\n\n');
+          }, 10000);
+          heartbeat.unref();
+          viewers.add(stop);
+          streams.add(res);
+          store.listeners.add(check);
+          disconnect = connectTerminal(
+            terminal,
+            (event) => {
+              if (res.writableLength > 1024 * 1024) return stop();
+              if (!res.writableEnded) res.write(`data: ${JSON.stringify(event)}\n\n`);
+            },
+            stop,
+          );
+          res.on('close', stop);
+          return;
+        }
         if (operation === 'terminal-preview' && req.method === 'GET') {
           const attemptId = url.searchParams.get('attemptId');
           requireValue(
@@ -586,6 +694,12 @@ export function createApp({ directory, publicDirectory, engineOptions = {} }) {
           throw new InputError('Asset not found', 404);
         throw error;
       }
+      if (filename === 'index.html')
+        bytes = Buffer.from(
+          bytes
+            .toString()
+            .replace('<head>', `<head><meta name="relay-style-nonce" content="${styleNonce}">`),
+        );
       res.writeHead(200, {
         'Content-Type': `${TYPES[extname(file)] || 'application/octet-stream'}; charset=utf-8`,
       });

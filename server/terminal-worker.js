@@ -148,6 +148,14 @@ polling = setInterval(() => {
     }
     const result = JSON.parse(readFileSync(spec.result, 'utf8'));
     flush();
+    if (spec.interactive) {
+      const screen = spawnSync(
+        'tmux',
+        ['-S', spec.socket, 'capture-pane', '-p', '-J', '-S', '-200', '-t', spec.session],
+        { encoding: 'utf8', timeout: 1000, maxBuffer: 262144 },
+      );
+      if (screen.status === 0) process.stdout.write(screen.stdout);
+    }
     // Pass the actual command outcome to runProcess, independently of tmux.
     notify({ type: 'terminal-result', result });
     shutdown(0);

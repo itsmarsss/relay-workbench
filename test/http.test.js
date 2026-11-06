@@ -654,3 +654,113 @@ test('HTTP maintenance refuses active agents and requires local authorization', 
   );
   assert.equal((await f.request('/api/backups', 'POST', {}, { 'X-Relay-Token': '' })).status, 403);
 });
+
+test(
+  'browser terminal requires current manual control and closes stale streams',
+  { skip: !(await executableExists('tmux')) },
+  async (t) => {
+    const f = await fixture(t);
+    const task = f.app.engine.create({ title: 'Interactive fixture', demo: true });
+    const path = `/api/tasks/${task.id}`;
+    const controller = new AbortController();
+    let terminal;
+    const running = runProcess(
+      process.execPath,
+      [
+        '-e',
+        'process.stdin.setRawMode(true);process.stdin.resume();console.log("ready");process.stdin.on("data",d=>console.log(d.toString("hex")))',
+      ],
+      {
+        cwd: f.directory,
+        signal: controller.signal,
+        terminal: { name: 'http-input', interactive: true },
+        onTerminal: (info) => (terminal = info),
+      },
+    );
+    const settled = running.catch(() => {});
+    t.after(async () => {
+      controller.abort();
+      await settled;
+    });
+    for (let i = 0; !terminal && i < 200; i++) await new Promise((r) => setTimeout(r, 20));
+    assert.ok(terminal);
+    const endpoint = `${path}/terminal-input?session=${terminal.session}`;
+    assert.equal((await f.request(endpoint, 'POST', { type: 'input', data: 'x' })).status, 409);
+    task.status = 'manual';
+    task.manual = { ...terminal, active: true };
+    f.app.store.save(task);
+    assert.equal(
+      (await f.request(endpoint, 'POST', { type: 'input', data: 'x' }, { 'X-Relay-Token': '' }))
+        .status,
+      403,
+    );
+    assert.equal(
+      (
+        await f.request(
+          endpoint,
+          'POST',
+          { type: 'input', data: 'x' },
+          { Origin: 'https://evil.example' },
+        )
+      ).status,
+      403,
+    );
+    assert.equal(
+      (
+        await f.request(`${path}/terminal-input?session=stale`, 'POST', {
+          type: 'input',
+          data: 'x',
+        })
+      ).status,
+      409,
+    );
+    assert.equal((await f.request(endpoint, 'POST', { type: 'input', data: '' })).status, 400);
+    assert.equal(
+      (await f.request(endpoint, 'POST', { type: 'input', data: 'é'.repeat(8192) })).status,
+      400,
+    );
+    assert.equal(
+      (await f.request(endpoint, 'POST', { type: 'resize', cols: -1, rows: 30 })).status,
+      400,
+    );
+    for (let i = 0; i < 200; i++) {
+      const preview = await f.request(`${path}/terminal-preview?attemptId=manual`);
+      if (preview.data.output?.includes('ready')) break;
+      await new Promise((r) => setTimeout(r, 20));
+    }
+    const stream = await fetch(f.origin + `${path}/terminal-stream?session=${terminal.session}`);
+    assert.equal(stream.status, 200);
+    const reader = stream.body.getReader();
+    const decoder = new TextDecoder();
+    let output = '';
+    while (!output.includes('snapshot')) {
+      const result = await reader.read();
+      assert.ok(!result.done);
+      output += decoder.decode(result.value);
+    }
+    assert.equal(
+      (
+        await f.request(endpoint, 'POST', {
+          type: 'input',
+          data: '`literal` $HOME $(nope)\x1b[A\x03',
+        })
+      ).status,
+      200,
+    );
+    assert.equal(
+      (await f.request(endpoint, 'POST', { type: 'resize', cols: 90, rows: 30 })).status,
+      200,
+    );
+    task.status = 'paused';
+    task.manual.active = false;
+    f.app.store.save(task);
+    let done = false;
+    while (!done) {
+      const result = await reader.read();
+      done = result.done;
+      if (result.value) output += decoder.decode(result.value);
+    }
+    assert.match(output, /Terminal control has ended/);
+    assert.equal((await f.request(endpoint, 'POST', { type: 'input', data: 'x' })).status, 409);
+  },
+);

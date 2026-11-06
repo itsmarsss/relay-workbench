@@ -389,6 +389,23 @@ test(
       /not awaiting/,
     );
     await assert.rejects(engine.action(task.id, 'resume'), /cannot start/);
+    const manual = f.store.get(task.id).manual;
+    await runProcess('tmux', [
+      '-S',
+      manual.socket,
+      'send-keys',
+      '-t',
+      manual.session,
+      '-l',
+      'exit',
+    ]);
+    await runProcess('tmux', ['-S', manual.socket, 'send-keys', '-t', manual.session, 'Enter']);
+    await waitFor(f.store, task.id, (t) => !t.manual?.active);
+    assert.equal(f.store.get(task.id).status, 'manual');
+    assert.equal(f.store.get(task.id).manual.result.code, 0);
+    await engine.action(task.id, 'takeover');
+    await waitFor(f.store, task.id, (t) => t.manual?.active);
+    assert.equal(f.store.get(task.id).approvals.length, 0);
     await engine.action(task.id, 'return-control');
     let planned = await waitFor(f.store, task.id, (t) => t.status === 'awaiting_plan');
     assert.equal(stages.filter((s) => s === 'investigate').length, 2);
@@ -495,8 +512,13 @@ for (const resolves of [true, false])
     let investigations = 0;
     const stages = [];
     const engine = f.makeEngine({
-      harness: async ({ task, stage }) => {
+      harness: async ({ task, stage, harness, sessionId, onSession }) => {
         stages.push(stage);
+        if (stage === 'investigate') {
+          assert.equal(sessionId, undefined, 'Blocked diagnoses must start fresh');
+          assert.equal(harness, investigations < 2 ? 'codex' : 'claude');
+          onSession(`diagnosis-${investigations}`);
+        }
         const handoff = demoHandoff(task, stage);
         if (stage === 'investigate') {
           investigations++;
@@ -520,6 +542,7 @@ for (const resolves of [true, false])
     assert.equal(result.status, resolves ? 'awaiting_plan' : 'blocked');
     assert.equal(investigations, resolves ? 2 : 3);
     assert.ok(!stages.includes('implement'));
+    assert.equal(result.routing.investigate, 'codex');
     assert.equal(result.recovery.active, false);
     assert.equal(result.recovery.exhausted, !resolves);
     assert.ok(f.store.events(task.id).some((event) => event.type === 'recovery'));

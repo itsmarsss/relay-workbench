@@ -4,6 +4,12 @@ import { spawn, spawnSync } from 'node:child_process';
 import { mkdtemp, readFile, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import {
+  connectTerminal,
+  decodeTerminalOutput,
+  writeTerminal,
+  resizeTerminal,
+} from '../server/terminal-control.js';
 import { runProcess, executableExists } from '../server/process.js';
 
 const hasTmux = await executableExists('tmux');
@@ -183,3 +189,80 @@ test('returning control terminates interactive background jobs', { skip: !hasTmu
   await sleep(250);
   assert.equal((await readFile(heartbeat, 'utf8')).length, size);
 });
+
+test('terminal control decodes bytes without losing UTF-8 or escape keys', () => {
+  assert.equal(decodeTerminalOutput('hello\\040world\\015\\012').toString(), 'hello world\r\n');
+  assert.deepEqual([...decodeTerminalOutput('\\033[A')], [27, 91, 65]);
+  assert.equal(decodeTerminalOutput('\\303\\251').toString(), 'é');
+});
+
+test(
+  'browser terminal streams real PTY output and accepts literal keys and resize',
+  { skip: !hasTmux },
+  async (t) => {
+    const cwd = await fixture(t);
+    const controller = new AbortController();
+    let terminal;
+    const running = runProcess(
+      process.execPath,
+      [
+        '-e',
+        `process.stdin.setRawMode(true);process.stdin.resume();let total=Buffer.alloc(0);console.log('interactive-ready');process.stdin.on('data',data=>{total=Buffer.concat([total,data]);console.log('received:'+total.toString('hex'))});`,
+      ],
+      {
+        cwd,
+        terminal: { name: 'browser-control', interactive: true },
+        signal: controller.signal,
+        onTerminal: (info) => (terminal = info),
+      },
+    );
+    t.after(async () => {
+      controller.abort();
+      await assert.rejects(running, /cancelled/);
+    });
+    await until(() => terminal);
+    const events = [];
+    const close = connectTerminal(terminal, (event) => events.push(event));
+    t.after(close);
+    await until(() =>
+      events.some(
+        (event) =>
+          event.data && Buffer.from(event.data, 'base64').toString().includes('interactive-ready'),
+      ),
+    );
+    await writeTerminal(terminal, 'é\x1b[A\x03');
+    await until(() =>
+      events
+        .filter((event) => event.type === 'output')
+        .map((event) => Buffer.from(event.data, 'base64').toString())
+        .join('')
+        .includes('c3a91b5b4103'),
+    );
+    await resizeTerminal(terminal, 90, 30);
+    await until(() =>
+      events.some((event) => event.type === 'snapshot' && event.cols === 90 && event.rows === 30),
+    );
+    assert.ok(!events.some((event) => event.type === 'error'));
+    close();
+    assert.equal(
+      spawnSync('tmux', ['-S', terminal.socket, 'has-session', '-t', terminal.session]).status,
+      0,
+      'Closing a viewer must preserve the manual session',
+    );
+  },
+);
+
+test(
+  'interactive process exit retains its last screen and exit code',
+  { skip: !hasTmux },
+  async (t) => {
+    const cwd = await fixture(t);
+    const result = await runProcess(
+      process.execPath,
+      ['-e', 'console.log("startup diagnostic retained");process.exit(7)'],
+      { cwd, terminal: { name: 'retained-manual', interactive: true } },
+    );
+    assert.equal(result.code, 7);
+    assert.match(result.stdout, /startup diagnostic retained/);
+  },
+);
