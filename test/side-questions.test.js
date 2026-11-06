@@ -61,22 +61,25 @@ test('live elapsed timers advance without rerendering and stop when finished', (
       status: 'running',
       attempts: [{ status: 'running', startedAt: start, stage: 'implement', harness: 'codex' }],
     }),
-    /completion is not estimated/,
+    /Live task progress/,
   );
   assert.equal(liveProgress({ status: 'blocked', attempts: [] }), '');
 });
 test('side chat escapes questions and sanitizes answers', () => {
-  const html = sideChat({
-    sideQuestions: [
-      {
-        question: '<script>bad</script>',
-        createdAt: new Date().toISOString(),
-        stage: 'implement',
-        status: 'complete',
-        answer: '<script>bad</script>',
-      },
-    ],
-  });
+  const html = sideChat(
+    {
+      sideQuestions: [
+        {
+          question: '<script>bad</script>',
+          createdAt: new Date().toISOString(),
+          stage: 'implement',
+          status: 'complete',
+          answer: '<script>bad</script>',
+        },
+      ],
+    },
+    true,
+  );
   assert.doesNotMatch(html, /<script>/);
   assert.match(html, /cannot steer/);
 });

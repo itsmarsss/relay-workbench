@@ -29,6 +29,10 @@ import {
 } from './ui.js';
 
 const state = {
+  sideChatOpen: false,
+  executionMapOpen: false,
+  graphSelectedId: null,
+  graphZoom: 1,
   storage: null,
   outcomes: null,
   outcomesRepository: '',
@@ -93,6 +97,12 @@ function renderMain() {
     id: el.dataset.editor,
     preview: el.querySelector('[data-mode="preview"]')?.getAttribute('aria-selected') === 'true',
   }));
+  const panelScroll = ['.node-graph-scroll', '.graph-inspector', '.side-chat-history'].map(
+    (selector) => {
+      const node = main.querySelector(selector);
+      return { selector, top: node?.scrollTop, left: node?.scrollLeft };
+    },
+  );
   const scroll = main.scrollTop;
   const terminalScroll = main.querySelector('.terminal-preview')?.scrollTop;
   const descriptionScroll = main.querySelector('.task-description')?.scrollTop;
@@ -163,6 +173,13 @@ function renderMain() {
   if (description && descriptionScroll !== undefined) description.scrollTop = descriptionScroll;
   if (focusId && !inputs.some((i) => i.id === focusId))
     document.getElementById(focusId)?.focus({ preventScroll: true });
+  for (const saved of panelScroll) {
+    const node = main.querySelector(saved.selector);
+    if (node && saved.top !== undefined) {
+      node.scrollTop = saved.top;
+      node.scrollLeft = saved.left;
+    }
+  }
   main.scrollTop = scroll;
   const board = main.querySelector('.workflow-board');
   if (board) {
@@ -220,7 +237,7 @@ function taskView() {
   if (!t) return '<div class="boot">Loading task…</div>';
   const live = ['running', 'queued'].includes(t.status);
   const last = t.attempts.findLast((a) => a.handoff)?.handoff;
-  return `<div class="task-heading"><button class="back-link" data-action="navigate" data-view="tasks">← All tasks</button><div class="task-title-row"><h1>${e(t.title)}</h1>${t.demo ? '<span class="demo-label large">SIMULATED DEMO</span>' : ''}</div><div class="task-subtitle">${badge(t.status)}<span>${e((t.repositories?.length ? t.repositories.map((r) => r.repository.name) : [t.repository.name]).join(' + '))}</span><span>·</span><span>${t.id.slice(0, 8)}</span>${t.ticket ? `<span>·</span>${issueLink(t.ticket)}` : ''}<span>·</span><span>Created ${ago(t.createdAt).toLowerCase()}</span></div><div class="task-controls">${!['completed', 'cancelled'].includes(t.status) ? button('configure-task', ['running', 'queued', 'manual'].includes(t.status) ? 'Pause & configure' : 'Configure task', 'secondary', 'settings') : ''}${button('duplicate-task', 'Duplicate task', 'text small', 'plus')}${t.status === 'draft' ? button('task-action', 'Start workflow', 'primary', 'bolt', 'data-operation="start"') : ''}${['blocked', 'interrupted', 'paused'].includes(t.status) ? button('task-action', 'Resume workflow', 'primary', 'arrow', 'data-operation="resume"') : ''}${t.status === 'manual' ? button('task-action', 'Return to automation', 'primary', 'arrow', 'data-operation="return-control"') : ''}${live ? button('task-action', 'Pause', 'secondary small', 'pause', 'data-operation="pause"') : ''}${!['completed', 'cancelled'].includes(t.status) ? button('confirm-cancel', 'Cancel', 'text small') : ''}<a class="btn text small" href="/api/tasks/${t.id}/export" download>${icon('download')}Export</a></div></div>${t.demo ? '<div class="demo-banner">' + icon('spark') + 'Demo mode. Harness responses and checks are simulated; no repository files are changed.</div>' : ''}<div class="task-layout"><div class="task-center">${liveProgress(t, state.events)}${taskSummary(t, state.events)}${executionMap(t)}${t.error ? `<details class="error-panel" data-event-key="blocker"><summary>Blocker details</summary><p>${e(t.error)}</p></details>` : ''}${blockerDecisionView(t)}${t.status === 'awaiting_plan' ? planGate(t) : ''}${t.status === 'awaiting_final' ? `<div class="approval-panel final-panel"><div class="approval-icon">${icon('check')}</div><div><span class="eyebrow">YOUR FINAL LOOK</span><h2>The specialists are done. Over to you.</h2><p>Verification passed and independent review is complete. Inspect the handoffs and diff before accepting.</p><div class="approval-actions">${button('task-action', 'Accept result', 'primary', 'check', 'data-operation="accept"')}${button('request-changes', 'Request changes', 'secondary')}</div></div></div>` : ''}<div class="detail-tabs" role="tablist">${[
+  return `<div class="task-heading"><button class="back-link" data-action="navigate" data-view="tasks">← All tasks</button><div class="task-title-row"><h1>${e(t.title)}</h1>${t.demo ? '<span class="demo-label large">SIMULATED DEMO</span>' : ''}</div><div class="task-subtitle">${badge(t.status)}<span>${e((t.repositories?.length ? t.repositories.map((r) => r.repository.name) : [t.repository.name]).join(' + '))}</span><span>·</span><span>${t.id.slice(0, 8)}</span>${t.ticket ? `<span>·</span>${issueLink(t.ticket)}` : ''}<span>·</span><span>Created ${ago(t.createdAt).toLowerCase()}</span></div>${liveProgress(t, state.events)}<div class="task-controls">${!['completed', 'cancelled'].includes(t.status) ? button('configure-task', ['running', 'queued', 'manual'].includes(t.status) ? 'Pause & configure' : 'Configure task', 'secondary', 'settings') : ''}${button('duplicate-task', 'Duplicate task', 'text small', 'plus')}${t.status === 'draft' ? button('task-action', 'Start workflow', 'primary', 'bolt', 'data-operation="start"') : ''}${['blocked', 'interrupted', 'paused'].includes(t.status) ? button('task-action', 'Resume workflow', 'primary', 'arrow', 'data-operation="resume"') : ''}${t.status === 'manual' ? button('task-action', 'Return to automation', 'primary', 'arrow', 'data-operation="return-control"') : ''}${live ? button('task-action', 'Pause', 'secondary small', 'pause', 'data-operation="pause"') : ''}${!['completed', 'cancelled'].includes(t.status) ? button('confirm-cancel', 'Cancel', 'text small') : ''}<a class="btn text small" href="/api/tasks/${t.id}/export" download>${icon('download')}Export</a></div></div>${t.demo ? '<div class="demo-banner">' + icon('spark') + 'Demo mode. Harness responses and checks are simulated; no repository files are changed.</div>' : ''}<div class="task-layout"><div class="task-center">${taskSummary(t, state.events)}${state.executionMapOpen ? executionMap(t, { selectedId: state.graphSelectedId, zoom: state.graphZoom }) : ''}${t.error ? `<details class="error-panel" data-event-key="blocker"><summary>Blocker details</summary><p>${e(t.error)}</p></details>` : ''}${blockerDecisionView(t)}${t.status === 'awaiting_plan' ? planGate(t) : ''}${t.status === 'awaiting_final' ? `<div class="approval-panel final-panel"><div class="approval-icon">${icon('check')}</div><div><span class="eyebrow">YOUR FINAL LOOK</span><h2>The specialists are done. Over to you.</h2><p>Verification passed and independent review is complete. Inspect the handoffs and diff before accepting.</p><div class="approval-actions">${button('task-action', 'Accept result', 'primary', 'check', 'data-operation="accept"')}${button('request-changes', 'Request changes', 'secondary')}</div></div></div>` : ''}<div class="detail-tabs" role="tablist">${[
     ['overview', 'Overview'],
     ['thread', 'Activity thread'],
     ['terminals', 'Live terminals'],
@@ -234,7 +251,7 @@ function taskView() {
     )
     .join(
       '',
-    )}</div><div class="detail-content">${state.tab === 'overview' ? taskDetails(t) || empty('book', 'No description yet', 'Configure this task to add requirements.') : state.tab === 'terminals' ? terminalView(t, state) : state.tab === 'thread' ? threadView(t) : state.tab === 'handoffs' ? handoffsView(t) : state.tab === 'diff' ? diffView(t) : transcriptView(t)}</div>${!['completed', 'cancelled'].includes(t.status) ? `<form id="message-form" class="message-box">${markdownEditor({ id: 'task-message', name: 'message', label: 'Add direction or context', rows: 3, max: 20000 })}<div><small>${t.canSteer ? 'Steer sends direction to the active session; Claude interrupts and resumes.' : 'Context stays pending until an agent receives it.'} ${t.messages.filter((m) => m.delivery === 'pending').length} pending.</small>${t.canSteer ? '<label><input id="steer-active" type="checkbox" name="steer" checked> Steer active agent</label>' : ''}<button class="btn secondary small" type="submit">Send direction ${icon('arrow')}</button></div></form>` : ''}</div><aside class="task-context">${sideChat(t)}<section class="context-card"><div class="context-title">WORKFLOW <span class="live-label ${live ? 'is-live' : ''}">${live ? '● LIVE' : '6 STAGES'}</span></div><ol class="stage-list">${Object.keys(
+    )}</div><div class="detail-content">${state.tab === 'overview' ? taskDetails(t) || empty('book', 'No description yet', 'Configure this task to add requirements.') : state.tab === 'terminals' ? terminalView(t, state) : state.tab === 'thread' ? threadView(t) : state.tab === 'handoffs' ? handoffsView(t) : state.tab === 'diff' ? diffView(t) : transcriptView(t)}</div>${!['completed', 'cancelled'].includes(t.status) ? `<form id="message-form" class="message-box">${markdownEditor({ id: 'task-message', name: 'message', label: 'Add direction or context', rows: 3, max: 20000 })}<div><small>${t.canSteer ? 'Steer sends direction to the active session; Claude interrupts and resumes.' : 'Context stays pending until an agent receives it.'} ${t.messages.filter((m) => m.delivery === 'pending').length} pending.</small>${t.canSteer ? '<label><input id="steer-active" type="checkbox" name="steer" checked> Steer active agent</label>' : ''}<button class="btn secondary small" type="submit">Send direction ${icon('arrow')}</button></div></form>` : ''}</div><aside class="task-context">${sideChat(t, state.sideChatOpen)}<section class="context-card"><div class="context-title">WORKFLOW <span class="live-label ${live ? 'is-live' : ''}">${live ? '● LIVE' : '6 STAGES'}</span></div><ol class="stage-list">${Object.keys(
     stageNames,
   )
     .map((stage, i) => {
@@ -247,7 +264,13 @@ function taskView() {
       const diagnosing = active && t.recovery?.active && t.recovery.phase === 'debug';
       return `${active ? debuggerStep(t) : ''}<li class="${active ? 'current' : done ? 'done' : ''}"><span class="stage-number">${done && !active ? icon('check') : i + 1}</span><div><strong>${stageNames[stage]}</strong><small>${diagnosing ? 'Paused for debugger' : h === 'checks' ? 'Repository checks' : h.charAt(0).toUpperCase() + h.slice(1)}${a?.finishedAt ? ' · ' + duration(new Date(a.finishedAt) - new Date(a.startedAt)) : active && live ? ` · ${a?.status === 'running' ? timer(a.startedAt) : 'Queued'}` : ''}</small></div>${active && live ? '<span class="pulse-dot"></span>' : ''}</li>`;
     })
-    .join('')}</ol></section>${(t.repositories?.length > 1 ? t.repositories : [t])
+    .join(
+      '',
+    )}</ol><button class="btn secondary workflow-graph-button" data-action="open-execution-map">Open execution graph ↗</button></section>${(t
+    .repositories?.length > 1
+    ? t.repositories
+    : [t]
+  )
     .map(
       (r) =>
         `<section class="context-card"><div class="context-title">REPOSITORY WORKSPACE ${icon('git')}</div><dl><dt>Repository</dt><dd>${e(r.repository.name)}</dd><dt>Prerequisites</dt><dd>${e(
@@ -580,6 +603,11 @@ async function refreshTerminal(task) {
   }
 }
 async function openTask(id, recordHistory = true, tab = 'overview') {
+  if (state.selected !== id) {
+    state.sideChatOpen = false;
+    state.executionMapOpen = false;
+    state.graphSelectedId = null;
+  }
   state.selected = id;
   state.view = 'task';
   state.task = null;
@@ -820,6 +848,33 @@ document.addEventListener('click', async (event) => {
     }
     if (action === 'terminal-follow') {
       state.terminalFollow = !state.terminalFollow;
+      renderMain();
+      return;
+    }
+    if (['open-side-chat', 'close-side-chat'].includes(action)) {
+      state.sideChatOpen = action === 'open-side-chat';
+      renderMain();
+      if (state.sideChatOpen) document.querySelector('#side-question')?.focus();
+      return;
+    }
+    if (['open-execution-map', 'close-execution-map'].includes(action)) {
+      state.executionMapOpen = action === 'open-execution-map';
+      renderMain();
+      return;
+    }
+    if (action === 'graph-select') {
+      state.graphSelectedId = element.dataset.id;
+      renderMain();
+      return;
+    }
+    if (['graph-zoom-in', 'graph-zoom-out', 'graph-reset'].includes(action)) {
+      state.graphZoom =
+        action === 'graph-reset'
+          ? 1
+          : Math.max(
+              0.5,
+              Math.min(1.5, state.graphZoom + (action === 'graph-zoom-in' ? 0.1 : -0.1)),
+            );
       renderMain();
       return;
     }
@@ -1197,6 +1252,17 @@ document.addEventListener('keydown', (event) => {
   ) {
     event.preventDefault();
     createTaskModal();
+  }
+});
+document.addEventListener('keydown', (event) => {
+  if (['Enter', ' '].includes(event.key) && event.target.matches('[data-action=graph-select]')) {
+    event.preventDefault();
+    event.target.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+  }
+  if (event.key === 'Escape' && (state.sideChatOpen || state.executionMapOpen)) {
+    state.sideChatOpen = false;
+    state.executionMapOpen = false;
+    renderMain();
   }
 });
 window.addEventListener('popstate', () => {

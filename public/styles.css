@@ -4309,3 +4309,236 @@ textarea::placeholder,
   border-radius: 8px;
   padding: 10px 5px;
 }
+
+.harness-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  border-radius: 9px;
+  width: 30px;
+  height: 30px;
+}
+.harness-badge svg {
+  width: 22px;
+  height: 22px;
+}
+.harness-badge.codex {
+  background: #e7f0eb;
+  color: #1e4d3b;
+}
+.harness-badge.claude {
+  background: #f9e9dd;
+  color: #9b472a;
+}
+.harness-badge.pi {
+  background: #eee8fc;
+  color: #664595;
+}
+.task-heading .live-progress {
+  justify-content: flex-start;
+  display: flex;
+  width: fit-content;
+  margin: 14px 0 0;
+  padding: 7px 12px;
+  border: 0;
+  background: #edf3e8;
+  gap: 9px;
+  font-size: 13px;
+  border-radius: 8px;
+}
+.task-heading .live-progress small {
+  font-size: 12px;
+}
+.task-heading .live-progress .harness-badge {
+  width: 24px;
+  height: 24px;
+}
+.side-chat-launcher {
+  width: 100%;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+.side-chat-drawer {
+  position: fixed;
+  z-index: 80;
+  right: 20px;
+  top: 76px;
+  bottom: 20px;
+  width: min(640px, calc(100vw - 40px));
+  background: white;
+  border: 1px solid #cdd4c6;
+  border-radius: 16px;
+  box-shadow: 0 18px 70px #1e2b2730;
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.side-chat-drawer header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.side-chat-drawer h2 {
+  margin: 0 0 8px;
+  font-size: 21px;
+}
+.side-chat-drawer header p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 14px;
+}
+.side-chat-drawer .side-chat-history {
+  flex: 1;
+  max-height: none;
+  overflow: auto;
+  min-height: 80px;
+}
+.side-chat-drawer form {
+  display: grid;
+  gap: 10px;
+  flex-shrink: 0;
+}
+.side-chat-drawer textarea {
+  font-size: 15px;
+}
+.side-chat-drawer form button {
+  justify-self: end;
+}
+.workflow-graph-button {
+  width: 100%;
+  margin-top: 14px;
+}
+.graph-dialog {
+  position: fixed;
+  z-index: 75;
+  inset: 64px 24px 24px;
+  margin: 0;
+  background: #fcfdfb;
+  border: 1px solid #cdd4c6;
+  border-radius: 16px;
+  box-shadow: 0 18px 70px #1e2b2730;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.graph-header {
+  padding: 18px 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border-bottom: 1px solid var(--line);
+}
+.graph-header h2 {
+  font-size: 21px;
+  margin: 0;
+}
+.graph-header p {
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+.graph-header .inline-actions {
+  flex-wrap: wrap;
+}
+.graph-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  min-height: 0;
+  flex: 1;
+}
+.node-graph-scroll {
+  overflow: auto;
+  min-width: 0;
+  background: radial-gradient(#dce2d5 1px, transparent 1px);
+  background-size: 18px 18px;
+}
+.node-graph {
+  max-width: none;
+  display: block;
+}
+.graph-edge {
+  fill: none;
+  stroke: #7c8d70;
+  stroke-width: 2;
+}
+.graph-edge.inferred {
+  stroke-dasharray: 5 4;
+}
+.graph-node {
+  cursor: pointer;
+}
+.graph-node rect {
+  fill: white;
+  stroke: #c5cebd;
+  stroke-width: 1.5;
+}
+.graph-node.debug-branch rect {
+  fill: #f4efff;
+  stroke: #b3a1cf;
+}
+.graph-node.is-running rect {
+  stroke: #6d8b51;
+  stroke-width: 2.5;
+}
+.graph-node.selected rect,
+.graph-node:focus rect {
+  stroke: #3f6246;
+  stroke-width: 3;
+}
+.graph-node text {
+  fill: #4d5d46;
+  font:
+    13px system-ui,
+    sans-serif;
+}
+.graph-node .graph-node-title {
+  font-size: 15px;
+  font-weight: 650;
+  fill: #243922;
+}
+.graph-lane-title {
+  fill: #697560;
+  font:
+    600 12px system-ui,
+    sans-serif;
+  letter-spacing: 1px;
+}
+.graph-inspector {
+  border-left: 1px solid var(--line);
+  overflow: auto;
+  padding: 22px;
+  font-size: 14px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+.graph-inspector h3 {
+  margin: 12px 0;
+  font-size: 17px;
+}
+@media (max-width: 700px) {
+  .side-chat-drawer {
+    inset: 12px;
+    width: auto;
+    padding: 18px;
+  }
+  .graph-dialog {
+    inset: 12px;
+  }
+  .graph-header {
+    padding: 14px;
+    align-items: flex-start;
+  }
+  .graph-body {
+    grid-template-columns: 1fr;
+    grid-template-rows: minmax(200px, 1fr) minmax(140px, 35%);
+  }
+  .graph-inspector {
+    border-left: 0;
+    border-top: 1px solid var(--line);
+    padding: 14px;
+  }
+}

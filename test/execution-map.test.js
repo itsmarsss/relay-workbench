@@ -1,7 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { taskRoute, parseTaskRoute, taskTabs } from '../public/task-route.js';
-import { executionMap, executionNodes, debuggerStep } from '../public/execution-map.js';
+import {
+  executionMap,
+  executionNodes,
+  debuggerStep,
+  graphLayout,
+} from '../public/execution-map.js';
 test('all task tabs roundtrip in URLs and legacy links retain overview', () => {
   const id = 'a1b2-1234';
   for (const tab of taskTabs) assert.deepEqual(parseTaskRoute(taskRoute(id, tab)), { id, tab });
@@ -64,4 +69,20 @@ test('execution tree shows diagnostic branches, continuations and repairs withou
   });
   assert.equal(legacy[1].inferred, true);
   assert.equal(legacy[1].relation, 'Repair / backtrack');
+});
+
+test('graph uses explicit connected nodes and a separate debugger lane', () => {
+  const task = {
+    attempts: [
+      { id: 'a', stage: 'implement' },
+      { id: 'b', parentAttemptId: 'a', role: 'debug', stage: 'implement' },
+    ],
+  };
+  const graph = graphLayout(task);
+  assert.equal(graph.edges[0].from, 1);
+  assert.equal(graph.edges[0].to, 2);
+  assert.notEqual(graph.nodes[0].x, graph.nodes[1].x);
+  assert.match(graph.edges[0].path, /^M /);
+  assert.match(executionMap(task), /marker-end=/);
+  assert.match(executionMap(task), /role="button"/);
 });
