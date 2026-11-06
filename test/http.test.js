@@ -247,7 +247,10 @@ test('accepted task submission commits changes before provider execution', async
     409,
   );
   await f.request(`/api/tasks/${task.id}/accept`, 'POST', {});
-  assert.equal((await f.request(`/api/tasks/${task.id}/submit`, 'POST', {})).status, 202);
+  assert.equal(
+    (await f.request(`/api/tasks/${task.id}/submit`, 'POST', { mode: 'commands' })).status,
+    202,
+  );
   for (let i = 0; i < 1000 && f.app.store.get(task.id).submission.status === 'running'; i++)
     await new Promise((r) => setTimeout(r, 10));
   const done = f.app.store.get(task.id);
@@ -335,11 +338,19 @@ test('multi-repo submission preserves partial outcomes and accepted diffs', asyn
   await waitFor(f.app, task.id, 'awaiting_final');
   await f.app.engine.action(task.id, 'accept');
   assert.equal(
-    (await f.request(`/api/tasks/${task.id}/submit`, 'POST', { repositoryId: 'unknown' })).status,
+    (
+      await f.request(`/api/tasks/${task.id}/submit`, 'POST', {
+        repositoryId: 'unknown',
+        mode: 'commands',
+      })
+    ).status,
     400,
   );
   const submit = async (repositoryId) => {
-    const result = await f.request(`/api/tasks/${task.id}/submit`, 'POST', { repositoryId });
+    const result = await f.request(`/api/tasks/${task.id}/submit`, 'POST', {
+      repositoryId,
+      mode: 'commands',
+    });
     assert.equal(result.status, 202, JSON.stringify(result.data));
     for (let i = 0; i < 1000; i++) {
       const current = f.app.store
@@ -358,7 +369,12 @@ test('multi-repo submission preserves partial outcomes and accepted diffs', asyn
   assert.equal(final.repositories[1].submission.status, 'failed');
   assert.ok(final.repositories.every((e) => e.submission.commit));
   assert.equal(
-    (await f.request(`/api/tasks/${task.id}/submit`, 'POST', { repositoryId: 'one' })).status,
+    (
+      await f.request(`/api/tasks/${task.id}/submit`, 'POST', {
+        repositoryId: 'one',
+        mode: 'commands',
+      })
+    ).status,
     409,
   );
   assert.equal(f.app.engine.workspaceReservations.size, 0);
@@ -881,7 +897,7 @@ test('side questions require a token and do not enter worker direction', async (
   assert.equal(current.sideQuestions[0].answer, 'Snapshot answer');
 });
 
-test('agent publication HTTP gate preserves acceptance and publishes without a fixed provider command', async (t) => {
+test('submission defaults to agent publication even with a configured provider command', async (t) => {
   const f = await fixture(t, {
     publicationPublish: async ({ task }) => {
       await git(task.workspaceRoot, ['add', '--all']);
@@ -955,6 +971,7 @@ test('agent publication HTTP gate preserves acceptance and publishes without a f
         checks: [],
         setup: [],
         instructions: '',
+        prCommand: { command: process.execPath, args: ['-e', 'process.exit(99)'] },
       },
     ],
   });
@@ -975,7 +992,7 @@ test('agent publication HTTP gate preserves acceptance and publishes without a f
   await writeFile(join(root, 'value.txt'), 'accepted');
   task.acceptedFingerprint = await fingerprint(task);
   f.app.store.save(task);
-  assert.equal((await f.request(`/api/tasks/${created.id}/publish`, 'POST', {})).status, 202);
+  assert.equal((await f.request(`/api/tasks/${created.id}/submit`, 'POST', {})).status, 202);
   for (let i = 0; i < 1000 && f.app.store.get(created.id).delivery.status === 'running'; i++)
     await new Promise((r) => setTimeout(r, 10));
   const done = f.app.store.get(created.id);

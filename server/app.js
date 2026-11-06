@@ -602,6 +602,23 @@ export function createApp({ directory, publicDirectory, engineOptions = {} }) {
             409,
           );
           const request = await body(req);
+          requireValue(
+            request.mode === undefined || ['agent', 'commands'].includes(request.mode),
+            'Choose agent or commands publication mode',
+          );
+          if (request.mode !== 'commands') {
+            requireValue(
+              ![...external.keys()].some((key) => key.startsWith(`${id}:`)),
+              'Publication is already running',
+              409,
+            );
+            return json(
+              res,
+              202,
+              await publicationWorkflow.start(id, request.repositoryId ?? task.repository.id),
+            );
+          }
+
           const entry = workspaces(task).find(
             (e) => e.repository.id === (request.repositoryId ?? task.repository.id),
           );
