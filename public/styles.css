@@ -4187,3 +4187,47 @@ textarea::placeholder,
 .blocker-decision .inline-actions {
   flex-wrap: wrap;
 }
+
+.live-progress {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 14px 18px;
+  margin-bottom: 16px;
+  background: #eef4e8;
+  border: 1px solid #b7c8ac;
+  border-radius: 10px;
+  color: #29402b;
+}
+.elapsed-time {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  font-weight: 600;
+}
+.live-progress small {
+  color: #485b45;
+}
+.side-chat summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+.side-chat-history {
+  max-height: 440px;
+  overflow: auto;
+  margin: 12px 0;
+}
+.side-chat-history article {
+  padding: 12px 0;
+  border-bottom: 1px solid var(--line);
+  overflow-wrap: anywhere;
+}
+.side-chat-history article > small {
+  display: block;
+  color: var(--muted);
+  margin-top: 5px;
+}
+.side-chat form {
+  display: grid;
+  gap: 10px;
+}

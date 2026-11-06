@@ -20,7 +20,10 @@ try {
     localApp = createApp({
       directory: join(fixture, 'state'),
       publicDirectory: resolve('public'),
-      engineOptions: { demoDelay: 30 },
+      engineOptions: {
+        demoDelay: 30,
+        sideAnswer: async ({ question }) => `Side answer: ${question}`,
+      },
     });
     await new Promise((resolve) => localApp.server.listen(0, '127.0.0.1', resolve));
     origin = `http://127.0.0.1:${localApp.server.address().port}`;
@@ -867,6 +870,12 @@ try {
     });
     await page.goto(`${origin}/#task/${debugTask.id}`);
     await page.getByRole('region', { name: 'Blocker decision', exact: true }).waitFor();
+    await page.getByText('Ask on the side', { exact: true }).click();
+    await page.locator('#side-question').fill('What is blocked?');
+    await page.getByRole('button', { name: 'Ask without interrupting', exact: true }).click();
+    await page.getByText('Side answer: What is blocked?', { exact: true }).waitFor();
+    assert.equal(localApp.store.get(debugTask.id).status, 'blocked');
+    assert.equal(localApp.store.get(debugTask.id).messages.length, 0);
     await page.getByText('What needs your input', { exact: true }).waitFor();
     await page.getByText('What was tried & evidence', { exact: false }).click();
     await page
