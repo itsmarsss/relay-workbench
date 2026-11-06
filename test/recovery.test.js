@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { recoverBlocked } from '../server/recovery.js';
 import { developmentAccess } from '../server/access.js';
 import { validateConfig } from '../server/domain.js';
-import { taskSummary, concise } from '../public/task-summary.js';
+import { taskSummary, concise, activityArchiveCount } from '../public/task-summary.js';
 
 test('recovery is bounded, repository scoped, and can be disabled', () => {
   const task = { stage: 'investigate', repositoryCursor: 0 };
@@ -68,4 +68,29 @@ test('task context stays concise, escaped, and distinguishes automatic work from
   assert.match(html, /Your next step/);
   task.status = 'awaiting_plan';
   assert.match(taskSummary(task), /Choose an approach/);
+});
+
+test('resumed tasks show current context and collapse earlier attempts', () => {
+  const task = {
+    status: 'running',
+    stage: 'investigate',
+    title: 'Fixture',
+    attempts: [
+      { id: 'old', status: 'complete', handoff: { summary: 'Stale blocker', verdict: 'blocked' } },
+      { id: 'new', stage: 'investigate', status: 'running', startedAt: '2026-01-02T00:00:00Z' },
+    ],
+  };
+  assert.doesNotMatch(taskSummary(task), /Stale blocker/);
+  assert.match(taskSummary(task), /starting with the saved task context/);
+  const events = [
+    { attemptId: 'old', type: 'handoff' },
+    { type: 'stage_started', stage: 'investigate', at: '2026-01-02T00:00:00Z' },
+    { attemptId: 'new', type: 'activity' },
+  ];
+  assert.equal(activityArchiveCount(task, events), 1);
+  events[2].summary = 'Checking the actual task source';
+  events[2].kind = 'message';
+  assert.match(taskSummary(task, events), /Checking the actual task source/);
+  task.status = 'completed';
+  assert.equal(activityArchiveCount(task, events), 0);
 });

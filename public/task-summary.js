@@ -31,7 +31,30 @@ export function taskSummary(task, events = []) {
         completed: 'Accepted. No action needed.',
         cancelled: 'Cancelled. No action needed.',
       }[task.status] ?? 'Agents will continue and bring the next decision to you.');
+  const live = ['running', 'queued'].includes(task.status);
   const summary =
-    task.error || (recovering ? task.recovery.reason : progress?.summary || latest?.summary);
+    task.error ||
+    (recovering
+      ? task.recovery.reason
+      : progress?.summary ||
+        (live
+          ? `${stageNames[task.stage] ?? 'Work'} is starting with the saved task context.`
+          : latest?.summary));
   return `<section class="task-summary" aria-label="Current task context"><div><span class="eyebrow">${recovering ? 'RESOLVING A BLOCKER' : 'CURRENT STATUS'}</span><h2>${e(recovering ? 'Automatic recovery' : (stageNames[task.stage] ?? 'Ready'))}</h2><p>${e(concise(summary || task.title))}</p></div><div class="summary-next"><strong>${['awaiting_plan', 'awaiting_final', 'blocked', 'manual', 'interrupted', 'paused', 'draft'].includes(task.status) ? 'Your next step' : 'What happens next'}</strong><p>${e(next)}</p></div></section>`;
+}
+
+export function activityArchiveCount(task, events) {
+  let count = Math.max(0, events.length - 8);
+  const attempt = task.attempts?.at(-1);
+  if (['running', 'queued'].includes(task.status) && attempt?.status === 'running') {
+    const current = events.findIndex(
+      (event) =>
+        event.attemptId === attempt.id ||
+        (event.type === 'stage_started' &&
+          event.stage === attempt.stage &&
+          event.at >= attempt.startedAt),
+    );
+    if (current > count) count = current;
+  }
+  return count;
 }
