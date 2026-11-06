@@ -62,19 +62,27 @@ export function memoryForm(memory, config, tasks, defaults = {}) {
     )}</select></label></div><div class="modal-footer"><button class="btn secondary" type="button" data-action="close-modal">Cancel</button><button class="btn primary" type="submit">Save memory</button></div></form>`;
 }
 export function runMemories(task) {
-  const runs = task.attempts.filter((a) => a.memorySnapshot);
-  return `<section class="context-card"><h3>Memory context</h3><p>Each run keeps the exact memory versions it received.</p><button class="btn secondary small" data-action="task-memory">Add task memory</button><details class="report-section"><summary>Memory used by run <span>${runs.length}</span></summary>${
-    runs.length
-      ? runs
-          .slice()
-          .reverse()
-          .map(
-            (a) =>
-              `<div class="memory-run"><strong>${e(a.role === 'debug' ? 'Debugger' : a.stage)} · ${e(a.harness)}</strong><small>${e(new Date(a.startedAt).toLocaleString())}</small>${a.memorySnapshot.entries.length ? a.memorySnapshot.entries.map((m) => `<div class="memory-run-entry"><strong>${e(m.title)} <small>v${m.revision} · ${e(m.scope)} · ${e(m.kind)}</small></strong><p>${e(m.content)}</p>${m.evidence ? `<small>${e(m.evidence)}</small>` : ''}</div>`).join('') : '<p>No active memories were included.</p>'}${a.memorySnapshot.omitted ? `<p>${a.memorySnapshot.omitted} memories omitted to keep context bounded. Refine active memories to ensure important guidance fits.</p>` : ''}</div>`,
-          )
-          .join('')
-      : '<p>Memory snapshots appear when a new run starts.</p>'
-  }</details></section>`;
+  const runs = task.attempts.filter((a) => a.memorySnapshot),
+    latest = runs.at(-1);
+  const entries = latest?.memorySnapshot.entries ?? [];
+  return `<section class="context-card task-memory-card"><div class="context-title">MEMORY <span>${entries.length} in latest run</span></div>${
+    entries.length
+      ? `<ul class="memory-compact-list">${entries
+          .slice(0, 3)
+          .map((m) => `<li>${e(m.title)}<small>${e(m.scope)}</small></li>`)
+          .join(
+            '',
+          )}</ul>${entries.length > 3 ? `<small>${entries.length - 3} more included</small>` : ''}`
+      : '<p>No memories included in the latest run.</p>'
+  }<div class="memory-compact-actions"><button class="btn text small" data-action="task-memory">Add memory</button><button class="btn text small" data-action="memory-history">View run history (${runs.length})</button></div></section>`;
+}
+export function memoryRunHistory(task, selectedId) {
+  const runs = task.attempts
+    .filter((a) => a.memorySnapshot)
+    .slice()
+    .reverse();
+  const selected = runs.find((a) => a.id === selectedId) ?? runs[0];
+  return `<div class="memory-history"><nav aria-label="Memory run history">${runs.map((a, i) => `<button class="memory-history-run ${a.id === selected?.id ? 'selected' : ''}" data-action="memory-select-run" data-id="${e(a.id)}"><strong>${e(a.role === 'debug' ? 'Debugger' : a.stage)} · ${e(a.harness)}</strong><small>${i === 0 ? 'Latest · ' : ''}${e(new Date(a.startedAt).toLocaleString())} · ${a.memorySnapshot.entries.length} memories</small></button>`).join('') || '<p>No run snapshots yet.</p>'}</nav><section aria-label="Selected run memory">${selected ? `<h3>Context received by this run</h3>${selected.memorySnapshot.entries.map((m) => `<article class="memory-run-entry"><strong>${e(m.title)}</strong><small>v${m.revision} · ${e(m.scope)} · ${e(m.kind)}</small><p>${e(m.content)}</p>${m.evidence ? `<small>${e(m.evidence)}</small>` : ''}</article>`).join('') || '<p>No active memories were included.</p>'}${selected.memorySnapshot.omitted ? `<p>${selected.memorySnapshot.omitted} memories omitted to keep context bounded.</p>` : ''}` : ''}</section></div>`;
 }
 
 export function answerMemories(snapshot) {

@@ -1,5 +1,5 @@
-import { publicationPanel } from './publication.js';
-import { memoryPage, memoryForm, runMemories } from './memory.js';
+import { publicationPanel, deliveryWorkflowStages, publicationDetails } from './publication.js';
+import { memoryPage, memoryForm, runMemories, memoryRunHistory } from './memory.js';
 import { prepareSearchSelects } from './search-select.js';
 import { updateLiveDOM } from './live-dom.js';
 import { handoffBody, handoffList, workflowStages, executionLogs } from './task-panels.js';
@@ -301,7 +301,7 @@ function taskView() {
     )
     .join(
       '',
-    )}</div><div class="detail-content">${state.tab === 'overview' ? taskDetails(t) || empty('book', 'No description yet', 'Configure this task to add requirements.') : state.tab === 'terminals' ? terminalView(t, state) : state.tab === 'thread' ? threadView(t) : state.tab === 'handoffs' ? handoffsView(t) : state.tab === 'diff' ? diffView(t) : transcriptView(t)}</div>${!['completed', 'cancelled'].includes(t.status) ? `<form id="message-form" class="message-box">${markdownEditor({ id: 'task-message', name: 'message', label: 'Add direction or context', rows: 3, max: 20000 })}<div><small>${t.canSteer ? 'Steer sends direction to the active session; Claude interrupts and resumes.' : 'Context stays pending until an agent receives it.'} ${t.messages.filter((m) => m.delivery === 'pending').length} pending.</small>${t.canSteer ? '<label><input id="steer-active" type="checkbox" name="steer" checked> Steer active agent</label>' : ''}<button class="btn secondary small" type="submit">Send direction ${icon('arrow')}</button></div></form>` : ''}</div><aside class="task-context">${sideChat(t, state.sideChatOpen)}${state.memoryAvailable ? runMemories(t) : ''}<section class="context-card"><div class="context-title">WORKFLOW <span class="live-label ${live ? 'is-live' : ''}">${live ? '● LIVE' : '6 STAGES'}</span></div><ol class="stage-list">${workflowStages(t)}</ol><button class="btn secondary workflow-graph-button" data-action="open-execution-map" aria-label="Open execution graph">Execution graph ↗</button></section>${(t
+    )}</div><div class="detail-content">${state.tab === 'overview' ? taskDetails(t) || empty('book', 'No description yet', 'Configure this task to add requirements.') : state.tab === 'terminals' ? terminalView(t, state) : state.tab === 'thread' ? threadView(t) : state.tab === 'handoffs' ? handoffsView(t) : state.tab === 'diff' ? diffView(t) : transcriptView(t)}</div>${!['completed', 'cancelled'].includes(t.status) ? `<form id="message-form" class="message-box">${markdownEditor({ id: 'task-message', name: 'message', label: 'Add direction or context', rows: 3, max: 20000 })}<div><small>${t.canSteer ? 'Steer sends direction to the active session; Claude interrupts and resumes.' : 'Context stays pending until an agent receives it.'} ${t.messages.filter((m) => m.delivery === 'pending').length} pending.</small>${t.canSteer ? '<label><input id="steer-active" type="checkbox" name="steer" checked> Steer active agent</label>' : ''}<button class="btn secondary small" type="submit">Send direction ${icon('arrow')}</button></div></form>` : ''}</div><aside class="task-context">${sideChat(t, state.sideChatOpen)}${state.memoryAvailable ? runMemories(t) : ''}<section class="context-card"><div class="context-title">WORKFLOW <span class="live-label ${live ? 'is-live' : ''}">${live ? '● LIVE' : t.demo ? '6 STAGES' : '8 STAGES'}</span></div><ol class="stage-list">${workflowStages(t)}${deliveryWorkflowStages(t)}</ol><button class="btn secondary workflow-graph-button" data-action="open-execution-map" aria-label="Open execution graph">Execution graph ↗</button></section>${(t
     .repositories?.length > 1
     ? t.repositories
     : [t]
@@ -392,7 +392,7 @@ function threadView(t) {
   const run = activityRunSelection(t, grouped, state.activitySelection);
   const followingCurrent =
     run.selected?.id === latestAttempt?.id && state.activitySelection !== 'all';
-  return `<div class="activity-browser">${activityRunNavigation(t, run.selected, state.activitySelection)}<div class="activity-run-content">${activityRunHeader(run.selected, state.events)}<div class="timeline">${run.events.map((ev) => `<article data-event-seq="${ev.seq}" class="timeline-item ${ev.type === 'decision' ? 'decision-event' : ''}"><div class="timeline-avatar">${activityEventIdentity(ev).harness ? harnessBadge(activityEventIdentity(ev).harness) : icon(ev.type === 'approval' || ev.type === 'accepted' ? 'check' : ev.type === 'decision' ? 'eye' : ev.type === 'feedback' ? 'arrow' : 'layers')}</div><div class="timeline-body"><div class="event-meta">${activityEventMeta(ev, ev.stage ? (stageNames[ev.stage] ?? 'PR status') : null)}<time>${ago(ev.at)}</time>${ev.repositoryId ? `<span>${e((t.repositories?.length > 1 ? t.repositories : [t]).find((r) => r.repository.id === ev.repositoryId)?.repository.name ?? ev.repositoryId)}</span>` : ''}</div>${ev.toolEvents ? `<details class="event-details tool-activity" data-event-key="tools-${ev.seq}"><summary>${ev.toolEvents.length} ${ev.toolEvents.length === 1 ? 'activity' : 'activities'} · ${e(concise(ev.toolEvents.at(-1).summary, 120))}</summary>${ev.toolEvents.map((tool) => `<div class="tool-entry"><strong>${e(concise(tool.summary, 180))}</strong>${tool.details ? `<pre class="code-block">${e(tool.details)}</pre>` : ''}</div>`).join('')}</details>` : ev.type === 'activity' && ev.kind === 'message' ? `<div class="prose agent-message">${prose(concise(ev.details || ev.summary, 360))}</div>${(ev.details || ev.summary).length > 360 ? `<details class="event-details" data-event-key="message-${ev.seq}"><summary>Full message</summary><div class="prose">${prose(ev.details || ev.summary)}</div></details>` : ''}` : `<h3>${e(concise(ev.summary))}</h3>`}${ev.type === 'handoff' ? `<details class="report-section" data-event-key="handoff-report-${ev.seq}"><summary>Run details &amp; evidence</summary>${handoffBodyForThread(t, ev)}</details>` : ev.details && !ev.toolEvents && ev.type !== 'activity' ? `<details data-event-key="event-${ev.seq}" class="event-details"><summary>Details</summary><div class="prose">${prose(ev.details)}</div></details>` : ''}</div></article>`).join('')}${followingCurrent && ['running', 'queued'].includes(t.status) ? `<article class="timeline-item working"><div class="timeline-avatar">${harnessBadge(latestAttempt?.harness ?? t.routing[t.stage])}</div><div class="timeline-body"><div class="event-meta"><strong>${e(stageNames[t.stage])}</strong><span class="typing-dots"><i></i><i></i><i></i></span></div><p>${e(concise(activity?.summary || 'Preparing the next handoff…'))}</p><small>Updates appear here as work progresses.</small></div></article>` : ''}</div></div></div>`;
+  return `<div class="activity-browser">${activityRunNavigation(t, run.selected, state.activitySelection)}<div class="activity-run-content">${activityRunHeader(run.selected, state.events)}<div class="timeline">${run.events.map((ev) => `<article data-event-seq="${ev.seq}" class="timeline-item ${ev.type === 'decision' ? 'decision-event' : ''}"><div class="timeline-avatar">${activityEventIdentity(ev).harness ? harnessBadge(activityEventIdentity(ev).harness) : icon(ev.type === 'approval' || ev.type === 'accepted' ? 'check' : ev.type === 'decision' ? 'eye' : ev.type === 'feedback' ? 'arrow' : 'layers')}</div><div class="timeline-body"><div class="event-meta">${activityEventMeta(ev, ev.stage ? (stageNames[ev.stage] ?? (ev.stage === 'publish' ? 'Publication' : 'PR status')) : null)}<time>${ago(ev.at)}</time>${ev.repositoryId ? `<span>${e((t.repositories?.length > 1 ? t.repositories : [t]).find((r) => r.repository.id === ev.repositoryId)?.repository.name ?? ev.repositoryId)}</span>` : ''}</div>${ev.toolEvents ? `<details class="event-details tool-activity" data-event-key="tools-${ev.seq}"><summary>${ev.toolEvents.length} ${ev.toolEvents.length === 1 ? 'activity' : 'activities'} · ${e(concise(ev.toolEvents.at(-1).summary, 120))}</summary>${ev.toolEvents.map((tool) => `<div class="tool-entry"><strong>${e(concise(tool.summary, 180))}</strong>${tool.details ? `<pre class="code-block">${e(tool.details)}</pre>` : ''}</div>`).join('')}</details>` : ev.type === 'activity' && ev.kind === 'message' ? `<div class="prose agent-message">${prose(concise(ev.details || ev.summary, 360))}</div>${(ev.details || ev.summary).length > 360 ? `<details class="event-details" data-event-key="message-${ev.seq}"><summary>Full message</summary><div class="prose">${prose(ev.details || ev.summary)}</div></details>` : ''}` : `<h3>${e(concise(ev.summary))}</h3>`}${ev.type === 'handoff' ? `<details class="report-section" data-event-key="handoff-report-${ev.seq}"><summary>Run details &amp; evidence</summary>${handoffBodyForThread(t, ev)}</details>` : ev.details && !ev.toolEvents && ev.type !== 'activity' ? `<details data-event-key="event-${ev.seq}" class="event-details"><summary>Details</summary><div class="prose">${prose(ev.details)}</div></details>` : ''}</div></article>`).join('')}${followingCurrent && ['running', 'queued'].includes(t.status) ? `<article class="timeline-item working"><div class="timeline-avatar">${harnessBadge(latestAttempt?.harness ?? t.routing[t.stage])}</div><div class="timeline-body"><div class="event-meta"><strong>${e(stageNames[t.stage])}</strong><span class="typing-dots"><i></i><i></i><i></i></span></div><p>${e(concise(activity?.summary || 'Preparing the next handoff…'))}</p><small>Updates appear here as work progresses.</small></div></article>` : ''}</div></div></div>`;
 }
 function handoffBodyForThread(t, ev) {
   return handoffBody(t.attempts.find((a) => a.id === ev.attemptId)?.handoff);
@@ -679,6 +679,18 @@ document.addEventListener('click', async (event) => {
   if (state.busy) return;
   const action = element.dataset.action;
   try {
+    if (action === 'delivery-details') {
+      showModal(
+        'Delivery details',
+        publicationDetails(state.task, element.dataset.repositoryId),
+        true,
+      );
+      return;
+    }
+    if (action === 'memory-history' || action === 'memory-select-run') {
+      showModal('Memory by run', memoryRunHistory(state.task, element.dataset.id), true);
+      return;
+    }
     if (['new-memory', 'edit-memory', 'task-memory'].includes(action)) {
       const memory = state.memories.find((m) => m.id === element.dataset.memory);
       state.modal = { memory };
@@ -1056,8 +1068,8 @@ document.addEventListener('click', async (event) => {
         state.task.repositories?.length > 1 ? state.task.repositories : [state.task]
       ).find((r) => r.repository.id === repositoryId);
       return showModal(
-        'Commit & submit a draft PR?',
-        `<p class="modal-description">Relay will commit the accepted changes in this repository’s workspace, then execute the repository’s configured provider command. Other repositories are submitted separately. Publication is not atomic. Review its full output when it finishes.</p><pre class="code-block">${e(JSON.stringify(entry.repository.prCommand, null, 2))}</pre><div class="modal-footer">${button('close-modal', 'Cancel', 'text')}${button('submit-pr', 'Commit & submit', 'primary', 'git', `data-repository-id="${e(repositoryId)}"`)}</div>`,
+        'Publish accepted changes?',
+        `<p class="modal-description">A publication agent will inspect this branch and any existing PR, commit the accepted changes, and discover the correct provider tooling to publish a draft PR. It will explain blockers and then hand off to status monitoring. Code edits, rebases, policy bypasses and merging are outside this approval. Each repository is published separately.</p><div class="modal-footer">${button('close-modal', 'Cancel', 'text')}${button('publish-agent', 'Start publication agent', 'primary', 'git', `data-repository-id="${e(repositoryId)}"`)}</div>`,
       );
     }
     if (action === 'import-profile')
@@ -1100,6 +1112,18 @@ document.addEventListener('click', async (event) => {
         repositoryId: element.dataset.repositoryId,
         enabled: element.dataset.enabled === 'true',
       });
+      await refresh();
+    }
+    if (action === 'publication-pause') {
+      await api(`/tasks/${state.selected}/publish-stop`, 'POST', {});
+      await refresh();
+    }
+    if (action === 'publish-agent') {
+      await api(`/tasks/${state.selected}/publish`, 'POST', {
+        repositoryId: element.dataset.repositoryId,
+      });
+      closeModal();
+      toast('Publication agent started. Follow its progress in Delivery.');
       await refresh();
     }
     if (action === 'submit-pr') {

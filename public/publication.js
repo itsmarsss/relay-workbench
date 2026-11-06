@@ -1,4 +1,5 @@
 import { e, ago } from './ui.js';
+import { concise } from './task-summary.js';
 function safeURL(value) {
   try {
     const u = new URL(value);
@@ -7,40 +8,72 @@ function safeURL(value) {
     return '';
   }
 }
+export function deliveryWorkflowStages(task) {
+  if (task.demo) return '';
+  const entries = task.repositories?.length > 1 ? task.repositories : [task];
+  const publishing = entries.some(
+    (r) => r.delivery?.status === 'running' || r.submission?.status === 'running',
+  );
+  const published = entries.every(
+    (r) =>
+      r.delivery?.status === 'complete' ||
+      ['open', 'closed', 'merged'].includes(r.publication?.state),
+  );
+  const monitoring = entries.some((r) => r.publicationMonitor?.enabled);
+  return `<li class="${publishing ? 'current' : published ? 'done' : ''}"><span class="stage-number">${published ? '✓' : '7'}</span><div><strong>Publication</strong><small>${publishing ? 'Agent is publishing accepted changes' : published ? 'PR published' : task.status === 'completed' ? 'Ready for publication' : 'After final acceptance'}</small></div></li><li class="${monitoring ? 'current' : ''}"><span class="stage-number">8</span><div><strong>PR monitoring</strong><small>${monitoring ? 'Observing remote checks and reviews' : 'After publication'}</small></div></li>`;
+}
 export function publicationPanel(task) {
   if (!['awaiting_final', 'completed'].includes(task.status) || task.demo) return '';
   const entries = task.repositories?.length > 1 ? task.repositories : [task];
-  return `<section class="publication-panel" aria-label="Commit and pull requests"><div class="publication-heading"><div><span class="eyebrow">DELIVERY</span><h2>${task.status === 'awaiting_final' ? 'After you accept' : 'Your changes are accepted'}</h2><p>${task.status === 'awaiting_final' ? 'Accepting saves your approval. Then commit and submit each repository separately.' : 'Commit and submit when ready. PR monitoring observes remote status without changing code or publishing anything.'}</p></div></div>${entries
+  return `<section class="publication-panel" aria-label="Commit and pull requests"><header class="publication-heading"><span class="eyebrow">DELIVERY</span><h2>${task.status === 'awaiting_final' ? 'Ready after acceptance' : 'From accepted changes to a PR'}</h2><p>${task.status === 'awaiting_final' ? 'Accept the code first. A publication agent can then commit and publish it.' : 'The publication agent handles committing and submitting. A separate agent keeps track of the PR.'}</p></header>${entries
     .map((entry) => {
       const id = e(entry.repository.id),
         submission = entry.submission,
+        delivery = entry.delivery,
         pr = entry.publication,
         monitor = entry.publicationMonitor;
-      const link = safeURL(pr?.url);
-      const hasPR = !!link && ['open', 'closed', 'merged'].includes(pr?.state);
-      const state =
-        pr?.state === 'open'
-          ? pr.draft
-            ? 'Draft'
-            : 'Open'
-          : ({
-              merged: 'Merged',
-              closed: 'Closed',
-              not_created: 'No PR found',
-              unknown: 'Status unknown',
-            }[pr?.state] ??
-            (submission?.status === 'running'
-              ? 'Submitting'
-              : monitor?.status === 'running'
-                ? 'Checking status'
-                : submission?.status === 'complete'
-                  ? 'Submitted'
-                  : submission?.status === 'failed'
-                    ? 'Submission failed'
-                    : submission?.status === 'interrupted'
-                      ? 'Submission interrupted'
-                      : 'Not submitted'));
-      return `<article class="publication-repository"><div class="publication-repo-heading"><strong>${e(entry.repository.name)}</strong><span class="badge">${e(state)}</span></div>${link ? `<a class="publication-link" href="${e(link)}" target="_blank" rel="noopener noreferrer">${e(pr.title || `Pull request ${pr.number || ''}`)} ↗</a>` : ''}<div class="publication-facts"><span>Branch <code>${e(entry.branch || 'Not assigned')}</code></span>${submission?.commit ? `<span>Commit <code title="${e(submission.commit)}">${e(submission.commit.slice(0, 10))}</code></span>` : ''}${pr && ['open', 'merged', 'closed'].includes(pr.state) ? `<span>Checks <strong>${e(pr.checks)}</strong></span><span>Review <strong>${e(pr.review.replaceAll('_', ' '))}</strong></span>` : ''}</div>${pr?.summary ? `<p>${e(pr.summary)}</p>` : ''}${monitor?.error ? `<p role="status">Status unavailable: ${e(monitor.error)}</p>` : ''}${submission?.status === 'failed' || submission?.status === 'interrupted' ? `<p role="status">Submission ${e(submission.status)}. ${e(submission.error || 'Inspect provider output before attempting publication again.')}</p>` : ''}${task.status === 'completed' ? `<div class="inline-actions">${!submission && !hasPR && entry.repository.prCommand ? `<button class="btn primary small" data-action="confirm-submit" data-repository-id="${id}">Commit &amp; submit draft PR</button>` : ''}${!submission && !hasPR && !entry.repository.prCommand ? '<span>No publication command configured. You can publish manually, then ask the monitor to locate the PR.</span>' : ''}${submission?.status !== 'running' ? `<button class="btn secondary small" data-action="publication-monitor" data-repository-id="${id}" data-enabled="true" ${monitor?.status === 'running' ? 'disabled' : ''}>${monitor?.status === 'running' ? 'Checking PR status…' : 'Check PR status'}</button>${monitor?.enabled ? `<button class="btn text small" data-action="publication-monitor" data-repository-id="${id}" data-enabled="false">Pause monitoring</button>` : ''}` : ''}</div>` : ''}<small>${pr?.checkedAt ? `Checked ${ago(pr.checkedAt).toLowerCase()}. ` : ''}${monitor?.enabled ? 'An agent checks periodically; no automatic repairs or merge.' : monitor ? 'Monitoring paused.' : ''}</small>${submission || pr?.evidence?.length ? `<details class="event-details" data-event-key="publication-${id}"><summary>Commit, provider output &amp; evidence</summary>${pr?.evidence?.length ? `<ul>${pr.evidence.map((line) => `<li>${e(line)}</li>`).join('')}</ul>` : ''}${submission ? `<pre class="code-block">${e(submission.stdout || submission.error || 'No provider output yet.')}${e(submission.stderr || '')}</pre>` : ''}</details>` : ''}</article>`;
+      const link = safeURL(pr?.url),
+        hasPR = !!link && ['open', 'closed', 'merged'].includes(pr?.state);
+      const publishing = delivery?.status === 'running' || submission?.status === 'running';
+      const blocked =
+        delivery?.status === 'blocked' ||
+        delivery?.status === 'interrupted' ||
+        (!hasPR && ['failed', 'interrupted'].includes(submission?.status));
+      const state = publishing
+        ? 'Publishing'
+        : blocked
+          ? 'Needs attention'
+          : hasPR
+            ? { open: pr.draft ? 'Draft PR' : 'Open PR', merged: 'Merged', closed: 'Closed' }[
+                pr.state
+              ]
+            : monitor?.status === 'running'
+              ? 'Finding PR'
+              : 'Ready to publish';
+      const summary = publishing
+        ? delivery?.summary || 'Preparing the accepted commit and checking the provider.'
+        : blocked
+          ? delivery?.summary ||
+            pr?.summary ||
+            'The previous submission did not finish. A publication agent can inspect the cause and continue safely.'
+          : pr?.summary ||
+            (hasPR
+              ? 'Remote PR confirmed.'
+              : 'Your approval is saved. Publication has not completed.');
+      return `<article class="publication-repository"><div class="publication-repo-heading"><h3>${e(entry.repository.name)}</h3><span class="badge ${blocked ? 'blocked' : ''}">${e(state)}</span></div><ol class="delivery-steps" aria-label="Delivery steps"><li class="done">Accepted</li><li class="${publishing || blocked ? 'current' : hasPR ? 'done' : ''}">Publish</li><li class="${monitor?.enabled && hasPR ? 'current' : ''}">Monitor</li></ol>${link ? `<a class="publication-link" href="${e(link)}" target="_blank" rel="noopener noreferrer">${e(pr.title || `Pull request ${pr.number || ''}`)} ↗</a>` : ''}<p class="delivery-summary">${e(concise(summary, 260))}</p>${delivery?.nextAction && blocked ? `<div class="delivery-next"><strong>Next step</strong><p>${e(concise(delivery.nextAction, 400))}</p></div>` : ''}${hasPR ? `<dl class="delivery-status"><div><dt>Checks</dt><dd>${e(pr.checks)}</dd></div><div><dt>Review</dt><dd>${e(pr.review.replaceAll('_', ' '))}</dd></div></dl>` : ''}${monitor?.error && !publishing ? `<p class="delivery-note">Latest remote status is unavailable. The last confirmed result is shown.</p>` : ''}${task.status === 'completed' ? `<div class="inline-actions">${publishing ? `<button class="btn secondary small" data-action="tab" data-tab="terminals">View live terminal</button>${delivery?.status === 'running' ? `<button class="btn text small" data-action="publication-pause" ${delivery.stopRequested ? 'disabled' : ''}>${delivery.stopRequested ? 'Stopping…' : 'Pause publication'}</button>` : ''}` : ''}${!publishing && !hasPR && !delivery?.requiresReverification ? `<button class="btn primary small" data-action="confirm-submit" data-repository-id="${id}">${blocked ? 'Retry publication with agent' : 'Publish draft PR'}</button>` : ''}${!publishing ? `<button class="btn ${hasPR ? 'secondary' : 'text'} small" data-action="publication-monitor" data-repository-id="${id}" data-enabled="true" ${monitor?.status === 'running' ? 'disabled' : ''}>${monitor?.status === 'running' ? 'Checking status…' : hasPR ? 'Refresh PR status' : 'Find existing PR'}</button>${monitor?.enabled ? `<button class="btn text small" data-action="publication-monitor" data-repository-id="${id}" data-enabled="false">Pause monitoring</button>` : ''}` : ''}</div>` : ''}${delivery?.requiresReverification ? '<p class="delivery-note">Accepted source or history changed. Reverification is required before publication can resume.</p>' : ''}<small class="delivery-timestamp">${pr?.checkedAt ? `Last checked ${ago(pr.checkedAt).toLowerCase()}` : 'No confirmed remote snapshot yet'}${monitor?.enabled ? ' · Monitoring on' : ''}</small><button class="btn text small delivery-details-button" data-action="delivery-details" data-repository-id="${id}">View technical details</button></article>`;
     })
     .join('')}</section>`;
+}
+
+export function publicationDetails(task, repositoryId) {
+  const entry = (task.repositories?.length > 1 ? task.repositories : [task]).find(
+    (r) => r.repository.id === repositoryId,
+  );
+  if (!entry) return '<p>Repository not found.</p>';
+  const delivery = entry.delivery,
+    submission = entry.submission,
+    pr = entry.publication,
+    monitor = entry.publicationMonitor;
+  const evidence = delivery?.evidence || pr?.evidence || [];
+  return `<div class="delivery-detail-content"><h3>Branch and commit</h3><dl><dt>Repository</dt><dd>${e(entry.repository.name)}</dd><dt>Branch</dt><dd><code>${e(entry.branch || 'Not assigned')}</code></dd><dt>Commit</dt><dd><code>${e(delivery?.commit || submission?.commit || 'Not committed yet')}</code></dd></dl>${delivery?.details ? `<h3>Publication agent findings</h3><p>${e(delivery.details)}</p>` : ''}${monitor?.error ? `<h3>Latest observation</h3><p>${e(monitor.error)}</p>` : ''}${evidence.length ? `<h3>Evidence</h3><ul>${evidence.map((line) => `<li>${e(line)}</li>`).join('')}</ul>` : ''}${submission ? `<h3>Previous provider output</h3><pre class="delivery-provider-output">${e(submission.stdout || '')}${e(submission.stderr || submission.error || 'No output recorded.')}</pre>` : ''}</div>`;
 }

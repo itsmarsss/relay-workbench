@@ -1,3 +1,4 @@
+import { PublicationWorkflow } from './publication-workflow.js';
 import { PublicationMonitor } from './publication-monitor.js';
 import { listMemories, createMemory, updateMemory, deleteMemory } from './memory.js';
 import { SideQuestions } from './side-questions.js';
@@ -70,6 +71,9 @@ export function createApp({ directory, publicDirectory, engineOptions = {} }) {
   const publicationMonitor = new PublicationMonitor(store, {
     observe: engineOptions.publicationObserve ?? engineOptions.harness,
   });
+  const publicationWorkflow = new PublicationWorkflow(store, engine, publicationMonitor, {
+    publish: engineOptions.publicationPublish,
+  });
   const sideQuestions = new SideQuestions(store, { answer: engineOptions.sideAnswer });
   const token = randomBytes(32).toString('hex');
   const streams = new Set();
@@ -84,6 +88,7 @@ export function createApp({ directory, publicDirectory, engineOptions = {} }) {
         engine.manualRuns.size === 0 &&
         external.size === 0 &&
         publicationMonitor.running.size === 0 &&
+        publicationWorkflow.running.size === 0 &&
         !store.all().some((t) => ['running', 'queued', 'manual'].includes(t.status)),
       'Pause active workflows and submissions before maintenance',
       409,
@@ -296,7 +301,10 @@ export function createApp({ directory, publicDirectory, engineOptions = {} }) {
       if (path === '/api/health' && req.method === 'GET')
         return json(res, 200, {
           ok: true,
-          running: engine.running.size + publicationMonitor.running.size,
+          running:
+            engine.running.size +
+            publicationMonitor.running.size +
+            publicationWorkflow.running.size,
           monitoring: publicationMonitor.running.size,
           version: '0.1.0',
         });
@@ -382,8 +390,28 @@ export function createApp({ directory, publicDirectory, engineOptions = {} }) {
         const [, id, operation] = match;
         const task = store.get(id);
         requireValue(task, 'Task not found', 404);
+        if (operation === 'publish-stop' && req.method === 'POST')
+          return json(res, 202, publicationWorkflow.pause(id));
+        if (operation === 'publish' && req.method === 'POST') {
+          requireValue(
+            ![...external.keys()].some((key) => key.startsWith(`${id}:`)),
+            'Publication is already running',
+            409,
+          );
+          const request = await body(req);
+          return json(
+            res,
+            202,
+            await publicationWorkflow.start(id, request.repositoryId ?? task.repository.id),
+          );
+        }
         if (operation === 'publication' && req.method === 'POST') {
           const request = await body(req);
+          requireValue(
+            !publicationWorkflow.running.has(id),
+            'Wait for publication to finish before changing monitoring',
+            409,
+          );
           requireValue(
             typeof request.enabled === 'boolean',
             'Choose whether monitoring is enabled',
@@ -540,10 +568,15 @@ export function createApp({ directory, publicDirectory, engineOptions = {} }) {
             'Select a terminal',
           );
           const attempt = task.attempts.find((a) => a.id === attemptId);
+          const delivery = workspaces(task)
+            .flatMap((e) => [e.delivery, e.publicationMonitor])
+            .find((a) => a && (a.id ?? a.attemptId) === attemptId);
           const terminal =
             attemptId === 'manual'
               ? task.status === 'manual' && task.manual?.active && task.manual
-              : task.status === 'running' && attempt?.status === 'running' && attempt.terminal;
+              : delivery?.status === 'running'
+                ? delivery.terminal
+                : task.status === 'running' && attempt?.status === 'running' && attempt.terminal;
           if (!terminal)
             return json(res, 200, {
               available: false,
@@ -574,6 +607,11 @@ export function createApp({ directory, publicDirectory, engineOptions = {} }) {
           );
           requireValue(entry, 'Select a task repository');
           const target = workspaceView(task, entry);
+          requireValue(
+            !publicationWorkflow.running.has(id),
+            'Publication agent is already running',
+            409,
+          );
           const submissionKey = `${id}:${entry.repository.id}`;
           const saveSubmission = (update) => {
             const current = store.get(id);
@@ -773,6 +811,7 @@ export function createApp({ directory, publicDirectory, engineOptions = {} }) {
     restorePreviews.clear();
     for (const stream of streams) stream.end();
     for (const controller of external.values()) controller.abort();
+    await publicationWorkflow.stop();
     await publicationMonitor.stop();
     await sideQuestions.stop();
     await engine.stop();

@@ -98,13 +98,17 @@ try {
     .getByText('Lead with the outcome and evidence.', { exact: true })
     .waitFor();
   await page.getByRole('button', { name: 'Close side conversation' }).click();
-  await page.getByText('Memory used by run', { exact: false }).click();
+  await page.getByRole('button', { name: /View run history/ }).click();
   await page
     .locator('.memory-run-entry')
     .getByText('Lead with the outcome and evidence.', { exact: true })
     .first()
     .waitFor();
-  await page.getByRole('button', { name: 'Add task memory', exact: true }).click();
+  await page.getByRole('button', { name: 'Close dialog', exact: true }).click();
+  await page
+    .locator('.task-memory-card')
+    .getByRole('button', { name: 'Add memory', exact: true })
+    .click();
   await modal.locator('#memory-title').fill('Task-only decision');
   await modal.locator('#memory-content').fill('Keep this decision scoped to this task.');
   await modal.getByRole('button', { name: 'Save memory', exact: true }).click();

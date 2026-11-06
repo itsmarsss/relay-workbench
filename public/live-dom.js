@@ -8,7 +8,7 @@ function key(node) {
   if (node.tagName === 'DETAILS')
     return `DETAILS:${node.className}:${node.querySelector('summary')?.textContent.replace(/\d+/g, '').trim()}`;
   if (node.dataset.action)
-    return `${node.tagName}:action:${node.dataset.action}:${node.dataset.run ?? node.dataset.id ?? node.dataset.tab ?? ''}`;
+    return `${node.tagName}:action:${node.dataset.action}:${node.dataset.run ?? node.dataset.id ?? node.dataset.tab ?? node.dataset.mode ?? node.dataset.format ?? node.dataset.repositoryId ?? ''}`;
   return null;
 }
 function compatible(a, b) {

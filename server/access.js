@@ -5,7 +5,7 @@ export function developmentAccess(task, stage) {
     (stage === 'verify' && task.verificationContext?.executionAccess === 'host')
   )
     return { elevated: true, writable: true, networkAccess: true, writableRoots: [] };
-  if (stage === 'monitor')
+  if (['monitor', 'publish'].includes(stage))
     return { elevated: true, writable: true, networkAccess: true, writableRoots: [] };
   const configured = task.repository?.developmentAccess ?? {};
   return {

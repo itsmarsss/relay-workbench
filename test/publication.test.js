@@ -4,7 +4,7 @@ import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { PublicationMonitor, publicationSnapshot } from '../server/publication-monitor.js';
-import { publicationPanel } from '../public/publication.js';
+import { publicationPanel, publicationDetails } from '../public/publication.js';
 import { runProcess } from '../server/process.js';
 import { handoffSchema } from '../server/domain.js';
 const snapshot = {
@@ -170,18 +170,15 @@ test('Delivery makes acceptance, publication and remote status distinct and esca
   };
   const html = publicationPanel(task);
   assert.match(html, /https:\/\/code.example\/team\/project\/pull\/42/);
-  assert.match(html, /abcdef1234/);
-  assert.match(html, /Checks <strong>pending/);
+  assert.match(publicationDetails(task, 'repo'), /abcdef1234/);
+  assert.match(html, /<dt>Checks<\/dt><dd>pending/);
   assert.match(html, /Pause monitoring/);
   assert.doesNotMatch(
     publicationPanel({ ...task, submission: undefined }),
     /Commit &amp; submit draft PR/,
   );
   assert.doesNotMatch(html, /<script>|<example>/);
-  assert.match(
-    publicationPanel({ ...task, status: 'awaiting_final' }),
-    /Accepting saves your approval/,
-  );
+  assert.match(publicationPanel({ ...task, status: 'awaiting_final' }), /Accept the code first/);
   assert.equal(publicationPanel({ ...task, status: 'running' }), '');
   const schema = handoffSchema('monitor');
   assert.ok(schema.required.includes('publication'));

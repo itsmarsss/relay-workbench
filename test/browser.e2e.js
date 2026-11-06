@@ -709,7 +709,9 @@ try {
     await page.screenshot({ path: join(screenshots, 'inline-feedback.png'), fullPage: true });
     await page.getByRole('button', { name: 'Accept result', exact: true }).click();
     await page.locator('.task-subtitle .badge.completed').waitFor();
-    await page.getByRole('heading', { name: 'Your changes are accepted', exact: true }).waitFor();
+    await page
+      .getByRole('heading', { name: 'From accepted changes to a PR', exact: true })
+      .waitFor();
     const publicationTask = localApp.store.get(parseTaskRoute(new URL(page.url()).hash).id);
     publicationTask.repositories[0].publication = {
       url: 'https://code.example/team/project/pull/42',
@@ -732,17 +734,27 @@ try {
       'https://code.example/team/project/pull/42',
     );
     await page.getByText('CI is running', { exact: true }).waitFor();
+    await page.getByRole('button', { name: 'View technical details', exact: true }).first().click();
+    await page.getByRole('dialog').getByRole('heading', { name: 'Branch and commit' }).waitFor();
+    await page.keyboard.press('Escape');
+    for (const width of [1440, 390]) {
+      await page.setViewportSize({ width, height: 1000 });
+      await page
+        .locator('.publication-panel')
+        .screenshot({ path: join(screenshots, `delivery-${width}.png`) });
+      assert.ok(
+        await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
+      );
+    }
+    await page.setViewportSize({ width: 1440, height: 1100 });
     assert.equal(
-      await page.getByRole('button', { name: 'Commit & submit draft PR', exact: true }).count(),
+      await page.getByRole('button', { name: 'Publish draft PR', exact: true }).count(),
       1,
     );
-    await page
-      .getByRole('button', { name: 'Commit & submit draft PR', exact: true })
-      .first()
-      .click();
+    await page.getByRole('button', { name: 'Publish draft PR', exact: true }).first().click();
     await page
       .getByRole('dialog')
-      .getByText('Publication is not atomic.', { exact: false })
+      .getByText('Each repository is published separately.', { exact: false })
       .waitFor();
     await page.keyboard.press('Escape');
     await page.setViewportSize({ width: 390, height: 844 });

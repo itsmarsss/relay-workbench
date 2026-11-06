@@ -6,7 +6,7 @@ import { join, resolve } from 'node:path';
 import { createApp } from '../server/app.js';
 import { DEFAULT_CONFIG } from '../server/domain.js';
 import { runProcess, executableExists } from '../server/process.js';
-import { git } from '../server/workspace.js';
+import { git, fingerprint } from '../server/workspace.js';
 import { demoHandoff } from '../server/harness.js';
 import http from 'node:http';
 
@@ -879,4 +879,107 @@ test('side questions require a token and do not enter worker direction', async (
   assert.equal(current.status, 'draft');
   assert.equal(current.messages.length, 0);
   assert.equal(current.sideQuestions[0].answer, 'Snapshot answer');
+});
+
+test('agent publication HTTP gate preserves acceptance and publishes without a fixed provider command', async (t) => {
+  const f = await fixture(t, {
+    publicationPublish: async ({ task }) => {
+      await git(task.workspaceRoot, ['add', '--all']);
+      await git(task.workspaceRoot, [
+        '-c',
+        'user.name=Fixture',
+        '-c',
+        'user.email=fixture@example.test',
+        'commit',
+        '-m',
+        'feat: accepted change',
+      ]);
+      return {
+        verdict: 'complete',
+        summary: 'Draft PR published',
+        details: 'Read remote head',
+        evidence: ['Provider confirms the PR head'],
+        risks: [],
+        options: [],
+        publication: {
+          url: 'https://code.example/team/repo/pull/7',
+          number: '7',
+          title: 'A change',
+          state: 'open',
+          draft: true,
+          checks: 'pending',
+          review: 'required',
+        },
+      };
+    },
+    publicationObserve: async () => ({
+      verdict: 'complete',
+      summary: 'PR observed',
+      details: 'Read remote',
+      evidence: ['Remote read'],
+      publication: {
+        url: 'https://code.example/team/repo/pull/7',
+        number: '7',
+        title: 'A change',
+        state: 'open',
+        draft: true,
+        checks: 'pending',
+        review: 'required',
+      },
+    }),
+  });
+  const root = join(f.directory, 'agent-repo');
+  await mkdir(root);
+  await git(root, ['init', '-b', 'feature/accepted']);
+  await writeFile(join(root, 'value.txt'), 'before');
+  await git(root, ['add', '--all']);
+  await git(root, [
+    '-c',
+    'user.name=Fixture',
+    '-c',
+    'user.email=fixture@example.test',
+    'commit',
+    '-m',
+    'test: initial',
+  ]);
+  const baseCommit = await git(root, ['rev-parse', 'HEAD']);
+  f.app.store.setConfig({
+    ...DEFAULT_CONFIG,
+    repositories: [
+      {
+        id: 'agent',
+        name: 'Agent repo',
+        path: root,
+        cwd: '.',
+        strategy: 'attach',
+        checks: [],
+        setup: [],
+        instructions: '',
+      },
+    ],
+  });
+  const { data: created } = await f.request('/api/tasks', 'POST', {
+    title: 'A change',
+    repositoryId: 'agent',
+  });
+  assert.equal((await f.request(`/api/tasks/${created.id}/publish`, 'POST', {})).status, 409);
+  const task = f.app.store.get(created.id);
+  Object.assign(task, {
+    status: 'completed',
+    stage: 'review',
+    workspaceRoot: root,
+    workspace: root,
+    branch: 'feature/accepted',
+    baseCommit,
+  });
+  await writeFile(join(root, 'value.txt'), 'accepted');
+  task.acceptedFingerprint = await fingerprint(task);
+  f.app.store.save(task);
+  assert.equal((await f.request(`/api/tasks/${created.id}/publish`, 'POST', {})).status, 202);
+  for (let i = 0; i < 1000 && f.app.store.get(created.id).delivery.status === 'running'; i++)
+    await new Promise((r) => setTimeout(r, 10));
+  const done = f.app.store.get(created.id);
+  assert.equal(done.delivery.status, 'complete', done.delivery.details);
+  assert.equal(done.publication.url, 'https://code.example/team/repo/pull/7');
+  assert.equal(done.status, 'completed');
 });

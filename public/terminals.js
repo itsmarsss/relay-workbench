@@ -29,6 +29,25 @@ export function terminalSessions(task) {
         live,
       };
     });
+  for (const entry of task.repositories?.length > 1 ? task.repositories : [task]) {
+    for (const [record, stage] of [
+      [entry.delivery, 'Publication'],
+      [entry.publicationMonitor, 'PR monitoring'],
+    ]) {
+      if (!record?.terminal) continue;
+      const live = record.status === 'running';
+      sessions.push({
+        id: record.id ?? record.attemptId,
+        run: sessions.length + 1,
+        label: `${record.harness || 'Agent'} · ${stage}`,
+        repository: entry.repository.name,
+        terminal: record.terminal,
+        live,
+        status: live ? 'Live' : 'Finished',
+        attempt: { ...record, handoff: { summary: record.summary || record.error || '' } },
+      });
+    }
+  }
   if (task.manual?.session && task.status === 'manual')
     sessions.push({
       id: 'manual',

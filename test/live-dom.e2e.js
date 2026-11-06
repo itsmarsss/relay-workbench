@@ -70,6 +70,15 @@ try {
     terminal.append(document.createElement('textarea'));
     updateLiveDOM(root, '<div data-browser-terminal></div>', 'terminal');
     preserved.terminal = root.firstChild === terminal && !!terminal.querySelector('textarea');
+    const controls =
+      '<div><button data-action="markdown-tab" data-mode="write">Write</button><button data-action="markdown-tab" data-mode="preview">Preview</button></div>';
+    updateLiveDOM(root, controls, 'editor');
+    const write = root.querySelector('[data-mode="write"]');
+    const preview = root.querySelector('[data-mode="preview"]');
+    for (let count = 0; count < 5; count++) updateLiveDOM(root, controls, 'editor');
+    preserved.editorControls =
+      root.querySelector('[data-mode="write"]') === write &&
+      root.querySelector('[data-mode="preview"]') === preview;
     return preserved;
   });
   for (const [check, passed] of Object.entries(result))

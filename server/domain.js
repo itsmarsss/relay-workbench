@@ -302,7 +302,7 @@ export const HANDOFF_SCHEMA = {
   ],
 };
 export function handoffSchema(stage) {
-  if (stage === 'monitor')
+  if (['monitor', 'publish'].includes(stage))
     return {
       ...HANDOFF_SCHEMA,
       properties: {
