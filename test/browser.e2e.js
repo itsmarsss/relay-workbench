@@ -709,9 +709,32 @@ try {
     await page.screenshot({ path: join(screenshots, 'inline-feedback.png'), fullPage: true });
     await page.getByRole('button', { name: 'Accept result', exact: true }).click();
     await page.locator('.task-subtitle .badge.completed').waitFor();
+    await page.getByRole('heading', { name: 'Your changes are accepted', exact: true }).waitFor();
+    const publicationTask = localApp.store.get(parseTaskRoute(new URL(page.url()).hash).id);
+    publicationTask.repositories[0].publication = {
+      url: 'https://code.example/team/project/pull/42',
+      title: 'Observed PR',
+      number: '42',
+      state: 'open',
+      draft: true,
+      checks: 'pending',
+      review: 'required',
+      checkedAt: new Date().toISOString(),
+      summary: 'CI is running',
+      evidence: ['Read provider status'],
+    };
+    publicationTask.repositories[0].publicationMonitor = { enabled: false, status: 'paused' };
+    localApp.store.save(publicationTask);
+    await page.getByRole('button', { name: 'Refresh all', exact: true }).click();
+    await page.getByRole('link', { name: 'Observed PR ↗', exact: true }).waitFor();
+    assert.equal(
+      await page.getByRole('link', { name: 'Observed PR ↗', exact: true }).getAttribute('href'),
+      'https://code.example/team/project/pull/42',
+    );
+    await page.getByText('CI is running', { exact: true }).waitFor();
     assert.equal(
       await page.getByRole('button', { name: 'Commit & submit draft PR', exact: true }).count(),
-      2,
+      1,
     );
     await page
       .getByRole('button', { name: 'Commit & submit draft PR', exact: true })

@@ -157,6 +157,21 @@ test('HTTP issue import passes literal ticket arguments and requires JSON', asyn
 });
 test('accepted task submission commits changes before provider execution', async (t) => {
   const f = await fixture(t, {
+    publicationObserve: async () => ({
+      verdict: 'complete',
+      summary: 'PR is open',
+      details: 'Observed provider status',
+      evidence: ['Read PR state'],
+      publication: {
+        url: 'https://code.example/team/repo/pull/42',
+        number: '42',
+        title: 'Update a value',
+        state: 'open',
+        draft: true,
+        checks: 'pending',
+        review: 'required',
+      },
+    }),
     harness: async ({ task, stage }) => {
       if (stage === 'implement') await writeFile(join(task.workspace, 'value.txt'), 'after');
       return demoHandoff(task, stage);
@@ -227,6 +242,10 @@ test('accepted task submission commits changes before provider execution', async
   await waitFor(f.app, task.id, 'awaiting_plan');
   await f.request(`/api/tasks/${task.id}/approve-plan`, 'POST', { optionId: 'shared-boundary' });
   await waitFor(f.app, task.id, 'awaiting_final');
+  assert.equal(
+    (await f.request(`/api/tasks/${task.id}/publication`, 'POST', { enabled: true })).status,
+    409,
+  );
   await f.request(`/api/tasks/${task.id}/accept`, 'POST', {});
   assert.equal((await f.request(`/api/tasks/${task.id}/submit`, 'POST', {})).status, 202);
   for (let i = 0; i < 1000 && f.app.store.get(task.id).submission.status === 'running'; i++)
@@ -236,6 +255,24 @@ test('accepted task submission commits changes before provider execution', async
   assert.equal(await git(repo, ['log', '-1', '--format=%s']), 'feat: Update a value');
   assert.equal(await git(repo, ['status', '--porcelain']), '');
   assert.match(done.submission.stdout, /provider accepted/);
+  for (let i = 0; i < 1000 && !f.app.store.get(task.id).publication; i++)
+    await new Promise((r) => setTimeout(r, 10));
+  assert.equal(f.app.store.get(task.id).publication.url, 'https://code.example/team/repo/pull/42');
+  assert.equal(f.app.store.get(task.id).publication.checks, 'pending');
+  assert.equal(
+    (await f.request(`/api/tasks/${task.id}/publication`, 'POST', { enabled: false })).status,
+    202,
+  );
+  assert.equal(f.app.store.get(task.id).publicationMonitor.enabled, false);
+  assert.equal(
+    (
+      await f.request(`/api/tasks/${task.id}/publication`, 'POST', {
+        enabled: true,
+        repositoryId: 'missing',
+      })
+    ).status,
+    400,
+  );
 });
 
 test('multi-repo submission preserves partial outcomes and accepted diffs', async (t) => {

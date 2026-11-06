@@ -302,6 +302,31 @@ export const HANDOFF_SCHEMA = {
   ],
 };
 export function handoffSchema(stage) {
+  if (stage === 'monitor')
+    return {
+      ...HANDOFF_SCHEMA,
+      properties: {
+        ...HANDOFF_SCHEMA.properties,
+        publication: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            url: { type: 'string' },
+            number: { type: 'string' },
+            title: { type: 'string' },
+            state: { type: 'string', enum: ['unknown', 'not_created', 'open', 'closed', 'merged'] },
+            draft: { type: ['boolean', 'null'] },
+            checks: { type: 'string', enum: ['unknown', 'pending', 'passing', 'failing'] },
+            review: {
+              type: 'string',
+              enum: ['unknown', 'required', 'approved', 'changes_requested'],
+            },
+          },
+          required: ['url', 'number', 'title', 'state', 'draft', 'checks', 'review'],
+        },
+      },
+      required: [...HANDOFF_SCHEMA.required, 'publication'],
+    };
   if (stage !== 'verify') return HANDOFF_SCHEMA;
   return {
     ...HANDOFF_SCHEMA,

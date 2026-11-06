@@ -4797,3 +4797,58 @@ textarea::placeholder,
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+.publication-panel {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 20px;
+  margin: 20px 0;
+  background: var(--surface);
+}
+.publication-heading h2 {
+  margin: 4px 0 8px;
+  font-size: 19px;
+}
+.publication-heading p,
+.publication-repository p {
+  line-height: 1.5;
+}
+.publication-repository {
+  padding: 16px 0;
+  border-top: 1px solid var(--line);
+  margin-top: 14px;
+  overflow-wrap: anywhere;
+}
+.publication-repo-heading,
+.publication-facts {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.publication-link {
+  display: block;
+  font-size: 17px;
+  font-weight: 600;
+  margin: 12px 0;
+  text-decoration: underline;
+}
+.publication-facts {
+  margin: 12px 0;
+  font-size: 13px;
+}
+.publication-repository > small {
+  display: block;
+  margin-top: 12px;
+}
+.publication-panel .inline-actions {
+  flex-wrap: wrap;
+}
+.publication-panel .btn {
+  white-space: normal;
+  max-width: 100%;
+}
+.publication-panel,
+.publication-repository {
+  min-width: 0;
+}

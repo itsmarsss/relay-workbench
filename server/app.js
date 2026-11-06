@@ -1,3 +1,4 @@
+import { PublicationMonitor } from './publication-monitor.js';
 import { listMemories, createMemory, updateMemory, deleteMemory } from './memory.js';
 import { SideQuestions } from './side-questions.js';
 import { importIssue } from './issues.js';
@@ -66,6 +67,9 @@ function summary(task) {
 export function createApp({ directory, publicDirectory, engineOptions = {} }) {
   const store = new Store(directory);
   const engine = new Engine(store, engineOptions);
+  const publicationMonitor = new PublicationMonitor(store, {
+    observe: engineOptions.publicationObserve ?? engineOptions.harness,
+  });
   const sideQuestions = new SideQuestions(store, { answer: engineOptions.sideAnswer });
   const token = randomBytes(32).toString('hex');
   const streams = new Set();
@@ -79,6 +83,7 @@ export function createApp({ directory, publicDirectory, engineOptions = {} }) {
       engine.running.size === 0 &&
         engine.manualRuns.size === 0 &&
         external.size === 0 &&
+        publicationMonitor.running.size === 0 &&
         !store.all().some((t) => ['running', 'queued', 'manual'].includes(t.status)),
       'Pause active workflows and submissions before maintenance',
       409,
@@ -88,10 +93,12 @@ export function createApp({ directory, publicDirectory, engineOptions = {} }) {
     requireValue(!maintenance && mutations === 1, 'Wait for other writes before maintenance', 409);
     requireIdle();
     maintenance = true;
+    publicationMonitor.suspended = true;
     try {
       return await operation();
     } finally {
       maintenance = false;
+      publicationMonitor.suspended = false;
     }
   }
   const server = http.createServer(async (req, res) => {
@@ -287,7 +294,12 @@ export function createApp({ directory, publicDirectory, engineOptions = {} }) {
         return json(res, 200, { ok: true });
       }
       if (path === '/api/health' && req.method === 'GET')
-        return json(res, 200, { ok: true, running: engine.running.size, version: '0.1.0' });
+        return json(res, 200, {
+          ok: true,
+          running: engine.running.size + publicationMonitor.running.size,
+          monitoring: publicationMonitor.running.size,
+          version: '0.1.0',
+        });
       if (path === '/api/harnesses' && req.method === 'GET') {
         const harnesses = await Promise.all(
           Object.entries(store.config.harnesses).map(async ([id, config]) => ({
@@ -370,6 +382,22 @@ export function createApp({ directory, publicDirectory, engineOptions = {} }) {
         const [, id, operation] = match;
         const task = store.get(id);
         requireValue(task, 'Task not found', 404);
+        if (operation === 'publication' && req.method === 'POST') {
+          const request = await body(req);
+          requireValue(
+            typeof request.enabled === 'boolean',
+            'Choose whether monitoring is enabled',
+          );
+          return json(
+            res,
+            202,
+            publicationMonitor.configure(
+              id,
+              request.repositoryId ?? task.repository.id,
+              request.enabled,
+            ),
+          );
+        }
         if (operation === 'question' && req.method === 'POST')
           return json(res, 202, sideQuestions.ask(id, (await body(req)).question));
         if (!operation && req.method === 'GET')
@@ -657,10 +685,11 @@ export function createApp({ directory, publicDirectory, engineOptions = {} }) {
                 type: 'submission',
                 summary:
                   result.code === 0
-                    ? 'Provider command completed. Inspect its full output.'
+                    ? 'Provider submission completed. A status agent will locate the PR and observe checks and review.'
                     : 'Provider command failed. Inspect its full output before retrying.',
                 details: result.stdout + '\n' + result.stderr,
               });
+              publicationMonitor.configure(id, entry.repository.id, true);
             })
             .catch((error) => {
               const current = saveSubmission({
@@ -744,6 +773,7 @@ export function createApp({ directory, publicDirectory, engineOptions = {} }) {
     restorePreviews.clear();
     for (const stream of streams) stream.end();
     for (const controller of external.values()) controller.abort();
+    await publicationMonitor.stop();
     await sideQuestions.stop();
     await engine.stop();
     while (external.size) await new Promise((resolve) => setTimeout(resolve, 20));
