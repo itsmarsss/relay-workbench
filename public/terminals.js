@@ -1,17 +1,42 @@
 import { e, icon, stageNames } from './ui.js';
+import { concise } from './task-summary.js';
 
 export function terminalSessions(task) {
   const sessions = (task.attempts ?? [])
-    .filter((a) => a.terminal)
-    .slice(-8)
-    .map((a) => ({
-      id: a.id,
-      label: `${task.repositories?.length > 1 ? (task.repositories.find((r) => r.repository.id === a.repositoryId)?.repository.name ?? a.repositoryId ?? '') + ' · ' : ''}${a.harness} · ${stageNames[a.stage] ?? a.stage}`,
-      terminal: a.terminal,
-      live: a.status === 'running' && task.status === 'running',
-    }));
+    .map((attempt, index) => ({ attempt, run: index + 1 }))
+    .filter(({ attempt }) => attempt.terminal)
+    .map(({ attempt, run }) => {
+      const repositoryId =
+        attempt.workspaceRepositoryId ?? attempt.repositoryId ?? task.repository?.id;
+      const repository =
+        task.repositories?.find((r) => r.repository.id === repositoryId)?.repository ??
+        task.repository;
+      const harness = attempt.harness.charAt(0).toUpperCase() + attempt.harness.slice(1);
+      const live = attempt.status === 'running' && task.status === 'running';
+      const status = live
+        ? 'Live'
+        : attempt.handoff?.verdict === 'blocked'
+          ? 'Blocked'
+          : ({ failed: 'Failed', interrupted: 'Interrupted' }[attempt.status] ?? 'Finished');
+      return {
+        id: attempt.id,
+        run,
+        attempt,
+        status,
+        label: `${harness} · ${stageNames[attempt.stage] ?? attempt.stage}`,
+        repository: repository?.name ?? repositoryId ?? '',
+        terminal: attempt.terminal,
+        live,
+      };
+    });
   if (task.manual?.active && task.status === 'manual')
-    sessions.push({ id: 'manual', label: 'Your shell', terminal: task.manual, live: true });
+    sessions.push({
+      id: 'manual',
+      label: 'Your shell',
+      status: 'Live',
+      terminal: task.manual,
+      live: true,
+    });
   return sessions;
 }
 export function terminalSelection(task, selectedId) {
@@ -46,6 +71,51 @@ function conversationsView(task, repos) {
   if (!latest) return '';
   return `<section class="native-conversations" aria-label="Agent conversations"><h3>Agent conversations</h3><p>Take over to continue a saved conversation. Automation pauses while you have control.</p>${conversationRow(latest, repos, true)}${earlier.length ? `<details class="earlier-conversations" data-event-key="earlier-conversations"><summary>Earlier conversations (${earlier.length})</summary>${earlier.map((attempt) => conversationRow(attempt, repos)).join('')}</details>` : ''}</section>`;
 }
+export function retainedActivity(events, attemptId) {
+  const seen = new Set();
+  return events
+    .filter(
+      (event) =>
+        event.attemptId === attemptId &&
+        event.type === 'activity' &&
+        ['message', 'tool'].includes(event.kind),
+    )
+    .map((event) => concise(event.summary || event.details, 240))
+    .filter((text) => {
+      if (
+        !text ||
+        /^[{\[]/.test(text) ||
+        /^(Starting|Finished) (userMessage|agentMessage|reasoning|turn|thread)$/i.test(text) ||
+        seen.has(text)
+      )
+        return false;
+      seen.add(text);
+      return true;
+    })
+    .slice(-6);
+}
+function runPicker(sessions, selected) {
+  if (!selected) return '';
+  const latest = sessions.findLast((s) => s.live) ?? sessions.at(-1);
+  return `<div class="terminal-run-picker"><label for="terminal-run">Run history <span>${sessions.length} ${sessions.length === 1 ? 'terminal' : 'terminals'}</span></label><div><select class="input" id="terminal-run">${[
+    ...sessions,
+  ]
+    .reverse()
+    .map(
+      (s) =>
+        `<option value="${e(s.id)}" ${s.id === selected.id ? 'selected' : ''}>${e(`${s.run ? `Run ${s.run}` : 'Manual shell'} · ${s.label}${s.repository ? ` · ${s.repository}` : ''} · ${s.status}`)}</option>`,
+    )
+    .join(
+      '',
+    )}</select>${latest.id !== selected.id ? `<button class="btn secondary small" data-action="terminal-tab" data-terminal-id="${e(latest.id)}">${latest.live ? 'Go to live run' : 'Go to latest run'}</button>` : ''}</div></div>`;
+}
+function runSummary(selected, events) {
+  const summary = selected.attempt?.handoff?.summary || selected.attempt?.error;
+  const activity = retainedActivity(events, selected.id).filter(
+    (text) => text !== concise(summary, 240),
+  );
+  return `<div class="terminal-run-summary">${summary ? `<p class="terminal-outcome">${e(summary)}</p>` : ''}${activity.length ? `<h3>Recent activity</h3><ul>${activity.map((text) => `<li>${e(text)}</li>`).join('')}</ul>` : !summary ? '<p>No readable updates were recorded for this run. Expand raw output for details.</p>' : ''}</div>`;
+}
 export function terminalView(task, state) {
   const sessions = terminalSessions(task);
   const selected = terminalSelection(task, state.terminalId);
@@ -66,14 +136,19 @@ export function terminalView(task, state) {
       ? 'No workspace yet. Start workflow to create a workspace and launch the first agent.'
       : !selected
         ? 'No agent terminal yet. The next agent run will appear here.'
-        : selected.live
-          ? preview?.available
-            ? 'Live terminal · read-only preview.'
-            : preview?.message || 'Waiting for terminal output…'
-          : 'This terminal has finished. Retained agent output appears below; see the activity thread and transcript for more.';
+        : '';
   const output = preview?.available ? preview.output : history;
   const repos = task.repositories?.length ? task.repositories : [task];
-  return `<section class="terminal-panel" aria-label="Live terminals"><div class="context-title">LIVE TERMINALS ${icon('code')}</div>${task.status === 'manual' ? '<h2>You have control</h2><p>Automation is paused. Attach to your shell to edit, then Return to automation when ready.</p>' : ''}<div class="terminal-tabs" role="tablist" aria-label="Terminal sessions">${sessions.length ? sessions.map((s) => `<button role="tab" aria-selected="${s.id === selected?.id}" aria-controls="terminal-output" id="terminal-tab-${e(s.id)}" data-action="terminal-tab" data-terminal-id="${e(s.id)}">${e(s.label)} <span>${s.live ? 'Live' : 'Finished'}</span></button>`).join('') : '<button role="tab" aria-selected="true" aria-controls="terminal-output" id="terminal-tab-empty">Agent terminal</button>'}</div><div id="terminal-output" role="tabpanel" aria-labelledby="terminal-tab-${e(selected?.id ?? 'empty')}"><p class="terminal-status">${e(message)}</p>${selected ? `<div class="terminal-preview-toolbar"><span>${preview?.available ? 'Live preview · updates automatically' : 'Retained output'}</span><button class="btn secondary small" data-action="terminal-follow" aria-pressed="${state.terminalFollow}">Follow latest</button></div><pre id="terminal-preview" class="terminal-preview" tabindex="0" aria-label="Terminal output preview">${e(output || (preview?.available ? 'Waiting for terminal output…' : message))}</pre>` : ''}${selected?.live ? `<div class="terminal-attach"><div class="terminal-attach-heading"><strong>Watch in your terminal</strong><button class="btn secondary small" data-action="copy-terminal" data-command="${e(selected.terminal.attachCommand)}">Copy attach command</button></div><code class="terminal-attach-command">${e(selected.terminal.attachCommand)}</code><p>Attach to watch. Take over before editing. Detach with <kbd>Ctrl+B</kbd>, then <kbd>D</kbd>.</p></div>` : ''}</div>${
+  const started = selected?.attempt?.startedAt;
+  const date = started ? new Date(started) : null;
+  const timestamp =
+    date && !Number.isNaN(date.getTime())
+      ? `<time datetime="${e(date.toISOString())}">${e(date.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }))}</time>`
+      : '';
+  const raw = selected
+    ? `<pre id="terminal-preview" class="terminal-preview" tabindex="0" aria-label="Terminal output preview">${e(output || (selected.live ? preview?.message || 'Waiting for terminal output…' : 'No retained output for this run.'))}</pre>`
+    : '';
+  return `<section class="terminal-panel" aria-label="Live terminals"><div class="context-title">LIVE TERMINALS ${icon('code')}</div>${task.status === 'manual' ? '<h2>You have control</h2><p>Attach to edit. Return to automation when ready.</p>' : ''}${message ? `<p class="terminal-empty">${e(message)}</p>` : ''}${runPicker(sessions, selected)}${selected ? `<section id="terminal-output" aria-label="Selected run"><div class="terminal-run-heading"><div><h2>${e(selected.label)}</h2><p>${selected.run ? `Run ${selected.run} · ` : ''}${e(selected.repository || 'Workspace')}${timestamp ? ` · ${timestamp}` : ''}</p></div><span class="terminal-run-status ${selected.live ? 'is-live' : ''}">${e(selected.status)}</span></div>${selected.live ? `<div class="terminal-preview-toolbar"><span>${preview?.available ? 'Read-only preview · updates automatically' : 'Connecting to terminal…'}</span><button class="btn secondary small" data-action="terminal-follow" aria-pressed="${state.terminalFollow}">Follow latest</button></div>${raw}` : `${runSummary(selected, state.events)}<details class="terminal-raw" data-event-key="terminal-raw-${e(selected.id)}"><summary>Raw output</summary>${raw}<button class="btn text small" data-action="tab" data-tab="transcript">Open execution log</button></details>`}${selected.live ? `<div class="terminal-attach"><div class="terminal-attach-heading"><strong>Watch in your terminal</strong><button class="btn secondary small" data-action="copy-terminal" data-command="${e(selected.terminal.attachCommand)}">Copy attach command</button></div><code class="terminal-attach-command">${e(selected.terminal.attachCommand)}</code><p>Attach to watch. Take over before editing. Detach with <kbd>Ctrl+B</kbd>, then <kbd>D</kbd>.</p></div>` : ''}</section>` : ''}${
     !['completed', 'cancelled', 'manual'].includes(task.status)
       ? `<div class="inline-actions">${repos
           .filter((r) => r.workspace && r.setupCompleted)

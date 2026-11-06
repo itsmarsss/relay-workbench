@@ -1,7 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { issueLink, taskDetails } from '../public/task-details.js';
-import { nativeConversations, terminalSelection, terminalView } from '../public/terminals.js';
+import {
+  nativeConversations,
+  retainedActivity,
+  terminalSessions,
+  terminalSelection,
+  terminalView,
+} from '../public/terminals.js';
 
 test('source issue links reject executable URLs and escape ticket content', () => {
   for (const value of [
@@ -142,4 +148,74 @@ test('conversation history is bounded after grouping and escapes session metadat
   assert.match(html, /&lt;script&gt;/);
   assert.match(html, /&lt;Client&gt;/);
   assert.doesNotMatch(html, /<script>|<Client>/);
+});
+
+test('terminal history exposes every run with a stable number and preserves explicit selection', () => {
+  const task = {
+    status: 'running',
+    repository: { id: 'api', name: 'API' },
+    attempts: Array.from({ length: 12 }, (_, i) => ({
+      id: `run-${i}`,
+      harness: 'codex',
+      stage: 'investigate',
+      status: i === 11 ? 'running' : 'complete',
+      terminal: {},
+      handoff: i === 10 ? { verdict: 'blocked' } : undefined,
+    })),
+  };
+  const sessions = terminalSessions(task);
+  assert.equal(sessions.length, 12);
+  assert.deepEqual(
+    sessions.map((s) => s.run),
+    Array.from({ length: 12 }, (_, i) => i + 1),
+  );
+  assert.equal(sessions.at(-2).status, 'Blocked');
+  assert.equal(terminalSelection(task, '').id, 'run-11');
+  assert.equal(terminalSelection(task, 'run-0').id, 'run-0');
+  const html = terminalView(task, { events: [], terminalId: 'run-0' });
+  assert.match(html, /value="run-0" selected/);
+  assert.match(html, /Run 1 · Codex · Investigation · API · Finished/);
+  assert.match(html, /Go to live run/);
+  assert.doesNotMatch(html, /role="tablist"|Follow latest/);
+});
+
+test('finished run summaries separate readable activity from preserved raw output', () => {
+  const events = [
+    { attemptId: 'run', type: 'activity', kind: 'output', details: '{"protocol":"raw"}' },
+    { attemptId: 'run', type: 'activity', kind: 'message', summary: 'Checked both callers' },
+    { attemptId: 'run', type: 'activity', kind: 'message', summary: 'Checked both callers' },
+    { attemptId: 'other', type: 'activity', kind: 'tool', summary: 'Unrelated check' },
+    { attemptId: 'run', type: 'activity', kind: 'tool', summary: 'Starting userMessage' },
+    { attemptId: 'run', type: 'activity', kind: 'tool', summary: 'Finished userMessage' },
+    { attemptId: 'run', type: 'activity', kind: 'tool', summary: 'Running boundary checks' },
+  ];
+  assert.deepEqual(retainedActivity(events, 'run'), [
+    'Checked both callers',
+    'Running boundary checks',
+  ]);
+  const task = {
+    status: 'blocked',
+    workspace: '/fixture',
+    repository: {},
+    attempts: [
+      {
+        id: 'run',
+        harness: 'codex',
+        stage: 'investigate',
+        status: 'failed',
+        terminal: {},
+        error: 'Check could not start <script>',
+      },
+    ],
+  };
+  const html = terminalView(task, { events });
+  assert.match(html, /Check could not start &lt;script&gt;/);
+  const summary = html
+    .split('<div class="terminal-run-summary">')[1]
+    .split('<details class="terminal-raw"')[0];
+  assert.doesNotMatch(summary, /protocol|Unrelated/);
+  assert.equal((summary.match(/Checked both callers/g) ?? []).length, 1);
+  assert.match(html, /&quot;protocol&quot;:&quot;raw&quot;/);
+  assert.match(html, /<summary>Raw output<\/summary>/);
+  assert.doesNotMatch(html, /<details[^>]* open|Follow latest/);
 });

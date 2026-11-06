@@ -3344,28 +3344,102 @@ details.error-panel > p {
   overflow-x: auto;
   font-size: 15px;
 }
-.terminal-tabs {
+.terminal-run-picker {
+  margin: 18px 0;
+}
+.terminal-run-picker > label {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  margin-bottom: 7px;
+  font-size: 14px;
+  font-weight: 600;
+}
+.terminal-run-picker label span {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 400;
+}
+.terminal-run-picker > div {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
-  margin: 16px 0;
+  gap: 10px;
 }
-.terminal-tabs button {
-  border: 1px solid #b5c2b0;
-  background: #fff;
-  color: #304535;
-  border-radius: 7px;
-  padding: 9px 12px;
-  font-size: 15px;
+.terminal-run-picker select {
+  flex: 1 1 260px;
+  width: 100%;
+  min-width: 0;
+  font-size: 14px;
 }
-.terminal-tabs button[aria-selected='true'] {
-  background: #254e42;
-  color: #fff;
-  border-color: #254e42;
+.terminal-run-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 18px 0;
+  border-top: 1px solid var(--line);
 }
-.terminal-tabs span {
+.terminal-run-heading h2 {
+  font-size: 16px;
+  margin: 0 0 4px;
+}
+.terminal-run-heading p {
   font-size: 13px;
-  margin-left: 6px;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+.terminal-run-status {
+  font-size: 13px;
+  background: #f0f2ee;
+  padding: 4px 9px;
+  border-radius: 5px;
+  white-space: nowrap;
+}
+.terminal-run-status.is-live {
+  background: var(--mint);
+  color: var(--green-dark);
+}
+.terminal-run-summary {
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fafbf9;
+}
+.terminal-run-summary .terminal-outcome {
+  font-size: 15px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+.terminal-run-summary h3 {
+  margin: 16px 0 8px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.terminal-run-summary h3:first-child {
+  margin-top: 0;
+}
+.terminal-run-summary ul {
+  margin: 0;
+  padding-left: 18px;
+}
+.terminal-run-summary li {
+  font-size: 14px;
+  line-height: 1.6;
+  margin: 6px 0;
+  overflow-wrap: anywhere;
+}
+.terminal-raw {
+  margin-top: 12px;
+}
+.terminal-raw > summary {
+  padding: 10px 0;
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 14px;
+}
+.terminal-empty {
+  margin-top: 18px;
+  color: var(--muted);
 }
 .terminal-preview-toolbar {
   display: flex;

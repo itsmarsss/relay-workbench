@@ -6,6 +6,7 @@ import { spawnSync } from 'node:child_process';
 import { createApp } from '../server/app.js';
 import { git } from '../server/workspace.js';
 import { demoHandoff } from '../server/harness.js';
+import { newTask } from '../server/domain.js';
 import { assertReadableText } from './browser-contrast.js';
 
 const { chromium } = await import(process.env.RELAY_PLAYWRIGHT_MODULE || 'playwright');
@@ -213,7 +214,7 @@ try {
     .getByRole('region', { name: 'Live terminals', exact: true })
     .getByText('No workspace yet.', { exact: false })
     .waitFor();
-  await page.getByRole('tab', { name: 'Agent terminal', exact: true }).waitFor();
+  assert.equal(await page.locator('#terminal-run').count(), 0);
   const contextEditor = page.locator('[data-editor="task-message"]');
   await contextEditor.locator('textarea').fill('## Context still here');
   await contextEditor.getByRole('tab', { name: 'Preview', exact: true }).click();
@@ -544,7 +545,7 @@ try {
       .click();
     await page.getByRole('heading', { name: 'You have control', exact: true }).waitFor();
     await page.getByRole('button', { name: 'Copy attach command', exact: true }).waitFor();
-    await page.getByRole('tab', { name: 'Your shell Live', exact: true }).waitFor();
+    await page.getByRole('heading', { name: 'Your shell', exact: true }).waitFor();
     await page
       .getByLabel('Terminal output preview', { exact: true })
       .getByText('Detach:', { exact: false })
@@ -666,6 +667,79 @@ try {
     );
   }
   if (localApp) {
+    const historyTask = newTask(
+      { title: 'Investigate retry history', repositoryId: 'service' },
+      localApp.store.config,
+    );
+    historyTask.status = 'blocked';
+    historyTask.workspace = join(fixture, 'history-workspace');
+    historyTask.attempts = Array.from({ length: 10 }, (_, i) => ({
+      id: `history-${i}`,
+      harness: 'codex',
+      stage: 'investigate',
+      status: 'complete',
+      terminal: {},
+      startedAt: new Date(Date.now() - (10 - i) * 60000).toISOString(),
+      handoff: {
+        ...demoHandoff(historyTask, 'investigate'),
+        verdict: 'blocked',
+        summary: `Run ${i + 1} found a runtime blocker.`,
+      },
+    }));
+    localApp.store.save(historyTask);
+    for (const kind of ['message', 'message', 'output'])
+      localApp.store.event(historyTask.id, {
+        attemptId: 'history-9',
+        type: 'activity',
+        kind,
+        summary: kind === 'output' ? '{"protocol":"raw payload"}' : 'Checked the retry boundary.',
+      });
+    await page.goto(`${origin}/#task/${historyTask.id}`);
+    await page.getByRole('tab', { name: 'Live terminals', exact: true }).click();
+    await page
+      .getByRole('region', { name: 'Selected run', exact: true })
+      .getByText('Run 10 found a runtime blocker.', { exact: true })
+      .waitFor();
+    const picker = page.getByLabel('Run history', { exact: false });
+    assert.equal(await picker.locator('option').count(), 10);
+    assert.equal(await page.locator('.terminal-tabs').count(), 0);
+    assert.equal(await page.getByRole('button', { name: 'Follow latest', exact: true }).count(), 0);
+    assert.equal(
+      await page.getByLabel('Terminal output preview', { exact: true }).isVisible(),
+      false,
+    );
+    assert.equal(
+      await page
+        .locator('.terminal-run-summary')
+        .getByText('Checked the retry boundary.', { exact: true })
+        .count(),
+      1,
+    );
+    await picker.selectOption('history-0');
+    await page
+      .getByRole('region', { name: 'Selected run', exact: true })
+      .getByText('Run 1 found a runtime blocker.', { exact: true })
+      .waitFor();
+    await page.getByRole('button', { name: 'Go to latest run', exact: true }).click();
+    await page
+      .getByRole('region', { name: 'Selected run', exact: true })
+      .getByText('Run 10 found a runtime blocker.', { exact: true })
+      .waitFor();
+    await page.locator('.terminal-raw > summary').click();
+    await page
+      .getByLabel('Terminal output preview', { exact: true })
+      .getByText('raw payload', { exact: false })
+      .waitFor();
+    await page.getByRole('button', { name: 'Open execution log', exact: true }).click();
+    await page.getByRole('tab', { name: 'Live terminals', exact: true }).click();
+    for (const width of [1440, 390]) {
+      await page.setViewportSize({ width, height: 1100 });
+      assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
+      await assertReadableText(page);
+      await page
+        .getByRole('region', { name: 'Live terminals', exact: true })
+        .screenshot({ path: join(screenshots, `terminal-run-history-${width}.png`) });
+    }
     await page.setViewportSize({ width: 1440, height: 1100 });
     await page.getByRole('button', { name: 'Approval inbox', exact: true }).click();
     await page.getByRole('heading', { name: 'Approval inbox', exact: true }).waitFor();
