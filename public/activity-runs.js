@@ -45,17 +45,20 @@ export function activityRunHeader(attempt, events) {
     return '<header class="activity-run-header"><div><h2>All activity</h2><p>The complete task history, in order.</p></div></header>';
   const host = attempt.role === 'verifier' || attempt.harness === 'checks';
   const title = host
-    ? 'Host verification'
+    ? attempt.harness !== 'checks'
+      ? 'Verification agent'
+      : 'Host verification'
     : attempt.role === 'debug'
       ? 'Debugger'
       : (stageNames[attempt.stage] ?? attempt.stage);
-  const output = host
-    ? events
-        .filter((ev) => ev.type === 'transcript' && ev.attemptId === attempt.id)
-        .slice(-6)
-        .map((ev) => ev.text ?? '')
-        .join('\n')
-        .slice(-2400)
-    : '';
-  return `<header class="activity-run-header"><div class="activity-run-title">${harnessBadge(attempt.harness)}<div><h2>${e(title)}</h2><p>${e(attempt.status === 'running' ? 'Running now' : attempt.status)} · ${ago(attempt.startedAt)}</p></div></div>${host ? '<p>Configured checks run on the Relay host. Results return to the agent; its sandbox permissions stay the same.</p>' : attempt.handoff ? `<p>${e(concise(attempt.handoff.summary))}</p>` : ''}</header>${output ? `<section class="host-output" aria-label="Recent check output"><div>Recent output <span>${attempt.status === 'running' ? 'Live' : 'Saved'}</span></div><pre>${e(output)}</pre></section>` : ''}`;
+  const output =
+    host && attempt.harness === 'checks'
+      ? events
+          .filter((ev) => ev.type === 'transcript' && ev.attemptId === attempt.id)
+          .slice(-6)
+          .map((ev) => ev.text ?? '')
+          .join('\n')
+          .slice(-2400)
+      : '';
+  return `<header class="activity-run-header"><div class="activity-run-title">${harnessBadge(attempt.harness)}<div><h2>${e(title)}</h2><p>${e(attempt.status === 'running' ? 'Running now' : attempt.status)} · ${ago(attempt.startedAt)}</p></div></div>${host ? (attempt.harness !== 'checks' ? '<p>An agent discovers checks from repository guidance, runs them on the host and investigates failures.</p>' : '<p>Configured checks run on the Relay host. Results return to the agent; its sandbox permissions stay the same.</p>') : attempt.handoff ? `<p>${e(concise(attempt.handoff.summary))}</p>` : ''}</header>${output ? `<section class="host-output" aria-label="Recent check output"><div>Recent output <span>${attempt.status === 'running' ? 'Live' : 'Saved'}</span></div><pre>${e(output)}</pre></section>` : ''}`;
 }

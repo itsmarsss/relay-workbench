@@ -11,6 +11,7 @@ for (const [harness, development] of [
   ['codex', false],
   ['codex', true],
   ['codex', 'elevated'],
+  ['codex', 'verification'],
   ['pi', false],
 ])
   test(`${harness} native protocol resumes and steers with development access ${development}`, async (t) => {
@@ -25,6 +26,7 @@ for (const [harness, development] of [
         writableRoots: ['/tmp/logs'],
       };
     if (development === 'elevated') task.debugContext = { executionAccess: 'host' };
+    if (development === 'verification') task.verificationContext = { executionAccess: 'host' };
     task.workspace = directory;
     const handoff = demoHandoff(task, 'investigate');
     const binary = join(directory, 'fixture.js');
@@ -58,7 +60,7 @@ createInterface({input:process.stdin}).on('line',line=>{
     const activities = [];
     const result = await executeHarness({
       task,
-      stage: 'investigate',
+      stage: development === 'verification' ? 'verify' : 'investigate',
       harness,
       config,
       directory,
@@ -92,7 +94,7 @@ createInterface({input:process.stdin}).on('line',line=>{
       );
       assert.equal(
         requests.find((r) => r.method === 'turn/start').params.sandboxPolicy.type,
-        development === 'elevated'
+        ['elevated', 'verification'].includes(development)
           ? 'dangerFullAccess'
           : development
             ? 'workspaceWrite'
@@ -100,13 +102,13 @@ createInterface({input:process.stdin}).on('line',line=>{
       );
       assert.equal(
         requests.find((r) => r.method === 'thread/resume').params.sandbox,
-        development === 'elevated'
+        ['elevated', 'verification'].includes(development)
           ? 'danger-full-access'
           : development
             ? 'workspace-write'
             : 'read-only',
       );
-      if (development && development !== 'elevated') {
+      if (development && !['elevated', 'verification'].includes(development)) {
         const policy = requests.find((r) => r.method === 'turn/start').params.sandboxPolicy;
         assert.equal(policy.networkAccess, true);
         assert.ok(policy.writableRoots.includes('/tmp/logs'));

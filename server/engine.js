@@ -1,3 +1,4 @@
+import { validateVerification } from './verification.js';
 import { developmentAccess } from './access.js';
 import {
   recoverBlocked,
@@ -282,7 +283,11 @@ export class Engine {
         );
         const entries = workspaces(task);
         requireValue(
-          entries.every((entry) => entry.workspace && entry.repository.checks.length),
+          entries.every(
+            (entry) =>
+              entry.workspace &&
+              (entry.repository.verificationMode !== 'commands' || entry.repository.checks.length),
+          ),
           'Configure checks and prepare workspaces first',
           409,
         );
@@ -406,7 +411,8 @@ export class Engine {
           const roots = new Set();
           for (const entry of workspaces(task)) {
             requireValue(
-              entry.repository.checks.length > 0,
+              entry.repository.verificationMode !== 'commands' ||
+                entry.repository.checks.length > 0,
               `Configure verification commands for ${entry.repository.name}`,
             );
             const info = await inspectRepository(entry.repository);
@@ -829,6 +835,10 @@ export class Engine {
     const trustedVerification = task.recovery?.phase === 'trusted_verification';
     const debugging = task.recovery?.active && task.recovery.phase === 'debug';
     const entries = workspaces(task);
+    const agentVerification =
+      !task.demo &&
+      (stage === 'verify' || trustedVerification) &&
+      entries.some((e) => e.repository.verificationMode !== 'commands');
     const scoped = entries.length > 1 && ['investigate', 'implement', 'review'].includes(stage);
     const entry = entries[scoped ? (task.repositoryCursor ?? 0) : 0];
     const view = { ...workspaceView(task, entry) };
@@ -844,9 +854,11 @@ export class Engine {
       ? this.store.config.harnesses.codex?.enabled
         ? 'codex'
         : task.routing[stage === 'verify' ? 'implement' : stage]
-      : stage === 'verify' || trustedVerification
-        ? 'checks'
-        : task.routing[stage];
+      : agentVerification
+        ? task.routing.implement
+        : stage === 'verify' || trustedVerification
+          ? 'checks'
+          : task.routing[stage];
     if (debugging) {
       for (const candidate of [
         ...new Set([
@@ -878,7 +890,11 @@ export class Engine {
                 : 'Handoff',
       id: randomUUID(),
       stage,
-      role: trustedVerification ? 'verifier' : debugging ? 'debug' : 'specialist',
+      role: debugging
+        ? 'debug'
+        : trustedVerification || agentVerification
+          ? 'verifier'
+          : 'specialist',
       harness,
       round: task.round,
       repositoryId: scoped ? entry.repository.id : null,
@@ -912,6 +928,26 @@ export class Engine {
         })),
       };
     }
+    if (agentVerification && !debugging) {
+      view.verificationContext = {
+        executionAccess: 'host',
+        sourceFingerprint: null,
+        repositories: entries.map((e) => e.repository.id),
+      };
+      // Agent verification discovers commands from source, not old private wrappers.
+      view.repository = {
+        ...view.repository,
+        checks: view.repository.verificationMode === 'commands' ? view.repository.checks : [],
+      };
+      view.repositoryMap = view.repositoryMap.map((e) => ({
+        ...e,
+        repository: {
+          ...e.repository,
+          checks: e.repository.verificationMode === 'commands' ? e.repository.checks : [],
+        },
+      }));
+      attempt.executionAccess = 'host';
+    }
     if (debugging) {
       view.debugContext.capabilities = developmentAccess(view, 'investigate');
       attempt.executionAccess = 'host';
@@ -921,7 +957,10 @@ export class Engine {
     const previousSession = resumableAttempt(task, stage, harness, attempt.repositoryId);
     if (task.recovery?.active)
       attempt.recovery = { strategy: task.recovery.strategy, freshSession: true };
-    attempt.model = executionConfig(task, this.store.config, stage).harnesses[harness]?.model || '';
+    attempt.model =
+      executionConfig(task, this.store.config, agentVerification ? 'implement' : stage).harnesses[
+        harness
+      ]?.model || '';
     for (const message of task.messages)
       if (stage !== 'verify' && !trustedVerification && message.delivery === 'pending')
         message.attemptId = attempt.id;
@@ -930,15 +969,18 @@ export class Engine {
       type: 'stage_started',
       stage,
       harness,
-      summary: trustedVerification
-        ? 'Running configured host checks; implementation progress is preserved.'
-        : debugging
-          ? `${harness} elevated debugger is diagnosing the ${stage} blocker on the host.`
-          : view.continuationContext
-            ? `Continuing ${stage} from saved progress after diagnosis.`
-            : stage === 'verify'
-              ? 'Running repository verification commands.'
-              : `${harness} is working on ${stage}${scoped ? ` · ${entry.repository.name}` : ''}.${task.recovery?.active ? ' Fresh diagnostic session with prior evidence.' : ''}`,
+      summary:
+        agentVerification && !debugging
+          ? `${harness} verification agent is discovering and running repository checks on the host.`
+          : trustedVerification
+            ? 'Running configured host checks; implementation progress is preserved.'
+            : debugging
+              ? `${harness} elevated debugger is diagnosing the ${stage} blocker on the host.`
+              : view.continuationContext
+                ? `Continuing ${stage} from saved progress after diagnosis.`
+                : stage === 'verify'
+                  ? 'Running repository verification commands.'
+                  : `${harness} is working on ${stage}${scoped ? ` · ${entry.repository.name}` : ''}.${task.recovery?.active ? ' Fresh diagnostic session with prior evidence.' : ''}`,
     });
     const before = !task.demo ? await fingerprint(task) : 'demo';
     const startedTask = this.store.get(id);
@@ -955,8 +997,10 @@ export class Engine {
             entries.filter((e) => e !== entry).map((e) => fingerprint(workspaceView(task, e))),
           )
         : null;
+    if (view.verificationContext) view.verificationContext.sourceFingerprint = before;
+    let verificationToolEvidence = false;
     let handoff;
-    if ((stage === 'verify' || trustedVerification) && !debugging) {
+    if ((stage === 'verify' || trustedVerification) && !debugging && !agentVerification) {
       const checks = [];
       const signature = JSON.stringify(
         entries.map((e) => ({
@@ -1094,9 +1138,9 @@ export class Engine {
       requireValue(this.store.config.harnesses[harness]?.enabled, `${harness} is disabled`);
       handoff = await this.harness({
         task: view,
-        stage: debugging ? 'investigate' : stage,
+        stage: debugging ? 'investigate' : agentVerification ? 'verify' : stage,
         harness,
-        config: executionConfig(task, this.store.config, stage),
+        config: executionConfig(task, this.store.config, agentVerification ? 'implement' : stage),
         directory: this.store.directory,
         attemptId: attempt.id,
         signal,
@@ -1129,15 +1173,25 @@ export class Engine {
             details: terminal.attachCommand,
           });
         },
-        onEvent: (event) =>
-          this.store.event(id, {
+        onEvent: (event) => {
+          if (event.kind === 'tool') verificationToolEvidence = true;
+          return this.store.event(id, {
             ...event,
             stage,
             harness,
             repositoryId: entry.repository.id,
             attemptId: attempt.id,
-          }),
+          });
+        },
       });
+    }
+    if (agentVerification && !debugging && handoff.verdict === 'complete') {
+      const report = validateVerification(handoff, entries, verificationToolEvidence);
+      handoff.checks = report.checks.map((check) => ({
+        ...check,
+        stdout: check.summary,
+        stderr: '',
+      }));
     }
     if (signal.aborted) throw new Error('Execution cancelled');
     const after = !task.demo ? await fingerprint(task) : 'demo';
@@ -1169,7 +1223,9 @@ export class Engine {
       );
       if (handoff.verdict === 'verification_requested')
         requireValue(
-          entries.every((e) => e.repository.checks.length > 0),
+          entries.every(
+            (e) => e.repository.verificationMode !== 'commands' || e.repository.checks.length > 0,
+          ),
           'Configure repository checks before requesting host verification',
         );
     }
@@ -1203,7 +1259,7 @@ export class Engine {
         summary: handoff.summary,
         evidence: handoff.evidence,
         details: handoff.details,
-        checks: handoff.checks.map((check) => ({
+        checks: (handoff.checks ?? []).map((check) => ({
           ...check,
           stdout: check.stdout.slice(-12000),
           stderr: check.stderr.slice(-6000),
@@ -1289,7 +1345,7 @@ export class Engine {
         task.verifiedFingerprint = after;
         task.stage = 'review';
         task.status = 'queued';
-      } else if (handoff.checks.some((c) => c.code === 127)) {
+      } else if (handoff.checks?.some((c) => c.code === 127)) {
         recoverBlocked(
           task,
           handoff,

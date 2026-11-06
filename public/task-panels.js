@@ -1,10 +1,13 @@
+import { verificationReport } from './verification-report.js';
 import { e, stageNames, harnessBadge, prose, duration } from './ui.js';
 import { concise } from './task-summary.js';
 import { timer } from './live-progress.js';
 
 export function runLabel(a) {
   return a.role === 'verifier' || a.harness === 'checks'
-    ? 'Host verification'
+    ? a.harness !== 'checks'
+      ? 'Verification agent'
+      : 'Host verification'
     : a.role === 'debug'
       ? 'Debugger'
       : (stageNames[a.stage] ?? a.stage);
@@ -34,7 +37,7 @@ export function handoffBody(h) {
             '',
           )}</ul>${h.risks.length > 2 || h.risks.some((r) => r.length > 220) ? `<details class="report-section"><summary>Full risks &amp; limitations (${h.risks.length})</summary><ul>${h.risks.map((r) => `<li>${e(r)}</li>`).join('')}</ul></details>` : ''}</section>`
       : ''
-  }${handoffFiles(h)}${h.details ? `<details class="report-section"><summary>Explanation</summary><div class="prose report-prose">${prose(h.details)}</div></details>` : ''}${h.evidence?.length ? `<details class="report-section"><summary>Verification & evidence <span>${h.evidence.length}</span></summary><ul class="evidence-list">${h.evidence.map((v) => `<li>${e(v)}</li>`).join('')}</ul></details>` : ''}`;
+  }${handoffFiles(h)}${verificationReport(h.verification)}${h.details ? `<details class="report-section"><summary>Explanation</summary><div class="prose report-prose">${prose(h.details)}</div></details>` : ''}${h.evidence?.length ? `<details class="report-section"><summary>Verification & evidence <span>${h.evidence.length}</span></summary><ul class="evidence-list">${h.evidence.map((v) => `<li>${e(v)}</li>`).join('')}</ul></details>` : ''}`;
 }
 export function handoffList(task) {
   const attempts = task.attempts
@@ -61,7 +64,7 @@ export function workflowStages(task) {
           : ({ codex: 'Codex', claude: 'Claude', pi: 'Pi' }[task.routing[stage]] ??
             task.routing[stage]);
       const suspended = active && live && subrun;
-      return `<li class="${active ? 'current' : done ? 'done' : ''}"><span class="stage-number">${done && !active ? '✓' : i + 1}</span><div><strong>${e(stageNames[stage])}</strong><small>${suspended ? 'Waiting for ' + (subrun.role === 'verifier' ? 'checks' : 'diagnosis') : e(h)}${!suspended && a?.finishedAt ? ` · ${duration(new Date(a.finishedAt) - new Date(a.startedAt))}` : !suspended && active && live && a?.status === 'running' ? ` · ${timer(a.startedAt)}` : ''}</small>${suspended ? `<div class="workflow-subrun"><span class="pulse-dot"></span><span>${subrun.role === 'verifier' ? 'Host checks' : 'Debugger'}</span>${timer(subrun.startedAt)}</div>` : ''}</div>${active && live && !suspended ? '<span class="pulse-dot"></span>' : ''}</li>`;
+      return `<li class="${active ? 'current' : done ? 'done' : ''}"><span class="stage-number">${done && !active ? '✓' : i + 1}</span><div><strong>${e(stageNames[stage])}</strong><small>${suspended ? 'Waiting for ' + (subrun.role === 'verifier' ? 'checks' : 'diagnosis') : e(h)}${!suspended && a?.finishedAt ? ` · ${duration(new Date(a.finishedAt) - new Date(a.startedAt))}` : !suspended && active && live && a?.status === 'running' ? ` · ${timer(a.startedAt)}` : ''}</small>${suspended ? `<div class="workflow-subrun"><span class="pulse-dot"></span><span>${subrun.role === 'verifier' ? (subrun.harness && subrun.harness !== 'checks' ? 'Verification agent' : 'Host checks') : 'Debugger'}</span>${timer(subrun.startedAt)}</div>` : ''}</div>${active && live && !suspended ? '<span class="pulse-dot"></span>' : ''}</li>`;
     })
     .join('');
 }

@@ -52,6 +52,10 @@ test('workflow nests host verification without duplicating active timers', () =>
   const html = workflowStages(task);
   assert.match(html, /workflow-subrun/);
   assert.match(html, /Host checks/);
+  const agentTask = structuredClone(task);
+  agentTask.attempts.at(-1).harness = 'codex';
+  agentTask.attempts.at(-1).executionAccess = 'host';
+  assert.match(workflowStages(agentTask), /Verification agent/);
   assert.equal((html.match(/data-live-start=/g) ?? []).length, 1);
 });
 
