@@ -1,0 +1,140 @@
+relay-select {
+  display: block;
+  min-width: 0;
+  width: 100%;
+}
+relay-select > select {
+  display: none !important;
+}
+:host {
+  display: block;
+  min-width: 0;
+  width: 100%;
+  font: inherit;
+  color: #263b30;
+}
+* {
+  box-sizing: border-box;
+}
+.select-trigger {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 38px;
+  border: 1px solid #aab8aa;
+  border-radius: 7px;
+  padding: 8px 11px;
+  background: #fff;
+  color: #263b30;
+  font: inherit;
+  font-size: 14px;
+  line-height: 1.4;
+  text-align: left;
+  cursor: pointer;
+}
+.select-trigger:hover {
+  border-color: #536e5b;
+  background: #f9fbf7;
+}
+.select-trigger:focus-visible {
+  outline: 3px solid #3f755b;
+  outline-offset: 2px;
+}
+.select-trigger:disabled {
+  background: #f2f4ef;
+  color: #657163;
+  cursor: not-allowed;
+}
+.select-trigger[aria-invalid='true'] {
+  border-color: #a13c28;
+}
+.select-value {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.select-chevron {
+  flex: none;
+  font-size: 17px;
+  color: #526851;
+}
+.select-popover {
+  position: fixed;
+  inset: auto;
+  margin: 0;
+  padding: 0;
+  border: 1px solid #aab8aa;
+  border-radius: 9px;
+  background: white;
+  color: #263b30;
+  box-shadow: 0 10px 30px #172c2526;
+  font:
+    14px/1.45 system-ui,
+    sans-serif;
+  overflow: hidden;
+}
+.select-popover:popover-open {
+  display: flex;
+  flex-direction: column;
+}
+.select-search {
+  padding: 9px;
+  border-bottom: 1px solid #e3e9df;
+  flex: none;
+}
+.select-search input {
+  width: 100%;
+  border: 1px solid #aab8aa;
+  border-radius: 5px;
+  padding: 8px 10px;
+  background: #fff;
+  color: #263b30;
+  font: inherit;
+}
+.select-search input:focus {
+  outline: 2px solid #3f755b;
+  outline-offset: 1px;
+}
+.select-options {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 5px;
+  min-height: 0;
+}
+.select-option {
+  padding: 8px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+.select-option.active {
+  background: #edf3e7;
+}
+.select-option:hover {
+  background: #e2ecdc;
+}
+.select-option[aria-selected='true'] {
+  font-weight: 650;
+}
+.select-option[aria-selected='true']::after {
+  content: '✓';
+  float: right;
+  margin-left: 10px;
+  color: #27583d;
+}
+.select-option[aria-disabled='true'] {
+  color: #737e70;
+  cursor: not-allowed;
+  background: transparent;
+  font-weight: 400;
+}
+.select-status {
+  padding: 7px 14px;
+  border-top: 1px solid #e3e9df;
+  font-size: 12px;
+  color: #526851;
+  flex: none;
+}

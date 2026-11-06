@@ -7,7 +7,7 @@ import { timer } from './live-progress.js';
 export { runLabel } from './run-label.js';
 export function handoffFiles(h) {
   if (!h) return '';
-  return `${h.findings?.length ? `<section class="report-findings"><h4>Review findings</h4>${h.findings.map((f) => `<article><span class="severity ${e(f.severity)}">${e(f.severity)}</span><div><strong>${e(f.file)}</strong><p>${e(f.description)}</p></div></article>`).join('')}</section>` : ''}${
+  return `${h.findings?.length ? `<section class="report-findings"><h4>Review findings</h4>${h.findings.map((f) => `<article><div class="finding-header"><span class="severity ${e(f.severity)}">${e(f.severity)}</span><strong>${e(f.file.split('/').at(-1))}</strong></div><code class="finding-path">${e(f.file)}</code><p>${e(f.description)}</p></article>`).join('')}</section>` : ''}${
     h.files?.length
       ? `<details class="report-section"><summary>Changed files <span>${h.files.length}</span></summary><ul class="report-files">${h.files
           .map((f) => {
@@ -21,7 +21,7 @@ export function handoffFiles(h) {
 }
 export function handoffBody(h) {
   if (!h) return '';
-  return `${
+  return `<div class="handoff-report">${
     h.risks?.length
       ? `<section class="report-risks"><h4>Risks & limitations</h4><ul>${h.risks
           .slice(0, 2)
@@ -30,7 +30,7 @@ export function handoffBody(h) {
             '',
           )}</ul>${h.risks.length > 2 || h.risks.some((r) => r.length > 220) ? `<details class="report-section"><summary>Full risks &amp; limitations (${h.risks.length})</summary><ul>${h.risks.map((r) => `<li>${e(r)}</li>`).join('')}</ul></details>` : ''}</section>`
       : ''
-  }${handoffFiles(h)}${verificationReport(h.verification)}${h.details ? `<details class="report-section"><summary>Explanation</summary><div class="prose report-prose">${prose(h.details)}</div></details>` : ''}${h.evidence?.length ? `<details class="report-section"><summary>Verification & evidence <span>${h.evidence.length}</span></summary><ul class="evidence-list">${h.evidence.map((v) => `<li>${e(v)}</li>`).join('')}</ul></details>` : ''}`;
+  }${handoffFiles(h)}<div class="report-supporting">${verificationReport(h.verification)}${h.details ? `<details class="report-section"><summary>Explanation</summary><div class="prose report-prose">${prose(h.details)}</div></details>` : ''}${h.evidence?.length ? `<details class="report-section"><summary>Verification & evidence <span>${h.evidence.length}</span></summary><ul class="evidence-list">${h.evidence.map((v) => `<li>${e(v)}</li>`).join('')}</ul></details>` : ''}</div></div>`;
 }
 export function handoffList(task) {
   const attempts = task.attempts

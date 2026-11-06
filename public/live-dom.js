@@ -1,3 +1,4 @@
+import { prepareSearchSelects } from './search-select.js';
 // Reconcile trusted, locally rendered markup without replacing active controls.
 function key(node) {
   if (node.nodeType !== 1) return null;
@@ -55,6 +56,7 @@ function reconcile(parent, next) {
 export function updateLiveDOM(root, html, scope) {
   const template = root.ownerDocument.createElement('template');
   template.innerHTML = html;
+  prepareSearchSelects(template.content);
   if (root.dataset.renderScope !== scope) {
     root.replaceChildren(template.content);
     root.dataset.renderScope = scope;

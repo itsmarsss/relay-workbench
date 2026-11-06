@@ -247,7 +247,7 @@ try {
   await page.getByRole('button', { name: 'Save repository' }).click();
   await page.getByRole('heading', { name: 'Browser fixture', exact: true }).waitFor();
   await page.getByRole('button', { name: 'New task', exact: true }).click();
-  await page.locator('#new-repository').selectOption({ label: 'Browser fixture' });
+  await page.locator('#new-repository').selectOption({ label: 'Browser fixture' }, { force: true });
   await page.locator('#new-title').fill('<img src=x onerror=alert(1)> Literal task title');
   await page.locator('#new-description').fill('A browser test task; do not launch a live harness.');
   await page.locator('#new-ticket').fill('https://github.com/example/service/issues/42');
@@ -446,7 +446,7 @@ try {
   assert.ok((await editor.locator('#edit-description').inputValue()).includes('expected-behavior'));
   await page.unroute('**/api/attachments');
 
-  await editor.locator('[name="route-review"]').selectOption('codex');
+  await editor.locator('[name="route-review"]').selectOption('codex', { force: true });
   await editor.locator('[name="model-review"]').fill('review-model');
   await editor.locator('[name="timeoutMinutes"]').fill('22');
   await editor.locator('[name="maxRepairRounds"]').fill('5');
@@ -483,12 +483,13 @@ try {
   assert.notEqual(page.url(), editedUrl);
   await page.getByRole('button', { name: 'All tasks', exact: false }).first().click();
   await page.getByRole('button', { name: 'List', exact: true }).click();
-  await page.locator('#task-stage-filter').selectOption('backlog');
+  await page.locator('#task-stage-filter').selectOption('backlog', { force: true });
   assert.equal(await page.locator('.task-list-row').count(), 2);
   await page.locator('#task-search').fill('Configurable draft');
   assert.equal(await page.locator('.task-list-row').count(), 1);
   await page.locator('.task-list-open').click();
   await page.getByRole('heading', { name: 'Configurable draft', exact: true }).waitFor();
+  await page.waitForURL((url) => url.hash.startsWith('#task/'));
   await page.goBack();
   await page.locator('#task-search').waitFor();
   assert.equal(await page.locator('#task-search').inputValue(), 'Configurable draft');
@@ -579,7 +580,7 @@ try {
     await page.setViewportSize({ width: 1440, height: 1100 });
     await page.reload();
     await page.getByRole('button', { name: 'New task', exact: true }).click();
-    await page.locator('#new-repository').selectOption('client');
+    await page.locator('#new-repository').selectOption('client', { force: true });
     await page.getByText('Coordinate additional repositories', { exact: true }).click();
     await page.locator('input[name="additionalRepository"][value="service"]').check();
     await page.getByRole('listbox', { name: 'Prerequisites for client' }).selectOption(['service']);
@@ -767,7 +768,7 @@ try {
       .getByRole('region', { name: 'Selected run', exact: true })
       .getByText('Run 10 found a runtime blocker.', { exact: true })
       .waitFor();
-    const picker = page.getByLabel('Run history', { exact: false });
+    const picker = page.locator('#terminal-run');
     assert.equal(await picker.locator('option').count(), 10);
     assert.equal(await page.locator('.terminal-tabs').count(), 0);
     assert.equal(await page.getByRole('button', { name: 'Follow latest', exact: true }).count(), 0);
@@ -782,7 +783,7 @@ try {
         .count(),
       1,
     );
-    await picker.selectOption('history-0');
+    await picker.selectOption('history-0', { force: true });
     await page
       .getByRole('region', { name: 'Selected run', exact: true })
       .getByText('Run 1 found a runtime blocker.', { exact: true })
@@ -814,7 +815,7 @@ try {
     await assertReadableText(page);
     await page.getByRole('button', { name: 'Harnesses', exact: true }).click();
     await page.getByRole('heading', { name: 'Routing evidence', exact: true }).waitFor();
-    await page.locator('#outcomes-repository').selectOption('service');
+    await page.locator('#outcomes-repository').selectOption('service', { force: true });
     await page.getByRole('heading', { name: 'Suggested defaults', exact: true }).waitFor();
     await page.getByRole('button', { name: 'Settings', exact: true }).click();
     await page.getByRole('button', { name: 'Refresh storage', exact: true }).click();
