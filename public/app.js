@@ -1,3 +1,4 @@
+import { prepareSearchSelects } from './search-select.js';
 import { updateLiveDOM } from './live-dom.js';
 import { handoffBody, handoffList, workflowStages, executionLogs } from './task-panels.js';
 import { activityRunSelection, activityRunNavigation, activityRunHeader } from './activity-runs.js';
@@ -440,6 +441,7 @@ function showModal(title, contents, wide = false) {
   document.querySelector('#modal-root').innerHTML =
     `<dialog id="dialog" class="modal ${wide ? 'wide' : ''}"><div class="modal-heading"><h2>${title}</h2><button class="icon-button" data-action="close-modal" aria-label="Close dialog">${icon('close')}</button></div>${contents}</dialog>`;
   const dialog = document.querySelector('#dialog');
+  prepareSearchSelects(dialog);
   dialog.showModal();
   dialog.addEventListener('close', () => {
     if (state.modal?.restoreId) {
