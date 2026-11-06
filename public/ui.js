@@ -39,6 +39,8 @@ export const stageNames = {
   review: 'Independent review',
 };
 export const statusNames = {
+  publishing: 'Publishing',
+  review: 'In review',
   draft: 'Ready to start',
   queued: 'Queued',
   running: 'In progress',

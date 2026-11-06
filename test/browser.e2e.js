@@ -122,6 +122,17 @@ try {
   await page.getByRole('heading', { name: 'The specialists are done. Over to you.' }).waitFor();
   await page.getByRole('button', { name: 'Accept result', exact: true }).click();
   await page.locator('.task-subtitle .badge.completed').waitFor();
+  await page.getByRole('button', { name: 'Change task status', exact: true }).click();
+  await page.locator('#status-choice').selectOption('review', { force: true });
+  await page.getByRole('button', { name: 'Save status', exact: true }).click();
+  await page.locator('.task-subtitle .badge.review').waitFor();
+  await page.reload();
+  await page.locator('.task-subtitle .badge.review').waitFor();
+  await page.getByRole('button', { name: 'Change task status', exact: true }).click();
+  await page.locator('#status-choice').selectOption('', { force: true });
+  await page.getByRole('button', { name: 'Save status', exact: true }).click();
+  await page.locator('.task-subtitle .badge.completed').waitFor();
+
   const taskUrl = page.url();
   await page.getByRole('button', { name: 'All activity', exact: true }).click();
   if (localApp) {
@@ -709,9 +720,7 @@ try {
     await page.screenshot({ path: join(screenshots, 'inline-feedback.png'), fullPage: true });
     await page.getByRole('button', { name: 'Accept result', exact: true }).click();
     await page.locator('.task-subtitle .badge.completed').waitFor();
-    await page
-      .getByRole('heading', { name: 'From accepted changes to a PR', exact: true })
-      .waitFor();
+    await page.getByRole('region', { name: 'Pull requests', exact: true }).waitFor();
     const publicationTask = localApp.store.get(parseTaskRoute(new URL(page.url()).hash).id);
     publicationTask.repositories[0].publication = {
       url: 'https://code.example/team/project/pull/42',
@@ -733,14 +742,14 @@ try {
       await page.getByRole('link', { name: 'Observed PR ↗', exact: true }).getAttribute('href'),
       'https://code.example/team/project/pull/42',
     );
-    await page.getByText('CI is running', { exact: true }).waitFor();
-    await page.getByRole('button', { name: 'View technical details', exact: true }).first().click();
+    await page.getByText('Checks: pending · Review: required', { exact: true }).waitFor();
+    await page.getByRole('button', { name: 'PR details for service', exact: true }).first().click();
     await page.getByRole('dialog').getByRole('heading', { name: 'Branch and commit' }).waitFor();
     await page.keyboard.press('Escape');
     for (const width of [1440, 390]) {
       await page.setViewportSize({ width, height: 1000 });
       await page
-        .locator('.publication-panel')
+        .locator('.pr-tracker')
         .screenshot({ path: join(screenshots, `delivery-${width}.png`) });
       assert.ok(
         await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),

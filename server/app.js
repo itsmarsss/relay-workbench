@@ -54,6 +54,8 @@ function summary(task) {
     ...rest,
     repositories: workspaces(task).map((e) => ({
       repository: { id: e.repository.id, name: e.repository.name },
+      delivery: e.delivery ? { status: e.delivery.status } : undefined,
+      submission: e.submission ? { status: e.submission.status } : undefined,
     })),
     repository: { id: repository.id, name: repository.name },
     attemptCount: attempts.length,
@@ -391,6 +393,26 @@ export function createApp({ directory, publicDirectory, engineOptions = {} }) {
         const [, id, operation] = match;
         const task = store.get(id);
         requireValue(task, 'Task not found', 404);
+        if (operation === 'status-override' && req.method === 'POST') {
+          const request = await body(req);
+          requireValue(
+            request.value === null ||
+              ['draft', 'running', 'review', 'completed', 'blocked', 'cancelled'].includes(
+                request.value,
+              ),
+            'Choose a valid task status',
+          );
+          const current = store.get(id);
+          current.statusOverride =
+            request.value === null ? null : { value: request.value, at: new Date().toISOString() };
+          store.save(current, {
+            type: 'status_override',
+            summary: request.value
+              ? `Task status overridden to ${request.value}. Automation is unchanged.`
+              : 'Task status now follows the workflow.',
+          });
+          return json(res, 200, current);
+        }
         if (operation === 'publish-stop' && req.method === 'POST')
           return json(res, 202, publicationWorkflow.pause(id));
         if (operation === 'publish' && req.method === 'POST') {

@@ -5061,3 +5061,75 @@ textarea::placeholder,
   background: var(--bg);
   border-radius: 8px;
 }
+
+/* PR state stays beside the work, without another dashboard. */
+.pr-tracker {
+  margin: 12px 0 20px;
+  border-block: 1px solid var(--line);
+}
+.pr-tracker-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  padding: 12px 0;
+}
+.pr-tracker-row + .pr-tracker-row {
+  border-top: 1px solid var(--line);
+}
+.pr-tracker-state,
+.pr-tracker-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+}
+.pr-tracker-state {
+  flex: 1;
+  min-width: 0;
+}
+.pr-tracker-state strong {
+  font-size: 14px;
+}
+.pr-tracker-state a {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  font-weight: 600;
+}
+.pr-checks {
+  font-size: 13px;
+  color: var(--muted);
+}
+.pr-tracker-blocker {
+  width: 100%;
+  margin: 0;
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+.status-editor {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+.status-editor > .icon {
+  width: 14px;
+  height: 14px;
+  transform: rotate(90deg);
+}
+.status-editor:hover {
+  text-decoration: underline;
+}
+@media (max-width: 600px) {
+  .pr-tracker-row {
+    align-items: flex-start;
+  }
+  .pr-tracker-state,
+  .pr-tracker-actions {
+    width: 100%;
+  }
+}

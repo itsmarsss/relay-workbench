@@ -176,14 +176,14 @@ test('Delivery makes acceptance, publication and remote status distinct and esca
   const html = publicationPanel(task);
   assert.match(html, /https:\/\/code.example\/team\/project\/pull\/42/);
   assert.match(publicationDetails(task, 'repo'), /abcdef1234/);
-  assert.match(html, /<dt>Checks<\/dt><dd>pending/);
-  assert.match(html, /Pause monitoring/);
+  assert.match(html, /Checks: pending/);
+  assert.match(publicationDetails(task, 'repo'), /Pause monitoring/);
   assert.doesNotMatch(
     publicationPanel({ ...task, submission: undefined }),
     /Commit &amp; submit draft PR/,
   );
   assert.doesNotMatch(html, /<script>|<example>/);
-  assert.match(publicationPanel({ ...task, status: 'awaiting_final' }), /Accept the code first/);
+  assert.equal(publicationPanel({ ...task, status: 'awaiting_final' }), '');
   assert.equal(publicationPanel({ ...task, status: 'running' }), '');
   const schema = handoffSchema('monitor');
   assert.ok(schema.required.includes('publication'));

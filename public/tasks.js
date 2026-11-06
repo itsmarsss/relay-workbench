@@ -1,3 +1,4 @@
+import { displayStatus } from './task-status.js';
 import { e, badge, ago, empty, icon } from './ui.js';
 import { columns, workflowColumn, nextStep, workflowBoard } from './workflow.js';
 const needsInput = new Set([
@@ -13,11 +14,12 @@ export function filterTasks(tasks, state) {
     const entries = task.repositories?.length ? task.repositories : [task];
     const scope =
       state.filter === 'all' ||
-      (state.filter === 'attention' && needsInput.has(task.status)) ||
-      (state.filter === 'active' && ['running', 'queued'].includes(task.status)) ||
-      (state.filter === 'backlog' && task.status === 'draft') ||
-      (state.filter === 'completed' && task.status === 'completed') ||
-      (state.filter === 'cancelled' && task.status === 'cancelled');
+      (state.filter === 'attention' && needsInput.has(displayStatus(task))) ||
+      (state.filter === 'active' &&
+        ['running', 'queued', 'publishing', 'review'].includes(displayStatus(task))) ||
+      (state.filter === 'backlog' && displayStatus(task) === 'draft') ||
+      (state.filter === 'completed' && displayStatus(task) === 'completed') ||
+      (state.filter === 'cancelled' && displayStatus(task) === 'cancelled');
     return (
       scope &&
       (!state.repositoryFilter ||
@@ -29,13 +31,13 @@ export function filterTasks(tasks, state) {
     );
   });
   const rank = (task) =>
-    needsInput.has(task.status)
+    needsInput.has(displayStatus(task))
       ? 0
-      : ['running', 'queued'].includes(task.status)
+      : ['running', 'queued', 'publishing', 'review'].includes(displayStatus(task))
         ? 1
-        : task.status === 'draft'
+        : displayStatus(task) === 'draft'
           ? 2
-          : task.status === 'completed'
+          : displayStatus(task) === 'completed'
             ? 3
             : 4;
   return filtered.sort(
@@ -51,7 +53,7 @@ export function filterTasks(tasks, state) {
   );
 }
 export function taskList(tasks) {
-  return `<div class="task-list" role="list" aria-label="Tasks">${tasks.map((task) => `<article class="task-list-row" role="listitem"><button class="task-list-open" data-action="open-task" data-id="${e(task.id)}"><div class="task-list-copy"><strong>${e(task.title)}${task.demo ? ' <span class="demo-label">DEMO</span>' : ''}</strong><small>${e((task.repositories?.length ? task.repositories : [task]).map((entry) => entry.repository.name).join(' + '))} · ${e(columns.find(([id]) => id === workflowColumn(task))?.[1] ?? '')}${task.ticket ? ` · ${e(task.ticket.match(/\/issues\/(\d+)/)?.[1] ? '#' + task.ticket.match(/\/issues\/(\d+)/)[1] : task.ticket)}` : ''}</small>${task.error || task.latestSummary ? `<p>${e((task.error || task.latestSummary).slice(0, 220))}</p>` : ''}</div><div class="task-list-state">${badge(task.status)}<strong>${e(nextStep(task))}</strong><time>${ago(task.updatedAt)}</time></div>${icon('chevron')}</button></article>`).join('')}</div>`;
+  return `<div class="task-list" role="list" aria-label="Tasks">${tasks.map((task) => `<article class="task-list-row" role="listitem"><button class="task-list-open" data-action="open-task" data-id="${e(task.id)}"><div class="task-list-copy"><strong>${e(task.title)}${task.demo ? ' <span class="demo-label">DEMO</span>' : ''}</strong><small>${e((task.repositories?.length ? task.repositories : [task]).map((entry) => entry.repository.name).join(' + '))} · ${e(columns.find(([id]) => id === workflowColumn(task))?.[1] ?? '')}${task.ticket ? ` · ${e(task.ticket.match(/\/issues\/(\d+)/)?.[1] ? '#' + task.ticket.match(/\/issues\/(\d+)/)[1] : task.ticket)}` : ''}</small>${task.error || task.latestSummary ? `<p>${e((task.error || task.latestSummary).slice(0, 220))}</p>` : ''}</div><div class="task-list-state">${badge(displayStatus(task))}<strong>${e(nextStep(task))}</strong><time>${ago(task.updatedAt)}</time></div>${icon('chevron')}</button></article>`).join('')}</div>`;
 }
 export function tasksPage(state) {
   const filtered = filterTasks(state.tasks, state);
@@ -61,15 +63,25 @@ export function tasksPage(state) {
       profiles.set(entry.repository.id, entry.repository.name);
   const scopes = [
     ['all', 'All tasks', state.tasks.length],
-    ['attention', 'Needs you', state.tasks.filter((task) => needsInput.has(task.status)).length],
+    [
+      'attention',
+      'Needs you',
+      state.tasks.filter((task) => needsInput.has(displayStatus(task))).length,
+    ],
     [
       'active',
       'Running',
-      state.tasks.filter((task) => ['running', 'queued'].includes(task.status)).length,
+      state.tasks.filter((task) =>
+        ['running', 'queued', 'publishing', 'review'].includes(displayStatus(task)),
+      ).length,
     ],
-    ['backlog', 'Backlog', state.tasks.filter((task) => task.status === 'draft').length],
-    ['completed', 'Done', state.tasks.filter((task) => task.status === 'completed').length],
-    ['cancelled', 'Cancelled', state.tasks.filter((task) => task.status === 'cancelled').length],
+    ['backlog', 'Backlog', state.tasks.filter((task) => displayStatus(task) === 'draft').length],
+    ['completed', 'Done', state.tasks.filter((task) => displayStatus(task) === 'completed').length],
+    [
+      'cancelled',
+      'Cancelled',
+      state.tasks.filter((task) => displayStatus(task) === 'cancelled').length,
+    ],
   ];
   return `<div class="page-heading"><div><div class="eyebrow">YOUR WORK QUEUE</div><h1>Tasks</h1><p>Pick a task, see its next step, and keep work moving.</p></div></div><nav class="task-scopes" aria-label="Task status filters">${scopes
     .filter(([id, , count]) => id !== 'cancelled' || count)

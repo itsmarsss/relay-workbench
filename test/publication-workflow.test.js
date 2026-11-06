@@ -217,8 +217,8 @@ test('compact memory summary opens exact snapshots without nested disclosures', 
     repository: { id: 'repo', name: 'Example' },
     submission: { status: 'failed', stderr: 'VERY LONG RAW LOG' },
   });
-  assert.match(html, /Retry publication with agent/);
-  assert.match(html, /View technical details/);
+  assert.match(html, /Retry publishing/);
+  assert.match(html, /Details/);
   assert.doesNotMatch(html, /VERY LONG RAW LOG/);
   assert.match(
     publicationDetails(

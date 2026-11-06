@@ -1000,3 +1000,39 @@ test('submission defaults to agent publication even with a configured provider c
   assert.equal(done.publication.url, 'https://code.example/team/repo/pull/7');
   assert.equal(done.status, 'completed');
 });
+
+test('manual status overrides persist without changing workflow or approvals', async (t) => {
+  const f = await fixture(t);
+  const { data: task } = await f.request('/api/tasks', 'POST', {
+    title: 'Override status',
+    demo: true,
+  });
+  const before = f.app.store.get(task.id);
+  assert.equal(
+    (await f.request(`/api/tasks/${task.id}/status-override`, 'POST', { value: 'invalid' })).status,
+    400,
+  );
+  assert.equal(
+    (
+      await f.request(
+        `/api/tasks/${task.id}/status-override`,
+        'POST',
+        { value: 'completed' },
+        { 'X-Relay-Token': '' },
+      )
+    ).status,
+    403,
+  );
+  const changed = await f.request(`/api/tasks/${task.id}/status-override`, 'POST', {
+    value: 'review',
+  });
+  assert.equal(changed.status, 200);
+  assert.equal(changed.data.statusOverride.value, 'review');
+  assert.equal(changed.data.status, before.status);
+  assert.deepEqual(changed.data.approvals, before.approvals);
+  assert.equal((await f.request(`/api/tasks/${task.id}`)).data.statusOverride.value, 'review');
+  assert.equal(f.app.store.events(task.id).at(-1).type, 'status_override');
+  const cleared = await f.request(`/api/tasks/${task.id}/status-override`, 'POST', { value: null });
+  assert.equal(cleared.data.statusOverride, null);
+  assert.equal(cleared.data.status, before.status);
+});
