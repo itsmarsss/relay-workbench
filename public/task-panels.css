@@ -589,3 +589,8 @@
 .task-center .transcript .stderr {
   color: #8b3c2b;
 }
+
+.verdict.pending {
+  color: #40576a;
+  background: #edf3f7;
+}

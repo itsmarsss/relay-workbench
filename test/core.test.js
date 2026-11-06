@@ -780,7 +780,11 @@ for (const exitCode of [0, 1])
         if (stage === 'implement') {
           if (task.continuationContext?.diagnosis?.checks) {
             continued = true;
-        assert.ok(task.messages.some((m) => m.text === 'Preserve this direction' && m.delivery === 'pending'));
+            assert.ok(
+              task.messages.some(
+                (m) => m.text === 'Preserve this direction' && m.delivery === 'pending',
+              ),
+            );
             assert.equal(task.continuationContext.diagnosis.checks[0].code, exitCode);
             assert.match(task.continuationContext.diagnosis.checks[0].stdout, /host evidence/);
           }
@@ -800,7 +804,7 @@ for (const exitCode of [0, 1])
     await engine.action(task.id, 'approve-plan', { optionId: 'shared-boundary' });
     await waitFor(f.store, task.id, (t) => t.status === 'blocked' && !engine.running.has(t.id));
     await engine.action(task.id, 'message', { message: 'Preserve this direction' });
-  await engine.action(task.id, 'verify-blocker', { command: 'untrusted-command' });
+    await engine.action(task.id, 'verify-blocker', { command: 'untrusted-command' });
     const result = await waitFor(f.store, task.id, (t) => continued && t.status === 'blocked');
     assert.equal(result.stage, 'implement');
     assert.equal(result.approvals.length, 1);
@@ -811,3 +815,124 @@ for (const exitCode of [0, 1])
     );
     assert.equal(await readFile(join(repo, 'value.txt'), 'utf8'), 'before\n');
   });
+
+for (const disposition of ['repair_requested', 'verification_requested'])
+  test(`debugger automatically hands off ${disposition} and preserves the writer`, async (t) => {
+    const f = await fixture(t);
+    const repo = await makeRepo(f.directory);
+    f.store.setConfig({ ...DEFAULT_CONFIG, repositories: [profile(repo, { strategy: 'attach' })] });
+    let resumed = false;
+    const engine = f.makeEngine({
+      harness: async ({ task, stage, sessionId, onSession }) => {
+        if (task.debugContext)
+          return {
+            ...demoHandoff(task, stage),
+            verdict: disposition,
+            summary: 'Use configured recovery',
+            details: 'Repair the failed prerequisite; preserve approved behavior.',
+          };
+        if (stage === 'implement') {
+          if (!task.continuationContext) {
+            onSession('original-writer');
+            return {
+              ...demoHandoff(task, stage),
+              verdict: 'blocked',
+              summary: 'Required check needs recovery',
+            };
+          }
+          assert.equal(sessionId, 'original-writer');
+          resumed = true;
+          if (disposition === 'repair_requested') {
+            assert.equal(task.continuationContext.diagnosis.disposition, disposition);
+            await writeFile(join(task.workspace, 'value.txt'), 'repaired\n');
+          } else assert.equal(task.continuationContext.diagnosis.checks[0].code, 0);
+        }
+        return demoHandoff(task, stage);
+      },
+    });
+    const task = engine.create({ title: 'Automatic recovery', repositoryId: 'repo' });
+    await engine.action(task.id, 'start');
+    await waitFor(f.store, task.id, (t) => t.status === 'awaiting_plan');
+    await engine.action(task.id, 'approve-plan', { optionId: 'shared-boundary' });
+    const result = await waitFor(f.store, task.id, (t) => t.status === 'awaiting_final');
+    assert.equal(resumed, true);
+    assert.equal(result.approvals.length, 1);
+    assert.equal(result.attempts.filter((a) => a.role === 'debug').length, 1);
+    assert.equal(
+      result.attempts.filter((a) => a.role === 'verifier').length,
+      disposition === 'verification_requested' ? 1 : 0,
+    );
+    assert.ok(result.verifiedFingerprint);
+    assert.equal(
+      await readFile(join(repo, 'value.txt'), 'utf8'),
+      disposition === 'repair_requested' ? 'repaired\n' : 'before\n',
+    );
+  });
+
+test('automatic repair handoffs remain bounded when the writer cannot fix the failure', async (t) => {
+  const f = await fixture(t);
+  const repo = await makeRepo(f.directory);
+  f.store.setConfig({
+    ...DEFAULT_CONFIG,
+    maxRecoveryAttempts: 2,
+    repositories: [profile(repo, { strategy: 'attach' })],
+  });
+  const engine = f.makeEngine({
+    harness: async ({ task, stage }) =>
+      task.debugContext
+        ? {
+            ...demoHandoff(task, stage),
+            verdict: 'repair_requested',
+            summary: 'Targeted correction needed',
+          }
+        : stage === 'implement'
+          ? { ...demoHandoff(task, stage), verdict: 'blocked', summary: 'Still failing' }
+          : demoHandoff(task, stage),
+  });
+  const task = engine.create({ title: 'Bounded repair', repositoryId: 'repo' });
+  await engine.action(task.id, 'start');
+  await waitFor(f.store, task.id, (t) => t.status === 'awaiting_plan');
+  await engine.action(task.id, 'approve-plan', { optionId: 'shared-boundary' });
+  const result = await waitFor(f.store, task.id, (t) => t.status === 'blocked');
+  assert.equal(result.attempts.filter((a) => a.role === 'debug').length, 2);
+  assert.equal(
+    result.attempts.some((a) => a.stage === 'review'),
+    false,
+  );
+});
+
+test('recovery requests cannot grant host execution before implementation approval', async (t) => {
+  const f = await fixture(t);
+  const repo = await makeRepo(f.directory);
+  const marker = join(f.directory, 'unexpected-check');
+  f.store.setConfig({
+    ...DEFAULT_CONFIG,
+    maxRecoveryAttempts: 0,
+    repositories: [
+      profile(repo, {
+        strategy: 'attach',
+        checks: [
+          {
+            command: process.execPath,
+            args: ['-e', `require('fs').writeFileSync(${JSON.stringify(marker)}, 'ran')`],
+          },
+        ],
+      }),
+    ],
+  });
+  const engine = f.makeEngine({
+    harness: async ({ task, stage }) => ({
+      ...demoHandoff(task, stage),
+      verdict: 'verification_requested',
+    }),
+  });
+  const task = engine.create({ title: 'No approval', repositoryId: 'repo' });
+  await engine.action(task.id, 'start');
+  const result = await waitFor(f.store, task.id, (t) => t.status === 'blocked');
+  assert.equal(result.approvals.length, 0);
+  assert.equal(
+    result.attempts.some((a) => a.role === 'verifier'),
+    false,
+  );
+  await assert.rejects(readFile(marker), { code: 'ENOENT' });
+});
