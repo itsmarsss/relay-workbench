@@ -28,8 +28,10 @@ const commit = async (root) => {
     'feat: accepted change',
   ]);
 };
-async function fixture(t, publish) {
+async function fixture(t, publish, validate) {
   const root = await mkdtemp(join(tmpdir(), 'relay-publish-'));
+  const state = await mkdtemp(join(tmpdir(), 'relay-publish-state-'));
+  t.after(() => rm(state, { recursive: true, force: true }));
   await git(root, ['init', '-b', 'feature/change']);
   await writeFile(join(root, 'value.txt'), 'before');
   await commit(root);
@@ -55,7 +57,7 @@ async function fixture(t, publish) {
     monitorCalls = [],
     reservations = new Map();
   const store = {
-    directory: root,
+    directory: state,
     config: { harnesses: { codex: { enabled: true } } },
     all: () => [structuredClone(task)],
     get: () => structuredClone(task),
@@ -70,7 +72,7 @@ async function fixture(t, publish) {
     store,
     { workspaceReservations: reservations },
     monitor,
-    { publish },
+    { publish, validate, memory: () => ({ entries: [], omitted: 0 }) },
   );
   t.after(async () => {
     await workflow.stop();
@@ -91,7 +93,7 @@ test('publication agent commits exactly accepted contents then hands off to moni
   const f = await fixture(t, async (input) => {
     assert.equal(input.stage, 'publish');
     assert.equal(input.task.publicationContext.expectedDraft, true);
-    assert.equal(input.config.timeoutMinutes, 10);
+    assert.equal(input.config.timeoutMinutes, 15);
     const before = await acceptedContent(input.task);
     await commit(root);
     assert.equal(await acceptedContent(input.task), before);
@@ -109,7 +111,7 @@ test('publication agent commits exactly accepted contents then hands off to moni
   root = f.root;
   await f.workflow.start('task', 'repo');
   await f.settle();
-  assert.equal(f.task.delivery.status, 'complete');
+  assert.equal(f.task.delivery.status, 'complete', f.task.delivery.details);
   assert.equal(f.task.delivery.sessionId, 'publication-session');
   assert.equal(f.task.publication.url, snapshot.url);
   assert.equal(await git(root, ['status', '--porcelain']), '');
@@ -178,7 +180,8 @@ test('publication rejects changed approval, duplicate writers and agent source e
   assert.equal(f.task.delivery.status, 'blocked');
   assert.equal(f.task.delivery.requiresReverification, true);
   assert.equal(f.task.publication, undefined);
-  await assert.rejects(f.workflow.start('task', 'repo'), /reverify/);
+  await writeFile(join(root, 'value.txt'), 'external unapproved edit');
+  await assert.rejects(f.workflow.start('task', 'repo'), /outside publication/);
 });
 test('compact memory summary opens exact snapshots without nested disclosures', () => {
   const task = {
@@ -249,7 +252,7 @@ test('publication resumes an interrupted accepted commit safely', async (t) => {
   f.task.delivery = { status: 'interrupted', originalHead, content };
   await f.workflow.start('task', 'repo');
   await f.settle();
-  assert.equal(f.task.delivery.status, 'complete');
+  assert.equal(f.task.delivery.status, 'complete', f.task.delivery.details);
   assert.equal(f.reservations.size, 0);
 });
 
@@ -268,7 +271,7 @@ test('pausing publication preserves accepted work and releases its writer', asyn
   await ready;
   f.workflow.pause('task');
   await f.settle();
-  assert.equal(f.task.delivery.status, 'blocked');
+  assert.equal(f.task.delivery.status, 'interrupted');
   assert.equal(f.task.delivery.stopRequested, true);
   assert.equal(f.task.delivery.requiresReverification, false);
   assert.equal(await acceptedContent(f.task), content);
@@ -325,4 +328,248 @@ test('older delivery runs recover from events with uncertain outcomes labeled', 
   assert.match(task.deliveryRuns[0].handoff.summary, /outcome was not retained/);
   assert.equal(task.deliveryRuns[1].status, 'blocked');
   assert.equal(recoverDeliveryRuns(task, events, [task]), false);
+});
+
+const prepared = (baseCommit) => ({
+  verdict: 'verification_requested',
+  summary: 'Branch rebased and conflicts resolved',
+  details: 'Preserved the accepted behavior',
+  evidence: ['Inspected branch preparation'],
+  risks: [],
+  options: [],
+  publication: { ...snapshot, url: '', state: 'unknown' },
+  preparation: { baseCommit, scope: 'routine', summary: 'Routine branch update' },
+});
+async function upstream(f, t, conflict = false) {
+  const other = `${f.root}-upstream`;
+  await git(f.root, ['worktree', 'add', '-b', 'upstream', other, f.task.baseCommit]);
+  t.after(() => rm(other, { recursive: true, force: true }));
+  await writeFile(join(other, 'upstream.txt'), 'new upstream behavior');
+  if (conflict) await writeFile(join(other, 'value.txt'), 'upstream value');
+  await commit(other);
+  return git(other, ['rev-parse', 'HEAD']);
+}
+async function verification(input, code = 0) {
+  const { runCheck } = await import('../server/check-runner.js');
+  const root = input.task.workspaceRoot;
+  const args = [
+    '-e',
+    code
+      ? 'process.exit(1)'
+      : "if(require('fs').readFileSync('value.txt','utf8')!=='accepted')process.exit(2)",
+  ];
+  const spec = {
+    repositoryId: 'repo',
+    cwd: await (await import('node:fs/promises')).realpath(root),
+    command: process.execPath,
+    args,
+  };
+  await runCheck(input.task.verificationContext.runner, spec, input.signal);
+  input.onEvent({ type: 'activity', kind: 'tool', summary: 'Ran supervised check' });
+  return {
+    verdict: 'complete',
+    summary: 'Verified prepared branch',
+    details: 'Executed affected regression check',
+    evidence: ['Actual check exit recorded'],
+    findings: [],
+    verification: {
+      checks: [{ ...spec, code, summary: 'Accepted behavior preserved' }],
+      requirements: [
+        {
+          repositoryId: 'repo',
+          source: 'Repository guidance',
+          requirement: 'Preserve accepted behavior',
+          checkIndices: [0],
+        },
+      ],
+      reuse: [],
+    },
+  };
+}
+
+test('publication rebases then verifies and independently reviews before publishing', async (t) => {
+  let root,
+    base,
+    publishCalls = 0;
+  const seen = [];
+  const f = await fixture(
+    t,
+    async (input) => {
+      seen.push(input.task.publicationContext.phase);
+      if (++publishCalls === 1) {
+        input.onSession('publication-conversation');
+        await commit(root);
+        await assert.rejects(git(root, ['rebase', 'upstream']), /conflict/i);
+        await writeFile(join(root, 'value.txt'), 'accepted');
+        await git(root, ['add', 'value.txt']);
+        await git(root, ['-c', 'core.editor=true', 'rebase', '--continue']);
+        return prepared(base);
+      }
+      assert.equal(input.sessionId, 'publication-conversation');
+      assert.equal(f.task.approvals.at(-1).type, 'publication_revalidation');
+      return {
+        verdict: 'complete',
+        summary: 'Draft published',
+        details: 'Remote head verified',
+        evidence: ['Remote PR head matches prepared commit'],
+        risks: [],
+        options: [],
+        publication: snapshot,
+      };
+    },
+    async (input) => {
+      seen.push(input.stage);
+      if (input.stage === 'verify') return verification(input);
+      assert.equal(input.harness, f.task.routing.review);
+      const baseline = JSON.parse(
+        await (
+          await import('node:fs/promises')
+        ).readFile(input.task.publicationContext.approvalBaseline.acceptedSource, 'utf8'),
+      );
+      assert.match(baseline.patch, /accepted/);
+      assert.equal(baseline.untracked[0].path, 'new.txt');
+      return {
+        verdict: 'complete',
+        summary: 'Approved behavior preserved',
+        details: 'Compared original and rebased diffs',
+        evidence: ['Independent comparison to accepted source'],
+        findings: [],
+      };
+    },
+  );
+  root = f.root;
+  base = await upstream(f, t, true);
+  f.task.routing.review = 'codex';
+  await f.workflow.start('task', 'repo');
+  await f.settle();
+  assert.equal(f.task.delivery.status, 'complete', f.task.delivery.details);
+  assert.deepEqual(seen, ['publishing', 'verify', 'review', 'publishing']);
+  assert.equal(f.task.baseCommit, base);
+  assert.equal(f.task.deliveryRuns.length, 4);
+  assert.deepEqual(
+    f.task.deliveryRuns.map((r) => r.stage),
+    ['publish', 'verify', 'review', 'publish'],
+  );
+  assert.equal(f.task.attempts.length, 0);
+  assert.equal(f.task.status, 'completed');
+  assert.equal(f.task.publication.url, snapshot.url);
+  await git(root, ['rev-parse', f.task.delivery.approvalBaseline.ref]);
+});
+
+test('publication repairs failed checks and review findings without human handoff', async (t) => {
+  let root,
+    base,
+    publishes = 0,
+    checks = 0,
+    reviews = 0;
+  const f = await fixture(
+    t,
+    async (input) => {
+      publishes++;
+      if (publishes === 1) {
+        await commit(root);
+        await git(root, ['rebase', 'upstream']);
+        return prepared(base);
+      }
+      if (input.task.publicationContext.phase === 'preparing') {
+        assert.ok(input.task.publicationContext.repair);
+        await writeFile(join(root, `repair-${publishes}.txt`), 'Routine approved repair');
+        await commit(root);
+        return prepared(base);
+      }
+      assert.equal(checks, 3);
+      assert.equal(reviews, 2);
+      return {
+        verdict: 'complete',
+        summary: 'Published repaired branch',
+        details: 'Verified remote',
+        evidence: ['Remote head matches'],
+        risks: [],
+        options: [],
+        publication: snapshot,
+      };
+    },
+    async (input) => {
+      if (input.stage === 'verify') return verification(input, ++checks === 1 ? 1 : 0);
+      return {
+        verdict: ++reviews === 1 ? 'changes_requested' : 'complete',
+        summary: reviews === 1 ? 'Add regression evidence' : 'Approved',
+        details: 'Independent review',
+        evidence: ['Compared accepted behavior'],
+        findings:
+          reviews === 1
+            ? [{ severity: 'minor', file: 'value.txt', description: 'Add regression evidence' }]
+            : [],
+      };
+    },
+  );
+  root = f.root;
+  base = await upstream(f, t);
+  f.task.routing.review = 'codex';
+  await f.workflow.start('task', 'repo');
+  await f.settle();
+  assert.equal(f.task.delivery.status, 'complete', f.task.delivery.details);
+  assert.equal(publishes, 4);
+  assert.equal(f.task.approvals.length, 1);
+  assert.equal(f.reservations.size, 0);
+  assert.equal(f.monitorCalls.at(-1)[2], true);
+});
+
+test('publication preserves actionable human blockers and never publishes design changes', async (t) => {
+  const option = {
+    id: 'compatibility',
+    title: 'Choose compatibility policy',
+    description: 'Two incompatible behaviors require a product decision',
+    tradeoffs: 'Different caller guarantees',
+  };
+  const f = await fixture(
+    t,
+    async () => ({
+      ...prepared(f.task.baseCommit),
+      verdict: 'blocked',
+      summary: 'A compatibility decision is needed',
+      details: 'Conflicting caller contracts',
+      risks: ['Choose the intended caller contract'],
+      options: [option],
+    }),
+    async () => {
+      throw Error('Must not publish or validate a blocked design');
+    },
+  );
+  await f.workflow.start('task', 'repo');
+  await f.settle();
+  assert.equal(f.task.delivery.status, 'blocked');
+  assert.equal(f.task.delivery.summary, 'A compatibility decision is needed');
+  assert.deepEqual(f.task.delivery.options, [option]);
+  assert.equal(f.task.publication, undefined);
+});
+
+test('publication surfaces an explicit design change without validating or publishing it', async (t) => {
+  const f = await fixture(
+    t,
+    async () => ({
+      ...prepared(f.task.baseCommit),
+      preparation: {
+        baseCommit: f.task.baseCommit,
+        scope: 'design_change',
+        summary: 'Choose caller compatibility',
+      },
+      options: [
+        {
+          id: 'caller',
+          title: 'Choose caller contract',
+          description: 'Two contracts conflict',
+          tradeoffs: 'Different client behavior',
+        },
+      ],
+    }),
+    async () => {
+      throw Error('Design changes must not be auto accepted');
+    },
+  );
+  await f.workflow.start('task', 'repo');
+  await f.settle();
+  assert.equal(f.task.delivery.status, 'blocked');
+  assert.equal(f.task.delivery.options[0].id, 'caller');
+  assert.equal(f.task.publication, undefined);
 });

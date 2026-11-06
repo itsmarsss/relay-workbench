@@ -16,7 +16,9 @@ export function terminalSessions(task) {
       const harness = `${attempt.harness.charAt(0).toUpperCase() + attempt.harness.slice(1)}${attempt.role === 'debug' ? ' debugger' : ''}`;
       const live =
         attempt.status === 'running' &&
-        (['publish', 'monitor'].includes(attempt.stage) || task.status === 'running');
+        (attempt.auxiliary ||
+          ['publish', 'monitor'].includes(attempt.stage) ||
+          task.status === 'running');
       const status = live
         ? 'Live'
         : attempt.handoff?.verdict === 'blocked'

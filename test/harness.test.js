@@ -210,3 +210,28 @@ test('elevated debugger adapters use host permissions explicitly', () => {
     /Do not return verification_requested to outsource/,
   );
 });
+
+test('publication preparation can request verification and preserves autonomous recovery instructions', async () => {
+  const { validateHandoff, handoffSchema } = await import('../server/domain.js');
+  const task = newTask({ title: 'Publish accepted change', demo: true }, DEFAULT_CONFIG);
+  task.publicationContext = {
+    phase: 'preparing',
+    approvalBaseline: { acceptedSource: '/private/runtime/accepted.json' },
+  };
+  const result = {
+    ...demoHandoff(task, 'implement'),
+    verdict: 'verification_requested',
+    preparation: { baseCommit: 'a'.repeat(40), scope: 'routine', summary: 'Updated branch' },
+  };
+  assert.equal(validateHandoff(result, 'publish').verdict, 'verification_requested');
+  assert.ok(handoffSchema('publish').properties.preparation);
+  const prompt = buildPrompt(task, 'publish');
+  assert.match(prompt, /rebase the assigned branch/);
+  assert.match(prompt, /DO NOT PUSH OR PUBLISH yet/);
+  assert.match(prompt, /Do not invent a human approval requirement/);
+  assert.doesNotMatch(prompt, /Do not edit source, regenerate files.*rebase/);
+  assert.match(
+    buildPrompt(task, 'review'),
+    /independently compare the original accepted source snapshot/,
+  );
+});

@@ -1,3 +1,4 @@
+import { taskRuns } from './task-runs.js';
 import { e } from './ui.js';
 
 function scopeLabel(memory, config, tasks) {
@@ -62,7 +63,7 @@ export function memoryForm(memory, config, tasks, defaults = {}) {
     )}</select></label></div><div class="modal-footer"><button class="btn secondary" type="button" data-action="close-modal">Cancel</button><button class="btn primary" type="submit">Save memory</button></div></form>`;
 }
 export function runMemories(task) {
-  const runs = task.attempts.filter((a) => a.memorySnapshot),
+  const runs = taskRuns(task).filter((a) => a.memorySnapshot),
     latest = runs.at(-1);
   const entries = latest?.memorySnapshot.entries ?? [];
   return `<section class="context-card task-memory-card"><div class="context-title">MEMORY <span>${entries.length} in latest run</span></div>${
@@ -77,7 +78,7 @@ export function runMemories(task) {
   }<div class="memory-compact-actions"><button class="btn text small" data-action="task-memory">Add memory</button><button class="btn text small" data-action="memory-history">View run history (${runs.length})</button></div></section>`;
 }
 export function memoryRunHistory(task, selectedId) {
-  const runs = task.attempts
+  const runs = taskRuns(task)
     .filter((a) => a.memorySnapshot)
     .slice()
     .reverse();

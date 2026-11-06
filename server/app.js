@@ -73,6 +73,7 @@ export function createApp({ directory, publicDirectory, engineOptions = {} }) {
   });
   const publicationWorkflow = new PublicationWorkflow(store, engine, publicationMonitor, {
     publish: engineOptions.publicationPublish,
+    validate: engineOptions.publicationValidate,
   });
   const sideQuestions = new SideQuestions(store, { answer: engineOptions.sideAnswer });
   const token = randomBytes(32).toString('hex');
@@ -780,8 +781,14 @@ export function createApp({ directory, publicDirectory, engineOptions = {} }) {
             'takeover',
             'return-control',
           ].includes(operation)
-        )
+        ) {
+          requireValue(
+            !publicationWorkflow.running.has(id),
+            'Pause publication before changing the development workflow',
+            409,
+          );
           return json(res, 200, await engine.action(id, operation, await body(req)));
+        }
       }
       if (path.startsWith('/api/')) throw new InputError('Endpoint not found', 404);
       requireValue(req.method === 'GET' || req.method === 'HEAD', 'Method not allowed', 405);

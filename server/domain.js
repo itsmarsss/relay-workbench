@@ -307,6 +307,20 @@ export function handoffSchema(stage) {
       ...HANDOFF_SCHEMA,
       properties: {
         ...HANDOFF_SCHEMA.properties,
+        ...(stage === 'publish'
+          ? {
+              preparation: {
+                type: ['object', 'null'],
+                additionalProperties: false,
+                properties: {
+                  baseCommit: { type: 'string' },
+                  scope: { type: 'string', enum: ['routine', 'design_change'] },
+                  summary: { type: 'string' },
+                },
+                required: ['baseCommit', 'scope', 'summary'],
+              },
+            }
+          : {}),
         publication: {
           type: 'object',
           additionalProperties: false,
@@ -325,7 +339,11 @@ export function handoffSchema(stage) {
           required: ['url', 'number', 'title', 'state', 'draft', 'checks', 'review'],
         },
       },
-      required: [...HANDOFF_SCHEMA.required, 'publication'],
+      required: [
+        ...HANDOFF_SCHEMA.required,
+        'publication',
+        ...(stage === 'publish' ? ['preparation'] : []),
+      ],
     };
   if (stage !== 'verify') return HANDOFF_SCHEMA;
   return {
@@ -355,8 +373,9 @@ export function validateHandoff(raw, stage) {
   requireValue(
     !['repair_requested', 'verification_requested'].includes(raw.verdict) ||
       stage === 'investigate' ||
+      (stage === 'publish' && raw.verdict === 'verification_requested') ||
       (stage === 'implement' && raw.verdict === 'verification_requested'),
-    'Only implementation or debugger investigation can request host verification; repair delegation is debugger-only',
+    'Only implementation, publication preparation or debugger investigation can request verification; repair delegation is debugger-only',
   );
   requireValue(
     ['review', 'verify'].includes(stage) || raw.verdict !== 'changes_requested',

@@ -12,7 +12,8 @@ export function saveDeliveryRun(task, entry, stage) {
   const run = {
     ...structuredClone(record),
     id,
-    stage,
+    stage: record.stage ?? stage,
+    auxiliary: true,
     status,
     repositoryId: entry.repository.id,
     parentAttemptId: old

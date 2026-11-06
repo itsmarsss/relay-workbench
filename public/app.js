@@ -1070,7 +1070,7 @@ document.addEventListener('click', async (event) => {
       ).find((r) => r.repository.id === repositoryId);
       return showModal(
         'Publish accepted changes?',
-        `<p class="modal-description">A publication agent will inspect this branch and any existing PR, commit the accepted changes, and discover the correct provider tooling to publish a draft PR. It will explain blockers and then hand off to status monitoring. Code edits, rebases, policy bypasses and merging are outside this approval. Each repository is published separately.</p><div class="modal-footer">${button('close-modal', 'Cancel', 'text')}${button('publish-agent', 'Start publication agent', 'primary', 'git', `data-repository-id="${e(repositoryId)}"`)}</div>`,
+        `<p class="modal-description">A publication agent will inspect this branch and any existing PR, commit the accepted changes, and discover the correct provider tooling to publish a draft PR. It will handle routine rebases, conflict resolution and repairs within your approved approach. Changed source or history automatically goes through verification and independent review before publishing. Only genuine design choices or unavailable capabilities need you. Policy bypasses and merging remain outside this approval. Each repository is published separately.</p><div class="modal-footer">${button('close-modal', 'Cancel', 'text')}${button('publish-agent', 'Start publication agent', 'primary', 'git', `data-repository-id="${e(repositoryId)}"`)}</div>`,
       );
     }
     if (action === 'import-profile')
