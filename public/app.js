@@ -35,6 +35,7 @@ import {
 
 const state = {
   memories: [],
+  memoryAvailable: false,
   memoryQuery: '',
   memoryFilter: 'all',
   logRun: 'latest',
@@ -83,8 +84,23 @@ async function api(path, method = 'GET', data) {
     body: data === undefined ? undefined : JSON.stringify(data),
   });
   const result = await response.json();
-  if (!response.ok) throw new Error(result.error || `Request failed (${response.status})`);
+  if (!response.ok) {
+    const error = new Error(result.error || `Request failed (${response.status})`);
+    error.status = response.status;
+    throw error;
+  }
   return result;
+}
+async function loadMemories() {
+  try {
+    const memories = await api('/memories');
+    state.memoryAvailable = true;
+    return memories;
+  } catch (error) {
+    if (error.status !== 404) throw error;
+    state.memoryAvailable = false;
+    return [];
+  }
 }
 function toast(message, error = false) {
   const element = document.querySelector('#toast');
@@ -138,10 +154,12 @@ function renderMain() {
   const selectedApproach = main.querySelector('input[name="optionId"]:checked')?.value;
   const markup =
     state.view === 'memory'
-      ? memoryPage(state.memories, state.config, state.tasks, {
-          query: state.memoryQuery,
-          filter: state.memoryFilter,
-        })
+      ? state.memoryAvailable
+        ? memoryPage(state.memories, state.config, state.tasks, {
+            query: state.memoryQuery,
+            filter: state.memoryFilter,
+          })
+        : '<section class="settings-panel"><h1>Memory</h1><p>The memory backend update is waiting for active work to finish. Your pipeline keeps running. Reload after Relay restarts to use memory.</p></section>'
       : state.view === 'inbox'
         ? inboxPage(state.inbox)
         : state.view === 'overview'
@@ -276,7 +294,7 @@ function taskView() {
     )
     .join(
       '',
-    )}</div><div class="detail-content">${state.tab === 'overview' ? taskDetails(t) || empty('book', 'No description yet', 'Configure this task to add requirements.') : state.tab === 'terminals' ? terminalView(t, state) : state.tab === 'thread' ? threadView(t) : state.tab === 'handoffs' ? handoffsView(t) : state.tab === 'diff' ? diffView(t) : transcriptView(t)}</div>${!['completed', 'cancelled'].includes(t.status) ? `<form id="message-form" class="message-box">${markdownEditor({ id: 'task-message', name: 'message', label: 'Add direction or context', rows: 3, max: 20000 })}<div><small>${t.canSteer ? 'Steer sends direction to the active session; Claude interrupts and resumes.' : 'Context stays pending until an agent receives it.'} ${t.messages.filter((m) => m.delivery === 'pending').length} pending.</small>${t.canSteer ? '<label><input id="steer-active" type="checkbox" name="steer" checked> Steer active agent</label>' : ''}<button class="btn secondary small" type="submit">Send direction ${icon('arrow')}</button></div></form>` : ''}</div><aside class="task-context">${sideChat(t, state.sideChatOpen)}${runMemories(t)}<section class="context-card"><div class="context-title">WORKFLOW <span class="live-label ${live ? 'is-live' : ''}">${live ? '● LIVE' : '6 STAGES'}</span></div><ol class="stage-list">${workflowStages(t)}</ol><button class="btn secondary workflow-graph-button" data-action="open-execution-map" aria-label="Open execution graph">Execution graph ↗</button></section>${(t
+    )}</div><div class="detail-content">${state.tab === 'overview' ? taskDetails(t) || empty('book', 'No description yet', 'Configure this task to add requirements.') : state.tab === 'terminals' ? terminalView(t, state) : state.tab === 'thread' ? threadView(t) : state.tab === 'handoffs' ? handoffsView(t) : state.tab === 'diff' ? diffView(t) : transcriptView(t)}</div>${!['completed', 'cancelled'].includes(t.status) ? `<form id="message-form" class="message-box">${markdownEditor({ id: 'task-message', name: 'message', label: 'Add direction or context', rows: 3, max: 20000 })}<div><small>${t.canSteer ? 'Steer sends direction to the active session; Claude interrupts and resumes.' : 'Context stays pending until an agent receives it.'} ${t.messages.filter((m) => m.delivery === 'pending').length} pending.</small>${t.canSteer ? '<label><input id="steer-active" type="checkbox" name="steer" checked> Steer active agent</label>' : ''}<button class="btn secondary small" type="submit">Send direction ${icon('arrow')}</button></div></form>` : ''}</div><aside class="task-context">${sideChat(t, state.sideChatOpen)}${state.memoryAvailable ? runMemories(t) : ''}<section class="context-card"><div class="context-title">WORKFLOW <span class="live-label ${live ? 'is-live' : ''}">${live ? '● LIVE' : '6 STAGES'}</span></div><ol class="stage-list">${workflowStages(t)}</ol><button class="btn secondary workflow-graph-button" data-action="open-execution-map" aria-label="Open execution graph">Execution graph ↗</button></section>${(t
     .repositories?.length > 1
     ? t.repositories
     : [t]
@@ -559,7 +577,7 @@ async function refreshSnapshot() {
   [state.tasks, state.inbox, state.memories] = await Promise.all([
     api('/tasks'),
     api('/inbox'),
-    api('/memories'),
+    loadMemories(),
   ]);
   notifyInbox(state.inbox);
   if (state.view === 'harnesses')
@@ -1443,7 +1461,7 @@ async function boot() {
     [state.tasks, state.harnesses, state.memories] = await Promise.all([
       api('/tasks'),
       api('/harnesses'),
-      api('/memories'),
+      loadMemories(),
     ]);
     const hash = location.hash.slice(1);
     if (hash.startsWith('task/'))

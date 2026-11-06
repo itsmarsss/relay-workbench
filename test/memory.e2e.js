@@ -10,7 +10,10 @@ const directory = await mkdtemp(join(tmpdir(), 'relay-memory-browser-'));
 const app = createApp({
   directory,
   publicDirectory: resolve('public'),
-  engineOptions: { demoDelay: 1 },
+  engineOptions: {
+    demoDelay: 1,
+    sideAnswer: async () => 'A separate answer with recorded context.',
+  },
 });
 let browser;
 try {
@@ -38,6 +41,18 @@ try {
   page.on('pageerror', (error) => errors.push(error.message));
   await page.goto(`http://127.0.0.1:${app.server.address().port}/#memory`);
   await page.getByRole('heading', { name: 'Memory', exact: true }).waitFor();
+  await page.route('**/api/memories', (route) =>
+    route.fulfill({
+      status: 404,
+      contentType: 'application/json',
+      body: JSON.stringify({ error: 'Endpoint not found' }),
+    }),
+  );
+  await page.reload();
+  await page.getByText('The memory backend update is waiting', { exact: false }).waitFor();
+  await page.unroute('**/api/memories');
+  await page.reload();
+  await page.getByRole('heading', { name: 'A dated observation' }).waitFor();
   await page.getByRole('button', { name: 'Approve', exact: true }).click();
   await page.getByText('Active', { exact: true }).waitFor();
   assert.equal(listMemories(app.store)[0].source.type, 'agent');
@@ -73,6 +88,16 @@ try {
   for (let i = 0; i < 100 && app.store.get(task.id).status !== 'awaiting_plan'; i++)
     await new Promise((r) => setTimeout(r, 10));
   await page.goto(`http://127.0.0.1:${app.server.address().port}/#task/${task.id}/overview`);
+  await page.getByRole('button', { name: 'Ask on the side', exact: false }).click();
+  await page.locator('#side-question').fill('What memories are you using?');
+  await page.getByRole('button', { name: 'Ask without interrupting' }).click();
+  await page.getByText('A separate answer with recorded context.', { exact: true }).waitFor();
+  await page.getByText('Memory used by this answer', { exact: false }).click();
+  await page
+    .locator('.side-chat-drawer .memory-run-entry')
+    .getByText('Lead with the outcome and evidence.', { exact: true })
+    .waitFor();
+  await page.getByRole('button', { name: 'Close side conversation' }).click();
   await page.getByText('Memory used by run', { exact: false }).click();
   await page
     .locator('.memory-run-entry')

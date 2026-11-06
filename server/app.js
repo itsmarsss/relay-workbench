@@ -250,6 +250,7 @@ export function createApp({ directory, publicDirectory, engineOptions = {} }) {
         return json(res, 200, listMemories(store));
       if (path === '/api/memories' && req.method === 'POST') {
         const raw = await body(req);
+        requireValue(raw && typeof raw === 'object' && !Array.isArray(raw), 'Invalid memory');
         requireValue(
           Object.keys(raw).every((key) =>
             [
@@ -271,7 +272,7 @@ export function createApp({ directory, publicDirectory, engineOptions = {} }) {
       if (memoryId && req.method === 'PATCH')
         return json(res, 200, updateMemory(store, memoryId, await body(req)));
       if (memoryId && req.method === 'DELETE') {
-        deleteMemory(store, memoryId, (await body(req)).revision);
+        deleteMemory(store, memoryId, (await body(req))?.revision);
         return json(res, 200, { deleted: true });
       }
       if (path === '/api/bootstrap' && req.method === 'GET')

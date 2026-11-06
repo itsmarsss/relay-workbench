@@ -65,7 +65,7 @@ test('memory selection isolates scopes, approval, expiry and observation authori
   );
   const context = memoryContext(store, task);
   const prompt = buildPrompt({ ...task, memorySnapshot: context }, 'implement');
-  assert.ok(prompt.includes('current explicit user direction'));
+  assert.ok(prompt.includes('Current explicit user direction'));
   assert.ok(prompt.includes('Observations are dated, fallible evidence'));
   assert.ok(prompt.includes('Global content'));
   assert.ok(!prompt.includes('Foreign project content'));
@@ -151,6 +151,7 @@ test('memory HTTP mutations require authentication and validate scope, provenanc
       body: JSON.stringify(body),
     });
   assert.equal((await request('/memories', 'POST', preference('Private'), false)).status, 403);
+  assert.equal((await request('/memories', 'POST', null)).status, 400);
   assert.equal(
     (await request('/memories', 'POST', preference('Forged', { source: { type: 'user' } }))).status,
     400,
@@ -172,6 +173,8 @@ test('memory HTTP mutations require authentication and validate scope, provenanc
   const response = await request('/memories', 'POST', preference('<script>Literal</script>'));
   assert.equal(response.status, 201);
   const memory = await response.json();
+  assert.equal((await request(`/memories/${memory.id}`, 'PATCH', null)).status, 400);
+  assert.equal((await request(`/memories/${memory.id}`, 'DELETE', null)).status, 409);
   const task = app.engine.create({ title: 'Uses memory', demo: true });
   await app.engine.action(task.id, 'start');
   for (let i = 0; i < 100 && app.store.get(task.id).status !== 'awaiting_plan'; i++)
