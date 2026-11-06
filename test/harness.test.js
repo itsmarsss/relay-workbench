@@ -151,3 +151,16 @@ test('Claude development capabilities and denied tool results stay explicit', ()
   assert.match(buildPrompt(task, 'investigate'), /DEDICATED DEBUGGER/);
   assert.match(buildPrompt(task, 'investigate'), /recorded log output/);
 });
+
+test('continuation prompts preserve completed work and require outstanding evidence', () => {
+  const task = newTask({ title: 'Resume', demo: true }, DEFAULT_CONFIG);
+  task.continuationContext = {
+    completedWork: { details: 'Saved implementation' },
+    diagnosis: { summary: 'Tool restored' },
+  };
+  const prompt = buildPrompt(task, 'implement');
+  assert.match(prompt, /TARGETED CONTINUATION/);
+  assert.match(prompt, /do not start the stage over/);
+  assert.match(prompt, /Saved implementation/);
+  assert.match(prompt, /mandatory full verification/);
+});

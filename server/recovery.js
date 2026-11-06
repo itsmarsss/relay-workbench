@@ -12,6 +12,14 @@ export function recoverBlocked(task, handoff, limit = 2, explicit = false) {
   const retry = !designDecision && attempts < limit && !(repeated && attempts > 1);
   task.recovery = {
     key,
+    sourceAttemptId:
+      previous?.sourceAttemptId ??
+      (task.attempts ?? []).findLast(
+        (a) =>
+          a.role !== 'debug' &&
+          a.stage === task.stage &&
+          (a.repositoryId ?? null) === (task.attempts?.at(-1)?.repositoryId ?? null),
+      )?.id,
     attempts: attempts + (retry ? 1 : 0),
     reason: handoff.summary,
     phase: 'debug',
@@ -45,16 +53,44 @@ export function recoverBlocked(task, handoff, limit = 2, explicit = false) {
   return retry;
 }
 
-// A blocked handoff is a completed diagnosis. Reopening its conversation can
-// anchor every retry on the same conclusion, so carry its evidence into a new one.
+// Diagnosis starts fresh; continuation returns to the interrupted specialist.
 export function resumableAttempt(task, stage, harness, repositoryId) {
   if (task.recovery?.active) return undefined;
+  const continuing = ['continue', 'retry_stage'].includes(task.recovery?.phase);
   const latest = (task.attempts ?? []).findLast(
-    (a) => a.stage === stage && a.harness === harness && a.repositoryId === repositoryId,
+    (a) =>
+      a.role !== 'debug' &&
+      a.stage === stage &&
+      a.harness === harness &&
+      a.repositoryId === repositoryId &&
+      (!continuing || !task.recovery.sourceAttemptId || a.id === task.recovery.sourceAttemptId),
   );
-  return latest?.sessionId && !latest.handoff && ['failed', 'interrupted'].includes(latest.status)
+  return latest?.sessionId &&
+    (continuing || (!latest.handoff && ['failed', 'interrupted'].includes(latest.status)))
     ? latest
     : undefined;
+}
+
+export function continuationContext(task, stage, repositoryId) {
+  if (
+    !['continue', 'retry_stage'].includes(task.recovery?.phase) ||
+    task.recovery.key !== `${stage}:${task.repositoryCursor ?? 0}`
+  )
+    return undefined;
+  const source = task.attempts.findLast(
+    (a) =>
+      (!task.recovery.sourceAttemptId || a.id === task.recovery.sourceAttemptId) &&
+      a.role !== 'debug' &&
+      a.stage === stage &&
+      (a.repositoryId ?? null) === (repositoryId ?? null),
+  );
+  return {
+    sourceAttemptId: source?.id,
+    completedWork: source?.handoff ?? null,
+    interruption: source?.error ?? task.recovery.reason,
+    diagnosis: task.recovery.lastDiagnosis,
+    filesPreserved: true,
+  };
 }
 
 export function recoveryHarnesses(task, configured, harnesses) {

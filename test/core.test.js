@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, rm, writeFile, mkdir } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile, mkdir, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Store } from '../server/store.js';
@@ -515,7 +515,8 @@ for (const resolves of [true, false])
       harness: async ({ task, stage, harness, sessionId, onSession }) => {
         stages.push(stage);
         if (stage === 'investigate') {
-          assert.equal(sessionId, undefined, 'Blocked diagnoses must start fresh');
+          if (task.continuationContext) assert.equal(sessionId, 'diagnosis-0');
+          else assert.equal(sessionId, undefined, 'Blocked diagnoses must start fresh');
           assert.equal(
             harness,
             task.debugContext && task.recovery.attempts > 1 ? 'claude' : 'codex',
@@ -662,3 +663,94 @@ test('process failures run a debugger before retrying the original stage', async
   assert.equal(result.attempts.filter((a) => a.role === 'debug').length, 1);
   assert.equal(result.approvals.length, 0);
 });
+
+test('debugger continues the original implementation conversation and preserves completed edits', async (t) => {
+  const f = await fixture(t);
+  const repo = await makeRepo(f.directory);
+  f.store.setConfig({ ...DEFAULT_CONFIG, repositories: [profile(repo, { strategy: 'attach' })] });
+  let implementations = 0;
+  const engine = f.makeEngine({
+    harness: async ({ task, stage, sessionId, onSession }) => {
+      const handoff = demoHandoff(task, stage);
+      if (task.debugContext) return handoff;
+      if (stage === 'implement') {
+        implementations++;
+        if (implementations === 1) {
+          onSession('original-implementation');
+          await writeFile(join(repo, 'value.txt'), 'completed edit');
+          return {
+            ...handoff,
+            verdict: 'blocked',
+            summary: 'Only the remaining check needs retry',
+            details: 'Implementation finished; verification tool unavailable',
+            files: ['value.txt'],
+          };
+        }
+        assert.equal(sessionId, 'original-implementation');
+        assert.equal(await readFile(join(repo, 'value.txt'), 'utf8'), 'completed edit');
+        assert.match(task.continuationContext.completedWork.details, /Implementation finished/);
+        assert.ok(task.continuationContext.diagnosis);
+      }
+      return handoff;
+    },
+  });
+  const task = engine.create({ title: 'Continue implementation', repositoryId: 'repo' });
+  await engine.action(task.id, 'start');
+  await waitFor(f.store, task.id, (t) => t.status === 'awaiting_plan');
+  await engine.action(task.id, 'approve-plan', { optionId: 'shared-boundary' });
+  const result = await waitFor(f.store, task.id, (t) => t.status === 'awaiting_final');
+  assert.equal(implementations, 2);
+  assert.equal(result.approvals.length, 1);
+  assert.ok(result.verifiedFingerprint);
+});
+
+for (const invalidate of [false, true])
+  test(`verification recovery ${invalidate ? 'invalidates stale results' : 'preserves passing checks'}`, async (t) => {
+    const f = await fixture(t);
+    const repo = await makeRepo(f.directory);
+    const count = join(f.directory, 'check-count');
+    const missing = join(f.directory, 'restored-check');
+    f.store.setConfig({
+      ...DEFAULT_CONFIG,
+      repositories: [
+        profile(repo, {
+          strategy: 'attach',
+          checks: [
+            {
+              command: process.execPath,
+              args: ['-e', `require('node:fs').appendFileSync(${JSON.stringify(count)}, 'x')`],
+            },
+            { command: missing, args: [] },
+          ],
+        }),
+      ],
+    });
+    let diagnoses = 0;
+    const engine = f.makeEngine({
+      harness: async ({ task, stage }) => {
+        if (task.debugContext) {
+          diagnoses++;
+          assert.equal(task.debugContext.blockedStage, 'verify');
+          await writeFile(missing, '#!/bin/sh\nexit 0\n', { mode: 0o700 });
+          if (invalidate) {
+            const current = f.store.get(task.id);
+            current.verificationCheckpoint.fingerprint = 'stale';
+            f.store.save(current);
+          }
+        }
+        return demoHandoff(task, stage);
+      },
+    });
+    const task = engine.create({ title: 'Continue verification', repositoryId: 'repo' });
+    await engine.action(task.id, 'start');
+    await waitFor(f.store, task.id, (t) => t.status === 'awaiting_plan');
+    await engine.action(task.id, 'approve-plan', { optionId: 'shared-boundary' });
+    const result = await waitFor(f.store, task.id, (t) => t.status === 'awaiting_final');
+    assert.equal(diagnoses, 1);
+    assert.equal(await readFile(count, 'utf8'), invalidate ? 'xx' : 'x');
+    assert.equal(result.attempts.filter((a) => a.stage === 'implement').length, 1);
+    const verify = result.attempts.findLast((a) => a.stage === 'verify' && a.role !== 'debug');
+    assert.equal(!!verify.handoff.checks[0].reusedFromAttemptId, !invalidate);
+    assert.equal(verify.handoff.checks[1].code, 0);
+    assert.ok(result.verifiedFingerprint);
+  });

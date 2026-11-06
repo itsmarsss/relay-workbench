@@ -4,6 +4,7 @@ import {
   resumableAttempt,
   recoveryHarnesses,
   blockerDecision,
+  continuationContext,
 } from './recovery.js';
 import { addComment, focusedFeedback } from './review-comments.js';
 import { randomUUID } from 'node:crypto';
@@ -835,6 +836,12 @@ export class Engine {
         .reverse()
         .map((row) => JSON.parse(row.body));
       view.debugContext = {
+        interruptedAttempt: task.attempts.findLast(
+          (a) =>
+            a.role !== 'debug' &&
+            a.stage === stage &&
+            (a.repositoryId ?? null) === (attempt.repositoryId ?? null),
+        ),
         blockedStage: stage,
         reason: task.recovery.reason,
         priorDiagnoses: task.recovery.evidence,
@@ -846,6 +853,8 @@ export class Engine {
         })),
       };
     }
+    if (!debugging)
+      view.continuationContext = continuationContext(task, stage, attempt.repositoryId);
     const previousSession = resumableAttempt(task, stage, harness, attempt.repositoryId);
     if (task.recovery?.active)
       attempt.recovery = { strategy: task.recovery.strategy, freshSession: true };
@@ -859,9 +868,11 @@ export class Engine {
       harness,
       summary: debugging
         ? `${harness} debugger is diagnosing the ${stage} blocker.`
-        : stage === 'verify'
-          ? 'Running repository verification commands.'
-          : `${harness} is working on ${stage}${scoped ? ` · ${entry.repository.name}` : ''}.${task.recovery?.active ? ' Fresh diagnostic session with prior evidence.' : ''}`,
+        : view.continuationContext
+          ? `Continuing ${stage} from saved progress after diagnosis.`
+          : stage === 'verify'
+            ? 'Running repository verification commands.'
+            : `${harness} is working on ${stage}${scoped ? ` · ${entry.repository.name}` : ''}.${task.recovery?.active ? ' Fresh diagnostic session with prior evidence.' : ''}`,
     });
     const before = !task.demo ? await fingerprint(task) : 'demo';
     const startedTask = this.store.get(id);
@@ -881,6 +892,25 @@ export class Engine {
     let handoff;
     if (stage === 'verify' && !debugging) {
       const checks = [];
+      const signature = JSON.stringify(
+        entries.map((e) => ({
+          id: e.repository.id,
+          workspace: e.workspace,
+          baseCommit: e.baseCommit,
+          checks: e.repository.checks,
+        })),
+      );
+      const checkpoint = task.verificationCheckpoint;
+      const reuse =
+        !!view.continuationContext &&
+        checkpoint?.fingerprint === before &&
+        checkpoint.signature === signature;
+      task.verificationCheckpoint = reuse
+        ? checkpoint
+        : { fingerprint: before, signature, results: {} };
+      const checkpointTask = this.store.get(id);
+      checkpointTask.verificationCheckpoint = task.verificationCheckpoint;
+      this.store.save(checkpointTask);
       if (task.demo) {
         await delay(this.demoDelay, undefined, { signal });
         checks.push({
@@ -893,7 +923,22 @@ export class Engine {
         });
       } else
         for (const checkEntry of entries)
-          for (const command of checkEntry.repository.checks) {
+          for (const [checkIndex, command] of checkEntry.repository.checks.entries()) {
+            const checkKey = JSON.stringify([checkEntry.repository.id, checkIndex]);
+            const priorResult = task.verificationCheckpoint.results[checkKey];
+            if (reuse && priorResult?.code === 0) {
+              checks.push({ ...priorResult, reusedFromAttemptId: priorResult.attemptId });
+              this.store.event(id, {
+                type: 'activity',
+                kind: 'tool',
+                stage,
+                harness: 'checks',
+                repositoryId: checkEntry.repository.id,
+                attemptId: attempt.id,
+                summary: `Preserved passing check: ${command.command} ${command.args.join(' ')}`,
+              });
+              continue;
+            }
             const started = Date.now();
             const checkEvent = {
               type: 'activity',
@@ -933,12 +978,18 @@ export class Engine {
               summary: `Check ${result.code === 0 ? 'passed' : 'failed'}: ${command.command} ${command.args.join(' ')}`,
               details: `${result.stdout}\n${result.stderr}`.slice(-40000),
             });
-            checks.push({
+            const checkResult = {
+              attemptId: attempt.id,
               repositoryId: checkEntry.repository.id,
               ...command,
               ...result,
               durationMs: Date.now() - started,
-            });
+            };
+            checks.push(checkResult);
+            task.verificationCheckpoint.results[checkKey] = checkResult;
+            const current = this.store.get(id);
+            current.verificationCheckpoint = task.verificationCheckpoint;
+            this.store.save(current);
           }
       const passed = checks.length > 0 && checks.every((c) => c.code === 0);
       handoff = {
@@ -1028,6 +1079,8 @@ export class Engine {
       throw new Error(
         `${stage} modified the workspace despite being read-only. Inspect the diff before resuming.`,
       );
+    if (stage === 'verify' && !debugging && before !== after)
+      throw new Error('Verification modified the workspace. Inspect the diff before resuming.');
     if (otherBefore)
       requireValue(
         JSON.stringify(otherBefore) ===
@@ -1046,9 +1099,11 @@ export class Engine {
     savedAttempt.finishedAt = new Date().toISOString();
     savedAttempt.status = 'complete';
     savedAttempt.fingerprint = after;
+    if (!debugging && view.continuationContext && handoff.verdict === 'complete')
+      task.recovery.phase = 'continued';
     if (debugging && handoff.verdict === 'complete') {
       task.recovery.active = false;
-      task.recovery.phase = 'retry_stage';
+      task.recovery.phase = 'continue';
       task.recovery.lastDiagnosis = { summary: handoff.summary, evidence: handoff.evidence };
       task.status = 'queued';
       task.error = null;
@@ -1094,6 +1149,12 @@ export class Engine {
         task.verifiedFingerprint = after;
         task.stage = 'review';
         task.status = 'queued';
+      } else if (handoff.checks.some((c) => c.code === 127)) {
+        recoverBlocked(
+          task,
+          handoff,
+          task.execution?.maxRecoveryAttempts ?? this.store.config.maxRecoveryAttempts ?? 2,
+        );
       } else this.repair(task, handoff.summary);
     } else if (stage === 'review') {
       requireValue(
@@ -1120,7 +1181,7 @@ export class Engine {
       details: handoff.details,
       attemptId: attempt.id,
     });
-    if (handoff.verdict === 'blocked')
+    if (handoff.verdict === 'blocked' || task.recovery?.active)
       this.store.event(id, {
         type: 'recovery',
         stage,
