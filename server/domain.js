@@ -202,6 +202,24 @@ export const HANDOFF_SCHEMA = {
   type: 'object',
   additionalProperties: false,
   properties: {
+    memorySuggestions: {
+      type: 'array',
+      maxItems: 3,
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          scope: { type: 'string', enum: ['global', 'project', 'task'] },
+          repositoryId: { type: 'string' },
+          kind: { type: 'string', enum: ['preference', 'observation'] },
+          title: { type: 'string', maxLength: 120 },
+          content: { type: 'string', maxLength: 2000 },
+          evidence: { type: 'string', maxLength: 2000 },
+          expiresAt: { type: 'string' },
+        },
+        required: ['scope', 'repositoryId', 'kind', 'title', 'content', 'evidence', 'expiresAt'],
+      },
+    },
     summary: { type: 'string' },
     details: { type: 'string' },
     files: stringList,
@@ -257,6 +275,7 @@ export const HANDOFF_SCHEMA = {
     },
   },
   required: [
+    'memorySuggestions',
     'summary',
     'details',
     'files',
