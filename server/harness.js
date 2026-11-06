@@ -293,6 +293,7 @@ export async function executeHarness({
   if (!useTerminal)
     onEvent({
       type: 'activity',
+      source: 'relay',
       summary: 'tmux is unavailable. Agent output remains available in the activity thread.',
     });
   const runner = task.verificationContext?.runner ?? task.debugContext?.verification?.runner;
@@ -331,6 +332,7 @@ export async function executeHarness({
           lastProgressDigest = digest;
           onEvent({
             type: 'activity',
+            source: 'relay',
             kind: 'tool',
             summary: `Check progress: ${digest}`.slice(0, 600),
             details: progress.logPath,
@@ -468,6 +470,7 @@ export async function executeHarness({
     } catch (error) {
       onEvent({
         type: 'activity',
+        source: 'relay',
         kind: 'tool',
         summary: 'Could not refresh check evidence; verification still requires a valid journal.',
         details: error.message,

@@ -4,6 +4,8 @@ import {
   activityRunSelection,
   activityRunNavigation,
   activityRunHeader,
+  activityEventIdentity,
+  activityEventMeta,
 } from '../public/activity-runs.js';
 
 test('run selection follows new runs and keeps explicit historical selection', () => {
@@ -37,4 +39,27 @@ test('run browser escapes context and keeps host output scoped to its run', () =
   assert.doesNotMatch(html, /unrelated output|<script>/);
   assert.match(html, /sandbox permissions stay the same/);
   assert.match(activityRunNavigation({ attempts: [run] }, run, 'latest'), /Configured checks/);
+});
+
+test('system updates retain harness context without impersonating agents', () => {
+  for (const type of ['stage_started', 'terminal', 'blocked', 'recovery', 'manual']) {
+    assert.deepEqual(activityEventIdentity({ type, harness: 'codex' }), {
+      name: 'Relay',
+      harness: null,
+      context: 'Codex',
+    });
+  }
+  for (const type of ['activity', 'handoff']) {
+    assert.equal(activityEventIdentity({ type, harness: 'claude' }).name, 'Claude');
+  }
+  assert.equal(
+    activityEventIdentity({ type: 'activity', source: 'relay', harness: 'codex' }).name,
+    'Relay',
+  );
+  assert.equal(activityEventIdentity({ type: 'feedback', harness: 'codex' }).name, 'You');
+  assert.equal(activityEventIdentity({ type: 'activity', harness: 'checks' }).name, 'Relay');
+  assert.match(
+    activityEventMeta({ type: 'terminal', harness: 'codex' }, 'Investigation'),
+    /<strong>Relay<\/strong><span>Codex<\/span><span>Investigation<\/span>/,
+  );
 });

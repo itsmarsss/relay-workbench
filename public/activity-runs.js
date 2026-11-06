@@ -51,3 +51,30 @@ export function activityRunHeader(attempt, events) {
       : '';
   return `<header class="activity-run-header"><div class="activity-run-title">${harnessBadge(attempt.harness)}<div><h2>${e(title)}</h2><p>${e(attempt.status === 'running' ? 'Running now' : attempt.status)} · ${ago(attempt.startedAt)}</p></div></div>${host ? (isVerificationAgent(attempt) ? '<p>An agent discovers checks from repository guidance, runs them on the host and investigates failures.</p>' : '<p>Configured checks run on the Relay host. Results return to the agent; its sandbox permissions stay the same.</p>') : attempt.handoff ? `<p>${e(concise(attempt.handoff.summary))}</p>` : ''}</header>${output ? `<section class="host-output" aria-label="Recent check output"><div>Recent output <span>${attempt.status === 'running' ? 'Live' : 'Saved'}</span></div><pre>${e(output)}</pre></section>` : ''}`;
 }
+
+// Harness metadata identifies the run; only agent output identifies its speaker.
+export function activityEventIdentity(event) {
+  const human = ['feedback', 'approval', 'accepted'].includes(event.type);
+  const agent =
+    !human &&
+    ['activity', 'handoff'].includes(event.type) &&
+    event.source !== 'relay' &&
+    event.harness &&
+    event.harness !== 'checks';
+  return {
+    name: human
+      ? 'You'
+      : agent
+        ? event.harness.charAt(0).toUpperCase() + event.harness.slice(1)
+        : 'Relay',
+    harness: agent ? event.harness : null,
+    context:
+      !agent && event.harness && event.harness !== 'checks'
+        ? event.harness.charAt(0).toUpperCase() + event.harness.slice(1)
+        : null,
+  };
+}
+export function activityEventMeta(event, stageLabel) {
+  const identity = activityEventIdentity(event);
+  return `<strong>${e(identity.name)}</strong>${identity.context ? `<span>${e(identity.context)}</span>` : ''}<span>${e(stageLabel ?? event.type.replaceAll('_', ' '))}</span>`;
+}
