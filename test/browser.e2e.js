@@ -153,6 +153,7 @@ try {
       .waitFor();
     await page.locator('.tool-activity').last().locator('summary').click();
     await page.getByText('Command output retained here.', { exact: false }).waitFor();
+    const openedTool = await page.locator('.tool-activity').last().elementHandle();
     localApp.store.event(id, {
       type: 'activity',
       kind: 'tool',
@@ -162,6 +163,10 @@ try {
       details: 'Second result.',
     });
     await page.getByText('Second result.', { exact: false }).waitFor();
+    assert.ok(
+      await openedTool.evaluate((node) => node.isConnected && node.open),
+      'Live activity must retain the expanded disclosure itself',
+    );
     localApp.store.event(id, {
       type: 'activity',
       kind: 'tool',
