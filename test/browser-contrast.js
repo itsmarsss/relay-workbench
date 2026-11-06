@@ -17,7 +17,10 @@ export async function assertReadableText(page) {
         .reduce((sum, value, i) => sum + value * [0.2126, 0.7152, 0.0722][i], 0);
     const failures = [];
     for (const element of document.querySelectorAll('main *, dialog *, .sidebar *, .topbar *')) {
+      // xterm duplicates rendered rows in an intentionally transparent screen-reader layer.
+      // Check the visible terminal rows, not their accessibility-only counterparts.
       if (
+        element.closest('.xterm-accessibility:not(.debug)') ||
         ![...element.childNodes].some((node) => node.nodeType === 3 && node.textContent.trim()) ||
         !element.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true })
       )

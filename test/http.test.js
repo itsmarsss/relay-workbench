@@ -127,6 +127,23 @@ test('HTTP issue import passes literal ticket arguments and requires JSON', asyn
   });
   assert.equal(imported.status, 200);
   assert.equal(imported.data.description, '123');
+  config.repositories[0].issueCommand.args = [
+    '-e',
+    'process.stdout.write(JSON.stringify({title:"Rich issue",body:"Original requirements",author:{login:"issue-reporter"},comments:[{author:{login:"thread-author"},body:"Important follow-up"}]}))',
+  ];
+  assert.equal((await f.request('/api/config', 'PUT', config)).status, 200);
+  const rich = await f.request('/api/tickets/import', 'POST', {
+    repositoryId: 'fixture',
+    ticket: '123',
+  });
+  assert.equal(rich.status, 200);
+  assert.match(rich.data.description, /issue-reporter/);
+  assert.match(rich.data.description, /Important follow-up/);
+  const saved = await f.request('/api/tasks', 'POST', { ...rich.data, demo: true });
+  assert.equal(saved.status, 201);
+  const retrieved = await f.request(`/api/tasks/${saved.data.id}`);
+  assert.equal(retrieved.data.description, rich.data.description);
+
   assert.equal(
     (
       await f.request('/api/tickets/import', 'POST', {

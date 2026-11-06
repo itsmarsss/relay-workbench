@@ -1,3 +1,4 @@
+import { importIssue } from './issues.js';
 import { createBackup, previewBackup, restoreBackup, backupPath } from './backups.js';
 import { lifecycleReport, cleanupWorktree } from './lifecycle.js';
 import { createReadStream } from 'node:fs';
@@ -298,24 +299,7 @@ export function createApp({ directory, publicDirectory, engineOptions = {} }) {
           'Use an issue number or HTTPS issue URL',
         );
         const info = await inspectRepository(repository);
-        const cmd = repository.issueCommand;
-        const result = await runProcess(
-          cmd.command,
-          cmd.args.map((a) => a.replaceAll('{ticket}', ticket)),
-          { cwd: info.cwd, timeout: 60000 },
-        );
-        requireValue(result.code === 0, `Issue import failed: ${result.stderr.slice(-2000)}`, 502);
-        let issue;
-        try {
-          issue = JSON.parse(result.stdout);
-        } catch {
-          throw new InputError('Issue command must return JSON with title and body fields', 502);
-        }
-        return json(res, 200, {
-          title: text(issue.title, 'Issue title', 240),
-          description: text(issue.body ?? issue.description ?? '', 'Issue body', 50000, true),
-          ticket: typeof issue.url === 'string' ? issue.url : ticket,
-        });
+        return json(res, 200, await importIssue(repository.issueCommand, ticket, info.cwd));
       }
       if (path === '/api/outcomes' && req.method === 'GET')
         return json(
