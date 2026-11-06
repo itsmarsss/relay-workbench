@@ -1,13 +1,14 @@
+import { handoffBody, handoffList, workflowStages, executionLogs } from './task-panels.js';
 import { activityRunSelection, activityRunNavigation, activityRunHeader } from './activity-runs.js';
 import { taskRoute, parseTaskRoute } from './task-route.js';
-import { executionMap, debuggerStep } from './execution-map.js';
+import { executionMap } from './execution-map.js';
 import { liveProgress, timer, updateTimers } from './live-progress.js';
 import { sideChat } from './side-chat.js';
 import { blockerDecisionView } from './blocker-decision.js';
 import { taskSummary, concise } from './task-summary.js';
 import { storageView, bytes } from './storage.js';
 import { outcomesView } from './outcomes.js';
-import { diffLines } from './diff-lines.js';
+import { diffLines, diffFileGroups } from './diff-lines.js';
 import { inboxPage, notifyInbox } from './inbox.js';
 import { installImageUploads, openImageViewer } from './image-uploads.js';
 import { tasksPage } from './tasks.js';
@@ -30,6 +31,9 @@ import {
 } from './ui.js';
 
 const state = {
+  logRun: 'latest',
+  logStream: 'all',
+  logQuery: '',
   activitySelection: 'latest',
   activityTaskId: null,
   sideChatOpen: false,
@@ -122,8 +126,8 @@ function renderMain() {
       end: i.selectionEnd,
       checked: i.checked,
     }));
-  const expanded = new Set(
-    [...main.querySelectorAll('details[data-event-key][open]')].map((d) => d.dataset.eventKey),
+  const expanded = new Map(
+    [...main.querySelectorAll('details[data-event-key]')].map((d) => [d.dataset.eventKey, d.open]),
   );
   const selectedApproach = main.querySelector('input[name="optionId"]:checked')?.value;
   main.innerHTML =
@@ -154,7 +158,7 @@ function renderMain() {
     }
   }
   for (const d of main.querySelectorAll('details[data-event-key]'))
-    d.open = expanded.has(d.dataset.eventKey);
+    if (expanded.has(d.dataset.eventKey)) d.open = expanded.get(d.dataset.eventKey);
   if (selectedApproach)
     for (const input of main.querySelectorAll('input[name="optionId"]'))
       input.checked = input.value === selectedApproach;
@@ -238,9 +242,15 @@ function tasksView() {
 function taskView() {
   const t = state.task;
   if (!t) return '<div class="boot">Loading task…</div>';
+  if (state.panelTaskId !== t.id) {
+    state.panelTaskId = t.id;
+    state.logRun = 'latest';
+    state.logStream = 'all';
+    state.logQuery = '';
+  }
   const live = ['running', 'queued'].includes(t.status);
   const last = t.attempts.findLast((a) => a.handoff)?.handoff;
-  return `<div class="task-heading"><button class="back-link" data-action="navigate" data-view="tasks">← All tasks</button><div class="task-title-row"><h1>${e(t.title)}</h1>${t.demo ? '<span class="demo-label large">SIMULATED DEMO</span>' : ''}</div><div class="task-subtitle">${badge(t.status)}<span>${e((t.repositories?.length ? t.repositories.map((r) => r.repository.name) : [t.repository.name]).join(' + '))}</span><span>·</span><span>${t.id.slice(0, 8)}</span>${t.ticket ? `<span>·</span>${issueLink(t.ticket)}` : ''}<span>·</span><span>Created ${ago(t.createdAt).toLowerCase()}</span></div>${liveProgress(t, state.events)}<div class="task-controls">${!['completed', 'cancelled'].includes(t.status) ? button('configure-task', ['running', 'queued', 'manual'].includes(t.status) ? 'Pause & configure' : 'Configure task', 'secondary', 'settings') : ''}${button('duplicate-task', 'Duplicate task', 'text small', 'plus')}${t.status === 'draft' ? button('task-action', 'Start workflow', 'primary', 'bolt', 'data-operation="start"') : ''}${['blocked', 'interrupted', 'paused'].includes(t.status) ? button('task-action', 'Resume workflow', 'primary', 'arrow', 'data-operation="resume"') : ''}${t.status === 'manual' ? button('task-action', 'Return to automation', 'primary', 'arrow', 'data-operation="return-control"') : ''}${live ? button('task-action', 'Pause', 'secondary small', 'pause', 'data-operation="pause"') : ''}${!['completed', 'cancelled'].includes(t.status) ? button('confirm-cancel', 'Cancel', 'text small') : ''}<a class="btn text small" href="/api/tasks/${t.id}/export" download>${icon('download')}Export</a></div></div>${t.demo ? '<div class="demo-banner">' + icon('spark') + 'Demo mode. Harness responses and checks are simulated; no repository files are changed.</div>' : ''}<div class="task-layout"><div class="task-center">${taskSummary(t, state.events)}${state.executionMapOpen ? executionMap(t, { selectedId: state.graphSelectedId, zoom: state.graphZoom }) : ''}${t.error ? `<details class="error-panel" data-event-key="blocker"><summary>Blocker details</summary><p>${e(t.error)}</p></details>` : ''}${blockerDecisionView(t)}${t.status === 'awaiting_plan' ? planGate(t) : ''}${t.status === 'awaiting_final' ? `<div class="approval-panel final-panel"><div class="approval-icon">${icon('check')}</div><div><span class="eyebrow">YOUR FINAL LOOK</span><h2>The specialists are done. Over to you.</h2><p>Verification passed and independent review is complete. Inspect the handoffs and diff before accepting.</p><div class="approval-actions">${button('task-action', 'Accept result', 'primary', 'check', 'data-operation="accept"')}${button('request-changes', 'Request changes', 'secondary')}</div></div></div>` : ''}<div class="detail-tabs" role="tablist">${[
+  return `<div class="task-heading"><button class="back-link" data-action="navigate" data-view="tasks">← All tasks</button><div class="task-title-row"><h1>${e(t.title)}</h1>${t.demo ? '<span class="demo-label large">SIMULATED DEMO</span>' : ''}</div><div class="task-subtitle">${badge(t.status)}<span>${e((t.repositories?.length ? t.repositories.map((r) => r.repository.name) : [t.repository.name]).join(' + '))}</span><span>·</span><span>${t.id.slice(0, 8)}</span>${t.ticket ? `<span>·</span>${issueLink(t.ticket)}` : ''}<span>·</span><span>Created ${ago(t.createdAt).toLowerCase()}</span></div>${liveProgress(t, state.events)}<div class="task-controls">${!['completed', 'cancelled'].includes(t.status) ? button('configure-task', ['running', 'queued', 'manual'].includes(t.status) ? 'Pause & configure' : 'Configure task', 'secondary', 'settings') : ''}${button('duplicate-task', 'Duplicate task', 'text small', 'plus')}${t.status === 'draft' ? button('task-action', 'Start workflow', 'primary', 'bolt', 'data-operation="start"') : ''}${['blocked', 'interrupted', 'paused'].includes(t.status) && !(t.status === 'blocked' && t.blockerDecision) ? button('task-action', 'Resume workflow', 'primary', 'arrow', 'data-operation="resume"') : ''}${t.status === 'manual' ? button('task-action', 'Return to automation', 'primary', 'arrow', 'data-operation="return-control"') : ''}${live ? button('task-action', 'Pause', 'secondary small', 'pause', 'data-operation="pause"') : ''}${!['completed', 'cancelled'].includes(t.status) ? button('confirm-cancel', 'Cancel', 'text small') : ''}<a class="btn text small" href="/api/tasks/${t.id}/export" download>${icon('download')}Export</a></div></div>${t.demo ? '<div class="demo-banner">' + icon('spark') + 'Demo mode. Harness responses and checks are simulated; no repository files are changed.</div>' : ''}<div class="task-layout"><div class="task-center">${t.status === 'blocked' && t.blockerDecision ? '' : taskSummary(t, state.events)}${state.executionMapOpen ? executionMap(t, { selectedId: state.graphSelectedId, zoom: state.graphZoom }) : ''}${t.error && !(t.status === 'blocked' && t.blockerDecision) ? `<details class="error-panel" data-event-key="blocker"><summary>Blocker details</summary><p>${e(t.error)}</p></details>` : ''}${blockerDecisionView(t)}${t.status === 'awaiting_plan' ? planGate(t) : ''}${t.status === 'awaiting_final' ? `<div class="approval-panel final-panel"><div class="approval-icon">${icon('check')}</div><div><span class="eyebrow">YOUR FINAL LOOK</span><h2>The specialists are done. Over to you.</h2><p>Verification passed and independent review is complete. Inspect the handoffs and diff before accepting.</p><div class="approval-actions">${button('task-action', 'Accept result', 'primary', 'check', 'data-operation="accept"')}${button('request-changes', 'Request changes', 'secondary')}</div></div></div>` : ''}<div class="detail-tabs" role="tablist">${[
     ['overview', 'Overview'],
     ['thread', 'Activity thread'],
     ['terminals', 'Live terminals'],
@@ -254,29 +264,14 @@ function taskView() {
     )
     .join(
       '',
-    )}</div><div class="detail-content">${state.tab === 'overview' ? taskDetails(t) || empty('book', 'No description yet', 'Configure this task to add requirements.') : state.tab === 'terminals' ? terminalView(t, state) : state.tab === 'thread' ? threadView(t) : state.tab === 'handoffs' ? handoffsView(t) : state.tab === 'diff' ? diffView(t) : transcriptView(t)}</div>${!['completed', 'cancelled'].includes(t.status) ? `<form id="message-form" class="message-box">${markdownEditor({ id: 'task-message', name: 'message', label: 'Add direction or context', rows: 3, max: 20000 })}<div><small>${t.canSteer ? 'Steer sends direction to the active session; Claude interrupts and resumes.' : 'Context stays pending until an agent receives it.'} ${t.messages.filter((m) => m.delivery === 'pending').length} pending.</small>${t.canSteer ? '<label><input id="steer-active" type="checkbox" name="steer" checked> Steer active agent</label>' : ''}<button class="btn secondary small" type="submit">Send direction ${icon('arrow')}</button></div></form>` : ''}</div><aside class="task-context">${sideChat(t, state.sideChatOpen)}<section class="context-card"><div class="context-title">WORKFLOW <span class="live-label ${live ? 'is-live' : ''}">${live ? '● LIVE' : '6 STAGES'}</span></div><ol class="stage-list">${Object.keys(
-    stageNames,
-  )
-    .map((stage, i) => {
-      const attempts = t.attempts.filter((a) => a.stage === stage);
-      const a = attempts.at(-1);
-      const done =
-        a?.status === 'complete' && a?.handoff?.verdict === 'complete' && a?.role !== 'debug';
-      const active = t.stage === stage && !['completed', 'cancelled'].includes(t.status);
-      const h = stage === 'verify' ? 'checks' : t.routing[stage];
-      const diagnosing = active && t.recovery?.active && t.recovery.phase === 'debug';
-      return `${active ? debuggerStep(t) : ''}<li class="${active ? 'current' : done ? 'done' : ''}"><span class="stage-number">${done && !active ? icon('check') : i + 1}</span><div><strong>${stageNames[stage]}</strong><small>${diagnosing ? 'Paused for debugger' : h === 'checks' ? 'Repository checks' : h.charAt(0).toUpperCase() + h.slice(1)}${a?.finishedAt ? ' · ' + duration(new Date(a.finishedAt) - new Date(a.startedAt)) : active && live ? ` · ${a?.status === 'running' ? timer(a.startedAt) : 'Queued'}` : ''}</small></div>${active && live ? '<span class="pulse-dot"></span>' : ''}</li>`;
-    })
-    .join(
-      '',
-    )}</ol><button class="btn secondary workflow-graph-button" data-action="open-execution-map">Open execution graph ↗</button></section>${(t
+    )}</div><div class="detail-content">${state.tab === 'overview' ? taskDetails(t) || empty('book', 'No description yet', 'Configure this task to add requirements.') : state.tab === 'terminals' ? terminalView(t, state) : state.tab === 'thread' ? threadView(t) : state.tab === 'handoffs' ? handoffsView(t) : state.tab === 'diff' ? diffView(t) : transcriptView(t)}</div>${!['completed', 'cancelled'].includes(t.status) ? `<form id="message-form" class="message-box">${markdownEditor({ id: 'task-message', name: 'message', label: 'Add direction or context', rows: 3, max: 20000 })}<div><small>${t.canSteer ? 'Steer sends direction to the active session; Claude interrupts and resumes.' : 'Context stays pending until an agent receives it.'} ${t.messages.filter((m) => m.delivery === 'pending').length} pending.</small>${t.canSteer ? '<label><input id="steer-active" type="checkbox" name="steer" checked> Steer active agent</label>' : ''}<button class="btn secondary small" type="submit">Send direction ${icon('arrow')}</button></div></form>` : ''}</div><aside class="task-context">${sideChat(t, state.sideChatOpen)}<section class="context-card"><div class="context-title">WORKFLOW <span class="live-label ${live ? 'is-live' : ''}">${live ? '● LIVE' : '6 STAGES'}</span></div><ol class="stage-list">${workflowStages(t)}</ol><button class="btn secondary workflow-graph-button" data-action="open-execution-map" aria-label="Open execution graph">Execution graph ↗</button></section>${(t
     .repositories?.length > 1
     ? t.repositories
     : [t]
   )
     .map(
       (r) =>
-        `<section class="context-card"><div class="context-title">REPOSITORY WORKSPACE ${icon('git')}</div><dl><dt>Repository</dt><dd>${e(r.repository.name)}</dd><dt>Prerequisites</dt><dd>${e(
+        `<section class="context-card"><div class="context-title">WORKSPACE ${icon('git')}</div><strong class="workspace-name">${e(r.repository.name)}</strong><details class="workspace-details" data-event-key="workspace-${e(r.repository.id)}"><summary>Branch, directory &amp; setup</summary><dl><dt>Repository</dt><dd>${e(r.repository.name)}</dd><dt>Prerequisites</dt><dd>${e(
           (t.dependencies ?? [])
             .filter((d) => d.repositoryId === r.repository.id)
             .map(
@@ -285,7 +280,7 @@ function taskView() {
                   .name ?? d.dependsOn,
             )
             .join(', ') || 'Independent',
-        )}</dd><dt>Workspace mode</dt><dd>${r.repository.strategy === 'attach' ? 'Attach existing checkout (explicit opt-in)' : r.repository.strategy === 'managed' ? 'New managed worktree per task' : 'New isolated worktree per task'}</dd><dt>Branch</dt><dd class="mono wrap">${e(r.branch || 'Assigned when started')}</dd><dt>Directory</dt><dd class="mono wrap">${e(r.workspace || 'Created when started')}</dd></dl>${t.status === 'completed' && !t.demo && r.repository.prCommand && !r.submission ? button('confirm-submit', 'Commit & submit draft PR', 'primary small', 'git', `data-repository-id="${e(r.repository.id)}"`) : ''}${r.submission ? `<p>Submission: <strong>${e(r.submission.status)}</strong></p><pre class="submission-output">${e(r.submission.stdout || r.submission.error || 'See execution log.')}${e(r.submission.stderr || '')}</pre>` : ''}</section>`,
+        )}</dd><dt>Workspace mode</dt><dd>${r.repository.strategy === 'attach' ? 'Attach existing checkout (explicit opt-in)' : r.repository.strategy === 'managed' ? 'New managed worktree per task' : 'New isolated worktree per task'}</dd><dt>Branch</dt><dd class="mono wrap">${e(r.branch || 'Assigned when started')}</dd><dt>Directory</dt><dd class="mono wrap">${e(r.workspace || 'Created when started')}</dd></dl></details>${t.status === 'completed' && !t.demo && r.repository.prCommand && !r.submission ? button('confirm-submit', 'Commit & submit draft PR', 'primary small', 'git', `data-repository-id="${e(r.repository.id)}"`) : ''}${r.submission ? `<p>Submission: <strong>${e(r.submission.status)}</strong></p><pre class="submission-output">${e(r.submission.stdout || r.submission.error || 'See execution log.')}${e(r.submission.stderr || '')}</pre>` : ''}</section>`,
     )
     .join(
       '',
@@ -358,33 +353,13 @@ function threadView(t) {
   const run = activityRunSelection(t, grouped, state.activitySelection);
   const followingCurrent =
     run.selected?.id === latestAttempt?.id && state.activitySelection !== 'all';
-  return `<div class="activity-browser">${activityRunNavigation(t, run.selected, state.activitySelection)}<div class="activity-run-content">${activityRunHeader(run.selected, state.events)}<div class="timeline">${run.events.map((ev) => `<article data-event-seq="${ev.seq}" class="timeline-item ${ev.type === 'decision' ? 'decision-event' : ''}"><div class="timeline-avatar">${ev.harness ? harnessBadge(ev.harness) : icon(ev.type === 'approval' || ev.type === 'accepted' ? 'check' : ev.type === 'decision' ? 'eye' : ev.type === 'feedback' ? 'arrow' : 'layers')}</div><div class="timeline-body"><div class="event-meta"><strong>${ev.harness ? e(ev.harness.charAt(0).toUpperCase() + ev.harness.slice(1)) : ev.type === 'feedback' || ev.type === 'approval' || ev.type === 'accepted' ? 'You' : 'Relay'}</strong><span>${ev.stage ? e(stageNames[ev.stage]) : e(ev.type.replaceAll('_', ' '))}</span><time>${ago(ev.at)}</time>${ev.repositoryId ? `<span>${e((t.repositories?.length > 1 ? t.repositories : [t]).find((r) => r.repository.id === ev.repositoryId)?.repository.name ?? ev.repositoryId)}</span>` : ''}</div>${ev.toolEvents ? `<details class="event-details tool-activity" data-event-key="tools-${ev.seq}"><summary>${ev.toolEvents.length} ${ev.toolEvents.length === 1 ? 'activity' : 'activities'} · ${e(concise(ev.toolEvents.at(-1).summary, 120))}</summary>${ev.toolEvents.map((tool) => `<div class="tool-entry"><strong>${e(concise(tool.summary, 180))}</strong>${tool.details ? `<pre class="code-block">${e(tool.details)}</pre>` : ''}</div>`).join('')}</details>` : ev.type === 'activity' && ev.kind === 'message' ? `<div class="prose agent-message">${prose(concise(ev.details || ev.summary, 360))}</div>${(ev.details || ev.summary).length > 360 ? `<details class="event-details" data-event-key="message-${ev.seq}"><summary>Full message</summary><div class="prose">${prose(ev.details || ev.summary)}</div></details>` : ''}` : `<h3>${e(concise(ev.summary))}</h3>`}${ev.details && !ev.toolEvents && ev.type !== 'activity' ? `<details data-event-key="event-${ev.seq}" class="event-details"><summary>View ${ev.type === 'handoff' ? 'handoff' : 'details'}</summary><div class="prose">${prose(ev.details)}</div></details>` : ''}${ev.type === 'handoff' ? `<details class="event-details" data-event-key="findings-${ev.seq}"><summary>Files & findings</summary>${handoffExtras(t.attempts.find((a) => a.id === ev.attemptId)?.handoff)}</details>` : ''}</div></article>`).join('')}${followingCurrent && ['running', 'queued'].includes(t.status) ? `<article class="timeline-item working"><div class="timeline-avatar">${harnessBadge(latestAttempt?.harness ?? t.routing[t.stage])}</div><div class="timeline-body"><div class="event-meta"><strong>${e(stageNames[t.stage])}</strong><span class="typing-dots"><i></i><i></i><i></i></span></div><p>${e(concise(activity?.summary || 'Preparing the next handoff…'))}</p><small>Updates appear here as work progresses.</small></div></article>` : ''}</div></div></div>`;
+  return `<div class="activity-browser">${activityRunNavigation(t, run.selected, state.activitySelection)}<div class="activity-run-content">${activityRunHeader(run.selected, state.events)}<div class="timeline">${run.events.map((ev) => `<article data-event-seq="${ev.seq}" class="timeline-item ${ev.type === 'decision' ? 'decision-event' : ''}"><div class="timeline-avatar">${ev.harness ? harnessBadge(ev.harness) : icon(ev.type === 'approval' || ev.type === 'accepted' ? 'check' : ev.type === 'decision' ? 'eye' : ev.type === 'feedback' ? 'arrow' : 'layers')}</div><div class="timeline-body"><div class="event-meta"><strong>${ev.harness ? e(ev.harness.charAt(0).toUpperCase() + ev.harness.slice(1)) : ev.type === 'feedback' || ev.type === 'approval' || ev.type === 'accepted' ? 'You' : 'Relay'}</strong><span>${ev.stage ? e(stageNames[ev.stage]) : e(ev.type.replaceAll('_', ' '))}</span><time>${ago(ev.at)}</time>${ev.repositoryId ? `<span>${e((t.repositories?.length > 1 ? t.repositories : [t]).find((r) => r.repository.id === ev.repositoryId)?.repository.name ?? ev.repositoryId)}</span>` : ''}</div>${ev.toolEvents ? `<details class="event-details tool-activity" data-event-key="tools-${ev.seq}"><summary>${ev.toolEvents.length} ${ev.toolEvents.length === 1 ? 'activity' : 'activities'} · ${e(concise(ev.toolEvents.at(-1).summary, 120))}</summary>${ev.toolEvents.map((tool) => `<div class="tool-entry"><strong>${e(concise(tool.summary, 180))}</strong>${tool.details ? `<pre class="code-block">${e(tool.details)}</pre>` : ''}</div>`).join('')}</details>` : ev.type === 'activity' && ev.kind === 'message' ? `<div class="prose agent-message">${prose(concise(ev.details || ev.summary, 360))}</div>${(ev.details || ev.summary).length > 360 ? `<details class="event-details" data-event-key="message-${ev.seq}"><summary>Full message</summary><div class="prose">${prose(ev.details || ev.summary)}</div></details>` : ''}` : `<h3>${e(concise(ev.summary))}</h3>`}${ev.type === 'handoff' ? `<details class="report-section" data-event-key="handoff-report-${ev.seq}"><summary>Run details &amp; evidence</summary>${handoffBodyForThread(t, ev)}</details>` : ev.details && !ev.toolEvents && ev.type !== 'activity' ? `<details data-event-key="event-${ev.seq}" class="event-details"><summary>Details</summary><div class="prose">${prose(ev.details)}</div></details>` : ''}</div></article>`).join('')}${followingCurrent && ['running', 'queued'].includes(t.status) ? `<article class="timeline-item working"><div class="timeline-avatar">${harnessBadge(latestAttempt?.harness ?? t.routing[t.stage])}</div><div class="timeline-body"><div class="event-meta"><strong>${e(stageNames[t.stage])}</strong><span class="typing-dots"><i></i><i></i><i></i></span></div><p>${e(concise(activity?.summary || 'Preparing the next handoff…'))}</p><small>Updates appear here as work progresses.</small></div></article>` : ''}</div></div></div>`;
 }
-function handoffExtras(h) {
-  if (!h) return '';
-  return `${
-    h.files?.length
-      ? `<div class="file-chips">${h.files
-          .slice(0, 6)
-          .map((f) => `<span>${icon('code')}${e(f)}</span>`)
-          .join('')}</div>`
-      : ''
-  }${h.findings?.length ? `<div class="findings">${h.findings.map((f) => `<p><span class="severity ${e(f.severity)}">${e(f.severity)}</span><strong>${e(f.file)}</strong> ${e(f.description)}</p>`).join('')}</div>` : ''}`;
+function handoffBodyForThread(t, ev) {
+  return handoffBody(t.attempts.find((a) => a.id === ev.attemptId)?.handoff);
 }
 function handoffsView(t) {
-  const attempts = t.attempts.filter((a) => a.handoff || a.error);
-  return attempts.length
-    ? attempts
-        .map(
-          (a) =>
-            `<article class="handoff-card"><div class="handoff-top">${harnessBadge(a.harness)}<div><h3>${e(stageNames[a.stage])}</h3><small>${e(a.harness)}${a.repositoryId ? ` · ${e((t.repositories ?? [t]).find((r) => r.repository.id === a.repositoryId)?.repository.name ?? a.repositoryId)}` : ' · Shared'} · ${duration(new Date(a.finishedAt) - new Date(a.startedAt))}${a.round ? ` · Repair ${a.round}` : ''}</small></div><span class="verdict ${a.handoff?.verdict === 'complete' ? 'pass' : 'fail'}">${e(a.handoff?.verdict?.replaceAll('_', ' ') || 'failed')}</span></div><h3>${e(a.handoff?.summary || a.error)}</h3><div class="prose">${prose(a.handoff?.details || '')}</div>${handoffExtras(a.handoff)}${a.handoff?.evidence?.length ? `<details><summary>Evidence (${a.handoff.evidence.length})</summary><ul class="evidence-list">${a.handoff.evidence.map((s) => `<li>${e(s)}</li>`).join('')}</ul></details>` : ''}${a.handoff?.risks?.length ? `<div class="risk-note"><strong>Risks & limitations</strong><ul>${a.handoff.risks.map((s) => `<li>${e(s)}</li>`).join('')}</ul></div>` : ''}</article>`,
-        )
-        .join('')
-    : empty(
-        'layers',
-        'Handoffs will appear here',
-        'Each specialist leaves evidence and a clear next step.',
-      );
+  return handoffList(t);
 }
 function diffView(t, suppliedDiff) {
   if (t.demo)
@@ -417,36 +392,15 @@ function diffView(t, suppliedDiff) {
   if (d.error) return `<div class="error-panel">${e(d.error)}</div>`;
   const repositoryId = d.repositoryId ?? t.repository.id;
   const comments = (t.reviewComments || []).filter((c) => c.repositoryId === repositoryId);
-  return `<div class="diff-heading"><span>Changes since <code>${e(t.baseCommit?.slice(0, 10))}</code></span>${button('refresh-diff', 'Refresh', 'text small')}</div>${canComment ? '<p>Click + beside a line to leave feedback. Send focused repairs when ready.</p>' : ''}${d.stat ? `<pre class="diff-stat">${e(d.stat)}</pre>` : ''}<pre class="diff-code">${diffLines(
-    d,
-  )
-    .map(
-      (line, index) =>
-        `<span class="diff-line ${line.kind} ${line.anchor ? 'has-anchor' : ''}">${canComment && line.anchor ? `<button class="diff-comment-button" data-action="comment-line" data-repository-id="${e(repositoryId)}" data-line="${index}" aria-label="Comment on ${e(line.anchor.path)} line ${line.anchor.line}">+</button>` : ''}${line.anchor ? `<small class="diff-line-number">${line.anchor.side === 'old' ? 'old' : 'new'} ${line.anchor.line}</small>` : ''}${e(line.text)}</span>`,
-    )
-    .join(
-      '\n',
-    )}</pre>${comments.length ? `<section class="context-card"><h3>Inline feedback</h3>${comments.map((c) => `<article class="review-comment"><strong>${e(c.anchor.path)}:${c.anchor.line} · ${e(c.status)}${c.fingerprint !== d.fingerprint ? ' · Earlier workspace' : ''}</strong><div class="prose">${prose(c.text)}</div>${canComment && c.status !== 'resolved' ? button('resolve-comment', 'Mark resolved', 'text small', '', `data-comment-id="${e(c.id)}"`) : ''}</article>`).join('')}${canComment && comments.some((c) => c.status === 'open') ? button('focused-repair', 'Send all open comments for repair', 'primary small') : ''}</section>` : ''}${!d.text && !d.untracked.length ? empty('check', 'No changes yet', 'Changes appear here as the workspace changes.') : ''}`;
+  const files = diffFileGroups(d);
+  return `<div class="panel-heading"><div><h2>Code changes</h2><p>${files.length} ${files.length === 1 ? 'file' : 'files'} · compared with <code>${e(t.baseCommit?.slice(0, 10))}</code></p></div>${button('refresh-diff', 'Refresh', 'secondary small')}</div>${canComment ? '<div class="review-callout"><strong>Ready for your review</strong><p>Open a file and use + beside a line to leave feedback. Send open comments for a focused repair.</p></div>' : ''}<div class="diff-file-toolbar"><span>Browse files</span><button class="btn text small" data-action="expand-diff">Expand all</button><button class="btn text small" data-action="collapse-diff">Collapse all</button></div>${files.map((file, fileIndex) => `<details class="diff-file" data-event-key="diff-${e(repositoryId)}-${e(file.name)}" ${fileIndex === 0 ? 'open' : ''}><summary><span class="diff-file-name"><strong>${e(file.name.split('/').at(-1))}</strong><small>${e(file.name)}</small></span><span class="diff-count"><b>+${file.additions}</b><span>−${file.deletions}</span></span></summary><pre class="diff-code">${file.lines.map((line) => `<span class="diff-line ${line.kind} ${line.anchor ? 'has-anchor' : ''}">${canComment && line.anchor ? `<button class="diff-comment-button" data-action="comment-line" data-repository-id="${e(repositoryId)}" data-line="${line.index}" aria-label="Comment on ${e(line.anchor.path)} line ${line.anchor.line}">+</button>` : ''}${line.anchor ? `<small class="diff-line-number">${line.anchor.side === 'old' ? 'old' : 'new'} ${line.anchor.line}</small>` : ''}${e(line.text)}</span>`).join('\n')}</pre></details>`).join('')}${d.stat ? `<details class="report-section"><summary>Change statistics</summary><pre class="diff-stat">${e(d.stat)}</pre></details>` : ''}${comments.length ? `<section class="context-card"><h3>Inline feedback</h3>${comments.map((c) => `<article class="review-comment"><strong>${e(c.anchor.path)}:${c.anchor.line} · ${e(c.status)}${c.fingerprint !== d.fingerprint ? ' · Earlier workspace' : ''}</strong><div class="prose">${prose(c.text)}</div>${canComment && c.status !== 'resolved' ? button('resolve-comment', 'Mark resolved', 'text small', '', `data-comment-id="${e(c.id)}"`) : ''}</article>`).join('')}${canComment && comments.some((c) => c.status === 'open') ? button('focused-repair', 'Send all open comments for repair', 'primary small') : ''}</section>` : ''}${!d.text && !d.untracked.length ? empty('check', 'No changes yet', 'Changes appear here as the workspace changes.') : ''}`;
 }
-function transcriptView() {
-  const events = state.events.filter((ev) => ev.type === 'transcript');
-  return `<div class="log-notice">Raw harness and command output. May contain sensitive repository context. Export the task for a local record.</div>${
-    events.length
-      ? `<pre class="transcript">${events
-          .slice(-400)
-          .map(
-            (ev) =>
-              `<span class="log-line ${ev.stream === 'stderr' ? 'stderr' : ''}"><span class="log-stage">${e(ev.stage || '')}</span>${e(ev.text)}</span>`,
-          )
-          .join(
-            '\n',
-          )}</pre><small class="muted">Showing the most recent ${Math.min(events.length, 400)} loaded log lines.</small>`
-      : empty(
-          'code',
-          'Nothing to inspect yet',
-          'Live harness output and verification logs appear here.',
-        )
-  }`;
+function transcriptView(t) {
+  return executionLogs(t, state.events, {
+    run: state.logRun,
+    stream: state.logStream,
+    query: state.logQuery,
+  });
 }
 function repositoriesView() {
   return `${pageHeading('ONE TASK, CONNECTED REPOSITORIES', 'Repositories', 'Bring your own codebase. Keep its conventions and tooling.', button('add-repository', 'Add repository', 'primary', 'plus'))}<div class="repository-grid">${state.config.repositories.map((r) => `<article class="repository-card"><div class="repo-top"><span class="repo-icon">${icon('folder')}</span>${button('edit-repository', 'Edit profile', 'text small', '', `data-id="${e(r.id)}"`)}</div><h2>${e(r.name)}</h2><p class="mono wrap">${e(r.path)}</p><div class="repo-tags"><span>${icon('git')}${r.strategy === 'attach' ? 'Attach existing checkout' : r.strategy === 'managed' ? 'Managed task worktrees' : 'Isolated worktrees'}</span><span>${icon('check')}${r.checks.length} verification ${r.checks.length === 1 ? 'command' : 'commands'}</span></div><div class="repo-footer"><small>Working directory <code>${e(r.cwd)}</code></small>${r.prCommand ? '<span class="configured-dot">Provider configured</span>' : '<span class="muted">Local only</span>'}</div></article>`).join('')}${!state.config.repositories.length ? empty('folder', 'Connect your first repository', 'Add a checkout and its verification commands to start real work.', button('add-repository', 'Add repository', 'primary', 'plus')) : ''}</div><div class="info-panel">${icon('git')}<div><strong>Your repository stays yours.</strong><p>Every specialist uses the same task workspace. Relay preserves changes and worktrees when a task finishes. Repository-specific policies and private integrations stay in your ignored local configuration.</p></div></div>`;
@@ -664,6 +618,12 @@ document.addEventListener('click', async (event) => {
   if (state.busy) return;
   const action = element.dataset.action;
   try {
+    if (['expand-diff', 'collapse-diff'].includes(action)) {
+      document.querySelectorAll('.diff-file').forEach((el) => {
+        el.open = action === 'expand-diff';
+      });
+      return;
+    }
     if (action === 'activity-run') {
       state.activitySelection = element.dataset.run;
       renderMain();
@@ -915,6 +875,7 @@ document.addEventListener('click', async (event) => {
     }
     if (action === 'tab') {
       state.tab = element.dataset.tab;
+      if (state.tab === 'transcript' && element.dataset.runId) state.logRun = element.dataset.runId;
       history.pushState(null, '', taskRoute(state.selected, state.tab));
       renderMain();
       if (state.tab === 'diff') await loadDiff();
@@ -1234,6 +1195,11 @@ document.addEventListener('submit', async (event) => {
   }
 });
 document.addEventListener('change', async (event) => {
+  if (['log-run', 'log-stream'].includes(event.target.id)) {
+    state[event.target.id === 'log-run' ? 'logRun' : 'logStream'] = event.target.value;
+    renderMain();
+    return;
+  }
   if (event.target.id === 'terminal-run') {
     state.terminalId = event.target.value;
     await refreshTerminal(state.task);
@@ -1270,6 +1236,11 @@ document.addEventListener('change', async (event) => {
   if (event.target.closest('[data-task-editor]')) syncTaskForm(event.target.closest('form'));
 });
 document.addEventListener('input', (event) => {
+  if (event.target.id === 'log-search') {
+    state.logQuery = event.target.value;
+    renderMain();
+    return;
+  }
   if (event.target.id === 'task-search') {
     state.search = event.target.value;
     renderMain();

@@ -71,3 +71,29 @@ export function diffLines(diff) {
   }
   return lines;
 }
+
+export function diffFileGroups(diff) {
+  const groups = [];
+  for (const [index, line] of diffLines(diff).entries()) {
+    if (
+      line.text.startsWith('diff --git ') ||
+      line.text.startsWith('New file: ') ||
+      !groups.length
+    ) {
+      groups.push({
+        name: line.text.startsWith('New file: ')
+          ? line.text.slice(10)
+          : line.text.replace(/^diff --git .* b\//, ''),
+        lines: [],
+        additions: 0,
+        deletions: 0,
+      });
+    }
+    const group = groups.at(-1);
+    group.lines.push({ ...line, index });
+    if (line.anchor?.path) group.name = line.anchor.path;
+    if (line.kind === 'addition') group.additions++;
+    if (line.kind === 'deletion') group.deletions++;
+  }
+  return groups.filter((g) => g.lines.some((l) => l.text.trim()));
+}

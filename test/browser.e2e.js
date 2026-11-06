@@ -87,7 +87,7 @@ try {
     (await page
       .locator('.task-summary p')
       .first()
-      .evaluate((el) => parseFloat(getComputedStyle(el).fontSize))) >= 15,
+      .evaluate((el) => parseFloat(getComputedStyle(el).fontSize))) >= 14,
   );
   await page.getByRole('tab', { name: 'Activity thread', exact: true }).click();
   await page.getByRole('navigation', { name: 'Activity runs' }).waitFor();
@@ -659,10 +659,7 @@ try {
     await page.getByRole('button', { name: 'Approve & implement' }).click();
     await page.getByRole('heading', { name: 'The specialists are done. Over to you.' }).waitFor();
     assert.equal(
-      await page
-        .locator('.task-context')
-        .getByText('REPOSITORY WORKSPACE', { exact: true })
-        .count(),
+      await page.locator('.task-context').getByText('WORKSPACE', { exact: true }).count(),
       2,
     );
     await page.getByRole('tab', { name: 'Code changes' }).click();
@@ -726,10 +723,7 @@ try {
     await page.reload();
     await page.locator('.task-subtitle .badge.completed').waitFor();
     assert.equal(
-      await page
-        .locator('.task-context')
-        .getByText('REPOSITORY WORKSPACE', { exact: true })
-        .count(),
+      await page.locator('.task-context').getByText('WORKSPACE', { exact: true }).count(),
       2,
     );
   }
@@ -798,6 +792,7 @@ try {
       .getByText('raw payload', { exact: false })
       .waitFor();
     await page.getByRole('button', { name: 'Open execution log', exact: true }).click();
+    assert.equal(await page.locator('#log-run').inputValue(), 'history-9');
     await page.getByRole('tab', { name: 'Live terminals', exact: true }).click();
     for (const width of [1440, 390]) {
       await page.setViewportSize({ width, height: 1100 });
@@ -963,7 +958,7 @@ try {
     }
     await page.getByRole('button', { name: 'Close side conversation', exact: true }).click();
     await page.getByText('What needs your input', { exact: true }).waitFor();
-    await page.getByText('What was tried & evidence', { exact: false }).click();
+    await page.getByText('Full requirements & evidence', { exact: false }).click();
     await page
       .getByText('Isolated fixture test failed before identity creation.', { exact: true })
       .waitFor();

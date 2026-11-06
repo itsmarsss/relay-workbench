@@ -1,4 +1,4 @@
-import { e, icon, stageNames } from './ui.js';
+import { e, stageNames } from './ui.js';
 import { concise } from './task-summary.js';
 
 export function terminalSessions(task) {
@@ -76,7 +76,7 @@ function conversationsView(task, repos) {
   if (['draft', 'completed', 'cancelled', 'manual'].includes(task.status)) return '';
   const [latest, ...earlier] = nativeConversations(task);
   if (!latest) return '';
-  return `<section class="native-conversations" aria-label="Agent conversations"><h3>Agent conversations</h3><p>Take over to continue a saved conversation. Automation pauses while you have control.</p>${conversationRow(latest, repos, true)}${earlier.length ? `<details class="earlier-conversations" data-event-key="earlier-conversations"><summary>Earlier conversations (${earlier.length})</summary>${earlier.map((attempt) => conversationRow(attempt, repos)).join('')}</details>` : ''}</section>`;
+  return `<section class="native-conversations" aria-label="Agent conversations"><details class="saved-session-details"><summary>Saved agent conversations</summary><p>Take over to continue a saved conversation. Automation pauses while you have control.</p>${conversationRow(latest, repos, true)}${earlier.length ? `<details class="earlier-conversations" data-event-key="earlier-conversations"><summary>Earlier conversations (${earlier.length})</summary>${earlier.map((attempt) => conversationRow(attempt, repos)).join('')}</details>` : ''}</details></section>`;
 }
 export function retainedActivity(events, attemptId) {
   const seen = new Set();
@@ -110,7 +110,7 @@ function runPicker(sessions, selected) {
     .reverse()
     .map(
       (s) =>
-        `<option value="${e(s.id)}" ${s.id === selected.id ? 'selected' : ''}>${e(`${s.run ? `Run ${s.run}` : 'Manual shell'} · ${s.label}${s.repository ? ` · ${s.repository}` : ''} · ${s.status}`)}</option>`,
+        `<option value="${e(s.id)}" ${s.id === selected.id ? 'selected' : ''}>${e(`${s.run ? `Run ${s.run}` : 'Manual shell'} · ${s.label} · ${s.status}`)}</option>`,
     )
     .join(
       '',
@@ -118,10 +118,17 @@ function runPicker(sessions, selected) {
 }
 function runSummary(selected, events) {
   const summary = selected.attempt?.handoff?.summary || selected.attempt?.error;
-  const activity = retainedActivity(events, selected.id).filter(
-    (text) => text !== concise(summary, 240),
+  const updates = retainedActivity(
+    events.filter((ev) => ev.kind === 'message'),
+    selected.id,
+  )
+    .filter((text) => text !== concise(summary, 240))
+    .slice(-3);
+  const diagnostics = retainedActivity(
+    events.filter((ev) => ev.kind !== 'message'),
+    selected.id,
   );
-  return `<div class="terminal-run-summary">${summary ? `<p class="terminal-outcome">${e(summary)}</p>` : ''}${activity.length ? `<h3>Recent activity</h3><ul>${activity.map((text) => `<li>${e(text)}</li>`).join('')}</ul>` : !summary ? '<p>No readable updates were recorded for this run. Expand raw output for details.</p>' : ''}</div>`;
+  return `<div class="terminal-run-summary">${summary ? `<p class="terminal-outcome">${e(summary)}</p>` : ''}${updates.length ? `<h3>Agent updates</h3><ul>${updates.map((text) => `<li>${e(text)}</li>`).join('')}</ul>` : !summary ? '<p>No readable updates were recorded for this run. Expand raw output for details.</p>' : ''}${diagnostics.length ? `<details class="report-section" data-event-key="terminal-diagnostics-${e(selected.id)}"><summary>Commands &amp; diagnostics (${diagnostics.length})</summary><ul>${diagnostics.map((text) => `<li>${e(text)}</li>`).join('')}</ul></details>` : ''}</div>`;
 }
 function interactiveTerminal() {
   return `<div class="browser-terminal-panel"><div class="browser-terminal-toolbar"><span data-browser-terminal-status role="status">Connecting…</span><button class="btn secondary small" data-terminal-key="focus">Focus terminal</button></div><div class="browser-terminal" data-browser-terminal></div><div class="browser-terminal-keys" aria-label="Terminal keys"><button class="btn secondary small" data-terminal-key="interrupt">Ctrl+C</button><button class="btn secondary small" data-terminal-key="escape">Esc</button><button class="btn secondary small" data-terminal-key="tab">Tab</button><button class="btn secondary small" data-terminal-key="up" aria-label="Up arrow">↑</button><button class="btn secondary small" data-terminal-key="down" aria-label="Down arrow">↓</button><button class="btn secondary small" data-terminal-key="enter">Enter</button><span>Type or paste directly into the terminal.</span></div></div>`;
@@ -163,7 +170,7 @@ export function terminalView(task, state) {
   const raw = selected
     ? `<pre id="terminal-preview" class="terminal-preview" tabindex="0" aria-label="Terminal output preview">${e(output || (selected.live ? preview?.message || 'Waiting for terminal output…' : 'No retained output for this run.'))}</pre>`
     : '';
-  return `<section class="terminal-panel" aria-label="Live terminals"><div class="context-title">LIVE TERMINALS ${icon('code')}</div>${task.status === 'manual' ? `<h2>You have control</h2><p>${task.manual?.active ? 'Use the terminal below. Return to automation when ready.' : 'The terminal has closed. Reopen it to continue; automation is paused.'}</p>${!task.manual?.active ? `<button class="btn secondary small" data-action="takeover" data-repository-id="${e(task.manual?.repositoryId ?? task.repository.id)}">Reopen terminal</button>` : ''}` : ''}${message ? `<p class="terminal-empty">${e(message)}</p>` : ''}${runPicker(sessions, selected)}${selected ? `<section id="terminal-output" aria-label="Selected run"><div class="terminal-run-heading"><div><h2>${e(selected.label)}</h2><p>${selected.run ? `Run ${selected.run} · ` : ''}${e(selected.repository || 'Workspace')}${timestamp ? ` · ${timestamp}` : ''}</p></div><span class="terminal-run-status ${selected.live ? 'is-live' : ''}">${e(selected.status)}</span></div>${selected.id === 'manual' && selected.live ? interactiveTerminal() : selected.live ? `<div class="terminal-preview-toolbar"><span>${preview?.available ? 'Read-only preview · updates automatically' : 'Connecting to terminal…'}</span><button class="btn secondary small" data-action="terminal-follow" aria-pressed="${state.terminalFollow}">Follow latest</button></div>${raw}` : `${runSummary(selected, state.events)}<details class="terminal-raw" data-event-key="terminal-raw-${e(selected.id)}"><summary>Raw output</summary>${raw}<button class="btn text small" data-action="tab" data-tab="transcript">Open execution log</button></details>`}${selected.live ? `${selected.id === 'manual' ? '<details class="external-terminal"><summary>Open in an external terminal</summary>' : ''}<div class="terminal-attach"><div class="terminal-attach-heading"><strong>Watch in your terminal</strong><button class="btn secondary small" data-action="copy-terminal" data-command="${e(selected.terminal.attachCommand)}">Copy attach command</button></div><code class="terminal-attach-command">${e(selected.terminal.attachCommand)}</code><p>Attach to watch. Take over before editing. Detach with <kbd>Ctrl+B</kbd>, then <kbd>D</kbd>.</p></div>${selected.id === 'manual' ? '</details>' : ''}` : ''}</section>` : ''}${
+  return `<section class="terminal-panel" aria-label="Live terminals"><div class="panel-heading"><div><h2>Live terminals</h2><p>Watch an agent run, or take over when you need to intervene.</p></div></div>${task.status === 'manual' ? `<h2>You have control</h2><p>${task.manual?.active ? 'Use the terminal below. Return to automation when ready.' : 'The terminal has closed. Reopen it to continue; automation is paused.'}</p>${!task.manual?.active ? `<button class="btn secondary small" data-action="takeover" data-repository-id="${e(task.manual?.repositoryId ?? task.repository.id)}">Reopen terminal</button>` : ''}` : ''}${message ? `<p class="terminal-empty">${e(message)}</p>` : ''}${task.attempts?.at(-1)?.role === 'verifier' && task.status === 'running' ? '<div class="review-callout"><strong>Host checks are running</strong><p>These checks run without an agent terminal. <button class="btn text small" data-action="tab" data-tab="thread">View check output</button></p></div>' : ''}${runPicker(sessions, selected)}${
     !['completed', 'cancelled', 'manual'].includes(task.status)
       ? `<div class="inline-actions">${repos
           .filter((r) => r.workspace && r.setupCompleted)
@@ -173,5 +180,5 @@ export function terminalView(task, state) {
           )
           .join('')}</div>`
       : ''
-  }${conversationsView(task, repos)}</section>`;
+  }${selected ? `<section id="terminal-output" aria-label="Selected run"><div class="terminal-run-heading"><div><h2>${e(selected.label)}</h2><p>${selected.run ? `Run ${selected.run} · ` : ''}${e(selected.repository || 'Workspace')}${timestamp ? ` · ${timestamp}` : ''}</p></div><span class="terminal-run-status ${selected.live ? 'is-live' : ''}">${e(selected.status)}</span></div>${selected.id === 'manual' && selected.live ? interactiveTerminal() : selected.live ? `<div class="terminal-preview-toolbar"><span>${preview?.available ? 'Read-only preview · updates automatically' : 'Connecting to terminal…'}</span><button class="btn secondary small" data-action="terminal-follow" aria-pressed="${state.terminalFollow}">Follow latest</button></div>${raw}` : `${runSummary(selected, state.events)}<details class="terminal-raw" data-event-key="terminal-raw-${e(selected.id)}"><summary>Raw output</summary>${raw}<button class="btn text small" data-action="tab" data-tab="transcript" data-run-id="${e(selected.id)}">Open execution log</button></details>`}${selected.live ? `<details class="external-terminal"><summary>Attach from your terminal</summary><div class="terminal-attach"><div class="terminal-attach-heading"><strong>Attach command</strong><button class="btn secondary small" data-action="copy-terminal" data-command="${e(selected.terminal.attachCommand)}">Copy attach command</button></div><code class="terminal-attach-command">${e(selected.terminal.attachCommand)}</code><p>Attach to watch. Take over before editing. Detach with <kbd>Ctrl+B</kbd>, then <kbd>D</kbd>.</p></div></details>` : ''}</section>` : ''}${conversationsView(task, repos)}</section>`;
 }

@@ -174,7 +174,7 @@ test('terminal history exposes every run with a stable number and preserves expl
   assert.equal(terminalSelection(task, 'run-0').id, 'run-0');
   const html = terminalView(task, { events: [], terminalId: 'run-0' });
   assert.match(html, /value="run-0" selected/);
-  assert.match(html, /Run 1 · Codex · Investigation · API · Finished/);
+  assert.match(html, /Run 1 · Codex · Investigation · Finished/);
   assert.match(html, /Go to live run/);
   assert.doesNotMatch(html, /role="tablist"|Follow latest/);
 });

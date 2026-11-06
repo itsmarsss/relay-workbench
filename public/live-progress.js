@@ -13,7 +13,7 @@ export function liveProgress(task, events = []) {
   const attempt = task.attempts?.findLast((a) => a.status === 'running');
   if (task.status !== 'running' || !attempt) return '';
   const activity = events.findLast((e) => e.attemptId === attempt.id && e.type === 'activity');
-  return `<div class="live-progress" aria-label="Live task progress">${harnessBadge(attempt.harness)}<span class="pulse-dot"></span><strong>${attempt.role === 'debug' ? 'Debugger' : (stageNames[attempt.stage] ?? attempt.stage)}</strong><span>${e(attempt.harness)}</span>${timer(attempt.startedAt)}${activity?.at ? `<small>Last activity ${timer(activity.at)} ago</small>` : '<small>Waiting for first output</small>'}</div>`;
+  return `<div class="live-progress" aria-label="Live task progress">${harnessBadge(attempt.harness)}<span class="pulse-dot"></span><strong>${attempt.role === 'verifier' ? 'Host verification' : attempt.role === 'debug' ? 'Debugger' : (stageNames[attempt.stage] ?? attempt.stage)}</strong><span>${e(attempt.harness)}</span>${timer(attempt.startedAt)}${activity?.at ? `<small>Last activity ${timer(activity.at)} ago</small>` : '<small>Waiting for first output</small>'}</div>`;
 }
 export function updateTimers(root = document, now = Date.now()) {
   for (const node of root.querySelectorAll('[data-live-start]'))
