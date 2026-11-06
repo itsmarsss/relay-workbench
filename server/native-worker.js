@@ -191,7 +191,7 @@ try {
       ...(spec.model ? { model: spec.model } : {}),
     });
     threadId = result.thread.id;
-    emit({ type: 'relay.session', sessionId: threadId });
+    emit({ type: 'relay.session', sessionId: threadId, model: result.model });
     const turn = await request('turn/start', {
       threadId,
       input: [{ type: 'text', text: spec.prompt }],

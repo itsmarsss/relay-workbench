@@ -816,7 +816,18 @@ export class Engine {
         }
       }
     }
+    const parentAttempt = task.attempts.at(-1);
     const attempt = {
+      parentAttemptId: parentAttempt?.id ?? null,
+      relation: debugging
+        ? 'Diagnosis'
+        : task.recovery?.phase === 'continue'
+          ? 'Continue after diagnosis'
+          : parentAttempt && task.round > parentAttempt.round
+            ? 'Repair / backtrack'
+            : parentAttempt?.stage === stage
+              ? 'Retry / next repository'
+              : 'Handoff',
       id: randomUUID(),
       stage,
       role: debugging ? 'debug' : 'specialist',
@@ -1038,6 +1049,12 @@ export class Engine {
         attemptId: attempt.id,
         signal,
         sessionId: previousSession?.sessionId,
+        onModel: (model) => {
+          const current = this.store.get(id);
+          const active = current.attempts.find((a) => a.id === attempt.id);
+          active.actualModel = model;
+          this.store.save(current);
+        },
         onSession: (sessionId) => {
           const current = this.store.get(id);
           current.attempts.find((a) => a.id === attempt.id).sessionId = sessionId;

@@ -6,6 +6,7 @@ import { spawnSync } from 'node:child_process';
 import { createApp } from '../server/app.js';
 import { git } from '../server/workspace.js';
 import { demoHandoff } from '../server/harness.js';
+import { parseTaskRoute } from '../public/task-route.js';
 import { newTask } from '../server/domain.js';
 import { assertReadableText } from './browser-contrast.js';
 
@@ -123,7 +124,7 @@ try {
   await page.locator('.task-subtitle .badge.completed').waitFor();
   const taskUrl = page.url();
   if (localApp) {
-    const id = taskUrl.split('/').at(-1);
+    const id = parseTaskRoute(new URL(taskUrl).hash).id;
     localApp.store.event(id, {
       type: 'transcript',
       stream: 'stdout',
@@ -268,7 +269,7 @@ try {
   await contextEditor.locator('textarea').fill('## Context still here');
   await contextEditor.getByRole('tab', { name: 'Preview', exact: true }).click();
   if (localApp) {
-    localApp.store.event(page.url().split('/').at(-1), {
+    localApp.store.event(parseTaskRoute(new URL(page.url()).hash).id, {
       type: 'configuration',
       summary: 'Refresh fixture',
     });
@@ -608,7 +609,7 @@ try {
     await page.waitForFunction(() =>
       document.querySelector('.xterm-rows')?.textContent.includes('browser-input-verified'),
     );
-    const manualTask = localApp.store.get(page.url().split('/').at(-1));
+    const manualTask = localApp.store.get(parseTaskRoute(new URL(page.url()).hash).id);
     const manualWorkspace = manualTask.repositories.find(
       (r) => r.repository.id === 'service',
     ).workspace;
@@ -683,7 +684,7 @@ try {
       .getByRole('button', { name: 'Send all open comments for repair', exact: true })
       .click();
     await page.waitForFunction(async () => {
-      const id = location.hash.slice('#task/'.length);
+      const id = location.hash.slice('#task/'.length).split('/')[0];
       const task = await fetch(`/api/tasks/${id}`).then((r) => r.json());
       return (
         task.status === 'awaiting_final' &&
@@ -695,7 +696,10 @@ try {
     await page.getByRole('heading', { name: 'The specialists are done. Over to you.' }).waitFor();
     await page.getByRole('button', { name: 'Refresh all', exact: true }).click();
     await page.getByText('Preserve the cross-repository contract.', { exact: true }).waitFor();
-    assert.equal(localApp.store.get(page.url().split('/').at(-1)).reviewComments.length, 2);
+    assert.equal(
+      localApp.store.get(parseTaskRoute(new URL(page.url()).hash).id).reviewComments.length,
+      2,
+    );
     await page.screenshot({ path: join(screenshots, 'inline-feedback.png'), fullPage: true });
     await page.getByRole('button', { name: 'Accept result', exact: true }).click();
     await page.locator('.task-subtitle .badge.completed').waitFor();
@@ -870,6 +874,27 @@ try {
     });
     await page.goto(`${origin}/#task/${debugTask.id}`);
     await page.getByRole('region', { name: 'Blocker decision', exact: true }).waitFor();
+    await page.getByRole('tab', { name: 'Activity thread', exact: true }).click();
+    assert.ok(page.url().endsWith(`/thread`));
+    await page.reload();
+    await page.getByRole('tab', { name: 'Activity thread', exact: true }).waitFor();
+    assert.equal(
+      await page
+        .getByRole('tab', { name: 'Activity thread', exact: true })
+        .getAttribute('aria-selected'),
+      'true',
+    );
+    await page.getByRole('tab', { name: 'Overview', exact: true }).click();
+    await page.goBack();
+    await page.getByRole('tab', { name: 'Activity thread', exact: true }).waitFor();
+    assert.equal(
+      await page
+        .getByRole('tab', { name: 'Activity thread', exact: true })
+        .getAttribute('aria-selected'),
+      'true',
+    );
+    await page.locator('.execution-map > summary').click();
+
     await page.getByText('Ask on the side', { exact: true }).click();
     await page.locator('#side-question').fill('What is blocked?');
     await page.getByRole('button', { name: 'Ask without interrupting', exact: true }).click();

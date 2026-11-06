@@ -1,3 +1,5 @@
+import { taskRoute, parseTaskRoute } from './task-route.js';
+import { executionMap, debuggerStep } from './execution-map.js';
 import { liveProgress, timer, updateTimers } from './live-progress.js';
 import { sideChat } from './side-chat.js';
 import { blockerDecisionView } from './blocker-decision.js';
@@ -218,7 +220,7 @@ function taskView() {
   if (!t) return '<div class="boot">Loading task…</div>';
   const live = ['running', 'queued'].includes(t.status);
   const last = t.attempts.findLast((a) => a.handoff)?.handoff;
-  return `<div class="task-heading"><button class="back-link" data-action="navigate" data-view="tasks">← All tasks</button><div class="task-title-row"><h1>${e(t.title)}</h1>${t.demo ? '<span class="demo-label large">SIMULATED DEMO</span>' : ''}</div><div class="task-subtitle">${badge(t.status)}<span>${e((t.repositories?.length ? t.repositories.map((r) => r.repository.name) : [t.repository.name]).join(' + '))}</span><span>·</span><span>${t.id.slice(0, 8)}</span>${t.ticket ? `<span>·</span>${issueLink(t.ticket)}` : ''}<span>·</span><span>Created ${ago(t.createdAt).toLowerCase()}</span></div><div class="task-controls">${!['completed', 'cancelled'].includes(t.status) ? button('configure-task', ['running', 'queued', 'manual'].includes(t.status) ? 'Pause & configure' : 'Configure task', 'secondary', 'settings') : ''}${button('duplicate-task', 'Duplicate task', 'text small', 'plus')}${t.status === 'draft' ? button('task-action', 'Start workflow', 'primary', 'bolt', 'data-operation="start"') : ''}${['blocked', 'interrupted', 'paused'].includes(t.status) ? button('task-action', 'Resume workflow', 'primary', 'arrow', 'data-operation="resume"') : ''}${t.status === 'manual' ? button('task-action', 'Return to automation', 'primary', 'arrow', 'data-operation="return-control"') : ''}${live ? button('task-action', 'Pause', 'secondary small', 'pause', 'data-operation="pause"') : ''}${!['completed', 'cancelled'].includes(t.status) ? button('confirm-cancel', 'Cancel', 'text small') : ''}<a class="btn text small" href="/api/tasks/${t.id}/export" download>${icon('download')}Export</a></div></div>${t.demo ? '<div class="demo-banner">' + icon('spark') + 'Demo mode. Harness responses and checks are simulated; no repository files are changed.</div>' : ''}<div class="task-layout"><div class="task-center">${liveProgress(t, state.events)}${taskSummary(t, state.events)}${t.error ? `<details class="error-panel" data-event-key="blocker"><summary>Blocker details</summary><p>${e(t.error)}</p></details>` : ''}${blockerDecisionView(t)}${t.status === 'awaiting_plan' ? planGate(t) : ''}${t.status === 'awaiting_final' ? `<div class="approval-panel final-panel"><div class="approval-icon">${icon('check')}</div><div><span class="eyebrow">YOUR FINAL LOOK</span><h2>The specialists are done. Over to you.</h2><p>Verification passed and independent review is complete. Inspect the handoffs and diff before accepting.</p><div class="approval-actions">${button('task-action', 'Accept result', 'primary', 'check', 'data-operation="accept"')}${button('request-changes', 'Request changes', 'secondary')}</div></div></div>` : ''}<div class="detail-tabs" role="tablist">${[
+  return `<div class="task-heading"><button class="back-link" data-action="navigate" data-view="tasks">← All tasks</button><div class="task-title-row"><h1>${e(t.title)}</h1>${t.demo ? '<span class="demo-label large">SIMULATED DEMO</span>' : ''}</div><div class="task-subtitle">${badge(t.status)}<span>${e((t.repositories?.length ? t.repositories.map((r) => r.repository.name) : [t.repository.name]).join(' + '))}</span><span>·</span><span>${t.id.slice(0, 8)}</span>${t.ticket ? `<span>·</span>${issueLink(t.ticket)}` : ''}<span>·</span><span>Created ${ago(t.createdAt).toLowerCase()}</span></div><div class="task-controls">${!['completed', 'cancelled'].includes(t.status) ? button('configure-task', ['running', 'queued', 'manual'].includes(t.status) ? 'Pause & configure' : 'Configure task', 'secondary', 'settings') : ''}${button('duplicate-task', 'Duplicate task', 'text small', 'plus')}${t.status === 'draft' ? button('task-action', 'Start workflow', 'primary', 'bolt', 'data-operation="start"') : ''}${['blocked', 'interrupted', 'paused'].includes(t.status) ? button('task-action', 'Resume workflow', 'primary', 'arrow', 'data-operation="resume"') : ''}${t.status === 'manual' ? button('task-action', 'Return to automation', 'primary', 'arrow', 'data-operation="return-control"') : ''}${live ? button('task-action', 'Pause', 'secondary small', 'pause', 'data-operation="pause"') : ''}${!['completed', 'cancelled'].includes(t.status) ? button('confirm-cancel', 'Cancel', 'text small') : ''}<a class="btn text small" href="/api/tasks/${t.id}/export" download>${icon('download')}Export</a></div></div>${t.demo ? '<div class="demo-banner">' + icon('spark') + 'Demo mode. Harness responses and checks are simulated; no repository files are changed.</div>' : ''}<div class="task-layout"><div class="task-center">${liveProgress(t, state.events)}${taskSummary(t, state.events)}${executionMap(t)}${t.error ? `<details class="error-panel" data-event-key="blocker"><summary>Blocker details</summary><p>${e(t.error)}</p></details>` : ''}${blockerDecisionView(t)}${t.status === 'awaiting_plan' ? planGate(t) : ''}${t.status === 'awaiting_final' ? `<div class="approval-panel final-panel"><div class="approval-icon">${icon('check')}</div><div><span class="eyebrow">YOUR FINAL LOOK</span><h2>The specialists are done. Over to you.</h2><p>Verification passed and independent review is complete. Inspect the handoffs and diff before accepting.</p><div class="approval-actions">${button('task-action', 'Accept result', 'primary', 'check', 'data-operation="accept"')}${button('request-changes', 'Request changes', 'secondary')}</div></div></div>` : ''}<div class="detail-tabs" role="tablist">${[
     ['overview', 'Overview'],
     ['thread', 'Activity thread'],
     ['terminals', 'Live terminals'],
@@ -242,7 +244,8 @@ function taskView() {
         a?.status === 'complete' && a?.handoff?.verdict === 'complete' && a?.role !== 'debug';
       const active = t.stage === stage && !['completed', 'cancelled'].includes(t.status);
       const h = stage === 'verify' ? 'checks' : t.routing[stage];
-      return `<li class="${active ? 'current' : done ? 'done' : ''}"><span class="stage-number">${done && !active ? icon('check') : i + 1}</span><div><strong>${stageNames[stage]}</strong><small>${h === 'checks' ? 'Repository checks' : h.charAt(0).toUpperCase() + h.slice(1)}${a?.finishedAt ? ' · ' + duration(new Date(a.finishedAt) - new Date(a.startedAt)) : active && live ? ` · ${a?.status === 'running' ? timer(a.startedAt) : 'Queued'}` : ''}</small></div>${active && live ? '<span class="pulse-dot"></span>' : ''}</li>`;
+      const diagnosing = active && t.recovery?.active && t.recovery.phase === 'debug';
+      return `${active ? debuggerStep(t) : ''}<li class="${active ? 'current' : done ? 'done' : ''}"><span class="stage-number">${done && !active ? icon('check') : i + 1}</span><div><strong>${stageNames[stage]}</strong><small>${diagnosing ? 'Paused for debugger' : h === 'checks' ? 'Repository checks' : h.charAt(0).toUpperCase() + h.slice(1)}${a?.finishedAt ? ' · ' + duration(new Date(a.finishedAt) - new Date(a.startedAt)) : active && live ? ` · ${a?.status === 'running' ? timer(a.startedAt) : 'Queued'}` : ''}</small></div>${active && live ? '<span class="pulse-dot"></span>' : ''}</li>`;
     })
     .join('')}</ol></section>${(t.repositories?.length > 1 ? t.repositories : [t])
     .map(
@@ -576,19 +579,20 @@ async function refreshTerminal(task) {
       state.terminalPreview = { id, available: false, message: error.message };
   }
 }
-async function openTask(id, recordHistory = true) {
+async function openTask(id, recordHistory = true, tab = 'overview') {
   state.selected = id;
   state.view = 'task';
   state.task = null;
   state.events = [];
   state.diff = null;
-  state.tab = 'overview';
+  state.tab = tab;
   state.terminalId = '';
   state.terminalPreview = null;
   state.terminalFollow = true;
   shell();
   await refresh();
-  if (recordHistory) history.pushState(null, '', `#task/${id}`);
+  if (recordHistory) history.pushState(null, '', taskRoute(id, tab));
+  if (tab === 'diff') await loadDiff();
 }
 async function navigate(view, recordHistory = true) {
   state.view = view;
@@ -754,6 +758,7 @@ document.addEventListener('click', async (event) => {
         sessionAttemptId: element.dataset.attemptId,
       });
       state.tab = 'terminals';
+      history.replaceState(null, '', taskRoute(state.selected, state.tab));
       await refresh();
       return;
     }
@@ -770,6 +775,7 @@ document.addEventListener('click', async (event) => {
       });
       closeModal();
       state.tab = 'terminals';
+      history.replaceState(null, '', taskRoute(state.selected, state.tab));
       await refresh();
       return;
     }
@@ -819,6 +825,7 @@ document.addEventListener('click', async (event) => {
     }
     if (action === 'tab') {
       state.tab = element.dataset.tab;
+      history.pushState(null, '', taskRoute(state.selected, state.tab));
       renderMain();
       if (state.tab === 'diff') await loadDiff();
       return;
@@ -907,7 +914,10 @@ document.addEventListener('click', async (event) => {
     }
     if (action === 'task-action') {
       await api(`/tasks/${state.selected}/${element.dataset.operation}`, 'POST', {});
-      if (['start', 'resume'].includes(element.dataset.operation)) state.tab = 'thread';
+      if (['start', 'resume'].includes(element.dataset.operation)) {
+        state.tab = 'thread';
+        history.replaceState(null, '', taskRoute(state.selected, state.tab));
+      }
       closeModal();
       await refresh();
     }
@@ -1192,7 +1202,7 @@ document.addEventListener('keydown', (event) => {
 window.addEventListener('popstate', () => {
   const hash = location.hash.slice(1);
   const operation = hash.startsWith('task/')
-    ? openTask(hash.slice(5), false)
+    ? openTask(parseTaskRoute(hash)?.id ?? hash.slice(5), false, parseTaskRoute(hash)?.tab)
     : navigate(
         ['tasks', 'inbox', 'repositories', 'harnesses', 'settings'].includes(hash)
           ? hash
@@ -1229,7 +1239,8 @@ async function boot() {
     state.config = bootstrap.config;
     [state.tasks, state.harnesses] = await Promise.all([api('/tasks'), api('/harnesses')]);
     const hash = location.hash.slice(1);
-    if (hash.startsWith('task/')) await openTask(hash.slice(5), false);
+    if (hash.startsWith('task/'))
+      await openTask(parseTaskRoute(hash)?.id ?? hash.slice(5), false, parseTaskRoute(hash)?.tab);
     else {
       state.view = ['overview', 'tasks', 'inbox', 'repositories', 'harnesses', 'settings'].includes(
         hash,

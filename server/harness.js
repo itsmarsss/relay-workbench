@@ -224,6 +224,7 @@ export async function executeHarness({
   onEvent,
   onTerminal,
   onSession = () => {},
+  onModel = () => {},
   onControl = () => {},
   sessionId,
 }) {
@@ -315,6 +316,14 @@ export async function executeHarness({
               : harness === 'claude' && event?.type === 'system' && event.subtype === 'init'
                 ? event.session_id
                 : null;
+        if (typeof event?.model === 'string' && ['relay.session', 'system'].includes(event.type))
+          onModel(event.model);
+        if (event?.type === 'result' && event.modelUsage) {
+          const used = Object.entries(event.modelUsage).map(
+            ([name, value]) => value.canonicalModel || name,
+          );
+          if (used.length) onModel(used.join(', '));
+        }
         if (nativeId) {
           requireValue(
             typeof nativeId === 'string' && /^[A-Za-z0-9][A-Za-z0-9_-]{0,199}$/.test(nativeId),
