@@ -161,3 +161,5 @@ Live workflow counters show elapsed attempt time and time since recorded activit
 Task tabs use shareable URL fragments such as `#task/<id>/thread`; reload and browser back/forward restore the selected tab. Expand the execution map to follow recorded runs, debugger detours and repair backtracks. Native models are recorded when reported by the harness; older runs with no model metadata display “CLI default · not reported”.
 
 Open **Execution graph** from the Workflow card to inspect connected run nodes, debugger detours and return paths. Select a node for its handoff and evidence, and use zoom or scroll to explore long runs. **Ask on the side** opens a roomy conversation drawer. The compact live indicator sits under the task title.
+
+Live updates reconcile existing page elements so expanded sections, unsent text, focus, selection and reading position survive incoming output. Scrolling up in a live terminal preview pauses Follow latest; use the button to resume. Browser regression checks include nested disclosures and document/panel scrolling under repeated updates.

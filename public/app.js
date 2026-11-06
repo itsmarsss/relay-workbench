@@ -1,3 +1,4 @@
+import { updateLiveDOM } from './live-dom.js';
 import { handoffBody, handoffList, workflowStages, executionLogs } from './task-panels.js';
 import { activityRunSelection, activityRunNavigation, activityRunHeader } from './activity-runs.js';
 import { taskRoute, parseTaskRoute } from './task-route.js';
@@ -130,7 +131,7 @@ function renderMain() {
     [...main.querySelectorAll('details[data-event-key]')].map((d) => [d.dataset.eventKey, d.open]),
   );
   const selectedApproach = main.querySelector('input[name="optionId"]:checked')?.value;
-  main.innerHTML =
+  const markup =
     state.view === 'inbox'
       ? inboxPage(state.inbox)
       : state.view === 'overview'
@@ -144,6 +145,7 @@ function renderMain() {
               : state.view === 'harnesses'
                 ? harnessesView()
                 : settingsView();
+  updateLiveDOM(main, markup, `${state.view}:${state.selected ?? ''}:${state.tab}`);
   syncBrowserTerminal(state.task, state.token, terminalFocused);
   for (const i of inputs) {
     const element = document.getElementById(i.id);
@@ -525,7 +527,24 @@ function repositoryModal(id) {
     true,
   );
 }
-async function refresh() {
+let refreshInFlight, refreshAgain;
+function refresh() {
+  // Serialize snapshots, but retain a trailing refresh after navigation or new events.
+  if (refreshInFlight) {
+    refreshAgain = true;
+    return refreshInFlight;
+  }
+  refreshInFlight = (async () => {
+    do {
+      refreshAgain = false;
+      await refreshSnapshot();
+    } while (refreshAgain);
+  })().finally(() => {
+    refreshInFlight = null;
+  });
+  return refreshInFlight;
+}
+async function refreshSnapshot() {
   [state.tasks, state.inbox] = await Promise.all([api('/tasks'), api('/inbox')]);
   notifyInbox(state.inbox);
   if (state.view === 'harnesses')
@@ -1338,5 +1357,20 @@ async function boot() {
   }
 }
 installImageUploads({ getToken: () => state.token, onError: (message) => toast(message, true) });
+// Reading older terminal output pauses follow instead of snapping back on refresh.
+document.addEventListener(
+  'scroll',
+  (event) => {
+    const preview = event.target;
+    if (!preview.matches?.('.terminal-preview') || !state.terminalFollow) return;
+    if (preview.scrollHeight - preview.clientHeight - preview.scrollTop > 24) {
+      state.terminalFollow = false;
+      document
+        .querySelector('[data-action="terminal-follow"]')
+        ?.setAttribute('aria-pressed', 'false');
+    }
+  },
+  true,
+);
 document.addEventListener('relay-images-updated', () => renderMain());
 boot();
