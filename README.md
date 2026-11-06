@@ -53,7 +53,7 @@ Each attempt uses a dedicated tmux server and private socket, leaving your other
 
 ## Local integration profiles
 
-Configuration is persisted under `.relay/config.json` and ignored by Git. Profiles can set an issue command, PR command, setup commands, working directory, required checks and additional instructions. Commands are `{ "command": "binary", "args": ["argument"] }` objects, never shell strings. Only issue commands support `{ticket}` substitution. Do not put credentials in command arguments. Use CLI authentication instead.
+Configuration is persisted under `.relay/config.json` and ignored by Git. Profiles can set an issue command, PR command, setup commands, working directory, required checks and additional instructions. Commands are `{ "command": "binary", "args": ["argument"] }` objects, never shell strings. Only issue commands support `{ticket}` substitution. GitHub CLI issue imports automatically include the reporter, timestamps, status, labels, assignees, milestone, and every discussion comment via paginated API requests. Context is saved in the editable task description and passed to every specialist alongside your requirements. Custom importers can return the same metadata and a `comments` array (or `{nodes, totalCount}`); missing comments are disclosed. A failed discussion fetch fails the import, and context exceeding the task description limit is rejected explicitly rather than truncated. The imported thread is a snapshot; re-import to refresh it. Do not put credentials in command arguments. Use CLI authentication instead.
 
 Use **Settings → Import local profile** to import JSON, or edit `.relay/config.json` while Relay is stopped. A repository profile looks like:
 
