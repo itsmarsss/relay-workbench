@@ -754,3 +754,60 @@ for (const invalidate of [false, true])
     assert.equal(verify.handoff.checks[1].code, 0);
     assert.ok(result.verifiedFingerprint);
   });
+
+for (const exitCode of [0, 1])
+  test(`trusted verifier returns real exit ${exitCode} to interrupted implementation`, async (t) => {
+    const f = await fixture(t);
+    const repo = await makeRepo(f.directory);
+    f.store.setConfig({
+      ...DEFAULT_CONFIG,
+      maxRecoveryAttempts: 0,
+      repositories: [
+        profile(repo, {
+          strategy: 'attach',
+          checks: [
+            {
+              command: process.execPath,
+              args: ['-e', `console.log("host evidence");process.exit(${exitCode})`],
+            },
+          ],
+        }),
+      ],
+    });
+    let continued = false;
+    const engine = f.makeEngine({
+      harness: async ({ task, stage }) => {
+        if (stage === 'implement') {
+          if (task.continuationContext?.diagnosis?.checks) {
+            continued = true;
+        assert.ok(task.messages.some((m) => m.text === 'Preserve this direction' && m.delivery === 'pending'));
+            assert.equal(task.continuationContext.diagnosis.checks[0].code, exitCode);
+            assert.match(task.continuationContext.diagnosis.checks[0].stdout, /host evidence/);
+          }
+          return {
+            ...demoHandoff(task, stage),
+            verdict: 'blocked',
+            summary: continued ? 'Evidence received' : 'Sandbox-sensitive check',
+          };
+        }
+        return demoHandoff(task, stage);
+      },
+    });
+    const task = engine.create({ title: 'Host verifier', repositoryId: 'repo' });
+    await engine.action(task.id, 'start');
+    await waitFor(f.store, task.id, (t) => t.status === 'awaiting_plan');
+    await assert.rejects(engine.action(task.id, 'verify-blocker'), /blocked, idle/);
+    await engine.action(task.id, 'approve-plan', { optionId: 'shared-boundary' });
+    await waitFor(f.store, task.id, (t) => t.status === 'blocked' && !engine.running.has(t.id));
+    await engine.action(task.id, 'message', { message: 'Preserve this direction' });
+  await engine.action(task.id, 'verify-blocker', { command: 'untrusted-command' });
+    const result = await waitFor(f.store, task.id, (t) => continued && t.status === 'blocked');
+    assert.equal(result.stage, 'implement');
+    assert.equal(result.approvals.length, 1);
+    assert.equal(result.attempts.filter((a) => a.role === 'verifier').length, 1);
+    assert.equal(
+      result.attempts.some((a) => a.stage === 'review'),
+      false,
+    );
+    assert.equal(await readFile(join(repo, 'value.txt'), 'utf8'), 'before\n');
+  });
