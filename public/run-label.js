@@ -6,5 +6,7 @@ export function runLabel(attempt) {
   if (attempt.role === 'debug') return 'Debugger';
   if (attempt.role === 'verifier' || attempt.harness === 'checks')
     return isVerificationAgent(attempt) ? 'Verification agent' : 'Configured checks';
+  if (attempt.stage === 'publish') return 'Publication';
+  if (attempt.stage === 'monitor') return 'PR monitoring';
   return stageNames[attempt.stage] ?? attempt.stage ?? 'Run';
 }

@@ -108,6 +108,11 @@ test('PR monitor discovers status without changing task state and stops at merge
   f.advance();
   await f.settle();
   assert.equal(calls, 2);
+  assert.equal(f.task.deliveryRuns.length, 2);
+  assert.equal(f.task.deliveryRuns[0].handoff.summary, 'Observed remote PR');
+  assert.equal(f.task.deliveryRuns[0].status, 'complete');
+  assert.notEqual(f.task.deliveryRuns[0].id, f.task.deliveryRuns[1].id);
+  assert.equal(f.events.at(-1).attemptId, f.task.deliveryRuns[1].id);
   assert.equal(f.task.publication.state, 'merged');
   assert.equal(f.task.publicationMonitor.enabled, false);
 });

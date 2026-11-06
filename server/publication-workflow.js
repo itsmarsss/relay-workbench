@@ -1,3 +1,4 @@
+import { saveDeliveryRun, recoverDeliveryRuns } from './delivery-runs.js';
 import { randomUUID, createHash } from 'node:crypto';
 import { readFile, lstat } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -64,14 +65,30 @@ export class PublicationWorkflow {
           });
           changed = true;
         }
+      changed =
+        recoverDeliveryRuns(task, store.events?.(task.id, 0, 100000) ?? [], workspaces(task)) ||
+        changed;
       if (changed) store.save(task);
     }
   }
   update(id, repoId, apply, event) {
     const task = this.store.get(id),
       entry = workspaces(task).find((e) => e.repository.id === repoId);
+    saveDeliveryRun(task, entry, 'publish');
     apply(entry, task);
-    this.store.save(task, event);
+    saveDeliveryRun(task, entry, 'publish');
+    this.store.save(
+      task,
+      event
+        ? {
+            ...event,
+            stage: 'publish',
+            attemptId: entry.delivery?.id,
+            repositoryId: repoId,
+            harness: entry.delivery?.harness,
+          }
+        : undefined,
+    );
     return task;
   }
   async start(id, repositoryId) {
@@ -148,6 +165,9 @@ export class PublicationWorkflow {
           harness: task.routing.implement,
           startedAt: new Date().toISOString(),
           summary: 'The publication agent is inspecting the accepted branch and remote state.',
+          model: executionConfig(task, this.store.config, 'implement').harnesses[
+            task.routing.implement
+          ]?.model,
           content,
           originalHead: head,
           previous: previous

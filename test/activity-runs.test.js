@@ -63,3 +63,44 @@ test('system updates retain harness context without impersonating agents', () =>
     /<strong>Relay<\/strong><span>Codex<\/span><span>Investigation<\/span>/,
   );
 });
+
+test('delivery runs follow publication and retain prior retries and scoped output', async () => {
+  const { taskRuns } = await import('../public/task-runs.js');
+  const { terminalSessions } = await import('../public/terminals.js');
+  const { executionNodes } = await import('../public/execution-map.js');
+  const task = {
+    status: 'completed',
+    repository: { id: 'repo', name: 'Example' },
+    attempts: [
+      { id: 'review', stage: 'review', harness: 'claude', startedAt: '2026-01-01T00:00:00Z' },
+    ],
+    deliveryRuns: [
+      {
+        id: 'first',
+        stage: 'publish',
+        status: 'blocked',
+        harness: 'codex',
+        startedAt: '2026-01-01T01:00:00Z',
+        terminal: { session: 'first' },
+      },
+    ],
+    delivery: {
+      id: 'retry',
+      status: 'running',
+      harness: 'codex',
+      startedAt: '2026-01-01T02:00:00Z',
+      terminal: { session: 'retry' },
+    },
+  };
+  const events = [
+    { attemptId: 'first', summary: 'Old blocker' },
+    { attemptId: 'retry', summary: 'Inspecting remote' },
+  ];
+  assert.equal(activityRunSelection(task, events).selected.id, 'retry');
+  assert.deepEqual(activityRunSelection(task, events, 'first').events, [events[0]]);
+  assert.equal(taskRuns(task).length, 3);
+  assert.match(activityRunNavigation(task, taskRuns(task).at(-1), 'latest'), /Publication/);
+  assert.equal(terminalSessions(task).length, 2);
+  assert.equal(terminalSessions(task).at(-1).live, true);
+  assert.equal(executionNodes(task).at(-1).stage, 'publish');
+});

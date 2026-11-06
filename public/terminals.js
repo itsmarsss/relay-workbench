@@ -1,8 +1,10 @@
+import { taskRuns } from './task-runs.js';
+import { runLabel } from './run-label.js';
 import { e, stageNames } from './ui.js';
 import { concise } from './task-summary.js';
 
 export function terminalSessions(task) {
-  const sessions = (task.attempts ?? [])
+  const sessions = taskRuns(task)
     .map((attempt, index) => ({ attempt, run: index + 1 }))
     .filter(({ attempt }) => attempt.terminal)
     .map(({ attempt, run }) => {
@@ -12,7 +14,9 @@ export function terminalSessions(task) {
         task.repositories?.find((r) => r.repository.id === repositoryId)?.repository ??
         task.repository;
       const harness = `${attempt.harness.charAt(0).toUpperCase() + attempt.harness.slice(1)}${attempt.role === 'debug' ? ' debugger' : ''}`;
-      const live = attempt.status === 'running' && task.status === 'running';
+      const live =
+        attempt.status === 'running' &&
+        (['publish', 'monitor'].includes(attempt.stage) || task.status === 'running');
       const status = live
         ? 'Live'
         : attempt.handoff?.verdict === 'blocked'
@@ -23,31 +27,12 @@ export function terminalSessions(task) {
         run,
         attempt,
         status,
-        label: `${harness} · ${stageNames[attempt.stage] ?? attempt.stage}`,
+        label: `${harness} · ${runLabel(attempt)}`,
         repository: repository?.name ?? repositoryId ?? '',
         terminal: attempt.terminal,
         live,
       };
     });
-  for (const entry of task.repositories?.length > 1 ? task.repositories : [task]) {
-    for (const [record, stage] of [
-      [entry.delivery, 'Publication'],
-      [entry.publicationMonitor, 'PR monitoring'],
-    ]) {
-      if (!record?.terminal) continue;
-      const live = record.status === 'running';
-      sessions.push({
-        id: record.id ?? record.attemptId,
-        run: sessions.length + 1,
-        label: `${record.harness || 'Agent'} · ${stage}`,
-        repository: entry.repository.name,
-        terminal: record.terminal,
-        live,
-        status: live ? 'Live' : 'Finished',
-        attempt: { ...record, handoff: { summary: record.summary || record.error || '' } },
-      });
-    }
-  }
   if (task.manual?.session && task.status === 'manual')
     sessions.push({
       id: 'manual',

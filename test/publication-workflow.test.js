@@ -278,3 +278,51 @@ test('pausing publication preserves accepted work and releases its writer', asyn
     [false],
   );
 });
+
+test('delivery history snapshots survive retry without altering development attempts', async (t) => {
+  const f = await fixture(t, async () => ({
+    verdict: 'blocked',
+    summary: 'Provider needs preparation',
+    details: 'Read policy',
+    evidence: ['Provider refusal'],
+    risks: ['Reverify'],
+    options: [],
+    publication: { ...snapshot, url: '', state: 'unknown' },
+  }));
+  await f.workflow.start('task', 'repo');
+  await f.settle();
+  const first = structuredClone(f.task.deliveryRuns[0]);
+  assert.notEqual(first.parentAttemptId, first.id);
+  await f.workflow.start('task', 'repo');
+  await f.settle();
+  assert.equal(f.task.deliveryRuns.length, 2);
+  assert.deepEqual(f.task.deliveryRuns[0], first);
+  assert.equal(f.task.deliveryRuns[1].parentAttemptId, first.id);
+  assert.equal(f.task.deliveryRuns[1].handoff.summary, 'Provider needs preparation');
+  assert.equal(f.task.attempts.length, 0);
+  assert.equal(f.events.at(-1).attemptId, f.task.delivery.id);
+});
+
+test('older delivery runs recover from events with uncertain outcomes labeled', async () => {
+  const { recoverDeliveryRuns } = await import('../server/delivery-runs.js');
+  const task = {
+    attempts: [],
+    repository: { id: 'repo' },
+    delivery: {
+      id: 'latest',
+      startedAt: '2026-01-02T00:00:00Z',
+      status: 'blocked',
+      harness: 'codex',
+      summary: 'Needs preparation',
+    },
+  };
+  const events = [
+    { attemptId: 'old', stage: 'publish', at: '2026-01-01T00:00:00Z', harness: 'codex' },
+  ];
+  assert.equal(recoverDeliveryRuns(task, events, [task]), true);
+  assert.equal(task.deliveryRuns.length, 2);
+  assert.equal(task.deliveryRuns[0].status, 'recorded');
+  assert.match(task.deliveryRuns[0].handoff.summary, /outcome was not retained/);
+  assert.equal(task.deliveryRuns[1].status, 'blocked');
+  assert.equal(recoverDeliveryRuns(task, events, [task]), false);
+});

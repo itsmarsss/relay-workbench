@@ -1,9 +1,10 @@
+import { taskRuns } from './task-runs.js';
 import { runLabel, isVerificationAgent } from './run-label.js';
 import { e, harnessBadge, ago } from './ui.js';
 import { concise } from './task-summary.js';
 
 export function activityRunSelection(task, events, selection = 'latest') {
-  const attempts = task.attempts ?? [];
+  const attempts = taskRuns(task);
   const current = attempts.at(-1);
   const selected =
     selection === 'all' ? null : (attempts.find((a) => a.id === selection) ?? current);
@@ -23,7 +24,7 @@ export function activityRunSelection(task, events, selection = 'latest') {
   };
 }
 export function activityRunNavigation(task, selected, selection) {
-  const attempts = task.attempts ?? [];
+  const attempts = taskRuns(task);
   return `<nav class="activity-runs" aria-label="Activity runs"><div class="activity-runs-heading"><strong>Run history</strong><span>${attempts.length}</span></div><button class="activity-run-follow ${selection === 'latest' ? 'selected' : ''}" data-action="activity-run" data-run="latest" aria-pressed="${selection === 'latest'}">Follow current run <span>↗</span></button><div class="activity-run-list">${attempts
     .map((a, i) => ({ a, i }))
     .reverse()

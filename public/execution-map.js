@@ -1,8 +1,9 @@
+import { taskRuns } from './task-runs.js';
 import { runLabel } from './run-label.js';
 import { e, stageNames, harnessBadge } from './ui.js';
 import { timer } from './live-progress.js';
 export function executionNodes(task) {
-  const attempts = task.attempts ?? [];
+  const attempts = taskRuns(task);
   return attempts.map((a, i) => {
     const parent = attempts.find((p) => p.id === a.parentAttemptId);
     const previous = attempts[i - 1];

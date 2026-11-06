@@ -1,3 +1,4 @@
+import { saveDeliveryRun } from './delivery-runs.js';
 import { randomUUID } from 'node:crypto';
 import { executeHarness } from './harness.js';
 import { requireValue, executionConfig } from './domain.js';
@@ -50,7 +51,10 @@ export class PublicationMonitor {
           });
           changed = true;
         }
-      if (changed) store.save(task);
+      if (changed) {
+        for (const entry of workspaces(task)) saveDeliveryRun(task, entry, 'monitor');
+        store.save(task);
+      }
     }
     this.timer = setInterval(() => this.tick(), 15000);
     this.timer.unref();
@@ -120,6 +124,24 @@ export class PublicationMonitor {
         return;
       }
   }
+  updateRun(id, repositoryId, apply, event) {
+    return this.update(
+      id,
+      repositoryId,
+      (entry, task) => {
+        apply(entry, task);
+        saveDeliveryRun(task, entry, 'monitor');
+        if (event)
+          Object.assign(event, {
+            stage: 'monitor',
+            attemptId: entry.publicationMonitor.attemptId,
+            repositoryId,
+            harness: entry.publicationMonitor.harness,
+          });
+      },
+      event,
+    );
+  }
   async run(task, entry, signal) {
     const id = task.id,
       repositoryId = entry.repository.id,
@@ -127,11 +149,25 @@ export class PublicationMonitor {
     const view = workspaceView(task, entry);
     const harness = task.routing.investigate;
     const startedAt = new Date(this.now()).toISOString();
-    this.update(
+    this.updateRun(
       id,
       repositoryId,
-      (e) =>
-        Object.assign(e.publicationMonitor, { status: 'running', startedAt, attemptId, harness }),
+      (e) => {
+        Object.assign(e.publicationMonitor, {
+          status: 'running',
+          startedAt,
+          attemptId,
+          harness,
+          terminal: undefined,
+          sessionId: undefined,
+          finishedAt: undefined,
+          summary: 'Checking PR status',
+          details: '',
+          evidence: [],
+          error: null,
+          model: executionConfig(task, this.store.config, 'investigate').harnesses[harness]?.model,
+        });
+      },
       { type: 'publication', summary: `Checking PR status for ${entry.repository.name}.` },
     );
     let before;
@@ -172,11 +208,11 @@ export class PublicationMonitor {
         onEvent: (event) =>
           this.store.event(id, { ...event, stage: 'monitor', harness, repositoryId, attemptId }),
         onTerminal: (terminal) =>
-          this.update(id, repositoryId, (e) => {
+          this.updateRun(id, repositoryId, (e) => {
             e.publicationMonitor.terminal = terminal;
           }),
         onSession: (sessionId) =>
-          this.update(id, repositoryId, (e) => {
+          this.updateRun(id, repositoryId, (e) => {
             e.publicationMonitor.sessionId = sessionId;
           }),
       });
@@ -194,7 +230,7 @@ export class PublicationMonitor {
       const previous = this.store.get(id);
       const old = workspaces(previous).find((e) => e.repository.id === repositoryId).publication;
       const changed = JSON.stringify(old && publicationSnapshot(old)) !== JSON.stringify(snapshot);
-      this.update(
+      this.updateRun(
         id,
         repositoryId,
         (e) => {
@@ -210,6 +246,10 @@ export class PublicationMonitor {
             };
           Object.assign(e.publicationMonitor, {
             status: snapshot.state === 'unknown' ? 'unavailable' : 'idle',
+            summary: result.summary,
+            details: result.details,
+            evidence: result.evidence,
+            finishedAt: new Date(this.now()).toISOString(),
             failures,
             enabled: !['merged', 'closed'].includes(snapshot.state) && failures < 3,
             nextAt: new Date(this.now() + 300000 * Math.max(1, failures)).toISOString(),
@@ -226,13 +266,15 @@ export class PublicationMonitor {
         error = new Error(
           'Monitor changed the workspace; monitoring stopped. Inspect the changes before further action.',
         );
-      this.update(
+      this.updateRun(
         id,
         repositoryId,
         (e) => {
           const failures = (e.publicationMonitor.failures ?? 0) + 1;
           Object.assign(e.publicationMonitor, {
             status: signal.aborted ? 'paused' : 'unavailable',
+            summary: error.message,
+            finishedAt: new Date(this.now()).toISOString(),
             enabled: !mutated && !signal.aborted && failures < 3,
             failures,
             error: error.message.slice(0, 2000),

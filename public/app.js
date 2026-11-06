@@ -1,3 +1,4 @@
+import { taskRuns } from './task-runs.js';
 import { publicationPanel, deliveryWorkflowStages, publicationDetails } from './publication.js';
 import { memoryPage, memoryForm, runMemories, memoryRunHistory } from './memory.js';
 import { prepareSearchSelects } from './search-select.js';
@@ -367,7 +368,7 @@ function threadView(t) {
         details: message,
       }));
   });
-  const latestAttempt = t.attempts.at(-1);
+  const latestAttempt = taskRuns(t).at(-1);
   const activity = state.events.findLast(
     (ev) => ev.type === 'activity' && ev.attemptId === latestAttempt?.id,
   );
