@@ -25,7 +25,11 @@ test('each adapter executes a real subprocess and parses its native stream', asy
       harness === 'codex'
         ? { type: 'item.completed', item: { type: 'agent_message', text: JSON.stringify(handoff) } }
         : harness === 'claude'
-          ? { type: 'result', structured_output: handoff }
+          ? {
+              type: 'result',
+              structured_output: handoff,
+              modelUsage: { alias: { canonicalModel: 'reported-example-model' } },
+            }
           : {
               type: 'message_end',
               message: {
@@ -40,6 +44,7 @@ test('each adapter executes a real subprocess and parses its native stream', asy
     );
     config.harnesses[harness].command = binary;
     const events = [];
+    const models = [];
     const result = await executeHarness({
       task,
       stage: 'investigate',
@@ -48,8 +53,10 @@ test('each adapter executes a real subprocess and parses its native stream', asy
       directory,
       attemptId: harness,
       onEvent: (event) => events.push(event),
+      onModel: (model) => models.push(model),
     });
     assert.equal(result.summary, handoff.summary);
+    if (harness === 'claude') assert.deepEqual(models, ['reported-example-model']);
     assert.ok(events.some((e) => e.type === 'transcript'));
     assert.ok(events.some((e) => e.type === 'activity'));
   }
