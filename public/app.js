@@ -147,7 +147,10 @@ function renderMain() {
     }
   const preview = main.querySelector('.terminal-preview');
   if (preview)
-    preview.scrollTop = state.terminalFollow ? preview.scrollHeight : (terminalScroll ?? 0);
+    preview.scrollTop =
+      state.terminalFollow && terminalSelection(state.task, state.terminalId)?.live
+        ? preview.scrollHeight
+        : (terminalScroll ?? 0);
   const description = main.querySelector('.task-description');
   if (description && descriptionScroll !== undefined) description.scrollTop = descriptionScroll;
   if (focusId && !inputs.some((i) => i.id === focusId))
@@ -1105,6 +1108,12 @@ document.addEventListener('submit', async (event) => {
   }
 });
 document.addEventListener('change', async (event) => {
+  if (event.target.id === 'terminal-run') {
+    state.terminalId = event.target.value;
+    await refreshTerminal(state.task);
+    renderMain();
+    return;
+  }
   if (event.target.id === 'outcomes-repository') {
     state.outcomesRepository = event.target.value;
     try {
