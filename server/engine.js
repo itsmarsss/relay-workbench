@@ -342,7 +342,7 @@ export class Engine {
             task.messages.push({
               id: randomUUID(),
               at: new Date().toISOString(),
-              text: `Debugger direction selected: ${option.title}. ${option.description} Tradeoffs: ${option.tradeoffs}. Diagnose within existing permissions; any new source scope needs a revised approach.`,
+              text: `Debugger direction selected: ${option.title}. ${option.description} Tradeoffs: ${option.tradeoffs}. Diagnose within existing permissions. Routine verification repairs supporting the approved goal may return to the original implementation agent; new behavior or a different approach needs revised approval.`,
               role: 'user',
               delivery: 'pending',
             });
@@ -1159,6 +1159,17 @@ export class Engine {
           ),
         'Implementation modified another repository outside its assigned workspace. Inspect all diffs before resuming.',
       );
+    if (['repair_requested', 'verification_requested'].includes(handoff.verdict)) {
+      requireValue(
+        debugging && stage === 'implement' && task.chosenApproach,
+        'Recovery handoffs require a debugger and an approved implementation',
+      );
+      if (handoff.verdict === 'verification_requested')
+        requireValue(
+          entries.every((e) => e.repository.checks.length > 0),
+          'Configure repository checks before requesting host verification',
+        );
+    }
     task = this.store.get(id);
     const savedAttempt = task.attempts.find((a) => a.id === attempt.id);
     savedAttempt.handoff = handoff;
@@ -1182,6 +1193,23 @@ export class Engine {
           stderr: check.stderr.slice(-6000),
         })),
         fingerprint: after,
+      };
+      task.status = 'queued';
+      task.error = null;
+      task.blockerDecision = null;
+    } else if (
+      debugging &&
+      ['repair_requested', 'verification_requested'].includes(handoff.verdict)
+    ) {
+      task.recovery.active = false;
+      task.recovery.phase =
+        handoff.verdict === 'verification_requested' ? 'trusted_verification' : 'continue';
+      task.recovery.lastDiagnosis = {
+        summary: handoff.summary,
+        details: handoff.details,
+        evidence: handoff.evidence,
+        risks: handoff.risks,
+        disposition: handoff.verdict,
       };
       task.status = 'queued';
       task.error = null;
@@ -1259,7 +1287,7 @@ export class Engine {
       harness,
       repositoryId: scoped ? entry.repository.id : null,
       summary: debugging
-        ? `Debugger: ${handoff.summary}`
+        ? `${handoff.verdict === 'repair_requested' ? 'Debugger → targeted repair' : handoff.verdict === 'verification_requested' ? 'Debugger → host checks' : 'Debugger'}: ${handoff.summary}`
         : scoped
           ? `${entry.repository.name}: ${handoff.summary}`
           : handoff.summary,

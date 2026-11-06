@@ -191,7 +191,16 @@ export const HANDOFF_SCHEMA = {
         required: ['severity', 'file', 'description'],
       },
     },
-    verdict: { type: 'string', enum: ['complete', 'changes_requested', 'blocked'] },
+    verdict: {
+      type: 'string',
+      enum: [
+        'complete',
+        'changes_requested',
+        'blocked',
+        'repair_requested',
+        'verification_requested',
+      ],
+    },
     routing: {
       type: 'object',
       additionalProperties: false,
@@ -225,8 +234,19 @@ export function validateHandoff(raw, stage) {
       `Invalid handoff ${key}`,
     );
   requireValue(
-    ['complete', 'changes_requested', 'blocked'].includes(raw.verdict),
+    [
+      'complete',
+      'changes_requested',
+      'blocked',
+      'repair_requested',
+      'verification_requested',
+    ].includes(raw.verdict),
     'Invalid handoff verdict',
+  );
+  requireValue(
+    !['repair_requested', 'verification_requested'].includes(raw.verdict) ||
+      stage === 'investigate',
+    'Recovery requests are reserved for debugger investigation',
   );
   requireValue(
     stage === 'review' || raw.verdict !== 'changes_requested',

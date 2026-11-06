@@ -65,13 +65,17 @@ export function executionMap(task, { selectedId, zoom = 1 } = {}) {
         ? 'Host checks'
         : (stageNames[a.stage] ?? a.stage);
   const status = (a) =>
-    a.handoff?.verdict === 'blocked'
-      ? 'Blocked'
-      : a.handoff?.verdict === 'changes_requested'
-        ? 'Changes requested'
-        : a.status === 'complete'
-          ? 'Completed'
-          : a.status;
+    a.handoff?.verdict === 'repair_requested'
+      ? 'Repair delegated'
+      : a.handoff?.verdict === 'verification_requested'
+        ? 'Host checks requested'
+        : a.handoff?.verdict === 'blocked'
+          ? 'Blocked'
+          : a.handoff?.verdict === 'changes_requested'
+            ? 'Changes requested'
+            : a.status === 'complete'
+              ? 'Completed'
+              : a.status;
   return `<section class="execution-map graph-dialog" role="region" aria-label="Execution graph"><header class="graph-header"><div><h2>Execution graph</h2><p>${nodes.length} runs · left to right · select a run to inspect</p></div><div class="inline-actions"><button class="btn secondary small" data-action="graph-current">Current run</button><button class="btn secondary small" data-action="graph-zoom-out" aria-label="Zoom out">−</button><button class="btn text small" data-action="graph-reset">${Math.round(zoom * 100)}%</button><button class="btn secondary small" data-action="graph-zoom-in" aria-label="Zoom in">+</button><button class="btn text small" data-action="close-execution-map" aria-label="Close execution graph">✕</button></div></header><div class="graph-legend"><span><i></i>Workflow</span><span><i class="debug"></i>Debugger</span><span><i class="checks"></i>Host checks</span><small>Solid: recorded handoff · Dashed: historical order</small></div><div class="graph-body"><div class="node-graph-scroll" tabindex="0" aria-label="Scrollable execution graph"><svg class="node-graph" width="${width * zoom}" height="${height * zoom}" viewBox="0 0 ${width} ${height}" role="img" aria-label="Task runs and their connected execution paths"><defs><marker id="execution-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0 0L10 5L0 10z" fill="#7c8d70"/></marker></defs>${[
     ['WORKFLOW', 24],
     ['DEBUGGER', 204],

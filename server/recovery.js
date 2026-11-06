@@ -17,6 +17,7 @@ export function recoverBlocked(task, handoff, limit = 2, explicit = false) {
       (task.attempts ?? []).findLast(
         (a) =>
           a.role !== 'debug' &&
+          a.role !== 'verifier' &&
           a.stage === task.stage &&
           (a.repositoryId ?? null) === (task.attempts?.at(-1)?.repositoryId ?? null),
       )?.id,
@@ -60,6 +61,7 @@ export function resumableAttempt(task, stage, harness, repositoryId) {
   const latest = (task.attempts ?? []).findLast(
     (a) =>
       a.role !== 'debug' &&
+      a.role !== 'verifier' &&
       a.stage === stage &&
       a.harness === harness &&
       a.repositoryId === repositoryId &&
@@ -81,6 +83,7 @@ export function continuationContext(task, stage, repositoryId) {
     (a) =>
       (!task.recovery.sourceAttemptId || a.id === task.recovery.sourceAttemptId) &&
       a.role !== 'debug' &&
+      a.role !== 'verifier' &&
       a.stage === stage &&
       (a.repositoryId ?? null) === (repositoryId ?? null),
   );
