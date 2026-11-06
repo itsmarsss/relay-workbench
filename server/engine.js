@@ -963,10 +963,7 @@ export class Engine {
         })),
       );
       const checkpoint = task.verificationCheckpoint;
-      const reuse =
-        !!view.continuationContext &&
-        checkpoint?.fingerprint === before &&
-        checkpoint.signature === signature;
+      const reuse = checkpoint?.fingerprint === before && checkpoint.signature === signature;
       task.verificationCheckpoint = reuse
         ? checkpoint
         : { fingerprint: before, signature, results: {} };
@@ -1161,14 +1158,29 @@ export class Engine {
       );
     if (['repair_requested', 'verification_requested'].includes(handoff.verdict)) {
       requireValue(
-        debugging && stage === 'implement' && task.chosenApproach,
-        'Recovery handoffs require a debugger and an approved implementation',
+        stage === 'implement' &&
+          task.chosenApproach &&
+          (debugging || handoff.verdict === 'verification_requested'),
+        'Host verification requires an approved implementation; repair delegation requires a debugger',
       );
       if (handoff.verdict === 'verification_requested')
         requireValue(
           entries.every((e) => e.repository.checks.length > 0),
           'Configure repository checks before requesting host verification',
         );
+    }
+    if (handoff.verdict === 'verification_requested') {
+      const repeated =
+        task.hostVerificationRequests?.fingerprint === after
+          ? task.hostVerificationRequests.count
+          : 0;
+      requireValue(
+        repeated < 3,
+        'Host results have already been returned for this source state. Resolve the remaining blocker or complete the handoff instead of requesting identical checks again.',
+      );
+      const current = this.store.get(id);
+      current.hostVerificationRequests = { fingerprint: after, count: repeated + 1 };
+      this.store.save(current);
     }
     task = this.store.get(id);
     const savedAttempt = task.attempts.find((a) => a.id === attempt.id);
@@ -1198,12 +1210,17 @@ export class Engine {
       task.error = null;
       task.blockerDecision = null;
     } else if (
-      debugging &&
-      ['repair_requested', 'verification_requested'].includes(handoff.verdict)
+      handoff.verdict === 'verification_requested' ||
+      (debugging && handoff.verdict === 'repair_requested')
     ) {
-      task.recovery.active = false;
-      task.recovery.phase =
-        handoff.verdict === 'verification_requested' ? 'trusted_verification' : 'continue';
+      task.recovery = {
+        ...task.recovery,
+        key: `${stage}:${task.repositoryCursor ?? 0}`,
+        sourceAttemptId: debugging ? task.recovery?.sourceAttemptId : attempt.id,
+        active: false,
+        attempts: task.recovery?.attempts ?? 0,
+        phase: handoff.verdict === 'verification_requested' ? 'trusted_verification' : 'continue',
+      };
       task.recovery.lastDiagnosis = {
         summary: handoff.summary,
         details: handoff.details,

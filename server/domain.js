@@ -245,8 +245,9 @@ export function validateHandoff(raw, stage) {
   );
   requireValue(
     !['repair_requested', 'verification_requested'].includes(raw.verdict) ||
-      stage === 'investigate',
-    'Recovery requests are reserved for debugger investigation',
+      stage === 'investigate' ||
+      (stage === 'implement' && raw.verdict === 'verification_requested'),
+    'Only implementation or debugger investigation can request host verification; repair delegation is debugger-only',
   );
   requireValue(
     stage === 'review' || raw.verdict !== 'changes_requested',
