@@ -1,9 +1,10 @@
+import { activityRunSelection, activityRunNavigation, activityRunHeader } from './activity-runs.js';
 import { taskRoute, parseTaskRoute } from './task-route.js';
 import { executionMap, debuggerStep } from './execution-map.js';
 import { liveProgress, timer, updateTimers } from './live-progress.js';
 import { sideChat } from './side-chat.js';
 import { blockerDecisionView } from './blocker-decision.js';
-import { taskSummary, concise, activityArchiveCount } from './task-summary.js';
+import { taskSummary, concise } from './task-summary.js';
 import { storageView, bytes } from './storage.js';
 import { outcomesView } from './outcomes.js';
 import { diffLines } from './diff-lines.js';
@@ -29,6 +30,8 @@ import {
 } from './ui.js';
 
 const state = {
+  activitySelection: 'latest',
+  activityTaskId: null,
   sideChatOpen: false,
   executionMapOpen: false,
   graphSelectedId: null,
@@ -348,8 +351,14 @@ function threadView(t) {
       else grouped.push({ ...ev, toolEvents: [ev] });
     } else grouped.push(ev);
   }
-  const archiveCount = activityArchiveCount(t, grouped);
-  return `<div class="timeline">${grouped.map((ev, index) => `${index === 0 && archiveCount > 0 ? `<details class="earlier-activity" data-event-key="earlier-activity"><summary>Earlier activity · ${archiveCount} ${archiveCount === 1 ? 'update' : 'updates'}</summary>` : ''}${index === archiveCount && archiveCount > 0 ? '</details>' : ''}<article data-event-seq="${ev.seq}" class="timeline-item ${ev.type === 'decision' ? 'decision-event' : ''}"><div class="timeline-avatar">${ev.harness ? harnessBadge(ev.harness) : icon(ev.type === 'approval' || ev.type === 'accepted' ? 'check' : ev.type === 'decision' ? 'eye' : ev.type === 'feedback' ? 'arrow' : 'layers')}</div><div class="timeline-body"><div class="event-meta"><strong>${ev.harness ? e(ev.harness.charAt(0).toUpperCase() + ev.harness.slice(1)) : ev.type === 'feedback' || ev.type === 'approval' || ev.type === 'accepted' ? 'You' : 'Relay'}</strong><span>${ev.stage ? e(stageNames[ev.stage]) : e(ev.type.replaceAll('_', ' '))}</span><time>${ago(ev.at)}</time>${ev.repositoryId ? `<span>${e((t.repositories?.length > 1 ? t.repositories : [t]).find((r) => r.repository.id === ev.repositoryId)?.repository.name ?? ev.repositoryId)}</span>` : ''}</div>${ev.toolEvents ? `<details class="event-details tool-activity" data-event-key="tools-${ev.seq}"><summary>${ev.toolEvents.length} ${ev.toolEvents.length === 1 ? 'activity' : 'activities'} · ${e(concise(ev.toolEvents.at(-1).summary, 120))}</summary>${ev.toolEvents.map((tool) => `<div class="tool-entry"><strong>${e(concise(tool.summary, 180))}</strong>${tool.details ? `<pre class="code-block">${e(tool.details)}</pre>` : ''}</div>`).join('')}</details>` : ev.type === 'activity' && ev.kind === 'message' ? `<div class="prose agent-message">${prose(concise(ev.details || ev.summary, 360))}</div>${(ev.details || ev.summary).length > 360 ? `<details class="event-details" data-event-key="message-${ev.seq}"><summary>Full message</summary><div class="prose">${prose(ev.details || ev.summary)}</div></details>` : ''}` : `<h3>${e(concise(ev.summary))}</h3>`}${ev.details && !ev.toolEvents && ev.type !== 'activity' ? `<details data-event-key="event-${ev.seq}" class="event-details"><summary>View ${ev.type === 'handoff' ? 'handoff' : 'details'}</summary><div class="prose">${prose(ev.details)}</div></details>` : ''}${ev.type === 'handoff' ? `<details class="event-details" data-event-key="findings-${ev.seq}"><summary>Files & findings</summary>${handoffExtras(t.attempts.find((a) => a.id === ev.attemptId)?.handoff)}</details>` : ''}</div></article>`).join('')}${['running', 'queued'].includes(t.status) ? `<article class="timeline-item working"><div class="timeline-avatar">${harnessBadge(t.stage === 'verify' ? 'checks' : t.routing[t.stage])}</div><div class="timeline-body"><div class="event-meta"><strong>${e(stageNames[t.stage])}</strong><span class="typing-dots"><i></i><i></i><i></i></span></div><p>${e(concise(activity?.summary || 'Preparing the next handoff…'))}</p><small>Updates appear here as work progresses.</small></div></article>` : ''}</div>`;
+  if (state.activityTaskId !== t.id) {
+    state.activityTaskId = t.id;
+    state.activitySelection = 'latest';
+  }
+  const run = activityRunSelection(t, grouped, state.activitySelection);
+  const followingCurrent =
+    run.selected?.id === latestAttempt?.id && state.activitySelection !== 'all';
+  return `<div class="activity-browser">${activityRunNavigation(t, run.selected, state.activitySelection)}<div class="activity-run-content">${activityRunHeader(run.selected, state.events)}<div class="timeline">${run.events.map((ev) => `<article data-event-seq="${ev.seq}" class="timeline-item ${ev.type === 'decision' ? 'decision-event' : ''}"><div class="timeline-avatar">${ev.harness ? harnessBadge(ev.harness) : icon(ev.type === 'approval' || ev.type === 'accepted' ? 'check' : ev.type === 'decision' ? 'eye' : ev.type === 'feedback' ? 'arrow' : 'layers')}</div><div class="timeline-body"><div class="event-meta"><strong>${ev.harness ? e(ev.harness.charAt(0).toUpperCase() + ev.harness.slice(1)) : ev.type === 'feedback' || ev.type === 'approval' || ev.type === 'accepted' ? 'You' : 'Relay'}</strong><span>${ev.stage ? e(stageNames[ev.stage]) : e(ev.type.replaceAll('_', ' '))}</span><time>${ago(ev.at)}</time>${ev.repositoryId ? `<span>${e((t.repositories?.length > 1 ? t.repositories : [t]).find((r) => r.repository.id === ev.repositoryId)?.repository.name ?? ev.repositoryId)}</span>` : ''}</div>${ev.toolEvents ? `<details class="event-details tool-activity" data-event-key="tools-${ev.seq}"><summary>${ev.toolEvents.length} ${ev.toolEvents.length === 1 ? 'activity' : 'activities'} · ${e(concise(ev.toolEvents.at(-1).summary, 120))}</summary>${ev.toolEvents.map((tool) => `<div class="tool-entry"><strong>${e(concise(tool.summary, 180))}</strong>${tool.details ? `<pre class="code-block">${e(tool.details)}</pre>` : ''}</div>`).join('')}</details>` : ev.type === 'activity' && ev.kind === 'message' ? `<div class="prose agent-message">${prose(concise(ev.details || ev.summary, 360))}</div>${(ev.details || ev.summary).length > 360 ? `<details class="event-details" data-event-key="message-${ev.seq}"><summary>Full message</summary><div class="prose">${prose(ev.details || ev.summary)}</div></details>` : ''}` : `<h3>${e(concise(ev.summary))}</h3>`}${ev.details && !ev.toolEvents && ev.type !== 'activity' ? `<details data-event-key="event-${ev.seq}" class="event-details"><summary>View ${ev.type === 'handoff' ? 'handoff' : 'details'}</summary><div class="prose">${prose(ev.details)}</div></details>` : ''}${ev.type === 'handoff' ? `<details class="event-details" data-event-key="findings-${ev.seq}"><summary>Files & findings</summary>${handoffExtras(t.attempts.find((a) => a.id === ev.attemptId)?.handoff)}</details>` : ''}</div></article>`).join('')}${followingCurrent && ['running', 'queued'].includes(t.status) ? `<article class="timeline-item working"><div class="timeline-avatar">${harnessBadge(latestAttempt?.harness ?? t.routing[t.stage])}</div><div class="timeline-body"><div class="event-meta"><strong>${e(stageNames[t.stage])}</strong><span class="typing-dots"><i></i><i></i><i></i></span></div><p>${e(concise(activity?.summary || 'Preparing the next handoff…'))}</p><small>Updates appear here as work progresses.</small></div></article>` : ''}</div></div></div>`;
 }
 function handoffExtras(h) {
   if (!h) return '';
@@ -655,6 +664,11 @@ document.addEventListener('click', async (event) => {
   if (state.busy) return;
   const action = element.dataset.action;
   try {
+    if (action === 'activity-run') {
+      state.activitySelection = element.dataset.run;
+      renderMain();
+      return;
+    }
     if (action === 'refresh-storage') {
       state.busy = true;
       state.storage = await api('/storage');
@@ -859,6 +873,27 @@ document.addEventListener('click', async (event) => {
     }
     if (['open-execution-map', 'close-execution-map'].includes(action)) {
       state.executionMapOpen = action === 'open-execution-map';
+      renderMain();
+      if (state.executionMapOpen)
+        document
+          .querySelector('.graph-node.selected')
+          ?.scrollIntoView({ block: 'nearest', inline: 'center' });
+      return;
+    }
+    if (action === 'graph-current') {
+      state.graphSelectedId = null;
+      renderMain();
+      document
+        .querySelector('.graph-node.selected')
+        ?.scrollIntoView({ block: 'nearest', inline: 'center' });
+      return;
+    }
+    if (action === 'graph-open-activity') {
+      state.activityTaskId = state.task.id;
+      state.activitySelection = element.dataset.id;
+      state.executionMapOpen = false;
+      state.tab = 'thread';
+      history.pushState(null, '', taskRoute(state.selected, state.tab));
       renderMain();
       return;
     }

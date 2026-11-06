@@ -90,11 +90,11 @@ try {
       .evaluate((el) => parseFloat(getComputedStyle(el).fontSize))) >= 15,
   );
   await page.getByRole('tab', { name: 'Activity thread', exact: true }).click();
-  const older = page.locator('.earlier-activity');
-  await older.waitFor();
-  assert.equal(await older.evaluate((el) => el.open), false);
-  await older.locator('summary').first().click();
-  assert.equal(await older.evaluate((el) => el.open), true);
+  await page.getByRole('navigation', { name: 'Activity runs' }).waitFor();
+  await page.getByRole('button', { name: 'All activity', exact: true }).click();
+  await page.getByRole('heading', { name: 'All activity', exact: true }).waitFor();
+  await page.getByRole('button', { name: 'Follow current run' }).click();
+  assert.equal(await page.locator('.activity-run.selected').count(), 1);
   await page.screenshot({ path: join(screenshots, 'readable-task-context.png'), fullPage: false });
 
   await page.getByRole('button', { name: 'Revise the proposal' }).click();
@@ -123,6 +123,7 @@ try {
   await page.getByRole('button', { name: 'Accept result', exact: true }).click();
   await page.locator('.task-subtitle .badge.completed').waitFor();
   const taskUrl = page.url();
+  await page.getByRole('button', { name: 'All activity', exact: true }).click();
   if (localApp) {
     const id = parseTaskRoute(new URL(taskUrl).hash).id;
     localApp.store.event(id, {
@@ -204,6 +205,7 @@ try {
   await page.reload();
   await page.locator('.task-subtitle .badge.completed').waitFor();
   await page.getByRole('tab', { name: 'Activity thread', exact: true }).click();
+  await page.getByRole('button', { name: 'All activity', exact: true }).click();
   if (localApp)
     await page
       .locator('.agent-message')
