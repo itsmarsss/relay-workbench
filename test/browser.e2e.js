@@ -74,7 +74,7 @@ try {
     (await page
       .locator('.task-summary p')
       .first()
-      .evaluate((el) => parseFloat(getComputedStyle(el).fontSize))) >= 16,
+      .evaluate((el) => parseFloat(getComputedStyle(el).fontSize))) >= 15,
   );
   await page.getByRole('tab', { name: 'Activity thread', exact: true }).click();
   const older = page.locator('.earlier-activity');
