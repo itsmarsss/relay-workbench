@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { issueLink, taskDetails } from '../public/task-details.js';
-import { terminalSelection, terminalView } from '../public/terminals.js';
+import { nativeConversations, terminalSelection, terminalView } from '../public/terminals.js';
 
 test('source issue links reject executable URLs and escape ticket content', () => {
   for (const value of [
@@ -60,4 +60,86 @@ test('terminal empty states and session history stay available without a live wo
   );
   assert.match(finished, /Retained message/);
   assert.doesNotMatch(finished, /Copy attach command/);
+});
+
+test('resumed conversations use the latest attempt without hiding distinct repositories or harnesses', () => {
+  const task = {
+    status: 'blocked',
+    repository: { id: 'api', name: 'API' },
+    repositories: [
+      { repository: { id: 'api', name: 'API' } },
+      { repository: { id: 'client', name: 'Client' } },
+    ],
+    attempts: [
+      {
+        id: 'first',
+        harness: 'codex',
+        stage: 'investigate',
+        sessionId: 'shared',
+        repositoryId: 'api',
+      },
+      {
+        id: 'client',
+        harness: 'codex',
+        stage: 'implement',
+        sessionId: 'shared',
+        repositoryId: 'client',
+      },
+      {
+        id: 'review',
+        harness: 'claude',
+        stage: 'review',
+        sessionId: 'shared',
+        repositoryId: 'api',
+      },
+      ...Array.from({ length: 10 }, (_, i) => ({
+        id: `retry-${i}`,
+        harness: 'codex',
+        stage: 'investigate',
+        sessionId: 'shared',
+        repositoryId: 'alias',
+        workspaceRepositoryId: 'api',
+      })),
+      { id: 'no-session', harness: 'codex', stage: 'verify' },
+    ],
+  };
+  const conversations = nativeConversations(task);
+  assert.deepEqual(
+    conversations.map((a) => [a.id, a.repositoryId, a.count]),
+    [
+      ['retry-9', 'api', 11],
+      ['review', 'api', 1],
+      ['client', 'client', 1],
+    ],
+  );
+  const html = terminalView(task, { events: [], terminalId: '' });
+  assert.equal((html.match(/data-action="resume-session"/g) ?? []).length, 3);
+  assert.match(html, /data-attempt-id="retry-9" data-repository-id="api"/);
+  assert.match(html, /API · 11 attempts/);
+  assert.match(html, /Earlier conversations \(2\)/);
+  assert.doesNotMatch(html, /<details[^>]* open/);
+  assert.doesNotMatch(
+    terminalView({ ...task, status: 'completed' }, { events: [] }),
+    /resume-session/,
+  );
+});
+
+test('conversation history is bounded after grouping and escapes session metadata', () => {
+  const task = {
+    status: 'blocked',
+    repository: { id: 'api', name: '<Client>' },
+    attempts: Array.from({ length: 12 }, (_, i) => ({
+      id: `attempt-${i}`,
+      harness: 'codex',
+      stage: 'investigate',
+      sessionId: `session-${i}`,
+    })),
+  };
+  assert.equal(nativeConversations(task).length, 8);
+  assert.equal(nativeConversations(task)[0].id, 'attempt-11');
+  task.attempts.at(-1).sessionId = '<script>"session"</script>';
+  const html = terminalView(task, { events: [] });
+  assert.match(html, /&lt;script&gt;/);
+  assert.match(html, /&lt;Client&gt;/);
+  assert.doesNotMatch(html, /<script>|<Client>/);
 });
