@@ -1,17 +1,10 @@
+import { runLabel } from './run-label.js';
 import { verificationReport } from './verification-report.js';
 import { e, stageNames, harnessBadge, prose, duration } from './ui.js';
 import { concise } from './task-summary.js';
 import { timer } from './live-progress.js';
 
-export function runLabel(a) {
-  return a.role === 'verifier' || a.harness === 'checks'
-    ? a.harness !== 'checks'
-      ? 'Verification agent'
-      : 'Host verification'
-    : a.role === 'debug'
-      ? 'Debugger'
-      : (stageNames[a.stage] ?? a.stage);
-}
+export { runLabel } from './run-label.js';
 export function handoffFiles(h) {
   if (!h) return '';
   return `${h.findings?.length ? `<section class="report-findings"><h4>Review findings</h4>${h.findings.map((f) => `<article><span class="severity ${e(f.severity)}">${e(f.severity)}</span><div><strong>${e(f.file)}</strong><p>${e(f.description)}</p></div></article>`).join('')}</section>` : ''}${
@@ -44,7 +37,7 @@ export function handoffList(task) {
     .map((a, i) => ({ ...a, number: i + 1 }))
     .filter((a) => a.handoff || a.error)
     .reverse();
-  return `<div class="panel-heading"><div><h2>Handoffs</h2><p>Latest outcome first. Open a run for the reasoning and evidence.</p></div><span class="panel-count">${attempts.length} runs</span></div>${attempts.length ? attempts.map((a, i) => `<details class="handoff-card report-card" data-event-key="handoff-${e(a.id)}" ${i === 0 ? 'open' : ''}><summary><div class="report-heading">${harnessBadge(a.harness)}<div><strong>${e(runLabel(a))}</strong><small>Run ${a.number} · ${e(a.harness)}${a.finishedAt ? ` · ${duration(new Date(a.finishedAt) - new Date(a.startedAt))}` : ''}</small></div><span class="verdict ${a.handoff?.verdict === 'complete' ? 'pass' : ['repair_requested', 'verification_requested'].includes(a.handoff?.verdict) ? 'pending' : 'fail'}">${e(a.handoff?.verdict === 'blocked' ? 'Blocked' : a.handoff?.verdict === 'complete' ? 'Complete' : a.handoff?.verdict === 'changes_requested' ? 'Changes requested' : a.handoff?.verdict === 'repair_requested' ? 'Repair delegated' : a.handoff?.verdict === 'verification_requested' ? 'Host checks requested' : 'Failed')}</span></div><p class="report-takeaway">${e(concise(a.handoff?.summary || a.error, i === 0 ? 500 : 180))}</p></summary><div class="report-body">${(a.handoff?.summary || a.error || '').length > (i === 0 ? 500 : 180) ? `<p class="report-full-summary">${e(a.handoff?.summary || a.error)}</p>` : ''}${handoffBody(a.handoff)}</div></details>`).join('') : '<p class="panel-empty">Agent outcomes will appear here after the first run.</p>'}`;
+  return `<div class="panel-heading"><div><h2>Handoffs</h2><p>Latest outcome first. Open a run for the reasoning and evidence.</p></div><span class="panel-count">${attempts.length} runs</span></div>${attempts.length ? attempts.map((a, i) => `<details class="handoff-card report-card" data-event-key="handoff-${e(a.id)}" ${i === 0 ? 'open' : ''}><summary><div class="report-heading">${harnessBadge(a.harness)}<div><strong>${e(runLabel(a))}</strong><small>Run ${a.number} · ${e(a.harness)}${a.finishedAt ? ` · ${duration(new Date(a.finishedAt) - new Date(a.startedAt))}` : ''}</small></div><span class="verdict ${a.handoff?.verdict === 'complete' ? 'pass' : ['repair_requested', 'verification_requested'].includes(a.handoff?.verdict) ? 'pending' : 'fail'}">${e(a.handoff?.verdict === 'blocked' ? 'Blocked' : a.handoff?.verdict === 'complete' ? 'Complete' : a.handoff?.verdict === 'changes_requested' ? 'Changes requested' : a.handoff?.verdict === 'repair_requested' ? 'Repair delegated' : a.handoff?.verdict === 'verification_requested' ? 'Verification requested' : 'Failed')}</span></div><p class="report-takeaway">${e(concise(a.handoff?.summary || a.error, i === 0 ? 500 : 180))}</p></summary><div class="report-body">${(a.handoff?.summary || a.error || '').length > (i === 0 ? 500 : 180) ? `<p class="report-full-summary">${e(a.handoff?.summary || a.error)}</p>` : ''}${handoffBody(a.handoff)}</div></details>`).join('') : '<p class="panel-empty">Agent outcomes will appear here after the first run.</p>'}`;
 }
 export function workflowStages(task) {
   const live = ['running', 'queued'].includes(task.status);
@@ -64,7 +57,7 @@ export function workflowStages(task) {
           : ({ codex: 'Codex', claude: 'Claude', pi: 'Pi' }[task.routing[stage]] ??
             task.routing[stage]);
       const suspended = active && live && subrun;
-      return `<li class="${active ? 'current' : done ? 'done' : ''}"><span class="stage-number">${done && !active ? '✓' : i + 1}</span><div><strong>${e(stageNames[stage])}</strong><small>${suspended ? 'Waiting for ' + (subrun.role === 'verifier' ? 'checks' : 'diagnosis') : e(h)}${!suspended && a?.finishedAt ? ` · ${duration(new Date(a.finishedAt) - new Date(a.startedAt))}` : !suspended && active && live && a?.status === 'running' ? ` · ${timer(a.startedAt)}` : ''}</small>${suspended ? `<div class="workflow-subrun"><span class="pulse-dot"></span><span>${subrun.role === 'verifier' ? (subrun.harness && subrun.harness !== 'checks' ? 'Verification agent' : 'Host checks') : 'Debugger'}</span>${timer(subrun.startedAt)}</div>` : ''}</div>${active && live && !suspended ? '<span class="pulse-dot"></span>' : ''}</li>`;
+      return `<li class="${active ? 'current' : done ? 'done' : ''}"><span class="stage-number">${done && !active ? '✓' : i + 1}</span><div><strong>${e(stageNames[stage])}</strong><small>${suspended ? 'Waiting for ' + (subrun.role === 'verifier' ? 'checks' : 'diagnosis') : e(h)}${!suspended && a?.finishedAt ? ` · ${duration(new Date(a.finishedAt) - new Date(a.startedAt))}` : !suspended && active && live && a?.status === 'running' ? ` · ${timer(a.startedAt)}` : ''}</small>${suspended ? `<div class="workflow-subrun"><span class="pulse-dot"></span><span>${e(runLabel(subrun))}</span>${timer(subrun.startedAt)}</div>` : ''}</div>${active && live && !suspended ? '<span class="pulse-dot"></span>' : ''}</li>`;
     })
     .join('');
 }

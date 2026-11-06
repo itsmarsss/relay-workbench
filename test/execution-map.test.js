@@ -112,7 +112,7 @@ test('host verification has a distinct lane and generic command evidence', () =>
   assert.equal(new Set(graph.nodes.map((n) => n.y)).size, 3);
   assert.ok(graph.nodes.every((n, i) => !i || n.x > graph.nodes[i - 1].x));
   const html = executionMap(task);
-  assert.match(html, /Host checks/);
+  assert.match(html, /Configured checks/);
   assert.match(html, /Configured commands/);
   assert.match(html, /graph-open-activity/);
 });

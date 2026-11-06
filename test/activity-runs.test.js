@@ -36,5 +36,5 @@ test('run browser escapes context and keeps host output scoped to its run', () =
   assert.match(html, /&lt;script&gt;output/);
   assert.doesNotMatch(html, /unrelated output|<script>/);
   assert.match(html, /sandbox permissions stay the same/);
-  assert.match(activityRunNavigation({ attempts: [run] }, run, 'latest'), /Host checks/);
+  assert.match(activityRunNavigation({ attempts: [run] }, run, 'latest'), /Configured checks/);
 });
