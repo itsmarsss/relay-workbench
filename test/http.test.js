@@ -781,3 +781,44 @@ test(
     assert.equal((await f.request(endpoint, 'POST', { type: 'input', data: 'x' })).status, 409);
   },
 );
+
+test('blocker decisions require token, current decision and valid action', async (t) => {
+  const f = await fixture(t);
+  const task = f.app.engine.create({ title: 'Debugger decision fixture', demo: true });
+  task.status = 'blocked';
+  task.stage = 'implement';
+  task.blockerDecision = {
+    id: 'current',
+    resolved: false,
+    options: [],
+    summary: 'Needs a runtime',
+  };
+  f.app.store.save(task);
+  const path = `/api/tasks/${task.id}/resolve-blocker`;
+  assert.equal(
+    (
+      await f.request(
+        path,
+        'POST',
+        { decisionId: 'current', resolution: 'pause' },
+        { 'X-Relay-Token': '' },
+      )
+    ).status,
+    403,
+  );
+  assert.equal(
+    (await f.request(path, 'POST', { decisionId: 'stale', resolution: 'pause' })).status,
+    409,
+  );
+  assert.equal(
+    (await f.request(path, 'POST', { decisionId: 'current', resolution: 'execute-command' }))
+      .status,
+    400,
+  );
+  assert.equal(
+    (await f.request(path, 'POST', { decisionId: 'current', resolution: 'pause' })).status,
+    200,
+  );
+  assert.equal(f.app.store.get(task.id).status, 'paused');
+  assert.equal(f.app.store.get(task.id).approvals.length, 0);
+});

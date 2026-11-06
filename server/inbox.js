@@ -22,7 +22,10 @@ export function inbox(store) {
         taskId: task.id,
         title: task.title,
         status: task.status,
-        action: labels[task.status],
+        action:
+          task.status === 'blocked' && task.blockerDecision
+            ? 'Choose a blocker resolution'
+            : labels[task.status],
         summary: task.error || task.attempts.findLast((a) => a.handoff)?.handoff.summary || '',
         updatedAt: task.updatedAt,
         seen,

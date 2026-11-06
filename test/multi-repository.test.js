@@ -210,6 +210,8 @@ test('resuming a failed repository preserves earlier implementation progress', a
       }
     },
   });
+  f.task.execution.maxRecoveryAttempts = 0;
+  f.store.save(f.task);
   await f.engine.action(f.task.id, 'start');
   await wait(f.store, f.task.id, 'awaiting_plan');
   await f.engine.action(f.task.id, 'approve-plan', { optionId: 'shared-boundary' });
@@ -221,4 +223,27 @@ test('resuming a failed repository preserves earlier implementation progress', a
   await wait(f.store, f.task.id, 'awaiting_final');
   assert.equal(f.calls.filter((c) => c[0] === 'implement' && c[1] === 'service').length, 1);
   assert.equal(f.calls.filter((c) => c[0] === 'implement' && c[1] === 'client').length, 2);
+});
+
+test('debugger recovers a failed repository without repeating its completed sibling', async (t) => {
+  let fail = true;
+  const f = await fixture(t, {
+    harness: async ({ task, stage }) => {
+      if (stage === 'implement' && task.activeRepositoryId === 'client' && fail) {
+        fail = false;
+        throw new Error('Temporary harness failure');
+      }
+    },
+  });
+  await f.engine.action(f.task.id, 'start');
+  await wait(f.store, f.task.id, 'awaiting_plan');
+  await f.engine.action(f.task.id, 'approve-plan', { optionId: 'shared-boundary' });
+  const result = await wait(f.store, f.task.id, 'awaiting_final');
+  assert.equal(f.calls.filter((c) => c[0] === 'implement' && c[1] === 'service').length, 1);
+  assert.equal(f.calls.filter((c) => c[0] === 'implement' && c[1] === 'client').length, 2);
+  assert.equal(
+    result.attempts.filter((a) => a.role === 'debug' && a.repositoryId === 'client').length,
+    1,
+  );
+  assert.equal(result.approvals.length, 1);
 });

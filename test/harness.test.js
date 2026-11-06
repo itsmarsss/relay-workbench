@@ -3,7 +3,13 @@ import assert from 'node:assert/strict';
 import { mkdtemp, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { executeHarness, demoHandoff, buildPrompt } from '../server/harness.js';
+import {
+  executeHarness,
+  demoHandoff,
+  buildPrompt,
+  buildInvocation,
+  decodeEvent,
+} from '../server/harness.js';
 import { DEFAULT_CONFIG, newTask } from '../server/domain.js';
 
 test('each adapter executes a real subprocess and parses its native stream', async (t) => {
@@ -99,4 +105,49 @@ test('approval notes and human feedback survive prompt handoff', () => {
   assert.match(prompt, /Preserve the public interface/);
   assert.match(prompt, /Cover empty input too/);
   assert.match(prompt, /untrusted task context/);
+});
+
+test('Claude development capabilities and denied tool results stay explicit', () => {
+  const locked = buildInvocation(
+    'claude',
+    { command: 'claude' },
+    '/tmp/schema',
+    'investigate',
+    null,
+    { writable: false, writableRoots: [] },
+  );
+  assert.ok(!locked.args.includes('Bash'));
+  const allowed = buildInvocation(
+    'claude',
+    { command: 'claude' },
+    '/tmp/schema',
+    'investigate',
+    null,
+    { writable: true, writableRoots: ['/tmp/runtime'] },
+  );
+  assert.ok(allowed.args.includes('--allowedTools'));
+  assert.ok(allowed.args.includes('Bash'));
+  assert.ok(allowed.args.includes('--add-dir'));
+  assert.ok(allowed.args.includes('/tmp/runtime'));
+  assert.ok(!allowed.args.includes('--dangerously-skip-permissions'));
+  const event = decodeEvent(
+    'claude',
+    JSON.stringify({
+      type: 'user',
+      message: {
+        content: [
+          { type: 'tool_result', is_error: true, content: 'Bash denied: approval unavailable' },
+        ],
+      },
+    }),
+  );
+  assert.match(event.details, /approval unavailable/);
+  assert.equal(event.kind, 'tool');
+  const task = newTask({ title: 'Debug', demo: true }, DEFAULT_CONFIG);
+  task.debugContext = {
+    blockedStage: 'implement',
+    recentCommandResults: [{ details: 'recorded log output' }],
+  };
+  assert.match(buildPrompt(task, 'investigate'), /DEDICATED DEBUGGER/);
+  assert.match(buildPrompt(task, 'investigate'), /recorded log output/);
 });
