@@ -1,3 +1,5 @@
+import { runCheck } from '../server/check-runner.js';
+import { RuntimeBudgetError } from '../server/runtime-budget.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, rm, writeFile, mkdir, readFile } from 'node:fs/promises';
@@ -1042,6 +1044,9 @@ for (const failure of [
   'source-edit',
   'repair-round',
   'no-command-profile',
+  'report-correction',
+  'report-correction-exhausted',
+  'runtime-budget',
 ])
   test(`agent verification discovers checks and protects its gate: ${failure ?? 'pass'}`, async (t) => {
     const f = await fixture(t);
@@ -1065,8 +1070,9 @@ for (const failure of [
     });
     let verified = false;
     let verificationRuns = 0;
+    let executedChecks = 0;
     const engine = f.makeEngine({
-      harness: async ({ task, stage, onEvent }) => {
+      harness: async ({ task, stage, onEvent, onSession, sessionId }) => {
         const h = demoHandoff(task, stage);
         if (stage === 'implement') await writeFile(join(task.workspace, 'value.txt'), 'after\n');
         if (stage === 'verify') {
@@ -1081,15 +1087,28 @@ for (const failure of [
           assert.equal(task.verificationContext.executionAccess, 'host');
           assert.equal(task.repository.checks.length, 0);
           assert.ok(task.repositoryMap.every((entry) => entry.repository.checks.length === 0));
-          const result = await runProcess(
-            process.execPath,
-            [
-              '-e',
-              "if(require('fs').readFileSync('value.txt','utf8')!=='after\\n')process.exit(1)",
-            ],
-            { cwd: task.workspace },
-          );
+          const args = [
+            '-e',
+            "if(require('fs').readFileSync('value.txt','utf8')!=='after\\n')process.exit(1)",
+          ];
+          const preserve =
+            (failure?.startsWith('report-correction') || failure === 'runtime-budget') &&
+            verificationRuns > 1;
+          const prior = preserve
+            ? task.verificationContext.priorEvidence.find((p) => p.checks.some((c) => c.code === 0))
+            : null;
+          const result = prior
+            ? prior.checks.find((c) => c.code === 0)
+            : await runCheck(task.verificationContext.runner, {
+                repositoryId: 'repo',
+                cwd: task.workspace,
+                command: process.execPath,
+                args,
+              });
+          if (!preserve) executedChecks++;
           assert.equal(result.code, 0);
+          onSession('verification-session');
+          if (preserve) assert.equal(sessionId, 'verification-session');
           if (failure !== 'missing-evidence')
             onEvent({
               type: 'activity',
@@ -1102,7 +1121,7 @@ for (const failure of [
               {
                 repositoryId: 'repo',
                 command: process.execPath,
-                args: ['-e', 'fixture check'],
+                args,
                 cwd: task.workspace,
                 code: failure === 'failed-check' ? 1 : 0,
                 summary: 'Verified value contract',
@@ -1117,6 +1136,26 @@ for (const failure of [
               },
             ],
           };
+          if (prior)
+            h.verification.reuse = [
+              {
+                checkIndex: 0,
+                attemptId: prior.attemptId,
+                reason:
+                  'Same source fingerprint; report metadata correction or time continuation only.',
+                freshCheckIndices: [],
+              },
+            ];
+          if (
+            failure?.startsWith('report-correction') &&
+            (verificationRuns === 1 || failure.endsWith('exhausted'))
+          )
+            h.verification.requirements[0].checkIndices = [];
+          if (failure === 'runtime-budget' && verificationRuns === 1)
+            throw new RuntimeBudgetError('Execution budget exhausted', {
+              extensions: 1,
+              hardDeadlineAt: new Date().toISOString(),
+            });
           if (failure === 'source-edit')
             await writeFile(join(task.workspace, 'value.txt'), 'unauthorized');
         }
@@ -1132,11 +1171,37 @@ for (const failure of [
     await engine.action(task.id, 'start');
     await waitFor(f.store, task.id, (t) => t.status === 'awaiting_plan');
     await engine.action(task.id, 'approve-plan', { optionId: 'shared-boundary' });
-    const final = await waitFor(f.store, task.id, (t) =>
+    let final = await waitFor(f.store, task.id, (t) =>
       ['blocked', 'awaiting_final'].includes(t.status),
     );
     assert.ok(verified);
-    const rejected = ['missing-evidence', 'failed-check', 'source-edit'].includes(failure);
+    if (failure === 'runtime-budget') {
+      assert.equal(final.blockerDecision.kind, 'runtime_budget');
+      assert.equal(
+        final.attempts.some((a) => a.role === 'debug'),
+        false,
+      );
+      await waitFor(f.store, task.id, () => !engine.running.has(task.id));
+      await engine.action(task.id, 'resume');
+      final = await waitFor(f.store, task.id, (t) => t.status === 'awaiting_final');
+      assert.equal(executedChecks, 1);
+    }
+    if (failure?.startsWith('report-correction')) {
+      assert.equal(
+        final.attempts.some((a) => a.role === 'debug'),
+        false,
+      );
+      assert.equal(executedChecks, 1);
+      assert.equal(verificationRuns, failure.endsWith('exhausted') ? 3 : 2);
+      if (failure.endsWith('exhausted'))
+        assert.equal(final.blockerDecision.kind, 'verification_report');
+    }
+    const rejected = [
+      'missing-evidence',
+      'failed-check',
+      'source-edit',
+      'report-correction-exhausted',
+    ].includes(failure);
     assert.equal(final.status, rejected ? 'blocked' : 'awaiting_final', final.error);
     if (failure === 'repair-round') {
       assert.equal(verificationRuns, 2);

@@ -1,3 +1,4 @@
+import { RuntimeBudget, RuntimeBudgetError } from './runtime-budget.js';
 import { prepareTerminal } from './terminal.js';
 import { spawn } from 'node:child_process';
 import { access } from 'node:fs/promises';
@@ -28,6 +29,8 @@ export async function runProcess(
     input,
     signal,
     timeout = 3600000,
+    progressPolicy,
+    onBudget = () => {},
     onLine = () => {},
     maxBytes = 8 * 1024 * 1024,
     env = {},
@@ -77,7 +80,7 @@ export async function runProcess(
       const buffers = { stdout: '', stderr: '' };
       const stop = (message) => {
         if (failure) return;
-        failure = new Error(message);
+        failure = message instanceof Error ? message : new Error(message);
         kill('SIGTERM');
         hardKill = setTimeout(() => kill('SIGKILL'), 2000);
         hardKill.unref();
@@ -89,11 +92,46 @@ export async function runProcess(
         } catch {}
       };
       let hardKill;
-      const timer = setTimeout(
-        () => stop(`Execution timed out after ${Math.round(timeout / 60000)} minute(s)`),
-        timeout,
-      );
-      timer.unref();
+      let timer;
+      const budget = progressPolicy
+        ? new RuntimeBudget({
+            timeout,
+            maxTimeout: progressPolicy.maxTimeout,
+            progressWindow: progressPolicy.progressWindow,
+          })
+        : null;
+      const armDeadline = () => {
+        const deadline = budget?.softDeadline ?? Date.now() + timeout;
+        timer = setTimeout(
+          () => {
+            if (!budget) {
+              stop(`Execution timed out after ${Math.round(timeout / 60000)} minute(s)`);
+              return;
+            }
+            let lastProgressAt;
+            try {
+              lastProgressAt = progressPolicy.lastProgressAt();
+            } catch {}
+            const action = budget.evaluate(Date.now(), lastProgressAt);
+            const state = budget.snapshot(lastProgressAt);
+            if (action === 'extend') {
+              onBudget(state);
+              armDeadline();
+            } else if (action === 'wait') armDeadline();
+            else
+              stop(
+                new RuntimeBudgetError(
+                  'Execution budget exhausted; completed checks are preserved. Continue with more time or inspect the last recorded progress.',
+                  state,
+                ),
+              );
+          },
+          Math.max(1, deadline - Date.now()),
+        );
+        timer.unref();
+      };
+      if (budget) onBudget(budget.snapshot(null));
+      armDeadline();
       const abort = () => stop('Execution cancelled');
       signal?.addEventListener('abort', abort, { once: true });
       const consume = (stream, chunk) => {
@@ -140,8 +178,11 @@ export async function runProcess(
             }
           }
         if (spawnError) reject(new Error(`Could not launch ${command}: ${spawnError.message}`));
-        else if (failure) reject(failure);
-        else
+        else if (failure) {
+          failure.stdout = stdout;
+          failure.stderr = stderr;
+          reject(failure);
+        } else
           resolve({ ...(terminalResult ?? { code, signal: terminationSignal }), stdout, stderr });
       });
     });

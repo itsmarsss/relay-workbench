@@ -61,7 +61,7 @@ export function resumableAttempt(task, stage, harness, repositoryId) {
   const latest = (task.attempts ?? []).findLast(
     (a) =>
       a.role !== 'debug' &&
-      a.role !== 'verifier' &&
+      (a.role !== 'verifier' || stage === 'verify') &&
       a.stage === stage &&
       a.harness === harness &&
       a.repositoryId === repositoryId &&

@@ -163,6 +163,20 @@ const verificationSchema = {
   type: 'object',
   additionalProperties: false,
   properties: {
+    reuse: {
+      type: 'array',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          checkIndex: { type: 'integer' },
+          attemptId: { type: 'string' },
+          reason: { type: 'string' },
+          freshCheckIndices: { type: 'array', items: { type: 'integer' } },
+        },
+        required: ['checkIndex', 'attemptId', 'reason', 'freshCheckIndices'],
+      },
+    },
     checks: {
       type: 'array',
       items: {
@@ -194,7 +208,7 @@ const verificationSchema = {
       },
     },
   },
-  required: ['checks', 'requirements'],
+  required: ['checks', 'requirements', 'reuse'],
 };
 
 const stringList = { type: 'array', items: { type: 'string' } };

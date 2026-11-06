@@ -2,6 +2,10 @@ import { e } from './ui.js';
 import { concise } from './task-summary.js';
 export function blockerDecisionView(task) {
   if (task.status !== 'blocked') return '';
+  if (task.blockerDecision?.kind === 'runtime_budget')
+    return `<section class="blocker-decision" aria-label="Execution time budget"><span class="eyebrow">MORE TIME NEEDED</span><h2>The stage reached its time budget</h2><p>Completed checks and logs are preserved. A timeout does not establish a test failure. Resume to continue with a new bounded budget, or inspect the latest output first.</p><button class="btn primary" data-action="task-action" data-operation="resume">Continue with more time</button><button class="btn secondary" data-action="tab" data-tab="transcript">Inspect execution log</button></section>`;
+  if (task.blockerDecision?.kind === 'verification_report')
+    return `<section class="blocker-decision" aria-label="Verification report correction"><h2>Checks are preserved; the report needs correction</h2><p>${e(task.blockerDecision.explanation)}</p><button class="btn primary" data-action="task-action" data-operation="resume">Retry report correction</button></section>`;
   const trusted =
     task.stage === 'implement' && task.chosenApproach
       ? '<button class="btn secondary" data-action="task-action" data-operation="verify-blocker">Run verification &amp; continue</button>'

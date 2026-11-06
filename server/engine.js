@@ -1,3 +1,9 @@
+import {
+  prepareCheckRunner,
+  readCheckJournal,
+  priorVerificationEvidence,
+  verificationSignature,
+} from './verification-evidence.js';
 import { memoryContext, proposeMemories } from './memory.js';
 import { validateVerification } from './verification.js';
 import { developmentAccess } from './access.js';
@@ -20,7 +26,7 @@ import {
   text,
   HARNESSES,
 } from './domain.js';
-import { prepareWorkspace, fingerprint, inspectRepository } from './workspace.js';
+import { prepareWorkspace, fingerprint, inspectRepository, diff } from './workspace.js';
 import { executeHarness, demoHandoff, resumeInvocation } from './harness.js';
 import { runProcess, executableExists } from './process.js';
 
@@ -406,7 +412,12 @@ export class Engine {
           'Wait a few seconds for interrupted worker processes to terminate, then resume.',
           409,
         );
-        task.recovery = null;
+        const budgetAttempt =
+          task.blockerDecision?.kind === 'runtime_budget' ? task.attempts.at(-1) : null;
+        task.budgetContinuationAttemptId = budgetAttempt?.id ?? null;
+        if (budgetAttempt?.role !== 'debug') task.recovery = null;
+        if (task.blockerDecision?.kind === 'verification_report' && task.verificationReportRepair)
+          task.verificationReportRepair.count = 0;
         task.blockerDecision = null;
         if (!task.demo) {
           const roots = new Set();
@@ -678,6 +689,76 @@ export class Engine {
               return;
             }
             current.messages = latest.messages;
+            if (attempt?.verificationRunner)
+              attempt.verificationEvidence = await readCheckJournal(
+                attempt.verificationRunner,
+              ).catch(() => []);
+            if (attempt) attempt.errorCode = error.code ?? null;
+            if (!changedDuringAnalysis && error.code === 'RUNTIME_BUDGET_EXHAUSTED') {
+              if (attempt) attempt.runtimeBudget = error.budget;
+              if (attempt?.role !== 'debug') current.recovery = null;
+              current.blockerDecision = {
+                ...blockerDecision(current, {
+                  summary: 'Execution reached its time budget; completed evidence is preserved.',
+                  details: error.message,
+                  evidence: (attempt?.verificationEvidence ?? [])
+                    .filter((c) => c.code === 0)
+                    .map((c) => c.summary),
+                  risks: [
+                    'Continue the same stage with more time, or inspect its last progress. A timeout is not a failed test.',
+                  ],
+                }),
+                kind: 'runtime_budget',
+              };
+              this.store.save(current, {
+                type: 'blocked',
+                summary:
+                  'Time budget reached. No debugger was started; completed checks are preserved.',
+              });
+              return;
+            }
+            if (
+              !changedDuringAnalysis &&
+              error.code === 'VERIFICATION_REPORT_INVALID' &&
+              error.toolEvidence &&
+              error.report?.checks?.some((c) => c.code === 0)
+            ) {
+              const count = (current.verificationReportRepair?.count ?? 0) + 1;
+              attempt.rejectedVerification = error.report;
+              current.verificationReportRepair = {
+                count,
+                attemptId: attempt.id,
+                fingerprint: attempt.beforeFingerprint,
+                signature: attempt.verificationSignature,
+                report: error.report,
+                error: error.message,
+                toolEvidence: true,
+              };
+              current.recovery = null;
+              if (count <= 2) {
+                current.status = 'queued';
+                current.error = null;
+                current.blockerDecision = null;
+              } else
+                current.blockerDecision = {
+                  ...blockerDecision(current, {
+                    summary: 'Verification report still needs correction.',
+                    details: error.message,
+                    risks: [
+                      'Executed checks are preserved. Inspect the report or resume its correction; no full test rerun is required solely for report formatting.',
+                    ],
+                  }),
+                  kind: 'verification_report',
+                };
+              this.store.save(current, {
+                type: current.status === 'queued' ? 'recovery' : 'blocked',
+                summary:
+                  count <= 2
+                    ? 'Verifier is correcting its evidence report; completed checks are preserved.'
+                    : 'Report correction limit reached; no debugger was started.',
+              });
+              return;
+            }
             if (
               current.workspace &&
               !changedDuringAnalysis &&
@@ -878,17 +959,20 @@ export class Engine {
     const parentAttempt = task.attempts.at(-1);
     const attempt = {
       parentAttemptId: parentAttempt?.id ?? null,
-      relation: trustedVerification
-        ? 'Trusted verification'
-        : debugging
-          ? 'Diagnosis'
-          : task.recovery?.phase === 'continue'
-            ? 'Continue after diagnosis'
-            : parentAttempt && task.round > parentAttempt.round
-              ? 'Repair / backtrack'
-              : parentAttempt?.stage === stage
-                ? 'Retry / next repository'
-                : 'Handoff',
+      relation:
+        task.verificationReportRepair && agentVerification && !debugging
+          ? 'Report correction'
+          : trustedVerification
+            ? 'Trusted verification'
+            : debugging
+              ? 'Diagnosis'
+              : task.recovery?.phase === 'continue'
+                ? 'Continue after diagnosis'
+                : parentAttempt && task.round > parentAttempt.round
+                  ? 'Repair / backtrack'
+                  : parentAttempt?.stage === stage
+                    ? 'Retry / next repository'
+                    : 'Handoff',
       id: randomUUID(),
       stage,
       role: debugging
@@ -961,7 +1045,17 @@ export class Engine {
     }
     if (!debugging)
       view.continuationContext = continuationContext(task, stage, attempt.repositoryId);
-    const previousSession = resumableAttempt(task, stage, harness, attempt.repositoryId);
+    let previousSession = resumableAttempt(task, stage, harness, attempt.repositoryId);
+    if (agentVerification && !debugging && task.verificationReportRepair)
+      previousSession =
+        task.attempts.find(
+          (a) => a.id === task.verificationReportRepair.attemptId && a.harness === harness,
+        ) ?? previousSession;
+    if (task.budgetContinuationAttemptId)
+      previousSession =
+        task.attempts.find(
+          (a) => a.id === task.budgetContinuationAttemptId && a.harness === harness,
+        ) ?? previousSession;
     if (task.recovery?.active)
       attempt.recovery = { strategy: task.recovery.strategy, freshSession: true };
     attempt.model =
@@ -1005,7 +1099,46 @@ export class Engine {
           )
         : null;
     if (view.verificationContext) view.verificationContext.sourceFingerprint = before;
-    let verificationToolEvidence = false;
+    if ((agentVerification && !debugging) || (debugging && stage === 'verify')) {
+      const signature = verificationSignature(entries);
+      const runner = await prepareCheckRunner(
+        this.store.directory,
+        id,
+        attempt.id,
+        entries,
+        before,
+        signature,
+        executionConfig(task, this.store.config, stage).timeoutMinutes * 60000,
+      );
+      const sourceSnapshot = await diff(task);
+      const snapshotText = JSON.stringify(sourceSnapshot);
+      const source =
+        snapshotText.length < 60000
+          ? sourceSnapshot
+          : { omitted: true, reason: 'Diff exceeds evidence context limit; inspect local source.' };
+      const current = this.store.get(id);
+      const active = current.attempts.find((a) => a.id === attempt.id);
+      active.verificationRunner = runner;
+      active.verificationSignature = signature;
+      active.verificationSourceSnapshot = source;
+      this.store.save(current);
+      const context = {
+        sourceFingerprint: before,
+        signature,
+        runner,
+        sourceSnapshot: source,
+        priorEvidence: priorVerificationEvidence(task, signature),
+      };
+      if (view.verificationContext) Object.assign(view.verificationContext, context);
+      if (view.debugContext) Object.assign(view.debugContext, { verification: context });
+      if (
+        task.verificationReportRepair?.fingerprint === before &&
+        task.verificationReportRepair.signature === signature &&
+        view.verificationContext
+      )
+        view.verificationContext.reportRepair = task.verificationReportRepair;
+    }
+    let verificationToolEvidence = view.verificationContext?.reportRepair?.toolEvidence === true;
     let handoff;
     if ((stage === 'verify' || trustedVerification) && !debugging && !agentVerification) {
       const checks = [];
@@ -1066,6 +1199,8 @@ export class Engine {
               ...checkEvent,
               summary: `Running check: ${command.command} ${command.args.join(' ')}`,
             });
+            let lastCommandProgress = null,
+              lastCommandLine = null;
             const result = await runProcess(command.command, command.args, {
               cwd: checkEntry.workspace,
               env: {
@@ -1077,15 +1212,37 @@ export class Engine {
               },
               signal,
               timeout: executionConfig(task, this.store.config, stage).timeoutMinutes * 60000,
-              onLine: (line, stream) =>
-                this.store.event(id, {
+              progressPolicy: {
+                maxTimeout: executionConfig(task, this.store.config, stage).timeoutMinutes * 120000,
+                lastProgressAt: () => lastCommandProgress,
+              },
+              onBudget: (budget) => {
+                const current = this.store.get(id);
+                current.attempts.find((a) => a.id === attempt.id).runtimeBudget = budget;
+                this.store.save(current);
+                if (budget.extensions)
+                  this.store.event(id, {
+                    type: 'runtime_budget',
+                    stage,
+                    attemptId: attempt.id,
+                    summary:
+                      'Check output is progressing; time budget extended within the absolute cap.',
+                  });
+              },
+              onLine: (line, stream) => {
+                if (line.trim() && line !== lastCommandLine) {
+                  lastCommandLine = line;
+                  lastCommandProgress = Date.now();
+                }
+                return this.store.event(id, {
                   type: 'transcript',
                   stage,
                   attemptId: attempt.id,
                   repositoryId: checkEntry.repository.id,
                   stream,
                   text: line.slice(0, 40000),
-                }),
+                });
+              },
             });
             this.store.event(id, {
               ...checkEvent,
@@ -1182,6 +1339,13 @@ export class Engine {
         },
         onEvent: (event) => {
           if (event.kind === 'tool') verificationToolEvidence = true;
+          if (event.type === 'runtime_budget' || event.type === 'check_evidence') {
+            const current = this.store.get(id);
+            const active = current.attempts.find((a) => a.id === attempt.id);
+            if (event.type === 'runtime_budget') active.runtimeBudget = event.budget;
+            else active.verificationEvidence = event.checks;
+            this.store.save(current);
+          }
           return this.store.event(id, {
             ...event,
             stage,
@@ -1191,14 +1355,6 @@ export class Engine {
           });
         },
       });
-    }
-    if (agentVerification && !debugging && handoff.verdict === 'complete') {
-      const report = validateVerification(handoff, entries, verificationToolEvidence);
-      handoff.checks = report.checks.map((check) => ({
-        ...check,
-        stdout: check.summary,
-        stderr: '',
-      }));
     }
     if (signal.aborted) throw new Error('Execution cancelled');
     const after = !task.demo ? await fingerprint(task) : 'demo';
@@ -1221,6 +1377,17 @@ export class Engine {
           ),
         'Implementation modified another repository outside its assigned workspace. Inspect all diffs before resuming.',
       );
+    if (agentVerification && !debugging && handoff.verdict === 'complete') {
+      const report = validateVerification(handoff, entries, verificationToolEvidence, {
+        ...view.verificationContext,
+        journal: await readCheckJournal(view.verificationContext.runner),
+      });
+      handoff.checks = report.checks.map((check) => ({
+        ...check,
+        stdout: check.summary,
+        stderr: '',
+      }));
+    }
     if (['repair_requested', 'verification_requested'].includes(handoff.verdict)) {
       requireValue(
         stage === 'implement' &&
@@ -1252,6 +1419,11 @@ export class Engine {
     task = this.store.get(id);
     const savedAttempt = task.attempts.find((a) => a.id === attempt.id);
     savedAttempt.handoff = handoff;
+    task.budgetContinuationAttemptId = null;
+    if (savedAttempt.verificationRunner)
+      savedAttempt.verificationEvidence = await readCheckJournal(savedAttempt.verificationRunner);
+    if (agentVerification && !debugging && handoff.verdict === 'complete')
+      task.verificationReportRepair = null;
     savedAttempt.memoryProposalIds = proposeMemories(
       this.store,
       task,
