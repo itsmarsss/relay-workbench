@@ -7,12 +7,22 @@ import { randomUUID } from 'node:crypto';
 import { executeHarness, demoHandoff, resumeInvocation } from '../server/harness.js';
 import { DEFAULT_CONFIG, newTask } from '../server/domain.js';
 
-for (const harness of ['codex', 'pi'])
-  test(`${harness} native protocol resumes, steers and validates handoffs`, async (t) => {
+for (const [harness, development] of [
+  ['codex', false],
+  ['codex', true],
+  ['pi', false],
+])
+  test(`${harness} native protocol resumes and steers with development access ${development}`, async (t) => {
     const directory = await mkdtemp(join(tmpdir(), 'relay-native-'));
     t.after(() => rm(directory, { recursive: true, force: true }));
     const task = newTask({ title: 'Protocol fixture', demo: true }, DEFAULT_CONFIG);
     task.demo = false;
+    if (development)
+      task.repository.developmentAccess = {
+        analysisCommands: true,
+        networkAccess: true,
+        writableRoots: ['/tmp/logs'],
+      };
     task.workspace = directory;
     const handoff = demoHandoff(task, 'investigate');
     const binary = join(directory, 'fixture.js');
@@ -80,8 +90,13 @@ createInterface({input:process.stdin}).on('line',line=>{
       );
       assert.equal(
         requests.find((r) => r.method === 'turn/start').params.sandboxPolicy.type,
-        'readOnly',
+        development ? 'workspaceWrite' : 'readOnly',
       );
+      if (development) {
+        const policy = requests.find((r) => r.method === 'turn/start').params.sandboxPolicy;
+        assert.equal(policy.networkAccess, true);
+        assert.ok(policy.writableRoots.includes('/tmp/logs'));
+      }
     }
   });
 
@@ -98,4 +113,15 @@ test('interactive native resume uses exact session and preserves approval limits
     assert.ok(!invocation.args.includes('--last'));
     assert.ok(!invocation.args.includes('--dangerously-bypass-approvals-and-sandbox'));
   }
+});
+
+test('interactive takeover retains configured development capabilities', () => {
+  const invocation = resumeInvocation('codex', { command: 'codex' }, 'saved-session', false, {
+    writable: true,
+    networkAccess: true,
+    writableRoots: ['/tmp/runtime'],
+  });
+  assert.ok(invocation.args.includes('workspace-write'));
+  assert.ok(invocation.args.includes('sandbox_workspace_write.network_access=true'));
+  assert.ok(invocation.args.includes('/tmp/runtime'));
 });

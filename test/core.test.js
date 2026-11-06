@@ -486,3 +486,41 @@ test(
     assert.equal(engine.workspaceReservations.size, 0);
   },
 );
+
+for (const resolves of [true, false])
+  test(`agent blockers ${resolves ? 'recover automatically' : 'stop at the recovery limit'}`, async (t) => {
+    const f = await fixture(t);
+    const repo = await makeRepo(f.directory);
+    f.store.setConfig({ ...DEFAULT_CONFIG, repositories: [profile(repo, { strategy: 'attach' })] });
+    let investigations = 0;
+    const stages = [];
+    const engine = f.makeEngine({
+      harness: async ({ task, stage }) => {
+        stages.push(stage);
+        const handoff = demoHandoff(task, stage);
+        if (stage === 'investigate') {
+          investigations++;
+          assert.equal(task.activeRepositoryId, 'repo');
+          if (investigations > 1) assert.equal(task.recovery.active, true);
+          if (!resolves || investigations === 1)
+            return {
+              ...handoff,
+              verdict: 'blocked',
+              summary: 'Local test dependencies are missing',
+            };
+        }
+        return handoff;
+      },
+    });
+    const task = engine.create({ title: 'Recover prerequisites', repositoryId: 'repo' });
+    await engine.action(task.id, 'start');
+    const result = await waitFor(f.store, task.id, (task) =>
+      ['awaiting_plan', 'blocked'].includes(task.status),
+    );
+    assert.equal(result.status, resolves ? 'awaiting_plan' : 'blocked');
+    assert.equal(investigations, resolves ? 2 : 3);
+    assert.ok(!stages.includes('implement'));
+    assert.equal(result.recovery.active, false);
+    assert.equal(result.recovery.exhausted, !resolves);
+    assert.ok(f.store.events(task.id).some((event) => event.type === 'recovery'));
+  });

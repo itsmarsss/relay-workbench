@@ -198,7 +198,11 @@ try {
       cwd: spec.cwd,
       approvalPolicy: 'never',
       sandboxPolicy: spec.writable
-        ? { type: 'workspaceWrite', writableRoots: [spec.cwd], networkAccess: false }
+        ? {
+            type: 'workspaceWrite',
+            writableRoots: [spec.cwd, ...(spec.writableRoots ?? [])],
+            networkAccess: spec.networkAccess === true,
+          }
         : { type: 'readOnly' },
       outputSchema: spec.schema,
       ...(spec.model ? { model: spec.model } : {}),

@@ -69,6 +69,21 @@ try {
   await page.screenshot({ path: join(screenshots, 'overview.png'), fullPage: true });
   await page.getByRole('button', { name: 'Try a demo', exact: true }).click();
   await page.getByRole('heading', { name: 'Choose the way forward.' }).waitFor();
+  await page.getByRole('region', { name: 'Current task context' }).waitFor();
+  assert.ok(
+    (await page
+      .locator('.task-summary p')
+      .first()
+      .evaluate((el) => parseFloat(getComputedStyle(el).fontSize))) >= 16,
+  );
+  await page.getByRole('tab', { name: 'Activity thread', exact: true }).click();
+  const older = page.locator('.earlier-activity');
+  await older.waitFor();
+  assert.equal(await older.evaluate((el) => el.open), false);
+  await older.locator('summary').first().click();
+  assert.equal(await older.evaluate((el) => el.open), true);
+  await page.screenshot({ path: join(screenshots, 'readable-task-context.png'), fullPage: false });
+
   await page.getByRole('button', { name: 'Revise the proposal' }).click();
   await page
     .getByRole('textbox', { name: 'What should change?' })

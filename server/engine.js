@@ -1,3 +1,5 @@
+import { developmentAccess } from './access.js';
+import { recoverBlocked } from './recovery.js';
 import { addComment, focusedFeedback } from './review-comments.js';
 import { randomUUID } from 'node:crypto';
 import { workspaces, workspaceView, syncPrimary } from './task-repositories.js';
@@ -167,6 +169,7 @@ export class Engine {
               ],
               sessionAttempt.sessionId,
               !!task.chosenApproach && sessionAttempt.stage === 'implement',
+              developmentAccess(workspaceView(task, entry), sessionAttempt.stage),
             )
           : { command: process.env.SHELL || '/bin/sh', args: ['-i'] };
         task.status = 'manual';
@@ -253,6 +256,7 @@ export class Engine {
           'Wait a few seconds for interrupted worker processes to terminate, then resume.',
           409,
         );
+        task.recovery = null;
         if (!task.demo) {
           const roots = new Set();
           for (const entry of workspaces(task)) {
@@ -642,7 +646,7 @@ export class Engine {
       branch: e.branch,
       baseCommit: e.baseCommit,
     }));
-    view.activeRepositoryId = scoped ? entry.repository.id : null;
+    view.activeRepositoryId = entry.repository.id;
     const harness = stage === 'verify' ? 'checks' : task.routing[stage];
     const attempt = {
       id: randomUUID(),
@@ -660,7 +664,7 @@ export class Engine {
         a.harness === harness &&
         a.repositoryId === attempt.repositoryId &&
         a.sessionId &&
-        ['failed', 'interrupted'].includes(a.status),
+        (['failed', 'interrupted'].includes(a.status) || a.handoff?.verdict === 'blocked'),
     );
     attempt.model = executionConfig(task, this.store.config, stage).harnesses[harness]?.model || '';
     for (const message of task.messages)
@@ -853,8 +857,11 @@ export class Engine {
     savedAttempt.status = 'complete';
     savedAttempt.fingerprint = after;
     if (handoff.verdict === 'blocked') {
-      task.status = 'blocked';
-      task.error = handoff.summary;
+      recoverBlocked(
+        task,
+        handoff,
+        task.execution?.maxRecoveryAttempts ?? this.store.config.maxRecoveryAttempts ?? 2,
+      );
     } else if (
       scoped &&
       handoff.verdict === 'complete' &&
@@ -912,6 +919,20 @@ export class Engine {
       details: handoff.details,
       attemptId: attempt.id,
     });
+    if (handoff.verdict === 'blocked')
+      this.store.event(id, {
+        type: 'recovery',
+        stage,
+        harness,
+        summary: task.recovery.active
+          ? `Trying to resolve the blocker (${task.recovery.attempts}/${task.execution?.maxRecoveryAttempts ?? this.store.config.maxRecoveryAttempts ?? 2}).`
+          : 'Automatic recovery stopped. Your help is needed.',
+        details: handoff.summary,
+      });
+    else if (task.recovery) {
+      task.recovery.active = false;
+      this.store.save(task);
+    }
     if (['awaiting_plan', 'awaiting_final'].includes(task.status))
       this.store.event(id, {
         type: 'decision',

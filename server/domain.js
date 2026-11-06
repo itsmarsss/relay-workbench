@@ -1,3 +1,4 @@
+import { isAbsolute, normalize, parse } from 'node:path';
 import { randomUUID } from 'node:crypto';
 
 export const STAGES = ['triage', 'investigate', 'plan', 'implement', 'verify', 'review'];
@@ -5,6 +6,7 @@ export const HARNESSES = ['codex', 'claude', 'pi'];
 export const DEFAULT_CONFIG = {
   concurrency: 2,
   maxRepairRounds: 3,
+  maxRecoveryAttempts: 2,
   timeoutMinutes: 60,
   routing: {
     triage: 'pi',
@@ -61,6 +63,7 @@ export function validateConfig(raw) {
   for (const [key, min, max] of [
     ['concurrency', 1, 8],
     ['maxRepairRounds', 1, 10],
+    ['maxRecoveryAttempts', 0, 5],
     ['timeoutMinutes', 1, 240],
   ]) {
     c[key] = raw[key] ?? c[key];
@@ -100,7 +103,33 @@ export function validateConfig(raw) {
     const checks = (r.checks ?? []).map(command);
     const setup = (r.setup ?? []).map(command);
     requireValue(checks.length <= 30 && setup.length <= 30, 'Too many commands');
+    const access = r.developmentAccess ?? {};
+    requireValue(
+      access && typeof access === 'object' && !Array.isArray(access),
+      'Invalid development access',
+    );
+    for (const key of ['analysisCommands', 'networkAccess'])
+      requireValue(access[key] === undefined || typeof access[key] === 'boolean', `Invalid ${key}`);
+    const writableRoots = access.writableRoots ?? [];
+    requireValue(
+      Array.isArray(writableRoots) &&
+        writableRoots.length <= 20 &&
+        writableRoots.every(
+          (path) =>
+            typeof path === 'string' &&
+            isAbsolute(path) &&
+            normalize(path) !== parse(path).root &&
+            path.length <= 2000 &&
+            !path.split('/').includes('..'),
+        ),
+      'Writable roots must be explicit absolute directories',
+    );
     return {
+      developmentAccess: {
+        analysisCommands: access.analysisCommands === true,
+        networkAccess: access.networkAccess === true,
+        writableRoots,
+      },
       id: r.id ? text(r.id, 'Repository ID', 100) : randomUUID(),
       name: text(r.name, 'Repository name', 100),
       path: text(r.path, 'Repository path', 2000),
@@ -279,13 +308,16 @@ export function taskOptions(raw, config) {
     execution &&
       typeof execution === 'object' &&
       !Array.isArray(execution) &&
-      Object.keys(execution).every((key) => ['timeoutMinutes', 'maxRepairRounds'].includes(key)),
+      Object.keys(execution).every((key) =>
+        ['timeoutMinutes', 'maxRepairRounds', 'maxRecoveryAttempts'].includes(key),
+      ),
     'Invalid execution settings',
   );
   const settings = {};
   for (const [key, min, max] of [
     ['timeoutMinutes', 1, 240],
     ['maxRepairRounds', 1, 10],
+    ['maxRecoveryAttempts', 0, 5],
   ]) {
     settings[key] = execution[key] ?? config[key];
     requireValue(
