@@ -19,7 +19,9 @@ export function taskSummary(task, events = []) {
     task.attempts?.at(-1)?.role === 'verifier' && ['running', 'queued'].includes(task.status);
   const recovering = task.recovery?.active && ['running', 'queued'].includes(task.status);
   const next = hostVerification
-    ? 'Check results return to the interrupted agent, then the workflow continues.'
+    ? task.stage === 'verify'
+      ? 'The agent is running required checks and investigating failures before independent review.'
+      : 'Check results return to the interrupted agent, then the workflow continues.'
     : recovering
       ? 'Debugger is investigating the blocker. No action needed.'
       : ({
@@ -45,7 +47,7 @@ export function taskSummary(task, events = []) {
         (live
           ? `${stageNames[task.stage] ?? 'Work'} is starting with the saved task context.`
           : latest?.summary));
-  return `<section class="task-summary" aria-label="Current task context"><div><span class="eyebrow">${recovering ? 'RESOLVING A BLOCKER' : 'CURRENT STATUS'}</span><h2>${e(hostVerification ? 'Host verification' : recovering ? 'Debugger investigation' : (stageNames[task.stage] ?? 'Ready'))}</h2><p>${e(concise(summary || task.title))}</p></div><div class="summary-next"><strong>${['awaiting_plan', 'awaiting_final', 'blocked', 'manual', 'interrupted', 'paused', 'draft'].includes(task.status) ? 'Your next step' : 'What happens next'}</strong><p>${e(next)}</p></div></section>`;
+  return `<section class="task-summary" aria-label="Current task context"><div><span class="eyebrow">${recovering ? 'RESOLVING A BLOCKER' : 'CURRENT STATUS'}</span><h2>${e(hostVerification ? (task.attempts.at(-1).harness !== 'checks' ? 'Verification agent' : 'Host verification') : recovering ? 'Debugger investigation' : (stageNames[task.stage] ?? 'Ready'))}</h2><p>${e(concise(summary || task.title))}</p></div><div class="summary-next"><strong>${['awaiting_plan', 'awaiting_final', 'blocked', 'manual', 'interrupted', 'paused', 'draft'].includes(task.status) ? 'Your next step' : 'What happens next'}</strong><p>${e(next)}</p></div></section>`;
 }
 
 export function activityArchiveCount(task, events) {

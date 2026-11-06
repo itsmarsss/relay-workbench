@@ -556,6 +556,7 @@ try {
         cwd: '.',
         strategy: 'attach',
         setup: [],
+        verificationMode: 'commands',
         checks: [{ command: process.execPath, args: ['-e', 'process.exit(0)'] }],
         instructions: '',
         prCommand: { command: process.execPath, args: ['-e', 'console.log("provider")'] },

@@ -11,15 +11,15 @@ node server/index.js
 # http://127.0.0.1:4310
 ```
 
-Click **Try a demo** to exercise the entire workflow with clearly labeled simulated results. Live runs invoke your installed harness CLIs and execute configured repository checks. Availability checks detect executables, not account authentication.
+Click **Try a demo** to exercise the entire workflow with clearly labeled simulated results. Live runs invoke your installed harness CLIs. An elevated verification agent discovers required repository checks, runs them, and investigates failures. Fixed command lists are optional. Availability checks detect executables, not account authentication.
 
 ## Your first live run
 
-1. Add a repository in **Repositories**. Supply its absolute checkout path, optional working subdirectory, workspace strategy and verification commands.
+1. Add a repository in **Repositories**. Supply its absolute checkout path, optional working subdirectory and workspace strategy. Agent verification is the default; a fixed command list is optional.
 2. Check harness executables and model overrides in **Harnesses**. Blank model values use each CLI's own default. Route each stage independently; Pi can optionally triage and recommend routing.
 3. Create a task from a title/description or import an issue through your configured issue command.
 4. Start the task. Review investigation and approach options, select an approach, then approve implementation.
-5. Relay implements, runs configured checks, asks an independent harness to review, and loops over requested fixes. Approve the final diff when ready.
+5. Relay implements, verifies through an elevated agent, asks an independent harness to review, and loops over requested fixes. Approve the final diff when ready.
 
 **New worktree** creates an isolated branch and worktree per task. **Attach existing checkout** uses an existing branch and requires a clean checkout when starting; it is useful for repositories with their own workspace managers. Relay neither removes worktrees nor merges or pushes target branches automatically.
 
@@ -147,6 +147,8 @@ Agent-reported blockers and recoverable process failures queue a dedicated debug
 Unresolved blockers produce a decision card with the problem, required input, attempted remedies, evidence, and concrete options. Genuine design decisions can escalate after the first debugger attempt. Choose a runtime direction for the debugger, retry after fixing access, request a revised approach, or pause. Revised approaches require fresh implementation approval. Decisions are tied to their current blocker ID so stale browser tabs cannot apply an older choice. Existing blocked tasks also offer **Run debugger**.
 
 Claude development sessions explicitly allow Bash and read/search tools when the trusted repository profile authorizes development access, and receive the configured additional directories. Tool denials are retained as evidence. Ordinary specialists retain these limits; dedicated debugger sessions explicitly use host execution permissions. Host and repository policies still apply.
+
+Verification defaults to an elevated agent session. It reads repository guidance, discovers and runs required checks, and investigates failures on the host. It must report executed commands, exit codes, working directories and the source requirements they satisfy for every selected repository. Missing evidence, failed checks or source mutations block review. The agent cannot waive repository requirements; source repairs return to the approved writer. Existing profiles without a verification mode also use this path. Select `verificationMode: "commands"` explicitly to use a fixed command list instead.
 
 Repository profiles can enable development commands during investigation and review. Codex then uses a workspace-write sandbox so tests can write ignored build output; Relay still rejects an analysis handoff if the source fingerprint changes. Optional network access and explicit additional writable runtime directories support development logs and caches. These capabilities are trusted profile settings, captured when a task is created. Agents cannot change them. Trusted setup commands should materialize source and prepare environment prerequisites before investigation.
 

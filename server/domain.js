@@ -100,6 +100,10 @@ export function validateConfig(raw) {
       strategy !== 'managed' || r.workspaceCommand,
       'Managed workspaces require a creation command',
     );
+    requireValue(
+      r.verificationMode === undefined || ['agent', 'commands'].includes(r.verificationMode),
+      'Invalid verification mode',
+    );
     const checks = (r.checks ?? []).map(command);
     const setup = (r.setup ?? []).map(command);
     requireValue(checks.length <= 30 && setup.length <= 30, 'Too many commands');
@@ -140,6 +144,7 @@ export function validateConfig(raw) {
         strategy === 'managed'
           ? text(r.workspacePath, 'Managed workspace path template', 2000)
           : '',
+      verificationMode: r.verificationMode ?? 'agent',
       checks,
       setup,
       instructions: text(r.instructions ?? '', 'Instructions', 50000, true),
@@ -153,6 +158,44 @@ export function validateConfig(raw) {
   );
   return c;
 }
+
+const verificationSchema = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    checks: {
+      type: 'array',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          repositoryId: { type: 'string' },
+          command: { type: 'string' },
+          args: { type: 'array', items: { type: 'string' } },
+          cwd: { type: 'string' },
+          code: { type: 'integer' },
+          summary: { type: 'string' },
+        },
+        required: ['repositoryId', 'command', 'args', 'cwd', 'code', 'summary'],
+      },
+    },
+    requirements: {
+      type: 'array',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          repositoryId: { type: 'string' },
+          source: { type: 'string' },
+          requirement: { type: 'string' },
+          checkIndices: { type: 'array', items: { type: 'integer' } },
+        },
+        required: ['repositoryId', 'source', 'requirement', 'checkIndices'],
+      },
+    },
+  },
+  required: ['checks', 'requirements'],
+};
 
 const stringList = { type: 'array', items: { type: 'string' } };
 export const HANDOFF_SCHEMA = {
@@ -225,6 +268,14 @@ export const HANDOFF_SCHEMA = {
     'routing',
   ],
 };
+export function handoffSchema(stage) {
+  if (stage !== 'verify') return HANDOFF_SCHEMA;
+  return {
+    ...HANDOFF_SCHEMA,
+    properties: { ...HANDOFF_SCHEMA.properties, verification: verificationSchema },
+    required: [...HANDOFF_SCHEMA.required, 'verification'],
+  };
+}
 export function validateHandoff(raw, stage) {
   requireValue(raw && typeof raw === 'object', 'Harness did not return a handoff');
   for (const key of ['summary', 'details']) text(raw[key], key, 100000);
@@ -250,8 +301,8 @@ export function validateHandoff(raw, stage) {
     'Only implementation or debugger investigation can request host verification; repair delegation is debugger-only',
   );
   requireValue(
-    stage === 'review' || raw.verdict !== 'changes_requested',
-    'Only review stages may request changes; other incomplete stages must return blocked',
+    ['review', 'verify'].includes(stage) || raw.verdict !== 'changes_requested',
+    'Only review or verification stages may request changes; other incomplete stages must return blocked',
   );
   requireValue(
     Array.isArray(raw.options) &&
@@ -367,7 +418,7 @@ function applyRepositorySettings(repositories, settings = []) {
         typeof setting === 'object' &&
         !Array.isArray(setting) &&
         Object.keys(setting).every((key) =>
-          ['id', 'cwd', 'checks', 'setup', 'instructions'].includes(key),
+          ['id', 'cwd', 'checks', 'setup', 'instructions', 'verificationMode'].includes(key),
         ),
       'Invalid task repository settings',
     );
@@ -386,6 +437,13 @@ function applyRepositorySettings(repositories, settings = []) {
         50000,
         true,
       );
+    if (setting.verificationMode !== undefined) {
+      requireValue(
+        ['agent', 'commands'].includes(setting.verificationMode),
+        'Invalid verification mode',
+      );
+      entry.repository.verificationMode = setting.verificationMode;
+    }
     for (const key of ['checks', 'setup'])
       if (setting[key] !== undefined) {
         requireValue(
@@ -593,10 +651,13 @@ export function reconfigureTask(task, raw, config) {
     );
   const checksChanged = current.some(
     (entry) =>
+      entry.repository.verificationMode !==
+        proposed.find((item) => item.repository.id === entry.repository.id)?.repository
+          .verificationMode ||
       JSON.stringify(entry.repository.checks) !==
-      JSON.stringify(
-        proposed.find((item) => item.repository.id === entry.repository.id)?.repository.checks,
-      ),
+        JSON.stringify(
+          proposed.find((item) => item.repository.id === entry.repository.id)?.repository.checks,
+        ),
   );
   for (const key of [
     'title',

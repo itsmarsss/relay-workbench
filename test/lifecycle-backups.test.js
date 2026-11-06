@@ -41,6 +41,7 @@ async function repository(dir) {
     cwd: '.',
     strategy: 'worktree',
     setup: [],
+    verificationMode: 'commands',
     checks: [{ command: process.execPath, args: ['-e', 'process.exit(0)'] }],
     instructions: '',
   };

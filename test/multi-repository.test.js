@@ -43,6 +43,7 @@ async function fixture(t, options = {}) {
       path,
       cwd: '.',
       strategy: 'attach',
+      verificationMode: 'commands',
       checks: [
         {
           command: process.execPath,

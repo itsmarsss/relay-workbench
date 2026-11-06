@@ -65,6 +65,7 @@ function profile(path, overrides = {}) {
     path,
     cwd: '.',
     strategy: 'worktree',
+    verificationMode: 'commands',
     checks: [{ command: process.execPath, args: ['-e', 'process.exit(0)'] }],
     setup: [],
     instructions: '',
@@ -289,6 +290,7 @@ test('verification failures exhaust the repair budget without acceptance', async
     repositories: [
       profile(repo, {
         strategy: 'attach',
+        verificationMode: 'commands',
         checks: [{ command: process.execPath, args: ['-e', 'process.exit(1)'] }],
       }),
     ],
@@ -719,6 +721,7 @@ for (const invalidate of [false, true])
       repositories: [
         profile(repo, {
           strategy: 'attach',
+          verificationMode: 'commands',
           checks: [
             {
               command: process.execPath,
@@ -769,6 +772,7 @@ for (const exitCode of [0, 1])
       repositories: [
         profile(repo, {
           strategy: 'attach',
+          verificationMode: 'commands',
           checks: [
             {
               command: process.execPath,
@@ -915,6 +919,7 @@ test('recovery requests cannot grant host execution before implementation approv
     repositories: [
       profile(repo, {
         strategy: 'attach',
+        verificationMode: 'commands',
         checks: [
           {
             command: process.execPath,
@@ -951,6 +956,7 @@ test('implementation requests host verification directly through the real handof
     repositories: [
       profile(repo, {
         strategy: 'attach',
+        verificationMode: 'commands',
         checks: [
           {
             command: process.execPath,
@@ -1003,6 +1009,7 @@ test('repeated direct verification requests reuse evidence and stop without an i
     repositories: [
       profile(repo, {
         strategy: 'attach',
+        verificationMode: 'commands',
         checks: [
           {
             command: process.execPath,
@@ -1027,3 +1034,120 @@ test('repeated direct verification requests reuse evidence and stop without an i
   assert.equal(result.attempts.filter((a) => a.role === 'verifier').length, 3);
   assert.match(result.error, /already been returned/);
 });
+
+for (const failure of [
+  null,
+  'missing-evidence',
+  'failed-check',
+  'source-edit',
+  'repair-round',
+  'no-command-profile',
+])
+  test(`agent verification discovers checks and protects its gate: ${failure ?? 'pass'}`, async (t) => {
+    const f = await fixture(t);
+    const repo = await makeRepo(f.directory);
+    const marker = join(f.directory, 'legacy-runner-must-not-run');
+    f.store.setConfig({
+      ...DEFAULT_CONFIG,
+      maxRecoveryAttempts: 0,
+      repositories: [
+        profile(repo, {
+          verificationMode: 'agent',
+          strategy: 'attach',
+          checks: [
+            {
+              command: process.execPath,
+              args: ['-e', `require('fs').writeFileSync(${JSON.stringify(marker)}, 'wrong')`],
+            },
+          ],
+        }),
+      ],
+    });
+    let verified = false;
+    let verificationRuns = 0;
+    const engine = f.makeEngine({
+      harness: async ({ task, stage, onEvent }) => {
+        const h = demoHandoff(task, stage);
+        if (stage === 'implement') await writeFile(join(task.workspace, 'value.txt'), 'after\n');
+        if (stage === 'verify') {
+          verificationRuns++;
+          verified = true;
+          if (failure === 'repair-round' && verificationRuns === 1)
+            return {
+              ...h,
+              verdict: 'changes_requested',
+              summary: 'Repair the source contract before verification',
+            };
+          assert.equal(task.verificationContext.executionAccess, 'host');
+          assert.equal(task.repository.checks.length, 0);
+          assert.ok(task.repositoryMap.every((entry) => entry.repository.checks.length === 0));
+          const result = await runProcess(
+            process.execPath,
+            [
+              '-e',
+              "if(require('fs').readFileSync('value.txt','utf8')!=='after\\n')process.exit(1)",
+            ],
+            { cwd: task.workspace },
+          );
+          assert.equal(result.code, 0);
+          if (failure !== 'missing-evidence')
+            onEvent({
+              type: 'activity',
+              kind: 'tool',
+              summary: 'Executed discovered repository check',
+              details: JSON.stringify(result),
+            });
+          h.verification = {
+            checks: [
+              {
+                repositoryId: 'repo',
+                command: process.execPath,
+                args: ['-e', 'fixture check'],
+                cwd: task.workspace,
+                code: failure === 'failed-check' ? 1 : 0,
+                summary: 'Verified value contract',
+              },
+            ],
+            requirements: [
+              {
+                repositoryId: 'repo',
+                source: 'AGENTS.md',
+                requirement: 'Verify the value contract',
+                checkIndices: [0],
+              },
+            ],
+          };
+          if (failure === 'source-edit')
+            await writeFile(join(task.workspace, 'value.txt'), 'unauthorized');
+        }
+        return h;
+      },
+    });
+    if (failure === 'no-command-profile')
+      f.store.setConfig({
+        ...f.store.config,
+        repositories: [{ ...f.store.config.repositories[0], checks: [] }],
+      });
+    const task = engine.create({ title: 'Verify using repository guidance', repositoryId: 'repo' });
+    await engine.action(task.id, 'start');
+    await waitFor(f.store, task.id, (t) => t.status === 'awaiting_plan');
+    await engine.action(task.id, 'approve-plan', { optionId: 'shared-boundary' });
+    const final = await waitFor(f.store, task.id, (t) =>
+      ['blocked', 'awaiting_final'].includes(t.status),
+    );
+    assert.ok(verified);
+    const rejected = ['missing-evidence', 'failed-check', 'source-edit'].includes(failure);
+    assert.equal(final.status, rejected ? 'blocked' : 'awaiting_final', final.error);
+    if (failure === 'repair-round') {
+      assert.equal(verificationRuns, 2);
+      assert.equal(final.round, 1);
+      assert.ok(final.chosenApproach);
+    }
+    assert.ok(
+      final.attempts.some(
+        (a) => a.role === 'verifier' && a.harness === 'codex' && a.executionAccess === 'host',
+      ),
+    );
+    await assert.rejects(readFile(marker), { code: 'ENOENT' });
+    if (rejected) assert.ok(!final.verifiedFingerprint);
+  });

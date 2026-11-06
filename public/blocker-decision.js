@@ -4,7 +4,7 @@ export function blockerDecisionView(task) {
   if (task.status !== 'blocked') return '';
   const trusted =
     task.stage === 'implement' && task.chosenApproach
-      ? '<button class="btn secondary" data-action="task-action" data-operation="verify-blocker">Run host checks &amp; continue</button>'
+      ? '<button class="btn secondary" data-action="task-action" data-operation="verify-blocker">Run verification &amp; continue</button>'
       : '';
   const decision = task.blockerDecision;
   if (!decision || decision.resolved)
