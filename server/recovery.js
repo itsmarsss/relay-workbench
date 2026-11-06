@@ -9,10 +9,50 @@ export function recoverBlocked(task, handoff, limit = 2) {
     key,
     attempts: attempts + (retry ? 1 : 0),
     reason: handoff.summary,
+    strategy: attempts >= 1 ? 'independent_diagnosis' : 'fresh_diagnosis',
+    evidence: (task.attempts ?? [])
+      .filter(
+        (a) =>
+          a.stage === task.stage &&
+          (a.repositoryId ?? null) ===
+            (task.repositories?.length > 1 &&
+            ['investigate', 'implement', 'review'].includes(task.stage)
+              ? task.repositories[task.repositoryCursor ?? 0].repository.id
+              : null) &&
+          a.handoff?.verdict === 'blocked',
+      )
+      .slice(-3)
+      .map((a) => ({
+        harness: a.harness,
+        summary: a.handoff.summary,
+        details: a.handoff.details?.slice(-4000),
+        evidence: a.handoff.evidence?.slice(-12),
+        risks: a.handoff.risks?.slice(-8),
+      })),
     active: retry,
     exhausted: !retry,
   };
   task.status = retry ? 'queued' : 'blocked';
   task.error = retry ? null : handoff.summary;
   return retry;
+}
+
+// A blocked handoff is a completed diagnosis. Reopening its conversation can
+// anchor every retry on the same conclusion, so carry its evidence into a new one.
+export function resumableAttempt(task, stage, harness, repositoryId) {
+  if (task.recovery?.active) return undefined;
+  const latest = (task.attempts ?? []).findLast(
+    (a) => a.stage === stage && a.harness === harness && a.repositoryId === repositoryId,
+  );
+  return latest?.sessionId && !latest.handoff && ['failed', 'interrupted'].includes(latest.status)
+    ? latest
+    : undefined;
+}
+
+export function recoveryHarnesses(task, configured, harnesses) {
+  if (!task.recovery?.active || task.recovery.attempts < 2) return [configured];
+  return [
+    ...Object.keys(harnesses).filter((id) => id !== configured && harnesses[id].enabled),
+    configured,
+  ];
 }

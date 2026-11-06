@@ -1,4 +1,5 @@
 @import url('/fonts.css');
+@import url('/vendor/xterm.css');
 
 :root {
   --bg: #f7f8f6;
@@ -4084,4 +4085,48 @@ textarea::placeholder,
     border-top: 2px solid var(--line);
     padding: 16px 0 0;
   }
+}
+
+.browser-terminal-panel {
+  min-width: 0;
+}
+.browser-terminal-toolbar,
+.browser-terminal-keys {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 10px 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+.browser-terminal {
+  height: 420px;
+  padding: 12px;
+  background: #17251f;
+  border-radius: 8px;
+  overflow: hidden;
+  min-width: 0;
+}
+.browser-terminal .xterm {
+  height: 100%;
+}
+.browser-terminal .xterm-viewport {
+  overscroll-behavior: contain;
+}
+.browser-terminal-keys {
+  justify-content: flex-start;
+}
+.browser-terminal-keys span {
+  flex-basis: 100%;
+}
+.external-terminal {
+  margin: 18px 0 0;
+}
+.external-terminal > summary {
+  cursor: pointer;
+  font-size: 14px;
+  color: var(--muted);
+  padding: 10px 0;
 }

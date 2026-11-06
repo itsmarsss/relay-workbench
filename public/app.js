@@ -9,6 +9,7 @@ import { taskForm, syncTaskForm, readTaskForm } from './task-editor.js';
 import { markdownEditor, handleMarkdownAction } from './markdown.js';
 import { issueLink, taskDetails } from './task-details.js';
 import { terminalView, terminalSelection } from './terminals.js';
+import { syncBrowserTerminal } from './browser-terminal.js';
 import {
   e,
   icon,
@@ -93,6 +94,7 @@ function renderMain() {
   const boardScroll = main.querySelector('.workflow-board')?.scrollLeft;
   const focused = document.activeElement;
   const focusId = main.contains(focused) ? focused.id : null;
+  const terminalFocused = !!focused?.closest('[data-browser-terminal]');
   const inputs = [...main.querySelectorAll('textarea,input')]
     .filter((i) => i.id && i.id !== 'task-search' && i.type !== 'file')
     .map((i) => ({
@@ -120,6 +122,7 @@ function renderMain() {
               : state.view === 'harnesses'
                 ? harnessesView()
                 : settingsView();
+  syncBrowserTerminal(state.task, state.token, terminalFocused);
   for (const i of inputs) {
     const element = document.getElementById(i.id);
     if (element?.type === 'checkbox') element.checked = i.checked;
@@ -744,7 +747,7 @@ document.addEventListener('click', async (event) => {
     if (action === 'takeover') {
       showModal(
         'Take control of this workspace',
-        `<p class="modal-description">Relay will stop the active agent, then open a shell in this task’s worktree. Attach with the command shown on the task. You can run your preferred harness there. Return control when ready; Relay will rerun ${state.task.chosenApproach ? 'all checks and independent review' : 'investigation and approach approval'}.</p><p class="modal-description">Use Ctrl+B, then D to detach. Detaching keeps manual control; returning to automation closes the shell and its processes.</p><div class="modal-footer">${button('close-modal', 'Keep automation', 'text')}${button('takeover-confirm', 'Take control', 'primary', 'code', `data-repository-id="${e(element.dataset.repositoryId)}"`)}</div>`,
+        `<p class="modal-description">Relay will stop the active agent, then open a shell in this task’s worktree. Use the interactive terminal directly in the Live terminals tab. You can also run your preferred harness there. Return control when ready; Relay will rerun ${state.task.chosenApproach ? 'all checks and independent review' : 'investigation and approach approval'}.</p><p class="modal-description">Closing the browser tab keeps manual control. Returning to automation closes the terminal and its processes.</p><div class="modal-footer">${button('close-modal', 'Keep automation', 'text')}${button('takeover-confirm', 'Take control', 'primary', 'code', `data-repository-id="${e(element.dataset.repositoryId)}"`)}</div>`,
       );
       return;
     }

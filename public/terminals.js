@@ -29,13 +29,20 @@ export function terminalSessions(task) {
         live,
       };
     });
-  if (task.manual?.active && task.status === 'manual')
+  if (task.manual?.session && task.status === 'manual')
     sessions.push({
       id: 'manual',
       label: 'Your shell',
-      status: 'Live',
+      status: task.manual.active ? 'Live' : 'Closed',
       terminal: task.manual,
-      live: true,
+      live: task.manual.active === true,
+      attempt: {
+        handoff: {
+          summary: task.manual.active
+            ? ''
+            : `Terminal closed${task.manual.result ? ` (${task.manual.result.signal || task.manual.result.code})` : ''}. Reopen it to continue.`,
+        },
+      },
     });
   return sessions;
 }
@@ -116,6 +123,9 @@ function runSummary(selected, events) {
   );
   return `<div class="terminal-run-summary">${summary ? `<p class="terminal-outcome">${e(summary)}</p>` : ''}${activity.length ? `<h3>Recent activity</h3><ul>${activity.map((text) => `<li>${e(text)}</li>`).join('')}</ul>` : !summary ? '<p>No readable updates were recorded for this run. Expand raw output for details.</p>' : ''}</div>`;
 }
+function interactiveTerminal() {
+  return `<div class="browser-terminal-panel"><div class="browser-terminal-toolbar"><span data-browser-terminal-status role="status">Connecting…</span><button class="btn secondary small" data-terminal-key="focus">Focus terminal</button></div><div class="browser-terminal" data-browser-terminal></div><div class="browser-terminal-keys" aria-label="Terminal keys"><button class="btn secondary small" data-terminal-key="interrupt">Ctrl+C</button><button class="btn secondary small" data-terminal-key="escape">Esc</button><button class="btn secondary small" data-terminal-key="tab">Tab</button><button class="btn secondary small" data-terminal-key="up" aria-label="Up arrow">↑</button><button class="btn secondary small" data-terminal-key="down" aria-label="Down arrow">↓</button><button class="btn secondary small" data-terminal-key="enter">Enter</button><span>Type or paste directly into the terminal.</span></div></div>`;
+}
 export function terminalView(task, state) {
   const sessions = terminalSessions(task);
   const selected = terminalSelection(task, state.terminalId);
@@ -137,7 +147,12 @@ export function terminalView(task, state) {
       : !selected
         ? 'No agent terminal yet. The next agent run will appear here.'
         : '';
-  const output = preview?.available ? preview.output : history;
+  const output =
+    selected?.id === 'manual'
+      ? task.manual.output || ''
+      : preview?.available
+        ? preview.output
+        : history;
   const repos = task.repositories?.length ? task.repositories : [task];
   const started = selected?.attempt?.startedAt;
   const date = started ? new Date(started) : null;
@@ -148,7 +163,7 @@ export function terminalView(task, state) {
   const raw = selected
     ? `<pre id="terminal-preview" class="terminal-preview" tabindex="0" aria-label="Terminal output preview">${e(output || (selected.live ? preview?.message || 'Waiting for terminal output…' : 'No retained output for this run.'))}</pre>`
     : '';
-  return `<section class="terminal-panel" aria-label="Live terminals"><div class="context-title">LIVE TERMINALS ${icon('code')}</div>${task.status === 'manual' ? '<h2>You have control</h2><p>Attach to edit. Return to automation when ready.</p>' : ''}${message ? `<p class="terminal-empty">${e(message)}</p>` : ''}${runPicker(sessions, selected)}${selected ? `<section id="terminal-output" aria-label="Selected run"><div class="terminal-run-heading"><div><h2>${e(selected.label)}</h2><p>${selected.run ? `Run ${selected.run} · ` : ''}${e(selected.repository || 'Workspace')}${timestamp ? ` · ${timestamp}` : ''}</p></div><span class="terminal-run-status ${selected.live ? 'is-live' : ''}">${e(selected.status)}</span></div>${selected.live ? `<div class="terminal-preview-toolbar"><span>${preview?.available ? 'Read-only preview · updates automatically' : 'Connecting to terminal…'}</span><button class="btn secondary small" data-action="terminal-follow" aria-pressed="${state.terminalFollow}">Follow latest</button></div>${raw}` : `${runSummary(selected, state.events)}<details class="terminal-raw" data-event-key="terminal-raw-${e(selected.id)}"><summary>Raw output</summary>${raw}<button class="btn text small" data-action="tab" data-tab="transcript">Open execution log</button></details>`}${selected.live ? `<div class="terminal-attach"><div class="terminal-attach-heading"><strong>Watch in your terminal</strong><button class="btn secondary small" data-action="copy-terminal" data-command="${e(selected.terminal.attachCommand)}">Copy attach command</button></div><code class="terminal-attach-command">${e(selected.terminal.attachCommand)}</code><p>Attach to watch. Take over before editing. Detach with <kbd>Ctrl+B</kbd>, then <kbd>D</kbd>.</p></div>` : ''}</section>` : ''}${
+  return `<section class="terminal-panel" aria-label="Live terminals"><div class="context-title">LIVE TERMINALS ${icon('code')}</div>${task.status === 'manual' ? `<h2>You have control</h2><p>${task.manual?.active ? 'Use the terminal below. Return to automation when ready.' : 'The terminal has closed. Reopen it to continue; automation is paused.'}</p>${!task.manual?.active ? `<button class="btn secondary small" data-action="takeover" data-repository-id="${e(task.manual?.repositoryId ?? task.repository.id)}">Reopen terminal</button>` : ''}` : ''}${message ? `<p class="terminal-empty">${e(message)}</p>` : ''}${runPicker(sessions, selected)}${selected ? `<section id="terminal-output" aria-label="Selected run"><div class="terminal-run-heading"><div><h2>${e(selected.label)}</h2><p>${selected.run ? `Run ${selected.run} · ` : ''}${e(selected.repository || 'Workspace')}${timestamp ? ` · ${timestamp}` : ''}</p></div><span class="terminal-run-status ${selected.live ? 'is-live' : ''}">${e(selected.status)}</span></div>${selected.id === 'manual' && selected.live ? interactiveTerminal() : selected.live ? `<div class="terminal-preview-toolbar"><span>${preview?.available ? 'Read-only preview · updates automatically' : 'Connecting to terminal…'}</span><button class="btn secondary small" data-action="terminal-follow" aria-pressed="${state.terminalFollow}">Follow latest</button></div>${raw}` : `${runSummary(selected, state.events)}<details class="terminal-raw" data-event-key="terminal-raw-${e(selected.id)}"><summary>Raw output</summary>${raw}<button class="btn text small" data-action="tab" data-tab="transcript">Open execution log</button></details>`}${selected.live ? `${selected.id === 'manual' ? '<details class="external-terminal"><summary>Open in an external terminal</summary>' : ''}<div class="terminal-attach"><div class="terminal-attach-heading"><strong>Watch in your terminal</strong><button class="btn secondary small" data-action="copy-terminal" data-command="${e(selected.terminal.attachCommand)}">Copy attach command</button></div><code class="terminal-attach-command">${e(selected.terminal.attachCommand)}</code><p>Attach to watch. Take over before editing. Detach with <kbd>Ctrl+B</kbd>, then <kbd>D</kbd>.</p></div>${selected.id === 'manual' ? '</details>' : ''}` : ''}</section>` : ''}${
     !['completed', 'cancelled', 'manual'].includes(task.status)
       ? `<div class="inline-actions">${repos
           .filter((r) => r.workspace && r.setupCompleted)

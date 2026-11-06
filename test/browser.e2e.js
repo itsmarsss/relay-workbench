@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -35,6 +35,14 @@ try {
   });
   const errors = [];
   page.on('pageerror', (error) => errors.push(error.message));
+  page.on('console', (message) => {
+    if (
+      /(?:Applying inline style|style-src).*Content Security Policy|Content Security Policy.*style-src/i.test(
+        message.text(),
+      )
+    )
+      errors.push(message.text());
+  });
   await page.goto(origin);
   await page.getByRole('heading', { name: /Let’s make progress/ }).waitFor();
   const photo = Buffer.from(
@@ -538,49 +546,61 @@ try {
       .getByText('Your worktree and history are preserved.', { exact: false })
       .waitFor();
     await page.keyboard.press('Escape');
+    const originalShell = process.env.SHELL;
+    process.env.SHELL = '/bin/sh';
     await page.getByRole('button', { name: 'Take over · service', exact: true }).click();
     await page
       .getByRole('dialog')
       .getByRole('button', { name: 'Take control', exact: true })
       .click();
     await page.getByRole('heading', { name: 'You have control', exact: true }).waitFor();
-    await page.getByRole('button', { name: 'Copy attach command', exact: true }).waitFor();
+    if (originalShell === undefined) delete process.env.SHELL;
+    else process.env.SHELL = originalShell;
     await page.getByRole('heading', { name: 'Your shell', exact: true }).waitFor();
-    await page
-      .getByLabel('Terminal output preview', { exact: true })
-      .getByText('Detach:', { exact: false })
-      .waitFor();
-    const manualTaskId = page.url().split('/').at(-1);
-    const manualTask = localApp.store.get(manualTaskId);
-    const marker = 'browser-preview-verified';
-    spawnSync('tmux', [
-      '-S',
-      manualTask.manual.socket,
-      'send-keys',
-      '-t',
-      manualTask.manual.session,
-      '-l',
-      `echo ${marker}`,
-    ]);
-    spawnSync('tmux', [
-      '-S',
-      manualTask.manual.socket,
-      'send-keys',
-      '-t',
-      manualTask.manual.session,
-      'Enter',
-    ]);
-    await page
-      .getByLabel('Terminal output preview', { exact: true })
-      .getByText(marker, { exact: false })
-      .waitFor();
-    await page.getByRole('button', { name: 'Follow latest', exact: true }).click();
-    assert.equal(
-      await page
-        .getByRole('button', { name: 'Follow latest', exact: true })
-        .getAttribute('aria-pressed'),
-      'false',
+    await page.getByText('Connected · type directly below', { exact: true }).waitFor();
+    const terminal = page.getByRole('textbox', { name: 'Interactive terminal', exact: true });
+    await terminal.focus();
+    await page.keyboard.type('printf browser-input-verifieX');
+    await page.keyboard.press('Backspace');
+    await page.keyboard.type('d > terminal-proof.txt');
+    await page.keyboard.press('Enter');
+    await page.waitForFunction(() =>
+      document.querySelector('.xterm-rows')?.textContent.includes('browser-input-verified'),
     );
+    const manualTask = localApp.store.get(page.url().split('/').at(-1));
+    const manualWorkspace = manualTask.repositories.find(
+      (r) => r.repository.id === 'service',
+    ).workspace;
+    await assertEventuallyFile(
+      join(manualWorkspace, 'terminal-proof.txt'),
+      'browser-input-verified',
+    );
+    await page.keyboard.press('ArrowUp');
+    await page.keyboard.press('Enter');
+    await page.keyboard.type('sleep 60');
+    await page.keyboard.press('Enter');
+    await page.getByRole('button', { name: 'Ctrl+C', exact: true }).click();
+    await terminal.focus();
+    await page.keyboard.type('printf after-interrupt > interrupt-proof.txt');
+    await page.keyboard.press('Enter');
+    await page.waitForFunction(() =>
+      document.querySelector('.xterm-rows')?.textContent.includes('after-interrupt'),
+    );
+    await assertEventuallyFile(join(manualWorkspace, 'interrupt-proof.txt'), 'after-interrupt');
+    await page.evaluate(() => {
+      const paste = new ClipboardEvent('paste', {
+        clipboardData: new DataTransfer(),
+        bubbles: true,
+      });
+      paste.clipboardData.setData('text/plain', 'printf pasted-unicode-é > paste-proof.txt');
+      document.querySelector('.xterm-helper-textarea').dispatchEvent(paste);
+    });
+    await page.keyboard.press('Enter');
+    await page.waitForFunction(() =>
+      document.querySelector('.xterm-rows')?.textContent.includes('pasted-unicode-é'),
+    );
+    await assertEventuallyFile(join(manualWorkspace, 'paste-proof.txt'), 'pasted-unicode-é');
+    await page.screenshot({ path: join(screenshots, 'interactive-terminal.png'), fullPage: true });
 
     await page.setViewportSize({ width: 390, height: 844 });
     assert.ok(
@@ -783,4 +803,12 @@ try {
   await browser?.close();
   await localApp?.close();
   await rm(fixture, { recursive: true, force: true });
+}
+
+async function assertEventuallyFile(path, expected) {
+  for (let i = 0; i < 100; i++) {
+    if ((await readFile(path, 'utf8').catch(() => '')) === expected) return;
+    await new Promise((r) => setTimeout(r, 50));
+  }
+  assert.equal(await readFile(path, 'utf8'), expected);
 }

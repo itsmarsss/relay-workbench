@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { recoverBlocked } from '../server/recovery.js';
+import { recoverBlocked, resumableAttempt, recoveryHarnesses } from '../server/recovery.js';
 import { developmentAccess } from '../server/access.js';
 import { validateConfig } from '../server/domain.js';
 import { taskSummary, concise, activityArchiveCount } from '../public/task-summary.js';
@@ -93,4 +93,55 @@ test('resumed tasks show current context and collapse earlier attempts', () => {
   assert.match(taskSummary(task, events), /Checking the actual task source/);
   task.status = 'completed';
   assert.equal(activityArchiveCount(task, events), 0);
+});
+
+test('recovery starts fresh, carries evidence, and uses only enabled alternatives', () => {
+  const task = {
+    stage: 'investigate',
+    attempts: [
+      {
+        stage: 'investigate',
+        harness: 'codex',
+        repositoryId: null,
+        status: 'complete',
+        sessionId: 'blocked-native',
+        handoff: {
+          verdict: 'blocked',
+          summary: 'Host killed test',
+          details: 'Killed before output',
+          evidence: ['exit signal 9'],
+          risks: ['Cause unproven'],
+        },
+      },
+    ],
+  };
+  assert.equal(resumableAttempt(task, 'investigate', 'codex', null), undefined);
+  const harnesses = { codex: { enabled: true }, claude: { enabled: false }, pi: { enabled: true } };
+  recoverBlocked(task, task.attempts[0].handoff);
+  assert.equal(resumableAttempt(task, 'investigate', 'codex', null), undefined);
+  assert.deepEqual(task.recovery.evidence[0].evidence, ['exit signal 9']);
+  assert.deepEqual(recoveryHarnesses(task, 'codex', harnesses), ['codex']);
+  recoverBlocked(task, task.attempts[0].handoff);
+  assert.deepEqual(recoveryHarnesses(task, 'codex', harnesses), ['pi', 'codex']);
+  task.recovery = null;
+  task.attempts.push({
+    stage: 'investigate',
+    harness: 'codex',
+    repositoryId: null,
+    status: 'interrupted',
+    sessionId: 'interrupted-native',
+  });
+  assert.equal(
+    resumableAttempt(task, 'investigate', 'codex', null).sessionId,
+    'interrupted-native',
+  );
+  task.attempts.push({
+    stage: 'investigate',
+    harness: 'codex',
+    repositoryId: null,
+    status: 'complete',
+    sessionId: 'finished-native',
+    handoff: { verdict: 'complete' },
+  });
+  assert.equal(resumableAttempt(task, 'investigate', 'codex', null), undefined);
 });

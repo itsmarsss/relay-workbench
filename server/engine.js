@@ -1,5 +1,5 @@
 import { developmentAccess } from './access.js';
-import { recoverBlocked } from './recovery.js';
+import { recoverBlocked, resumableAttempt, recoveryHarnesses } from './recovery.js';
 import { addComment, focusedFeedback } from './review-comments.js';
 import { randomUUID } from 'node:crypto';
 import { workspaces, workspaceView, syncPrimary } from './task-repositories.js';
@@ -130,7 +130,7 @@ export class Engine {
           409,
         );
         requireValue(
-          !this.manualRuns.has(id) && status !== 'manual',
+          !this.manualRuns.has(id) && !(status === 'manual' && task.manual?.active),
           'Manual control is already active',
           409,
         );
@@ -148,17 +148,19 @@ export class Engine {
           'Wait for interrupted workers to stop',
           409,
         );
-        const sessionAttempt = data.sessionAttemptId
+        const sessionAttemptId =
+          data.sessionAttemptId ?? (status === 'manual' ? task.manual?.sessionAttemptId : null);
+        const sessionAttempt = sessionAttemptId
           ? task.attempts.find(
               (a) =>
-                a.id === data.sessionAttemptId &&
+                a.id === sessionAttemptId &&
                 a.sessionId &&
                 (a.workspaceRepositoryId ?? a.repositoryId ?? workspaces(task)[0].repository.id) ===
                   entry.repository.id,
             )
           : null;
         requireValue(
-          !data.sessionAttemptId || sessionAttempt,
+          !sessionAttemptId || sessionAttempt,
           'No matching native session in this repository',
         );
         const invocation = sessionAttempt
@@ -181,6 +183,7 @@ export class Engine {
         task.manual = {
           repositoryId: entry.repository.id,
           startedAt: new Date().toISOString(),
+          sessionAttemptId: sessionAttempt?.id ?? null,
           active: false,
         };
         this.store.save(task, {
@@ -209,6 +212,19 @@ export class Engine {
             });
           },
         })
+          .then((result) => {
+            const current = this.store.get(id);
+            current.manual.output = result.stdout.slice(-24000);
+            current.manual.result = { code: result.code, signal: result.signal };
+            this.store.save(current, {
+              type: 'activity',
+              summary:
+                result.code === 0
+                  ? 'Manual terminal exited.'
+                  : `Manual terminal exited (${result.signal || result.code}).`,
+              details: current.manual.output,
+            });
+          })
           .catch((error) => {
             const current = this.store.get(id);
             if (!controller.signal.aborted)
@@ -647,7 +663,15 @@ export class Engine {
       baseCommit: e.baseCommit,
     }));
     view.activeRepositoryId = entry.repository.id;
-    const harness = stage === 'verify' ? 'checks' : task.routing[stage];
+    let harness = stage === 'verify' ? 'checks' : task.routing[stage];
+    if (stage !== 'verify' && task.recovery?.active) {
+      for (const candidate of recoveryHarnesses(task, harness, this.store.config.harnesses)) {
+        if (await executableExists(this.store.config.harnesses[candidate].command)) {
+          harness = candidate;
+          break;
+        }
+      }
+    }
     const attempt = {
       id: randomUUID(),
       stage,
@@ -658,14 +682,9 @@ export class Engine {
       status: 'running',
       startedAt: new Date().toISOString(),
     };
-    const previousSession = task.attempts.findLast(
-      (a) =>
-        a.stage === stage &&
-        a.harness === harness &&
-        a.repositoryId === attempt.repositoryId &&
-        a.sessionId &&
-        (['failed', 'interrupted'].includes(a.status) || a.handoff?.verdict === 'blocked'),
-    );
+    const previousSession = resumableAttempt(task, stage, harness, attempt.repositoryId);
+    if (task.recovery?.active)
+      attempt.recovery = { strategy: task.recovery.strategy, freshSession: true };
     attempt.model = executionConfig(task, this.store.config, stage).harnesses[harness]?.model || '';
     for (const message of task.messages)
       if (stage !== 'verify' && message.delivery === 'pending') message.attemptId = attempt.id;
@@ -677,7 +696,7 @@ export class Engine {
       summary:
         stage === 'verify'
           ? 'Running repository verification commands.'
-          : `${harness} is working on ${stage}${scoped ? ` · ${entry.repository.name}` : ''}.`,
+          : `${harness} is working on ${stage}${scoped ? ` · ${entry.repository.name}` : ''}.${task.recovery?.active ? ' Fresh diagnostic session with prior evidence.' : ''}`,
     });
     const before = !task.demo ? await fingerprint(task) : 'demo';
     if (stage === 'review')
@@ -925,7 +944,7 @@ export class Engine {
         stage,
         harness,
         summary: task.recovery.active
-          ? `Trying to resolve the blocker (${task.recovery.attempts}/${task.execution?.maxRecoveryAttempts ?? this.store.config.maxRecoveryAttempts ?? 2}).`
+          ? `Starting a fresh diagnosis (${task.recovery.attempts}/${task.execution?.maxRecoveryAttempts ?? this.store.config.maxRecoveryAttempts ?? 2}).`
           : 'Automatic recovery stopped. Your help is needed.',
         details: handoff.summary,
       });
