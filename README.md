@@ -51,6 +51,18 @@ If a terminal exits, its last screen and exit status remain available, and **Reo
 
 Each attempt uses a dedicated tmux server and private socket, leaving your other tmux sessions alone. Cancellation, timeouts, server crashes, and return of control terminate the supervised terminal processes; terminal launch files are private and removed on cleanup. Ordinary background jobs are included in cleanup. Processes deliberately daemonized out of the supervised tree are outside that boundary. Attach commands grant access to local execution, so keep them private.
 
+## Persistent memory
+
+Open **Memory** in the sidebar to add, search, edit, approve, disable or delete context. Memories can apply globally, to one project, or to one task. A task also offers **Add task memory** and **Memory used by run**, showing the exact versions supplied to each agent. Side questions receive their own recorded snapshot.
+
+**Preferences** are standing user guidance. Current explicit task direction and approvals take precedence, followed by task, project and global preferences. Repository guidance still applies unless explicitly overridden by the user; memory never grants execution permissions or bypasses approval gates. **Observations** are dated evidence to revalidate, not policy. Give transient observations an expiration date.
+
+Agents may suggest up to three memories in their structured handoff. Suggestions show their source task, run, harness and model and remain inactive until you approve them. Tickets and transcripts are not automatically promoted into instructions. Review suggested scope and wording before approval.
+
+Active, approved, unexpired memories are selected when a run starts. Project-scoped implementation, investigation and review runs receive that project's memories; shared stages and diagnostic runs receive participating projects' memories. Selection is deterministic, prioritizes narrower scopes, and includes at most 24 complete entries within a 16,000-character budget. Omitted entries are disclosed in the run snapshot. Keep active context focused.
+
+Memories live in the private local database under ignored `.relay/`, survive restarts, and are included in full backup/restore. **Export JSON** downloads the memory library, including proposals and disabled entries. Disabling, editing or deleting affects future runs; historical snapshots and saved prompts retain the versions already used. A running session does not silently acquire edits—send explicit direction when it needs an immediate change. Avoid storing secrets.
+
 ## Local integration profiles
 
 Configuration is persisted under `.relay/config.json` and ignored by Git. Profiles can set an issue command, PR command, setup commands, working directory, required checks and additional instructions. Commands are `{ "command": "binary", "args": ["argument"] }` objects, never shell strings. Only issue commands support `{ticket}` substitution. GitHub CLI issue imports automatically include the reporter, timestamps, status, labels, assignees, milestone, and every discussion comment via paginated API requests. Context is saved in the editable task description and passed to every specialist alongside your requirements. Custom importers can return the same metadata and a `comments` array (or `{nodes, totalCount}`); missing comments are disclosed. A failed discussion fetch fails the import, and context exceeding the task description limit is rejected explicitly rather than truncated. The imported thread is a snapshot; re-import to refresh it. Do not put credentials in command arguments. Use CLI authentication instead.

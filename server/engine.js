@@ -1,3 +1,4 @@
+import { memoryContext, proposeMemories } from './memory.js';
 import { validateVerification } from './verification.js';
 import { developmentAccess } from './access.js';
 import {
@@ -902,6 +903,12 @@ export class Engine {
       status: 'running',
       startedAt: new Date().toISOString(),
     };
+    view.memorySnapshot = memoryContext(
+      this.store,
+      task,
+      scoped && !debugging ? [entry.repository.id] : entries.map((e) => e.repository.id),
+    );
+    attempt.memorySnapshot = view.memorySnapshot;
     if (debugging) {
       const recent = this.store.db
         .prepare(
@@ -1245,6 +1252,12 @@ export class Engine {
     task = this.store.get(id);
     const savedAttempt = task.attempts.find((a) => a.id === attempt.id);
     savedAttempt.handoff = handoff;
+    savedAttempt.memoryProposalIds = proposeMemories(
+      this.store,
+      task,
+      savedAttempt,
+      handoff.memorySuggestions,
+    ).map((m) => m.id);
     for (const message of task.messages)
       if (message.attemptId === attempt.id) message.delivery = 'included';
     savedAttempt.finishedAt = new Date().toISOString();

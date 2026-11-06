@@ -1,3 +1,4 @@
+import { memoryPage, memoryForm, runMemories } from './memory.js';
 import { prepareSearchSelects } from './search-select.js';
 import { updateLiveDOM } from './live-dom.js';
 import { handoffBody, handoffList, workflowStages, executionLogs } from './task-panels.js';
@@ -33,6 +34,10 @@ import {
 } from './ui.js';
 
 const state = {
+  memories: [],
+  memoryAvailable: false,
+  memoryQuery: '',
+  memoryFilter: 'all',
   logRun: 'latest',
   logStream: 'all',
   logQuery: '',
@@ -79,8 +84,23 @@ async function api(path, method = 'GET', data) {
     body: data === undefined ? undefined : JSON.stringify(data),
   });
   const result = await response.json();
-  if (!response.ok) throw new Error(result.error || `Request failed (${response.status})`);
+  if (!response.ok) {
+    const error = new Error(result.error || `Request failed (${response.status})`);
+    error.status = response.status;
+    throw error;
+  }
   return result;
+}
+async function loadMemories() {
+  try {
+    const memories = await api('/memories');
+    state.memoryAvailable = true;
+    return memories;
+  } catch (error) {
+    if (error.status !== 404) throw error;
+    state.memoryAvailable = false;
+    return [];
+  }
 }
 function toast(message, error = false) {
   const element = document.querySelector('#toast');
@@ -96,7 +116,7 @@ function nav(view, label, name, extra = '') {
   return `<button class="nav-item ${state.view === view ? 'active' : ''}" data-action="navigate" data-view="${view}">${icon(name)}<span>${label}</span>${extra}</button>`;
 }
 function shell() {
-  app.innerHTML = `<aside class="sidebar"><a class="brand" href="#" data-action="navigate" data-view="overview"><span class="brand-mark">${icon('relay')}</span>relay<span class="brand-caption">WORKBENCH</span></a><div class="workspace-label"><span class="workspace-avatar">Y</span><div>Your workspace<small>Local · Personal</small></div><span class="local-dot"></span></div><div class="nav-label">WORKSPACE</div><nav>${nav('overview', 'Overview', 'grid')}${nav('tasks', 'All tasks', 'layers', `<span class="nav-count">${state.tasks.length}</span>`)}${nav('inbox', 'Approval inbox', 'eye')}${nav('repositories', 'Repositories', 'folder')}${nav('harnesses', 'Harnesses', 'bolt')}</nav><div class="sidebar-bottom"><div class="sidebar-note">${icon('spark')}<p>Different minds.<br>One shared workspace.</p></div>${nav('settings', 'Settings', 'settings')}<div class="connection"><span class="local-dot ${state.connected ? '' : 'offline'}"></span><span>${state.connected ? 'Connected locally' : 'Reconnecting…'}</span><small>v0.1</small></div></div></aside><div class="main-shell"><header class="topbar"><div class="breadcrumb">Workspace ${icon('chevron')} <span>${state.view === 'task' ? 'Task workspace' : state.view.charAt(0).toUpperCase() + state.view.slice(1)}</span></div><div class="top-actions"><span class="keyboard-hint">N <span>new task</span></span>${button('new-task', 'New task', 'primary small', 'plus')}</div></header><main id="main"></main></div>`;
+  app.innerHTML = `<aside class="sidebar"><a class="brand" href="#" data-action="navigate" data-view="overview"><span class="brand-mark">${icon('relay')}</span>relay<span class="brand-caption">WORKBENCH</span></a><div class="workspace-label"><span class="workspace-avatar">Y</span><div>Your workspace<small>Local · Personal</small></div><span class="local-dot"></span></div><div class="nav-label">WORKSPACE</div><nav>${nav('overview', 'Overview', 'grid')}${nav('tasks', 'All tasks', 'layers', `<span class="nav-count">${state.tasks.length}</span>`)}${nav('inbox', 'Approval inbox', 'eye')}${nav('repositories', 'Repositories', 'folder')}${nav('harnesses', 'Harnesses', 'bolt')}${nav('memory', 'Memory', 'book')}</nav><div class="sidebar-bottom"><div class="sidebar-note">${icon('spark')}<p>Different minds.<br>One shared workspace.</p></div>${nav('settings', 'Settings', 'settings')}<div class="connection"><span class="local-dot ${state.connected ? '' : 'offline'}"></span><span>${state.connected ? 'Connected locally' : 'Reconnecting…'}</span><small>v0.1</small></div></div></aside><div class="main-shell"><header class="topbar"><div class="breadcrumb">Workspace ${icon('chevron')} <span>${state.view === 'task' ? 'Task workspace' : state.view.charAt(0).toUpperCase() + state.view.slice(1)}</span></div><div class="top-actions"><span class="keyboard-hint">N <span>new task</span></span>${button('new-task', 'New task', 'primary small', 'plus')}</div></header><main id="main"></main></div>`;
   renderMain();
 }
 function renderMain() {
@@ -133,19 +153,26 @@ function renderMain() {
   );
   const selectedApproach = main.querySelector('input[name="optionId"]:checked')?.value;
   const markup =
-    state.view === 'inbox'
-      ? inboxPage(state.inbox)
-      : state.view === 'overview'
-        ? overview()
-        : state.view === 'tasks'
-          ? tasksView()
-          : state.view === 'task'
-            ? taskView()
-            : state.view === 'repositories'
-              ? repositoriesView()
-              : state.view === 'harnesses'
-                ? harnessesView()
-                : settingsView();
+    state.view === 'memory'
+      ? state.memoryAvailable
+        ? memoryPage(state.memories, state.config, state.tasks, {
+            query: state.memoryQuery,
+            filter: state.memoryFilter,
+          })
+        : '<section class="settings-panel"><h1>Memory</h1><p>The memory backend update is waiting for active work to finish. Your pipeline keeps running. Reload after Relay restarts to use memory.</p></section>'
+      : state.view === 'inbox'
+        ? inboxPage(state.inbox)
+        : state.view === 'overview'
+          ? overview()
+          : state.view === 'tasks'
+            ? tasksView()
+            : state.view === 'task'
+              ? taskView()
+              : state.view === 'repositories'
+                ? repositoriesView()
+                : state.view === 'harnesses'
+                  ? harnessesView()
+                  : settingsView();
   updateLiveDOM(main, markup, `${state.view}:${state.selected ?? ''}:${state.tab}`);
   syncBrowserTerminal(state.task, state.token, terminalFocused);
   for (const i of inputs) {
@@ -267,7 +294,7 @@ function taskView() {
     )
     .join(
       '',
-    )}</div><div class="detail-content">${state.tab === 'overview' ? taskDetails(t) || empty('book', 'No description yet', 'Configure this task to add requirements.') : state.tab === 'terminals' ? terminalView(t, state) : state.tab === 'thread' ? threadView(t) : state.tab === 'handoffs' ? handoffsView(t) : state.tab === 'diff' ? diffView(t) : transcriptView(t)}</div>${!['completed', 'cancelled'].includes(t.status) ? `<form id="message-form" class="message-box">${markdownEditor({ id: 'task-message', name: 'message', label: 'Add direction or context', rows: 3, max: 20000 })}<div><small>${t.canSteer ? 'Steer sends direction to the active session; Claude interrupts and resumes.' : 'Context stays pending until an agent receives it.'} ${t.messages.filter((m) => m.delivery === 'pending').length} pending.</small>${t.canSteer ? '<label><input id="steer-active" type="checkbox" name="steer" checked> Steer active agent</label>' : ''}<button class="btn secondary small" type="submit">Send direction ${icon('arrow')}</button></div></form>` : ''}</div><aside class="task-context">${sideChat(t, state.sideChatOpen)}<section class="context-card"><div class="context-title">WORKFLOW <span class="live-label ${live ? 'is-live' : ''}">${live ? '● LIVE' : '6 STAGES'}</span></div><ol class="stage-list">${workflowStages(t)}</ol><button class="btn secondary workflow-graph-button" data-action="open-execution-map" aria-label="Open execution graph">Execution graph ↗</button></section>${(t
+    )}</div><div class="detail-content">${state.tab === 'overview' ? taskDetails(t) || empty('book', 'No description yet', 'Configure this task to add requirements.') : state.tab === 'terminals' ? terminalView(t, state) : state.tab === 'thread' ? threadView(t) : state.tab === 'handoffs' ? handoffsView(t) : state.tab === 'diff' ? diffView(t) : transcriptView(t)}</div>${!['completed', 'cancelled'].includes(t.status) ? `<form id="message-form" class="message-box">${markdownEditor({ id: 'task-message', name: 'message', label: 'Add direction or context', rows: 3, max: 20000 })}<div><small>${t.canSteer ? 'Steer sends direction to the active session; Claude interrupts and resumes.' : 'Context stays pending until an agent receives it.'} ${t.messages.filter((m) => m.delivery === 'pending').length} pending.</small>${t.canSteer ? '<label><input id="steer-active" type="checkbox" name="steer" checked> Steer active agent</label>' : ''}<button class="btn secondary small" type="submit">Send direction ${icon('arrow')}</button></div></form>` : ''}</div><aside class="task-context">${sideChat(t, state.sideChatOpen)}${state.memoryAvailable ? runMemories(t) : ''}<section class="context-card"><div class="context-title">WORKFLOW <span class="live-label ${live ? 'is-live' : ''}">${live ? '● LIVE' : '6 STAGES'}</span></div><ol class="stage-list">${workflowStages(t)}</ol><button class="btn secondary workflow-graph-button" data-action="open-execution-map" aria-label="Open execution graph">Execution graph ↗</button></section>${(t
     .repositories?.length > 1
     ? t.repositories
     : [t]
@@ -547,7 +574,11 @@ function refresh() {
   return refreshInFlight;
 }
 async function refreshSnapshot() {
-  [state.tasks, state.inbox] = await Promise.all([api('/tasks'), api('/inbox')]);
+  [state.tasks, state.inbox, state.memories] = await Promise.all([
+    api('/tasks'),
+    api('/inbox'),
+    loadMemories(),
+  ]);
   notifyInbox(state.inbox);
   if (state.view === 'harnesses')
     state.outcomes = await api(
@@ -639,6 +670,68 @@ document.addEventListener('click', async (event) => {
   if (state.busy) return;
   const action = element.dataset.action;
   try {
+    if (['new-memory', 'edit-memory', 'task-memory'].includes(action)) {
+      const memory = state.memories.find((m) => m.id === element.dataset.memory);
+      state.modal = { memory };
+      showModal(
+        memory ? 'Edit memory' : 'Add memory',
+        memoryForm(
+          memory,
+          state.config,
+          state.tasks,
+          action === 'task-memory' ? { scope: 'task', targetId: state.selected } : {},
+        ),
+      );
+      return;
+    }
+    if (action === 'export-memories') {
+      const blob = new Blob(
+        [
+          JSON.stringify(
+            { version: 1, exportedAt: new Date().toISOString(), memories: state.memories },
+            null,
+            2,
+          ),
+        ],
+        { type: 'application/json' },
+      );
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = 'relay-memories.json';
+      link.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      return;
+    }
+    if (['approve-memory', 'toggle-memory'].includes(action)) {
+      const memory = state.memories.find((m) => m.id === element.dataset.memory);
+      state.busy = true;
+      await api(`/memories/${memory.id}`, 'PATCH', {
+        revision: memory.revision,
+        status: action === 'approve-memory' || memory.status === 'disabled' ? 'active' : 'disabled',
+      });
+      await refresh();
+      toast('Memory updated for future runs.');
+      return;
+    }
+    if (action === 'delete-memory') {
+      const memory = state.memories.find((m) => m.id === element.dataset.memory);
+      state.modal = { memory };
+      showModal(
+        'Delete memory?',
+        `<p>${e(memory.title)}</p><p>Future runs will no longer use this memory. Historical run snapshots remain in task history.</p><div class="modal-footer"><button class="btn secondary" data-action="close-modal">Keep memory</button><button class="btn primary" data-action="confirm-delete-memory">Delete memory</button></div>`,
+      );
+      return;
+    }
+    if (action === 'confirm-delete-memory') {
+      state.busy = true;
+      const memory = state.modal.memory;
+      await api(`/memories/${memory.id}`, 'DELETE', { revision: memory.revision });
+      closeModal();
+      await refresh();
+      toast('Memory deleted.');
+      return;
+    }
     if (['expand-diff', 'collapse-diff'].includes(action)) {
       document.querySelectorAll('.diff-file').forEach((el) => {
         el.open = action === 'expand-diff';
@@ -1049,6 +1142,31 @@ document.addEventListener('submit', async (event) => {
   const submit = form.querySelector('button[type="submit"]');
   if (submit) submit.disabled = true;
   try {
+    if (form.id === 'memory-form') {
+      const memory = state.modal?.memory;
+      const separator = values.scopeTarget.indexOf(':');
+      const scope = separator < 0 ? 'global' : values.scopeTarget.slice(0, separator);
+      const payload = {
+        title: values.title,
+        content: values.content,
+        evidence: values.evidence,
+        scope,
+        targetId: separator < 0 ? '' : values.scopeTarget.slice(separator + 1),
+        kind: values.kind,
+        status: values.status,
+        expiresAt: values.expiresAt ? new Date(values.expiresAt + 'Z').toISOString() : null,
+      };
+      if (memory) payload.revision = memory.revision;
+      await api(
+        memory ? `/memories/${memory.id}` : '/memories',
+        memory ? 'PATCH' : 'POST',
+        payload,
+      );
+      closeModal();
+      await refresh();
+      toast('Memory saved for future runs.');
+      return;
+    }
     if (form.id === 'backup-preview-form') {
       const file = document.querySelector('#backup-file').files[0];
       if (!file) throw new Error('Choose a backup.');
@@ -1216,6 +1334,11 @@ document.addEventListener('submit', async (event) => {
   }
 });
 document.addEventListener('change', async (event) => {
+  if (event.target.id === 'memory-filter') {
+    state.memoryFilter = event.target.value;
+    renderMain();
+    return;
+  }
   if (['log-run', 'log-stream'].includes(event.target.id)) {
     state[event.target.id === 'log-run' ? 'logRun' : 'logStream'] = event.target.value;
     renderMain();
@@ -1257,6 +1380,11 @@ document.addEventListener('change', async (event) => {
   if (event.target.closest('[data-task-editor]')) syncTaskForm(event.target.closest('form'));
 });
 document.addEventListener('input', (event) => {
+  if (event.target.id === 'memory-search') {
+    state.memoryQuery = event.target.value;
+    renderMain();
+    return;
+  }
   if (event.target.id === 'log-search') {
     state.logQuery = event.target.value;
     renderMain();
@@ -1297,7 +1425,7 @@ window.addEventListener('popstate', () => {
   const operation = hash.startsWith('task/')
     ? openTask(parseTaskRoute(hash)?.id ?? hash.slice(5), false, parseTaskRoute(hash)?.tab)
     : navigate(
-        ['tasks', 'inbox', 'repositories', 'harnesses', 'settings'].includes(hash)
+        ['tasks', 'inbox', 'repositories', 'harnesses', 'settings', 'memory'].includes(hash)
           ? hash
           : 'overview',
         false,
@@ -1330,14 +1458,24 @@ async function boot() {
     const bootstrap = await api('/bootstrap');
     state.token = bootstrap.token;
     state.config = bootstrap.config;
-    [state.tasks, state.harnesses] = await Promise.all([api('/tasks'), api('/harnesses')]);
+    [state.tasks, state.harnesses, state.memories] = await Promise.all([
+      api('/tasks'),
+      api('/harnesses'),
+      loadMemories(),
+    ]);
     const hash = location.hash.slice(1);
     if (hash.startsWith('task/'))
       await openTask(parseTaskRoute(hash)?.id ?? hash.slice(5), false, parseTaskRoute(hash)?.tab);
     else {
-      state.view = ['overview', 'tasks', 'inbox', 'repositories', 'harnesses', 'settings'].includes(
-        hash,
-      )
+      state.view = [
+        'overview',
+        'tasks',
+        'inbox',
+        'repositories',
+        'harnesses',
+        'settings',
+        'memory',
+      ].includes(hash)
         ? hash
         : 'overview';
       shell();

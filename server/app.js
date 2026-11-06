@@ -1,3 +1,4 @@
+import { listMemories, createMemory, updateMemory, deleteMemory } from './memory.js';
 import { SideQuestions } from './side-questions.js';
 import { importIssue } from './issues.js';
 import { createBackup, previewBackup, restoreBackup, backupPath } from './backups.js';
@@ -244,6 +245,35 @@ export function createApp({ directory, publicDirectory, engineOptions = {} }) {
           'Cross-Origin-Resource-Policy': 'same-origin',
         });
         return res.end(req.method === 'HEAD' ? undefined : image.bytes);
+      }
+      if (path === '/api/memories' && req.method === 'GET')
+        return json(res, 200, listMemories(store));
+      if (path === '/api/memories' && req.method === 'POST') {
+        const raw = await body(req);
+        requireValue(raw && typeof raw === 'object' && !Array.isArray(raw), 'Invalid memory');
+        requireValue(
+          Object.keys(raw).every((key) =>
+            [
+              'scope',
+              'targetId',
+              'kind',
+              'status',
+              'title',
+              'content',
+              'evidence',
+              'expiresAt',
+            ].includes(key),
+          ),
+          'Unknown memory field',
+        );
+        return json(res, 201, createMemory(store, raw));
+      }
+      const memoryId = path.match(/^\/api\/memories\/([a-f0-9-]{36})$/)?.[1];
+      if (memoryId && req.method === 'PATCH')
+        return json(res, 200, updateMemory(store, memoryId, await body(req)));
+      if (memoryId && req.method === 'DELETE') {
+        deleteMemory(store, memoryId, (await body(req))?.revision);
+        return json(res, 200, { deleted: true });
       }
       if (path === '/api/bootstrap' && req.method === 'GET')
         return json(res, 200, { token, config: store.config, version: '0.1.0' });

@@ -1,3 +1,4 @@
+import { createMemory, listMemories, deleteMemory } from '../server/memory.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, writeFile, readFile, rm, rename, lstat, symlink } from 'node:fs/promises';
@@ -117,16 +118,24 @@ test('backup round trip preserves events, image bytes, artifacts and helper mode
     );
   }
   store.db.prepare('INSERT INTO meta(key,value) VALUES (?,?)').run('seen:fixture', 'yes');
+  const memory = createMemory(store, {
+    scope: 'global',
+    kind: 'preference',
+    title: 'Retained preference',
+    content: 'Keep updates concise.',
+  });
   const backup = await createBackup(store);
   const bytes = await readFile(backupPath(store.directory, backup.id));
   const preview = await previewBackup(Readable.from([bytes]), store.directory);
   assert.equal(preview.summary.files, 3);
+  deleteMemory(store, memory.id, memory.revision);
   task.title = 'Changed';
   store.save(task);
   await writeFile(join(store.directory, 'local-helper.mjs'), 'changed');
   await writeFile(join(store.directory, 'extra.txt'), 'extra');
   await restoreBackup(store, preview);
   assert.equal(store.get(task.id).title, 'Saved context');
+  assert.deepEqual(listMemories(store), [memory]);
   assert.equal(store.get(task.id).status, 'interrupted');
   assert.equal(store.events(task.id).length, 1);
   assert.deepEqual(
