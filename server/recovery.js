@@ -1,4 +1,4 @@
-// Recovery never changes permissions, approves work, or bypasses checks.
+// Recovery does not approve source work or bypass checks; debugger execution is host-level.
 export function recoverBlocked(task, handoff, limit = 2, explicit = false) {
   const key = `${task.stage}:${task.repositoryCursor ?? 0}`;
   const previous = task.recovery?.key === key ? task.recovery : null;

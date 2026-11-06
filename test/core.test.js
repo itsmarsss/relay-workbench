@@ -527,7 +527,11 @@ for (const resolves of [true, false])
         if (stage === 'investigate') {
           investigations++;
           assert.equal(task.activeRepositoryId, 'repo');
-          if (task.debugContext) assert.equal(task.recovery.active, true);
+          if (task.debugContext) {
+            assert.equal(task.recovery.active, true);
+            assert.equal(task.debugContext.executionAccess, 'host');
+            assert.equal(task.debugContext.capabilities.elevated, true);
+          }
           if (!resolves || investigations === 1)
             return {
               ...handoff,

@@ -171,3 +171,42 @@ test('continuation prompts preserve completed work and require outstanding evide
   assert.match(prompt, /Saved implementation/);
   assert.match(prompt, /mandatory full verification/);
 });
+
+test('elevated debugger adapters use host permissions explicitly', () => {
+  const access = { elevated: true, writable: true, networkAccess: true };
+  const codex = buildInvocation(
+    'codex',
+    { command: 'codex' },
+    '/tmp/schema',
+    'investigate',
+    undefined,
+    access,
+  );
+  assert.ok(codex.args.includes('danger-full-access'));
+  assert.ok(!codex.args.some((a) => a.includes('sandbox_workspace_write')));
+  const claude = buildInvocation(
+    'claude',
+    { command: 'claude' },
+    '/tmp/schema',
+    'investigate',
+    undefined,
+    access,
+  );
+  assert.ok(claude.args.includes('bypassPermissions'));
+  const pi = buildInvocation(
+    'pi',
+    { command: 'pi' },
+    '/tmp/schema',
+    'investigate',
+    undefined,
+    access,
+  );
+  assert.ok(pi.args.includes('read,bash,edit,write,grep,find,ls'));
+  const task = newTask({ title: 'Diagnostic fixture', demo: true }, DEFAULT_CONFIG);
+  task.debugContext = { executionAccess: 'host' };
+  assert.match(buildPrompt(task, 'investigate'), /no preconfigured command list is required/);
+  assert.match(
+    buildPrompt(task, 'investigate'),
+    /Do not return verification_requested to outsource/,
+  );
+});

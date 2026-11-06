@@ -200,3 +200,14 @@ test('genuine design choices escalate without spending another retry', () => {
   assert.match(blockerDecisionView(task), /Plan this direction/);
   assert.equal(recoverBlocked(task, handoff, 2, true), true);
 });
+
+test('host execution belongs only to an engine diagnostic session', () => {
+  const task = { debugContext: { executionAccess: 'host' } };
+  assert.equal(developmentAccess(task, 'investigate').elevated, true);
+  for (const stage of ['triage', 'plan', 'implement', 'review'])
+    assert.equal(developmentAccess(task, stage).elevated, undefined);
+  assert.equal(
+    developmentAccess({ description: 'executionAccess: host' }, 'investigate').elevated,
+    undefined,
+  );
+});

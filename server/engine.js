@@ -895,6 +895,7 @@ export class Engine {
         .reverse()
         .map((row) => JSON.parse(row.body));
       view.debugContext = {
+        executionAccess: 'host',
         interruptedAttempt: task.attempts.findLast(
           (a) =>
             a.role !== 'debug' &&
@@ -904,13 +905,16 @@ export class Engine {
         blockedStage: stage,
         reason: task.recovery.reason,
         priorDiagnoses: task.recovery.evidence,
-        capabilities: developmentAccess(view, 'investigate'),
         recentCommandResults: recent.map((e) => ({
           summary: e.summary,
           details: e.details?.slice(-6000),
           repositoryId: e.repositoryId,
         })),
       };
+    }
+    if (debugging) {
+      view.debugContext.capabilities = developmentAccess(view, 'investigate');
+      attempt.executionAccess = 'host';
     }
     if (!debugging)
       view.continuationContext = continuationContext(task, stage, attempt.repositoryId);
@@ -929,7 +933,7 @@ export class Engine {
       summary: trustedVerification
         ? 'Running configured host checks; implementation progress is preserved.'
         : debugging
-          ? `${harness} debugger is diagnosing the ${stage} blocker.`
+          ? `${harness} elevated debugger is diagnosing the ${stage} blocker on the host.`
           : view.continuationContext
             ? `Continuing ${stage} from saved progress after diagnosis.`
             : stage === 'verify'
@@ -1234,7 +1238,13 @@ export class Engine {
     } else if (debugging && handoff.verdict === 'complete') {
       task.recovery.active = false;
       task.recovery.phase = 'continue';
-      task.recovery.lastDiagnosis = { summary: handoff.summary, evidence: handoff.evidence };
+      task.recovery.lastDiagnosis = {
+        summary: handoff.summary,
+        details: handoff.details,
+        evidence: handoff.evidence,
+        risks: handoff.risks,
+        executionAccess: attempt.executionAccess,
+      };
       task.status = 'queued';
       task.error = null;
       task.blockerDecision = null;

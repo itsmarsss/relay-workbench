@@ -107,5 +107,5 @@ export function debuggerStep(task) {
   if (!a || task.status !== 'running') return '';
   if (a.role === 'verifier')
     return `<li class="current debugger-step"><span class="stage-number">↳</span><div><strong>Host verification</strong><small>Configured checks · ${timer(a.startedAt)}</small><small>Results return to the interrupted agent</small></div><span class="pulse-dot"></span></li>`;
-  return `<li class="current debugger-step"><span class="stage-number">↳</span><div><strong>Debugger</strong><small>${e(a.harness)} · ${e(a.actualModel || a.model || 'CLI default')} · ${timer(a.startedAt)}</small><small>Diagnosing ${e(stageNames[a.stage] ?? a.stage)}</small></div><span class="pulse-dot"></span></li>`;
+  return `<li class="current debugger-step"><span class="stage-number">↳</span><div><strong>${a.executionAccess === 'host' ? 'Elevated debugger' : 'Debugger'}</strong><small>${e(a.harness)} · ${e(a.actualModel || a.model || 'CLI default')} · ${timer(a.startedAt)}</small><small>Diagnosing ${e(stageNames[a.stage] ?? a.stage)}</small></div><span class="pulse-dot"></span></li>`;
 }

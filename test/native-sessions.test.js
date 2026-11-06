@@ -10,6 +10,7 @@ import { DEFAULT_CONFIG, newTask } from '../server/domain.js';
 for (const [harness, development] of [
   ['codex', false],
   ['codex', true],
+  ['codex', 'elevated'],
   ['pi', false],
 ])
   test(`${harness} native protocol resumes and steers with development access ${development}`, async (t) => {
@@ -23,6 +24,7 @@ for (const [harness, development] of [
         networkAccess: true,
         writableRoots: ['/tmp/logs'],
       };
+    if (development === 'elevated') task.debugContext = { executionAccess: 'host' };
     task.workspace = directory;
     const handoff = demoHandoff(task, 'investigate');
     const binary = join(directory, 'fixture.js');
@@ -90,9 +92,21 @@ createInterface({input:process.stdin}).on('line',line=>{
       );
       assert.equal(
         requests.find((r) => r.method === 'turn/start').params.sandboxPolicy.type,
-        development ? 'workspaceWrite' : 'readOnly',
+        development === 'elevated'
+          ? 'dangerFullAccess'
+          : development
+            ? 'workspaceWrite'
+            : 'readOnly',
       );
-      if (development) {
+      assert.equal(
+        requests.find((r) => r.method === 'thread/resume').params.sandbox,
+        development === 'elevated'
+          ? 'danger-full-access'
+          : development
+            ? 'workspace-write'
+            : 'read-only',
+      );
+      if (development && development !== 'elevated') {
         const policy = requests.find((r) => r.method === 'turn/start').params.sandboxPolicy;
         assert.equal(policy.networkAccess, true);
         assert.ok(policy.writableRoots.includes('/tmp/logs'));
