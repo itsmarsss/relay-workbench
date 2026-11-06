@@ -822,3 +822,21 @@ test('blocker decisions require token, current decision and valid action', async
   assert.equal(f.app.store.get(task.id).status, 'paused');
   assert.equal(f.app.store.get(task.id).approvals.length, 0);
 });
+
+test('side questions require a token and do not enter worker direction', async (t) => {
+  const f = await fixture(t, { sideAnswer: async () => 'Snapshot answer' });
+  const task = f.app.engine.create({ title: 'Side question', demo: true });
+  const path = `/api/tasks/${task.id}/question`;
+  assert.equal(
+    (await f.request(path, 'POST', { question: 'Why?' }, { 'X-Relay-Token': '' })).status,
+    403,
+  );
+  assert.equal((await f.request(path, 'POST', { question: '' })).status, 400);
+  assert.equal((await f.request(path, 'POST', { question: 'Why?' })).status, 202);
+  for (let i = 0; i < 100 && f.app.store.get(task.id).sideQuestions[0].status === 'running'; i++)
+    await new Promise((r) => setTimeout(r, 10));
+  const current = f.app.store.get(task.id);
+  assert.equal(current.status, 'draft');
+  assert.equal(current.messages.length, 0);
+  assert.equal(current.sideQuestions[0].answer, 'Snapshot answer');
+});

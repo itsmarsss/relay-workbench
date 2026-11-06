@@ -1,3 +1,4 @@
+import { SideQuestions } from './side-questions.js';
 import { importIssue } from './issues.js';
 import { createBackup, previewBackup, restoreBackup, backupPath } from './backups.js';
 import { lifecycleReport, cleanupWorktree } from './lifecycle.js';
@@ -64,6 +65,7 @@ function summary(task) {
 export function createApp({ directory, publicDirectory, engineOptions = {} }) {
   const store = new Store(directory);
   const engine = new Engine(store, engineOptions);
+  const sideQuestions = new SideQuestions(store, { answer: engineOptions.sideAnswer });
   const token = randomBytes(32).toString('hex');
   const streams = new Set();
   const terminalStreams = new Map();
@@ -338,6 +340,8 @@ export function createApp({ directory, publicDirectory, engineOptions = {} }) {
         const [, id, operation] = match;
         const task = store.get(id);
         requireValue(task, 'Task not found', 404);
+        if (operation === 'question' && req.method === 'POST')
+          return json(res, 202, sideQuestions.ask(id, (await body(req)).question));
         if (!operation && req.method === 'GET')
           return json(res, 200, {
             ...task,
@@ -709,6 +713,7 @@ export function createApp({ directory, publicDirectory, engineOptions = {} }) {
     restorePreviews.clear();
     for (const stream of streams) stream.end();
     for (const controller of external.values()) controller.abort();
+    await sideQuestions.stop();
     await engine.stop();
     while (external.size) await new Promise((resolve) => setTimeout(resolve, 20));
     if (server.listening)
