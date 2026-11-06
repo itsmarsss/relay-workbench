@@ -55,7 +55,18 @@ export function badge(status) {
   return `<span class="badge ${e(status)}"><span class="status-dot"></span>${e(statusNames[status] || status)}</span>`;
 }
 export function harnessBadge(id) {
-  return `<span class="harness-badge ${e(id)}">${id === 'codex' ? 'C' : id === 'claude' ? '✳' : id === 'pi' ? 'π' : '✓'}</span>`;
+  const marks = {
+    codex: '<rect x="2.5" y="3.5" width="19" height="17" rx="5"/><path d="m7 9 3 3-3 3m6 0h4"/>',
+    claude:
+      Array.from(
+        { length: 12 },
+        (_, i) => `<path d="M12 3v5" transform="rotate(${i * 30} 12 12)"/>`,
+      ).join('') + '<circle cx="12" cy="12" r="3"/>',
+    pi: '<path d="M5 7h14M9 7v10m7-10v8c0 2 1 3 3 2"/><path d="M4 8c1-2 2-2 4-2"/>',
+    checks: '<path d="m5 12 4 4L19 6"/>',
+  };
+  const name = { codex: 'Codex', claude: 'Claude', pi: 'Pi', checks: 'Checks' }[id] ?? id;
+  return `<span class="harness-badge ${e(id)}" role="img" aria-label="${e(name)}" title="${e(name)}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${marks[id] ?? marks.checks}</svg></span>`;
 }
 export function duration(ms) {
   if (!ms) return '—';

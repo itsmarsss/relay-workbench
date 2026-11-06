@@ -848,6 +848,45 @@ try {
     debugTask.status = 'blocked';
     debugTask.stage = 'implement';
     debugTask.error = 'Fixture identity import failed';
+    debugTask.attempts = [
+      {
+        id: 'run-a',
+        stage: 'implement',
+        harness: 'codex',
+        status: 'complete',
+        startedAt: new Date(Date.now() - 90000).toISOString(),
+        finishedAt: new Date(Date.now() - 60000).toISOString(),
+        handoff: {
+          summary: 'Implementation preserved',
+          details: 'Waiting for runtime',
+          verdict: 'blocked',
+        },
+      },
+      {
+        id: 'run-b',
+        parentAttemptId: 'run-a',
+        relation: 'Diagnosis',
+        role: 'debug',
+        stage: 'implement',
+        harness: 'codex',
+        status: 'complete',
+        handoff: {
+          summary: 'Runtime investigated',
+          details: 'Recorded evidence',
+          evidence: ['Isolated check attempted'],
+          verdict: 'complete',
+        },
+      },
+      {
+        id: 'run-c',
+        parentAttemptId: 'run-b',
+        relation: 'Continue after diagnosis',
+        stage: 'implement',
+        harness: 'codex',
+        status: 'complete',
+        handoff: { summary: 'Checks retried', verdict: 'blocked' },
+      },
+    ];
     debugTask.blockerDecision = {
       id: 'debug-decision',
       summary: 'Fixture identity import failed in the configured runtime.',
@@ -893,14 +932,34 @@ try {
         .getAttribute('aria-selected'),
       'true',
     );
-    await page.locator('.execution-map > summary').click();
+    await page.getByRole('button', { name: 'Open execution graph', exact: false }).click();
+    await page.getByRole('region', { name: 'Execution graph', exact: true }).waitFor();
+    for (const width of [1440, 390]) {
+      await page.setViewportSize({ width, height: 1100 });
+      await page.screenshot({
+        path: join(screenshots, `execution-node-graph-${width}.png`),
+        fullPage: true,
+      });
+      assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
+    }
+    await page.getByRole('button', { name: 'Close execution graph', exact: true }).click();
 
-    await page.getByText('Ask on the side', { exact: true }).click();
+    await page.getByRole('button', { name: 'Ask on the side', exact: false }).click();
     await page.locator('#side-question').fill('What is blocked?');
     await page.getByRole('button', { name: 'Ask without interrupting', exact: true }).click();
     await page.getByText('Side answer: What is blocked?', { exact: true }).waitFor();
     assert.equal(localApp.store.get(debugTask.id).status, 'blocked');
     assert.equal(localApp.store.get(debugTask.id).messages.length, 0);
+    for (const width of [1440, 390]) {
+      await page.setViewportSize({ width, height: 1100 });
+      await assertReadableText(page);
+      await page.screenshot({
+        path: join(screenshots, `side-chat-drawer-${width}.png`),
+        fullPage: true,
+      });
+      assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
+    }
+    await page.getByRole('button', { name: 'Close side conversation', exact: true }).click();
     await page.getByText('What needs your input', { exact: true }).waitFor();
     await page.getByText('What was tried & evidence', { exact: false }).click();
     await page
