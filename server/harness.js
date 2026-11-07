@@ -323,7 +323,7 @@ export async function executeHarness({
           type: 'check_evidence',
           kind: 'tool',
           checks,
-          summary: `${checks.filter((c) => c.code === 0).length} checks passed; ${checks.filter((c) => c.status === 'running').length} recorded as running.`,
+          summary: `${checks.filter((c) => c.code === 0).length} checks passed; ${checks.filter((c) => c.status === 'running').length} running; ${checks.filter((c) => c.status === 'waiting').length} waiting for resources.`,
           details: serialized.slice(-12000),
         });
       }

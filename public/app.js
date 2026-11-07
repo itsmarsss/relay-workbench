@@ -1,3 +1,4 @@
+import { refreshQueue, latestLoader, eventBatch } from './async-state.js';
 import { statusQueue } from './pending-status.js';
 const pendingStatuses = statusQueue(localStorage);
 import { displayStatus, overrideStatuses } from './task-status.js';
@@ -571,23 +572,7 @@ function repositoryModal(id) {
     true,
   );
 }
-let refreshInFlight, refreshAgain;
-function refresh() {
-  // Serialize snapshots, but retain a trailing refresh after navigation or new events.
-  if (refreshInFlight) {
-    refreshAgain = true;
-    return refreshInFlight;
-  }
-  refreshInFlight = (async () => {
-    do {
-      refreshAgain = false;
-      await refreshSnapshot();
-    } while (refreshAgain);
-  })().finally(() => {
-    refreshInFlight = null;
-  });
-  return refreshInFlight;
-}
+const refresh = refreshQueue(refreshSnapshot, { onError: (error) => toast(error.message, true) });
 async function refreshSnapshot() {
   await pendingStatuses.sync(api);
   [state.tasks, state.inbox, state.memories] = await Promise.all([
@@ -605,15 +590,16 @@ async function refreshSnapshot() {
     const selected = state.selected;
     const task = await api(`/tasks/${selected}`);
     let events = state.task?.id === selected ? state.events : [];
-    let more;
-    do {
-      more = await api(`/tasks/${selected}/events?after=${events.at(-1)?.seq || 0}`);
-      events = events.concat(more);
-    } while (more.length === 1000);
+    const batch = await eventBatch(
+      (after) => api(`/tasks/${selected}/events?after=${after}`),
+      events.at(-1)?.seq || 0,
+    );
+    events = events.concat(batch.events);
     if (state.selected === selected) {
       state.task = pendingStatuses.apply(task);
       state.events = events;
       await refreshTerminal(task);
+      if (batch.hasMore) refresh();
     }
   }
   renderMain();
@@ -651,8 +637,9 @@ async function openTask(id, recordHistory = true, tab = 'overview') {
   state.terminalFollow = true;
   shell();
   await refresh();
-  if (recordHistory) history.pushState(null, '', taskRoute(id, tab));
-  if (tab === 'diff') await loadDiff();
+  if (state.selected !== id) return;
+  if (recordHistory) history.pushState(null, '', taskRoute(id, state.tab));
+  if (state.tab === 'diff') await loadDiff();
 }
 async function navigate(view, recordHistory = true) {
   state.view = view;
@@ -669,15 +656,23 @@ async function saveConfig(config) {
   state.config = await api('/config', 'PUT', config);
   state.harnesses = await api('/harnesses');
 }
+const fetchDiff = latestLoader((id) => api(`/tasks/${id}/diff`), {
+  isCurrent: (id) => state.selected === id,
+  apply: (diff) => {
+    state.diff = diff;
+    renderMain();
+  },
+  fail: (error) => {
+    state.diff = { error: error.message };
+    renderMain();
+  },
+});
 async function loadDiff() {
+  const id = state.selected;
+  if (!id) return;
   state.diff = null;
   renderMain();
-  try {
-    state.diff = await api(`/tasks/${state.selected}/diff`);
-  } catch (error) {
-    state.diff = { error: error.message };
-  }
-  renderMain();
+  await fetchDiff(id);
 }
 
 document.addEventListener('click', async (event) => {

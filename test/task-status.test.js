@@ -62,3 +62,41 @@ test('status changes survive a pending server upgrade and sync when available', 
   }, 30001);
   assert.equal(restored.apply({ id: 'task' }).statusOverride, undefined);
 });
+
+test('a queued status for a deleted task cannot block later task updates', async () => {
+  const { statusQueue } = await import('../public/pending-status.js');
+  const entries = new Map();
+  const queue = statusQueue({
+    getItem: (k) => entries.get(k),
+    setItem: (k, v) => entries.set(k, v),
+  });
+  queue.set('deleted', 'review');
+  queue.set('current', 'completed');
+  const calls = [];
+  await queue.sync(async (path) => {
+    calls.push(path);
+    if (path.includes('deleted')) throw Object.assign(Error('Not found'), { status: 404 });
+  }, 0);
+  assert.ok(calls.includes('/tasks/current/status-override'));
+  assert.equal(queue.apply({ id: 'deleted' }).statusOverride, undefined);
+  assert.equal(queue.apply({ id: 'current' }).statusOverride, undefined);
+});
+
+test('legacy status endpoint stays queued and per-task conflicts do not block other tasks', async () => {
+  const { statusQueue } = await import('../public/pending-status.js');
+  const queue = statusQueue({ getItem: () => null, setItem: () => {} });
+  queue.set('legacy', 'review');
+  await queue.sync(async (path) => {
+    if (path.endsWith('/status-override'))
+      throw Object.assign(Error('Older server'), { status: 404 });
+  }, 0);
+  assert.equal(queue.apply({ id: 'legacy' }).statusOverride.pending, true);
+  queue.clear('legacy');
+  queue.set('busy', 'running');
+  queue.set('ready', 'completed');
+  await queue.sync(async (path) => {
+    if (path.includes('/busy/')) throw Object.assign(Error('Conflict'), { status: 409 });
+  }, 1);
+  assert.equal(queue.apply({ id: 'busy' }).statusOverride.pending, true);
+  assert.equal(queue.apply({ id: 'ready' }).statusOverride, undefined);
+});

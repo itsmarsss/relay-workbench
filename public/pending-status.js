@@ -36,7 +36,23 @@ export function statusQueue(storage) {
             delete values[id];
             persist();
           }
-        } catch {
+        } catch (error) {
+          if (error.status === 404) {
+            try {
+              await api(`/tasks/${id}`);
+            } catch (missing) {
+              if (missing.status === 404) {
+                if (values[id] === entry) {
+                  delete values[id];
+                  persist();
+                }
+                continue;
+              }
+            }
+            // An older server may have the task but not the status endpoint.
+            break;
+          }
+          if ([400, 409, 422].includes(error.status)) continue;
           break;
         }
       }

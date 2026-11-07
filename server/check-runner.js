@@ -38,48 +38,8 @@ export async function runCheck(
   const id = randomUUID();
   const logPath = join(dirname(spec.journal), `check-${id}.log`);
   const lock = spec.lockDirectory;
+  const queuedAt = new Date().toISOString();
   let ownsLock = false;
-  while (!ownsLock) {
-    if (signal?.aborted)
-      throw Error('Execution cancelled while waiting for verification resources');
-    try {
-      mkdirSync(lock, { mode: 0o700 });
-      ownsLock = true;
-      writeFileSync(join(lock, 'owner.json'), JSON.stringify({ pid: process.pid, checkId: id }), {
-        mode: 0o600,
-      });
-    } catch (error) {
-      if (ownsLock) {
-        rmSync(lock, { recursive: true, force: true });
-        throw error;
-      }
-      if (error.code !== 'EEXIST') throw error;
-      try {
-        const owner = JSON.parse(readFileSync(join(lock, 'owner.json'), 'utf8'));
-        try {
-          process.kill(owner.pid, 0);
-        } catch (check) {
-          if (check.code === 'ESRCH') {
-            // Supervised children need time to notice their parent's death and exit.
-            await wait(3000);
-            const current = JSON.parse(readFileSync(join(lock, 'owner.json'), 'utf8'));
-            if (current.checkId === owner.checkId) rmSync(lock, { recursive: true, force: true });
-          }
-        }
-      } catch (read) {
-        if (read.code === 'ENOENT') {
-          try {
-            if (Date.now() - statSync(lock).mtimeMs > 5000)
-              rmSync(lock, { recursive: true, force: true });
-          } catch (stat) {
-            if (stat.code !== 'ENOENT') throw stat;
-          }
-        }
-      }
-      await wait(100);
-    }
-  }
-  const startedAt = new Date().toISOString();
   const identity = {
     id,
     purpose,
@@ -90,7 +50,8 @@ export async function runCheck(
     cwd,
     sourceFingerprint: spec.sourceFingerprint,
     signature: spec.signature,
-    startedAt,
+    queuedAt,
+    startedAt: null,
     logPath,
   };
   let lastProgressAt = null,
@@ -106,6 +67,84 @@ export async function runCheck(
   let outcome;
   try {
     writeFileSync(logPath, '', { mode: 0o600 });
+    appendFileSync(spec.journal, JSON.stringify({ ...identity, status: 'waiting' }) + '\n', {
+      mode: 0o600,
+    });
+    const waitBudget = spec.resourceWaitTimeoutMs ?? spec.checkTimeoutMs ?? 15 * 60000;
+    if (!Number.isFinite(waitBudget) || waitBudget <= 0)
+      throw Error('Invalid verification resource wait budget');
+    const waitStarted = Date.now();
+    let waitReason = 'another supervised check is using the resources';
+    const pause = async (ms) => {
+      const remaining = waitBudget - (Date.now() - waitStarted);
+      if (remaining > 0) await wait(Math.min(ms, remaining), undefined, { signal });
+    };
+    while (!ownsLock) {
+      if (signal?.aborted)
+        throw Error(
+          'Execution cancelled while waiting for verification resources; no check was started',
+        );
+      if (Date.now() - waitStarted >= waitBudget) {
+        const error = new Error(
+          `Verification resource wait timed out: ${waitReason}. No check was started or failed. Inspect the active check or resource lock, then retry.`,
+        );
+        error.code = 'VERIFICATION_RESOURCE_TIMEOUT';
+        throw error;
+      }
+      try {
+        mkdirSync(lock, { mode: 0o700 });
+        ownsLock = true;
+        writeFileSync(join(lock, 'owner.json'), JSON.stringify({ pid: process.pid, checkId: id }), {
+          mode: 0o600,
+        });
+      } catch (error) {
+        if (ownsLock) throw error;
+        if (error.code !== 'EEXIST') throw error;
+        try {
+          const owner = JSON.parse(readFileSync(join(lock, 'owner.json'), 'utf8'));
+          if (!Number.isInteger(owner.pid) || owner.pid <= 0 || typeof owner.checkId !== 'string') {
+            waitReason = 'resource lock ownership is invalid';
+          } else {
+            waitReason = `supervised check ${owner.checkId} (process ${owner.pid}) still owns the resources`;
+            try {
+              process.kill(owner.pid, 0);
+            } catch (check) {
+              if (check.code === 'ESRCH') {
+                await pause(3000);
+                if (signal?.aborted) throw Error('Execution cancelled');
+                if (Date.now() - waitStarted < waitBudget) {
+                  const current = JSON.parse(readFileSync(join(lock, 'owner.json'), 'utf8'));
+                  if (current.checkId === owner.checkId && current.pid === owner.pid)
+                    rmSync(lock, { recursive: true, force: true });
+                }
+              } else if (check.code !== 'EPERM') throw check;
+            }
+          }
+        } catch (read) {
+          if (signal?.aborted) throw read;
+          if (read instanceof SyntaxError) waitReason = 'resource lock metadata is unreadable';
+          else if (read.code === 'ENOENT') {
+            try {
+              const before = statSync(lock);
+              if (Date.now() - before.mtimeMs > 5000) {
+                // A missing owner may be a writer creating it; recheck before reclaiming.
+                try {
+                  readFileSync(join(lock, 'owner.json'));
+                } catch (missing) {
+                  if (missing.code === 'ENOENT' && statSync(lock).ino === before.ino)
+                    rmSync(lock, { recursive: true, force: true });
+                  else if (missing.code !== 'ENOENT') throw missing;
+                }
+              }
+            } catch (stat) {
+              if (stat.code !== 'ENOENT') throw stat;
+            }
+          } else throw read;
+        }
+        await pause(100);
+      }
+    }
+    identity.startedAt = new Date().toISOString();
     appendFileSync(spec.journal, JSON.stringify({ ...identity, status: 'running' }) + '\n', {
       mode: 0o600,
     });
@@ -150,7 +189,10 @@ export async function runCheck(
       status: 'interrupted',
       code: null,
       finishedAt: new Date().toISOString(),
-      summary: error.message,
+      summary: signal?.aborted
+        ? 'Execution cancelled; incomplete checks remain unverified.'
+        : error.message,
+      reason: signal?.aborted ? 'ABORTED' : error.code,
     };
   } finally {
     try {
@@ -159,7 +201,7 @@ export async function runCheck(
         publish(outcome.status, { lastOutput, code: outcome.code, finishedAt: outcome.finishedAt });
       }
     } finally {
-      rmSync(lock, { recursive: true, force: true });
+      if (ownsLock) rmSync(lock, { recursive: true, force: true });
     }
   }
   return outcome;

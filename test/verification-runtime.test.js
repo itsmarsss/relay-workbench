@@ -299,3 +299,67 @@ test('diagnostic runner records purpose and retains nonzero exit status', async 
     /Invalid/,
   );
 });
+
+test('resource wait timeout preserves the active lock and records no failed test', async (t) => {
+  const { root, runner } = await runnerFixture(t);
+  await mkdir(runner.lockDirectory);
+  const owner = { pid: process.pid, checkId: 'active-check' };
+  await writeFile(join(runner.lockDirectory, 'owner.json'), JSON.stringify(owner));
+  const outcome = await runCheck(
+    { ...runner, resourceWaitTimeoutMs: 60 },
+    {
+      repositoryId: 'repo',
+      cwd: root,
+      command: process.execPath,
+      args: ['-e', "throw Error('must not run')"],
+    },
+  );
+  assert.equal(outcome.status, 'interrupted');
+  assert.equal(outcome.code, null);
+  assert.equal(outcome.reason, 'VERIFICATION_RESOURCE_TIMEOUT');
+  assert.equal(outcome.startedAt, null);
+  assert.match(outcome.summary, /No check was started or failed/);
+  assert.deepEqual(
+    JSON.parse(await readFile(join(runner.lockDirectory, 'owner.json'), 'utf8')),
+    owner,
+  );
+  const journal = await readCheckJournal(runner);
+  assert.equal(journal.length, 1);
+  assert.equal(journal[0].status, 'interrupted');
+});
+
+test('malformed resource ownership cannot trap a check in an infinite wait', async (t) => {
+  const { root, runner } = await runnerFixture(t);
+  await mkdir(runner.lockDirectory);
+  await writeFile(join(runner.lockDirectory, 'owner.json'), 'broken json');
+  const outcome = await runCheck(
+    { ...runner, resourceWaitTimeoutMs: 60 },
+    { repositoryId: 'repo', cwd: root, command: process.execPath, args: [] },
+  );
+  assert.equal(outcome.reason, 'VERIFICATION_RESOURCE_TIMEOUT');
+  assert.match(outcome.summary, /metadata is unreadable/);
+  assert.equal(await readFile(join(runner.lockDirectory, 'owner.json'), 'utf8'), 'broken json');
+});
+
+test('cancelling a queued check records interruption without touching another owner', async (t) => {
+  const { root, runner } = await runnerFixture(t);
+  await mkdir(runner.lockDirectory);
+  const owner = { pid: process.pid, checkId: 'other-check' };
+  await writeFile(join(runner.lockDirectory, 'owner.json'), JSON.stringify(owner));
+  const controller = new AbortController();
+  const pending = runCheck(
+    runner,
+    { repositoryId: 'repo', cwd: root, command: process.execPath, args: [] },
+    controller.signal,
+  );
+  controller.abort();
+  const outcome = await pending;
+  assert.equal(outcome.reason, 'ABORTED');
+  assert.equal(outcome.startedAt, null);
+  assert.deepEqual(
+    JSON.parse(await readFile(join(runner.lockDirectory, 'owner.json'), 'utf8')),
+    owner,
+  );
+  const journal = await readCheckJournal(runner);
+  assert.equal(journal[0].status, 'interrupted');
+});

@@ -40,6 +40,7 @@ export async function prepareCheckRunner(
     journal: join(artifact, 'checks.jsonl'),
     progressPath: join(artifact, 'check-progress.json'),
     checkTimeoutMs: timeout * 2,
+    resourceWaitTimeoutMs: timeout,
   };
   const specPath = join(artifact, 'check-runner.json');
   await writeFile(specPath, JSON.stringify(spec), { mode: 0o600 });
