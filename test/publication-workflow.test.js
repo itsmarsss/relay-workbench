@@ -583,3 +583,55 @@ test('publication surfaces an explicit design change without validating or publi
   assert.equal(f.task.delivery.options[0].id, 'caller');
   assert.equal(f.task.publication, undefined);
 });
+
+test('unchanged successful preparation does not repeat verification and review', async (t) => {
+  let root,
+    base,
+    publishes = 0,
+    checks = 0,
+    reviews = 0;
+  const f = await fixture(
+    t,
+    async () => {
+      publishes++;
+      if (publishes === 1) {
+        await commit(root);
+        await git(root, ['rebase', 'upstream']);
+        return prepared(base);
+      }
+      if (publishes === 2) return prepared(base);
+      return {
+        verdict: 'complete',
+        summary: 'Published',
+        details: 'Remote verified',
+        evidence: ['Remote head matches'],
+        risks: [],
+        options: [],
+        publication: snapshot,
+      };
+    },
+    async (input) => {
+      if (input.stage === 'verify') {
+        checks++;
+        return verification(input);
+      }
+      reviews++;
+      return {
+        verdict: 'complete',
+        summary: 'Approved',
+        details: 'Compared original behavior',
+        evidence: ['Accepted snapshot'],
+        findings: [],
+      };
+    },
+  );
+  root = f.root;
+  base = await upstream(f, t);
+  f.task.routing.review = 'codex';
+  await f.workflow.start('task', 'repo');
+  await f.settle();
+  assert.equal(f.task.delivery.status, 'complete', f.task.delivery.details);
+  assert.equal(publishes, 3);
+  assert.equal(checks, 1);
+  assert.equal(reviews, 1);
+});

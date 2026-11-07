@@ -74,3 +74,40 @@ test('notifications require opt-in, deduplicate decisions and skip seen items', 
     }
   }
 });
+
+test('publishing blockers appear in the inbox without reopening accepted implementation', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'relay-inbox-publishing-'));
+  const store = new Store(directory);
+  try {
+    const task = {
+      id: 'published',
+      title: 'Accepted task',
+      status: 'completed',
+      attempts: [],
+      repository: { id: 'repo' },
+      delivery: {
+        id: 'first',
+        status: 'blocked',
+        summary: 'Remote unavailable',
+        nextAction: 'Restore access',
+      },
+    };
+    store.save(task);
+    const first = inbox(store)[0];
+    assert.equal(first.status, 'blocked');
+    assert.equal(first.action, 'Resolve publishing blocker');
+    assert.equal(first.summary, 'Restore access');
+    acknowledge(store, first.key);
+    assert.equal(inbox(store)[0].seen, true);
+    task.delivery = { id: 'second', status: 'interrupted', summary: 'Paused' };
+    store.save(task);
+    assert.equal(inbox(store)[0].seen, false);
+    task.delivery.status = 'running';
+    store.save(task);
+    assert.equal(inbox(store).length, 0);
+    assert.equal(store.get(task.id).status, 'completed');
+  } finally {
+    store.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});

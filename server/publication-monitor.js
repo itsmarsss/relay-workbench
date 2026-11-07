@@ -35,11 +35,19 @@ export function publicationSnapshot(raw) {
   );
 }
 
+export function observationDelay({ failures = 0, unchanged = 0 } = {}) {
+  return Math.min(15 * 60000, 5 * 60000 * 2 ** Math.min(4, failures ? failures - 1 : unchanged));
+}
+
 export class PublicationMonitor {
-  constructor(store, { observe = executeHarness, now = () => Date.now() } = {}) {
+  constructor(
+    store,
+    { observe = executeHarness, now = () => Date.now(), isWorkspaceBusy = () => false } = {},
+  ) {
     this.store = store;
     this.observe = observe;
     this.now = now;
+    this.isWorkspaceBusy = isWorkspaceBusy;
     this.running = new Map();
     for (const task of store.all()) {
       let changed = false;
@@ -87,6 +95,7 @@ export class PublicationMonitor {
           enabled,
           status: enabled ? 'queued' : 'paused',
           failures: 0,
+          unchanged: 0,
           nextAt: new Date(this.now()).toISOString(),
         };
       },
@@ -100,29 +109,42 @@ export class PublicationMonitor {
     this.tick();
     return this.store.get(id);
   }
+  taskBusy(task) {
+    return workspaces(task).some(
+      (entry) =>
+        entry.delivery?.status === 'running' ||
+        entry.submission?.status === 'running' ||
+        (entry.workspaceRoot && this.isWorkspaceBusy(entry.workspaceRoot)),
+    );
+  }
   tick() {
     if (this.suspended || this.running.size) return;
-    for (const task of this.store.all())
-      for (const entry of workspaces(task)) {
-        const monitor = entry.publicationMonitor;
-        if (
-          task.status !== 'completed' ||
-          !monitor?.enabled ||
-          entry.submission?.status === 'running' ||
-          new Date(monitor.nextAt).getTime() > this.now()
-        )
-          continue;
-        const key = `${task.id}:${entry.repository.id}`;
-        const controller = new AbortController();
-        const run = { controller };
-        this.running.set(key, run);
-        run.done = this.run(task, entry, controller.signal)
-          .catch(() => {})
-          .finally(() => {
-            this.running.delete(key);
-          });
-        return;
-      }
+    const candidates = this.store.all().flatMap((task) =>
+      task.status === 'completed' && !this.taskBusy(task)
+        ? workspaces(task)
+            .filter(
+              (entry) =>
+                entry.publicationMonitor?.enabled &&
+                !(Date.parse(entry.publicationMonitor.nextAt) > this.now()),
+            )
+            .map((entry) => ({ task, entry }))
+        : [],
+    );
+    candidates.sort(
+      (a, b) =>
+        (Date.parse(a.entry.publicationMonitor.nextAt) || 0) -
+        (Date.parse(b.entry.publicationMonitor.nextAt) || 0),
+    );
+    const next = candidates[0];
+    if (!next) return;
+    const { task, entry } = next;
+    const key = `${task.id}:${entry.repository.id}`;
+    const controller = new AbortController();
+    const run = { controller };
+    this.running.set(key, run);
+    run.done = this.run(task, entry, controller.signal)
+      .catch(() => {})
+      .finally(() => this.running.delete(key));
   }
   updateRun(id, repositoryId, apply, event) {
     return this.update(
@@ -222,6 +244,10 @@ export class PublicationMonitor {
       });
       requireValue(!signal.aborted, 'Monitoring paused');
       requireValue(
+        !this.taskBusy(this.store.get(id)),
+        'Workspace became busy; PR observation deferred',
+      );
+      requireValue(
         before === (await fingerprint(view)),
         'Monitor changed the workspace; inspect it before any further action',
       );
@@ -248,7 +274,9 @@ export class PublicationMonitor {
               evidence: result.evidence.slice(0, 20),
               checkedAt: new Date(this.now()).toISOString(),
             };
+          const unchanged = changed ? 0 : (e.publicationMonitor.unchanged ?? 0) + 1;
           Object.assign(e.publicationMonitor, {
+            unchanged,
             status: snapshot.state === 'unknown' ? 'unavailable' : 'idle',
             summary: result.summary,
             details: result.details,
@@ -256,7 +284,7 @@ export class PublicationMonitor {
             finishedAt: new Date(this.now()).toISOString(),
             failures,
             enabled: !['merged', 'closed'].includes(snapshot.state) && failures < 3,
-            nextAt: new Date(this.now() + 300000 * Math.max(1, failures)).toISOString(),
+            nextAt: new Date(this.now() + observationDelay({ failures, unchanged })).toISOString(),
             error: snapshot.state === 'unknown' ? result.summary.slice(0, 1000) : null,
           });
         },
@@ -271,6 +299,17 @@ export class PublicationMonitor {
           : undefined,
       );
     } catch (error) {
+      if (!signal.aborted && this.taskBusy(this.store.get(id))) {
+        this.updateRun(id, repositoryId, (e) =>
+          Object.assign(e.publicationMonitor, {
+            status: 'idle',
+            summary: 'PR observation deferred while the workspace is in use.',
+            finishedAt: new Date(this.now()).toISOString(),
+            nextAt: new Date(this.now() + 30000).toISOString(),
+          }),
+        );
+        return;
+      }
       const mutated = before && before !== (await fingerprint(view).catch(() => before));
       if (mutated)
         error = new Error(
@@ -288,7 +327,7 @@ export class PublicationMonitor {
             enabled: !mutated && !signal.aborted && failures < 3,
             failures,
             error: error.message.slice(0, 2000),
-            nextAt: new Date(this.now() + 300000 * failures).toISOString(),
+            nextAt: new Date(this.now() + observationDelay({ failures })).toISOString(),
           });
         },
         {

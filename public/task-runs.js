@@ -2,6 +2,7 @@
 export function taskRuns(task, { includeMonitoring = false } = {}) {
   const runs = new Map((task.attempts ?? []).map((run) => [run.id ?? run, run]));
   for (const run of task.deliveryRuns ?? []) runs.set(run.id, run);
+  if (task.currentRun?.id) runs.set(task.currentRun.id, task.currentRun);
   for (const entry of task.repositories?.length > 1 ? task.repositories : [task]) {
     for (const [record, stage] of [
       [entry.delivery, 'publish'],
@@ -29,4 +30,15 @@ export function taskRuns(task, { includeMonitoring = false } = {}) {
     .sort((a, b) =>
       a.startedAt && b.startedAt ? Date.parse(a.startedAt) - Date.parse(b.startedAt) : 0,
     );
+}
+
+// Background observations must never replace the current workflow run.
+export function currentTaskRun(task) {
+  const runs = taskRuns(task);
+  return (
+    runs.findLast(
+      (run) =>
+        run.status === 'running' && (run.auxiliary || ['running', 'queued'].includes(task.status)),
+    ) ?? runs.at(-1)
+  );
 }

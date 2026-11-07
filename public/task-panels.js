@@ -1,3 +1,4 @@
+import { taskRuns, currentTaskRun } from './task-runs.js';
 import { runLabel } from './run-label.js';
 import { verificationReport } from './verification-report.js';
 import { e, stageNames, harnessBadge, prose, duration } from './ui.js';
@@ -33,7 +34,7 @@ export function handoffBody(h) {
   }${handoffFiles(h)}<div class="report-supporting">${verificationReport(h.verification)}${h.details ? `<details class="report-section"><summary>Explanation</summary><div class="prose report-prose">${prose(h.details)}</div></details>` : ''}${h.evidence?.length ? `<details class="report-section"><summary>Verification & evidence <span>${h.evidence.length}</span></summary><ul class="evidence-list">${h.evidence.map((v) => `<li>${e(v)}</li>`).join('')}</ul></details>` : ''}</div></div>`;
 }
 export function handoffList(task) {
-  const attempts = task.attempts
+  const attempts = taskRuns(task)
     .map((a, i) => ({ ...a, number: i + 1 }))
     .filter((a) => a.handoff || a.error)
     .reverse();
@@ -62,7 +63,8 @@ export function workflowStages(task) {
     .join('');
 }
 export function executionLogs(task, events, { run = 'latest', stream = 'all', query = '' } = {}) {
-  const selected = run === 'latest' ? task.attempts.at(-1)?.id : run;
+  const attempts = taskRuns(task);
+  const selected = run === 'latest' ? currentTaskRun(task)?.id : run;
   const all = events.filter((ev) => ev.type === 'transcript');
   const visible = all.filter(
     (ev) =>
@@ -70,7 +72,7 @@ export function executionLogs(task, events, { run = 'latest', stream = 'all', qu
       (stream === 'all' || ev.stream === stream) &&
       (!query || (ev.text ?? '').toLowerCase().includes(query.toLowerCase())),
   );
-  return `<div class="panel-heading"><div><h2>Execution log</h2><p>Command output for the selected run. Use Activity for the readable summary.</p></div></div><div class="log-filters"><label>Run<select class="input" id="log-run"><option value="latest" ${run === 'latest' ? 'selected' : ''}>Current / latest run</option><option value="all" ${run === 'all' ? 'selected' : ''}>All runs</option>${task.attempts
+  return `<div class="panel-heading"><div><h2>Execution log</h2><p>Command output for the selected run. Use Activity for the readable summary.</p></div></div><div class="log-filters"><label>Run<select class="input" id="log-run"><option value="latest" ${run === 'latest' ? 'selected' : ''}>Current / latest run</option><option value="all" ${run === 'all' ? 'selected' : ''}>All runs</option>${attempts
     .map(
       (a, i) =>
         `<option value="${e(a.id)}" ${run === a.id ? 'selected' : ''}>${i + 1} · ${e(runLabel(a))} · ${e(a.harness)}</option>`,

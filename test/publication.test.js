@@ -3,7 +3,11 @@ import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { PublicationMonitor, publicationSnapshot } from '../server/publication-monitor.js';
+import {
+  PublicationMonitor,
+  publicationSnapshot,
+  observationDelay,
+} from '../server/publication-monitor.js';
 import { publicationPanel, publicationDetails } from '../public/publication.js';
 import { runProcess } from '../server/process.js';
 import { handoffSchema } from '../server/domain.js';
@@ -16,7 +20,7 @@ const snapshot = {
   checks: 'pending',
   review: 'required',
 };
-async function fixture(t, observe) {
+async function fixture(t, observe, options = {}) {
   const directory = await mkdtemp(join(tmpdir(), 'relay-publication-'));
   const root = join(directory, 'repo');
   await mkdir(root);
@@ -62,7 +66,7 @@ async function fixture(t, observe) {
     },
     event: (_, event) => events.push(event),
   };
-  const monitor = new PublicationMonitor(store, { observe, now: () => clock });
+  const monitor = new PublicationMonitor(store, { observe, now: () => clock, ...options });
   t.after(async () => {
     await monitor.stop();
     await rm(directory, { recursive: true, force: true });
@@ -72,6 +76,7 @@ async function fixture(t, observe) {
   };
   return {
     task,
+    store,
     monitor,
     root,
     events,
@@ -227,4 +232,89 @@ test('PR details retain latest monitoring evidence without poll rows in history'
   assert.match(html, /&lt;checking&gt;/);
   assert.match(html, /Observed &lt;head&gt;/);
   assert.match(html, /data-action="monitor-terminal" data-terminal-id="poll"/);
+});
+
+test('unchanged PR observations back off and explicit refresh resets the schedule', async (t) => {
+  const f = await fixture(t, async () => ({
+    verdict: 'complete',
+    summary: 'No change',
+    details: 'Read provider',
+    evidence: ['Observed'],
+    publication: snapshot,
+  }));
+  f.monitor.configure('task', 'repo', true);
+  await f.settle();
+  assert.equal(f.task.publicationMonitor.unchanged, 0);
+  assert.equal(
+    Date.parse(f.task.publicationMonitor.nextAt) - Date.parse(f.task.publicationMonitor.finishedAt),
+    5 * 60000,
+  );
+  f.advance();
+  await f.settle();
+  assert.equal(f.task.publicationMonitor.unchanged, 1);
+  assert.equal(
+    Date.parse(f.task.publicationMonitor.nextAt) - Date.parse(f.task.publicationMonitor.finishedAt),
+    10 * 60000,
+  );
+  f.advance();
+  await f.settle();
+  assert.equal(
+    Date.parse(f.task.publicationMonitor.nextAt) - Date.parse(f.task.publicationMonitor.finishedAt),
+    15 * 60000,
+  );
+  f.monitor.configure('task', 'repo', true);
+  await f.settle();
+  assert.equal(f.task.publicationMonitor.unchanged, 1);
+  assert.equal(observationDelay({ failures: 1 }), 5 * 60000);
+  assert.equal(observationDelay({ failures: 2 }), 10 * 60000);
+  assert.equal(observationDelay({ unchanged: 100 }), 15 * 60000);
+});
+
+test('PR polling skips busy writers and defers an observation if a writer starts', async (t) => {
+  let busy = true,
+    calls = 0;
+  const f = await fixture(
+    t,
+    async () => {
+      calls++;
+      busy = true;
+      return {
+        verdict: 'complete',
+        summary: 'Observed',
+        details: 'Read',
+        evidence: ['Provider'],
+        publication: snapshot,
+      };
+    },
+    { isWorkspaceBusy: () => busy },
+  );
+  f.monitor.configure('task', 'repo', true);
+  await f.settle();
+  assert.equal(calls, 0);
+  busy = false;
+  f.monitor.tick();
+  await f.settle();
+  assert.equal(calls, 1);
+  assert.equal(f.task.publication, undefined);
+  assert.equal(f.task.publicationMonitor.failures, 0);
+  assert.equal(f.task.publicationMonitor.enabled, true);
+  assert.match(f.task.publicationMonitor.summary, /deferred/);
+});
+
+test('PR scheduler chooses the oldest due observation rather than store order', async (t) => {
+  const f = await fixture(t, async () => ({
+    verdict: 'complete',
+    summary: 'Read',
+    details: 'Read',
+    evidence: ['Observed'],
+    publication: snapshot,
+  }));
+  const newer = structuredClone(f.task);
+  newer.id = 'newer';
+  newer.publicationMonitor = { enabled: true, nextAt: new Date(900000).toISOString() };
+  f.task.publicationMonitor = { enabled: true, nextAt: new Date(500000).toISOString() };
+  f.store.all = () => [newer, structuredClone(f.task)];
+  f.monitor.tick();
+  assert.ok(f.monitor.running.has('task:repo'));
+  await f.settle();
 });

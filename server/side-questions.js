@@ -1,3 +1,4 @@
+import { workspaces } from './task-repositories.js';
 import { memoryContext, MEMORY_RULES } from './memory.js';
 import { randomUUID } from 'node:crypto';
 import { mkdir } from 'node:fs/promises';
@@ -16,9 +17,26 @@ export function questionContext(store, task) {
     stage: task.stage,
     chosenApproach: task.chosenApproach,
     approvals: task.approvals,
-    repositories: (task.repositories ?? [task]).map((r) => ({
+    repositories: workspaces(task).map((r) => ({
       name: r.repository.name,
       branch: r.branch,
+      publication: r.publication,
+      publishing: r.delivery
+        ? {
+            status: r.delivery.status,
+            stage: r.delivery.stage,
+            summary: r.delivery.summary,
+            commit: r.delivery.commit,
+            nextAction: r.delivery.nextAction,
+          }
+        : null,
+      monitoring: r.publicationMonitor
+        ? {
+            status: r.publicationMonitor.status,
+            summary: r.publicationMonitor.summary,
+            checkedAt: r.publicationMonitor.finishedAt,
+          }
+        : null,
     })),
     attempts: task.attempts.map((a) => ({
       stage: a.stage,
@@ -28,9 +46,22 @@ export function questionContext(store, task) {
       error: a.error,
       handoff: a.handoff,
     })),
+    publicationRuns: (task.deliveryRuns ?? [])
+      .filter((run) => run.stage !== 'monitor')
+      .slice(-12)
+      .map((run) => ({
+        stage: run.stage,
+        harness: run.harness,
+        status: run.status,
+        handoff: run.handoff,
+        startedAt: run.startedAt,
+        finishedAt: run.finishedAt,
+      })),
     feedback: task.messages,
     recentActivity: store.db
-      .prepare('SELECT body FROM events WHERE task_id=? ORDER BY seq DESC LIMIT 30')
+      .prepare(
+        "SELECT body FROM events WHERE task_id=? AND (COALESCE(json_extract(body, '$.stage'), '') != 'monitor' OR json_extract(body, '$.observationChange') = 1) ORDER BY seq DESC LIMIT 30",
+      )
       .all(task.id)
       .reverse()
       .map((r) => {

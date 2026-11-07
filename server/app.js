@@ -1,3 +1,4 @@
+import { currentTaskRun } from '../public/task-runs.js';
 import { PublicationWorkflow } from './publication-workflow.js';
 import { PublicationMonitor } from './publication-monitor.js';
 import { listMemories, createMemory, updateMemory, deleteMemory } from './memory.js';
@@ -48,8 +49,9 @@ async function body(req) {
     throw new InputError('Invalid JSON request body');
   }
 }
-function summary(task) {
-  const { attempts, approvals, messages, repository, ...rest } = task;
+export function taskListSummary(task) {
+  const { attempts, approvals, messages, repository, deliveryRuns, ...rest } = task;
+  const current = currentTaskRun(task);
   return {
     ...rest,
     repositories: workspaces(task).map((e) => ({
@@ -59,7 +61,15 @@ function summary(task) {
     })),
     repository: { id: repository.id, name: repository.name },
     attemptCount: attempts.length,
-    latestSummary: attempts.findLast((a) => a.handoff)?.handoff.summary ?? '',
+    currentRun: current
+      ? Object.fromEntries(
+          ['id', 'stage', 'role', 'auxiliary', 'status', 'harness', 'startedAt'].map((key) => [
+            key,
+            current[key],
+          ]),
+        )
+      : undefined,
+    latestSummary: current?.summary ?? current?.handoff?.summary ?? '',
     totalDurationMs: attempts.reduce(
       (sum, a) => sum + (a.finishedAt ? new Date(a.finishedAt) - new Date(a.startedAt) : 0),
       0,
@@ -72,6 +82,7 @@ export function createApp({ directory, publicDirectory, engineOptions = {} }) {
   const engine = new Engine(store, engineOptions);
   const publicationMonitor = new PublicationMonitor(store, {
     observe: engineOptions.publicationObserve ?? engineOptions.harness,
+    isWorkspaceBusy: (root) => engine.workspaceReservations.has(root),
   });
   const publicationWorkflow = new PublicationWorkflow(store, engine, publicationMonitor, {
     publish: engineOptions.publicationPublish,
@@ -363,7 +374,7 @@ export function createApp({ directory, publicDirectory, engineOptions = {} }) {
           routingOutcomes(store.all(), store.config, url.searchParams.get('repositoryId') || ''),
         );
       if (path === '/api/tasks' && req.method === 'GET')
-        return json(res, 200, store.all().map(summary));
+        return json(res, 200, store.all().map(taskListSummary));
       if (path === '/api/tasks' && req.method === 'POST')
         return json(res, 201, engine.create(await body(req)));
       if (path === '/api/events' && req.method === 'GET') {

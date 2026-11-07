@@ -712,11 +712,7 @@ document.addEventListener('click', async (event) => {
       return;
     }
     if (action === 'delivery-details') {
-      showModal(
-        'Delivery details',
-        publicationDetails(state.task, element.dataset.repositoryId),
-        true,
-      );
+      showModal('PR details', publicationDetails(state.task, element.dataset.repositoryId), true);
       return;
     }
     if (action === 'memory-history' || action === 'memory-select-run') {
@@ -935,7 +931,7 @@ document.addEventListener('click', async (event) => {
     if (action === 'takeover') {
       showModal(
         'Take control of this workspace',
-        `<p class="modal-description">Relay will stop the active agent, then open a shell in this task’s worktree. Use the interactive terminal directly in the Live terminals tab. You can also run your preferred harness there. Return control when ready; Relay will rerun ${state.task.chosenApproach ? 'all checks and independent review' : 'investigation and approach approval'}.</p><p class="modal-description">Closing the browser tab keeps manual control. Returning to automation closes the terminal and its processes.</p><div class="modal-footer">${button('close-modal', 'Keep automation', 'text')}${button('takeover-confirm', 'Take control', 'primary', 'code', `data-repository-id="${e(element.dataset.repositoryId)}"`)}</div>`,
+        `<p class="modal-description">Relay will stop the active agent, then open a shell in this task’s worktree. Use the interactive terminal directly in the Live terminals tab. You can also run your preferred harness there. Return control when ready; Relay will rerun ${state.task.chosenApproach ? 'required checks and independent review' : 'investigation and approach approval'}.</p><p class="modal-description">Closing the browser tab keeps manual control. Returning to automation closes the terminal and its processes.</p><div class="modal-footer">${button('close-modal', 'Keep automation', 'text')}${button('takeover-confirm', 'Take control', 'primary', 'code', `data-repository-id="${e(element.dataset.repositoryId)}"`)}</div>`,
       );
       return;
     }
@@ -1085,7 +1081,7 @@ document.addEventListener('click', async (event) => {
     }
     if (action === 'focused-repair') {
       await api(`/tasks/${state.selected}/request-changes`, 'POST', {
-        note: 'Address these focused inline review requests. Keep unrelated code unchanged; rerun all checks and review.',
+        note: 'Address these focused inline review requests. Keep unrelated code unchanged; run checks for the affected behavior and independent review.',
         commentIds: state.task.reviewComments.filter((c) => c.status === 'open').map((c) => c.id),
       });
       await refresh();
@@ -1165,7 +1161,7 @@ document.addEventListener('click', async (event) => {
         repositoryId: element.dataset.repositoryId,
       });
       closeModal();
-      toast('Publication agent started. Follow its progress in Delivery.');
+      toast('Publishing started. Follow its progress in Activity.');
       await refresh();
     }
     if (action === 'delete-repository') {

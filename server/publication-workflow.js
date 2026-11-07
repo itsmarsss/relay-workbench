@@ -97,7 +97,7 @@ export class PublicationWorkflow {
       event
         ? {
             ...event,
-            stage: 'publish',
+            stage: entry.delivery?.stage ?? 'publish',
             attemptId: entry.delivery?.id,
             repositoryId: repoId,
             harness: entry.delivery?.harness,
@@ -595,6 +595,7 @@ export class PublicationWorkflow {
       for (const other of workspaces(task).filter((e) => e.repository.id !== repoId))
         otherBefore.set(other.repository.id, await fingerprint(workspaceView(task, other)));
       let phase = entry.delivery?.requiresReverification ? 'preparing' : 'publishing';
+      let lastValidation;
       for (let round = 0; round < 4; round++) {
         const input = await this.invoke(
           task,
@@ -702,7 +703,17 @@ export class PublicationWorkflow {
           task = this.store.get(id);
           entry = workspaces(task).find((e) => e.repository.id === repoId);
           view = workspaceView(task, entry);
-          const validation = await this.revalidate(task, entry, signal, prep);
+          const validation =
+            lastValidation?.fingerprint === workingFingerprint &&
+            lastValidation.baseCommit === prep.baseCommit
+              ? lastValidation.result
+              : await this.revalidate(task, entry, signal, prep);
+          if (validation.verdict === 'complete')
+            lastValidation = {
+              fingerprint: workingFingerprint,
+              baseCommit: prep.baseCommit,
+              result: validation,
+            };
           if (validation.verdict === 'blocked') {
             this.finishRun(id, repoId, validation, { phase: 'needs_attention' });
             return;

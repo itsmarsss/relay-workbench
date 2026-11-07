@@ -319,8 +319,7 @@ export class Engine {
         task.blockerDecision = null;
         this.store.save(task, {
           type: 'queued',
-          summary:
-            'Running configured host checks before continuing the interrupted implementation.',
+          summary: 'Running configured checks before continuing the interrupted implementation.',
         });
       } else if (action === 'debug' || action === 'resolve-blocker') {
         requireValue(
@@ -1114,7 +1113,7 @@ export class Engine {
         agentVerification && !debugging
           ? `${harness} verification agent is discovering and running repository checks on the host.`
           : trustedVerification
-            ? 'Running configured host checks; implementation progress is preserved.'
+            ? 'Running configured checks; implementation progress is preserved.'
             : debugging
               ? `${harness} elevated debugger is diagnosing the ${stage} blocker on the host.`
               : view.continuationContext
@@ -1433,14 +1432,14 @@ export class Engine {
         stage === 'implement' &&
           task.chosenApproach &&
           (debugging || handoff.verdict === 'verification_requested'),
-        'Host verification requires an approved implementation; repair delegation requires a debugger',
+        'Verification requires an approved implementation; repair delegation requires a debugger',
       );
       if (handoff.verdict === 'verification_requested')
         requireValue(
           entries.every(
             (e) => e.repository.verificationMode !== 'commands' || e.repository.checks.length > 0,
           ),
-          'Configure repository checks before requesting host verification',
+          'Configure repository checks before requesting verification',
         );
     }
     if (handoff.verdict === 'verification_requested') {
@@ -1595,7 +1594,7 @@ export class Engine {
       harness,
       repositoryId: scoped ? entry.repository.id : null,
       summary: debugging
-        ? `${handoff.verdict === 'repair_requested' ? 'Debugger → targeted repair' : handoff.verdict === 'verification_requested' ? 'Debugger → host checks' : 'Debugger'}: ${handoff.summary}`
+        ? `${handoff.verdict === 'repair_requested' ? 'Debugger → targeted repair' : handoff.verdict === 'verification_requested' ? 'Debugger → verification' : 'Debugger'}: ${handoff.summary}`
         : scoped
           ? `${entry.repository.name}: ${handoff.summary}`
           : handoff.summary,

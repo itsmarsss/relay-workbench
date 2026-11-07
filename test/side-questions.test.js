@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Store } from '../server/store.js';
 import { newTask, DEFAULT_CONFIG } from '../server/domain.js';
-import { SideQuestions } from '../server/side-questions.js';
+import { SideQuestions, questionContext } from '../server/side-questions.js';
 import { elapsed, timer, liveProgress, updateTimers } from '../public/live-progress.js';
 import { sideChat } from '../public/side-chat.js';
 test('side questions use a snapshot and never steer or overwrite the worker', async (t) => {
@@ -82,4 +82,37 @@ test('side chat escapes questions and sanitizes answers', () => {
   );
   assert.doesNotMatch(html, /<script>/);
   assert.match(html, /cannot steer/);
+});
+
+test('side context includes publication results without routine polls hiding useful activity', async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), 'relay-side-context-'));
+  const store = new Store(directory);
+  t.after(async () => {
+    store.close();
+    await rm(directory, { recursive: true, force: true });
+  });
+  const task = newTask({ title: 'Published task', demo: true }, DEFAULT_CONFIG);
+  task.publication = { url: 'https://code.example/pr/1', state: 'open' };
+  task.delivery = { status: 'running', stage: 'verify', summary: 'Checking prepared source' };
+  task.deliveryRuns = [
+    { stage: 'publish', status: 'complete', handoff: { summary: 'Prepared' } },
+    { stage: 'monitor', status: 'complete' },
+  ];
+  store.save(task);
+  store.event(task.id, { type: 'feedback', summary: 'Useful direction' });
+  for (let i = 0; i < 40; i++)
+    store.event(task.id, { type: 'activity', stage: 'monitor', summary: 'Polling' });
+  store.event(task.id, {
+    type: 'publication',
+    stage: 'monitor',
+    observationChange: true,
+    summary: 'Checks passing',
+  });
+  const context = questionContext(store, store.get(task.id));
+  assert.equal(context.repositories[0].publication.state, 'open');
+  assert.equal(context.repositories[0].publishing.stage, 'verify');
+  assert.equal(context.publicationRuns.length, 1);
+  assert.ok(context.recentActivity.some((e) => e.summary === 'Useful direction'));
+  assert.ok(context.recentActivity.some((e) => e.summary === 'Checks passing'));
+  assert.ok(!context.recentActivity.some((e) => e.summary === 'Polling'));
 });
