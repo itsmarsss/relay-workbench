@@ -188,3 +188,43 @@ test('Delivery makes acceptance, publication and remote status distinct and esca
   const schema = handoffSchema('monitor');
   assert.ok(schema.required.includes('publication'));
 });
+
+test('monitor uses the successfully published commit after a rebase', async (t) => {
+  const f = await fixture(t, async (input) => {
+    assert.equal(input.task.publicationContext.commit, 'published-head');
+    return {
+      verdict: 'complete',
+      summary: 'PR matches',
+      details: 'Observed head',
+      evidence: ['Read provider'],
+      publication: snapshot,
+    };
+  });
+  f.task.submission = { status: 'complete', commit: 'old-head' };
+  f.task.delivery = { status: 'complete', phase: 'monitoring', commit: 'published-head' };
+  f.monitor.configure('task', 'repo', true);
+  await f.settle();
+  assert.equal(f.task.publicationMonitor.status, 'idle');
+});
+
+test('PR details retain latest monitoring evidence without poll rows in history', () => {
+  const task = {
+    status: 'completed',
+    repository: { id: 'repo', name: 'Example' },
+    publication: { ...snapshot, checkedAt: '2026-01-01T00:00:00Z' },
+    publicationMonitor: {
+      status: 'running',
+      attemptId: 'poll',
+      summary: '<checking>',
+      details: 'Provider details',
+      evidence: ['Observed <head>'],
+      terminal: { session: 'poll' },
+    },
+  };
+  assert.match(publicationPanel(task), /Checking PR status/);
+  const html = publicationDetails(task, 'repo');
+  assert.match(html, /Latest PR observation/);
+  assert.match(html, /&lt;checking&gt;/);
+  assert.match(html, /Observed &lt;head&gt;/);
+  assert.match(html, /data-action="monitor-terminal" data-terminal-id="poll"/);
+});

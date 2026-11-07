@@ -20,7 +20,10 @@ export function activityRunSelection(task, events, selection = 'latest') {
               ev.stage === selected.stage &&
               ev.at === selected.startedAt),
         )
-      : events,
+      : events.filter(
+          (event) =>
+            event.stage !== 'monitor' || (event.type === 'publication' && event.observationChange),
+        ),
   };
 }
 export function activityRunNavigation(task, selected, selection) {

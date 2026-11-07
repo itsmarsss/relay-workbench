@@ -104,3 +104,80 @@ test('delivery runs follow publication and retain prior retries and scoped outpu
   assert.equal(terminalSessions(task).at(-1).live, true);
   assert.equal(executionNodes(task).at(-1).stage, 'publish');
 });
+
+test('routine PR polls do not become workflow runs or take over current activity', async () => {
+  const { taskRuns } = await import('../public/task-runs.js');
+  const { terminalSessions, terminalSelection } = await import('../public/terminals.js');
+  const { executionNodes } = await import('../public/execution-map.js');
+  const task = {
+    status: 'completed',
+    repository: { id: 'repo', name: 'Example' },
+    attempts: [
+      {
+        id: 'repair',
+        stage: 'implement',
+        startedAt: '2026-01-01T00:00:00Z',
+        harness: 'codex',
+        terminal: { session: 'repair' },
+        status: 'complete',
+      },
+    ],
+    deliveryRuns: [
+      {
+        id: 'published',
+        stage: 'publish',
+        startedAt: '2026-01-01T01:00:00Z',
+        harness: 'codex',
+        terminal: { session: 'published' },
+        status: 'complete',
+      },
+      ...['old-poll', 'poll'].map((id, i) => ({
+        id,
+        stage: 'monitor',
+        startedAt: `2026-01-01T0${i + 2}:00:00Z`,
+        harness: 'codex',
+        status: 'complete',
+        terminal: { session: id },
+      })),
+    ],
+    publicationMonitor: {
+      attemptId: 'poll',
+      startedAt: '2026-01-01T03:00:00Z',
+      harness: 'codex',
+      status: 'running',
+      terminal: { session: 'poll' },
+    },
+  };
+  const events = [
+    { attemptId: 'published', type: 'handoff', summary: 'Published' },
+    { attemptId: 'poll', stage: 'monitor', type: 'activity', summary: 'Polling' },
+    {
+      attemptId: 'poll',
+      stage: 'monitor',
+      type: 'publication',
+      observationChange: true,
+      summary: 'Checks passing',
+    },
+  ];
+  assert.deepEqual(
+    taskRuns(task).map((r) => r.id),
+    ['repair', 'published'],
+  );
+  assert.equal(taskRuns(task, { includeMonitoring: true }).length, 4);
+  assert.equal(activityRunSelection(task, events).selected.id, 'published');
+  assert.deepEqual(activityRunSelection(task, events, 'all').events, [events[0], events[2]]);
+  assert.doesNotMatch(
+    activityRunNavigation(task, null, 'latest'),
+    /data-run="poll"|data-run="old-poll"/,
+  );
+  assert.deepEqual(
+    executionNodes(task).map((r) => r.id),
+    ['repair', 'published'],
+  );
+  assert.deepEqual(
+    terminalSessions(task).map((r) => r.id),
+    ['repair', 'published', 'poll'],
+  );
+  assert.equal(terminalSelection(task).id, 'published');
+  assert.equal(terminalSelection(task, 'poll').id, 'poll');
+});

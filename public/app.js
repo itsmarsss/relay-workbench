@@ -982,6 +982,15 @@ document.addEventListener('click', async (event) => {
       focusBoard();
       return;
     }
+    if (action === 'monitor-terminal') {
+      closeModal();
+      state.tab = 'terminals';
+      state.terminalId = element.dataset.terminalId;
+      history.pushState(null, '', taskRoute(state.selected, state.tab));
+      await refreshTerminal(state.task);
+      renderMain();
+      return;
+    }
     if (action === 'terminal-tab') {
       state.terminalId = element.dataset.terminalId;
       await refreshTerminal(state.task);

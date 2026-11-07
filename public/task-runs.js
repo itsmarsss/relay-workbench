@@ -1,5 +1,5 @@
 // Include legacy current delivery records without inventing lost historical runs.
-export function taskRuns(task) {
+export function taskRuns(task, { includeMonitoring = false } = {}) {
   const runs = new Map((task.attempts ?? []).map((run) => [run.id ?? run, run]));
   for (const run of task.deliveryRuns ?? []) runs.set(run.id, run);
   for (const entry of task.repositories?.length > 1 ? task.repositories : [task]) {
@@ -24,7 +24,9 @@ export function taskRuns(task) {
       });
     }
   }
-  return [...runs.values()].sort((a, b) =>
-    a.startedAt && b.startedAt ? Date.parse(a.startedAt) - Date.parse(b.startedAt) : 0,
-  );
+  return [...runs.values()]
+    .filter((run) => includeMonitoring || run.stage !== 'monitor')
+    .sort((a, b) =>
+      a.startedAt && b.startedAt ? Date.parse(a.startedAt) - Date.parse(b.startedAt) : 0,
+    );
 }

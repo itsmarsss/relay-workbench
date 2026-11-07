@@ -4,8 +4,16 @@ import { e, stageNames } from './ui.js';
 import { concise } from './task-summary.js';
 
 export function terminalSessions(task) {
-  const sessions = taskRuns(task)
-    .map((attempt, index) => ({ attempt, run: index + 1 }))
+  const entries = task.repositories?.length > 1 ? task.repositories : [task];
+  const latestMonitors = new Set(entries.map((entry) => entry.publicationMonitor?.attemptId));
+  const workflow = taskRuns(task);
+  const sessions = taskRuns(task, { includeMonitoring: true })
+    .filter((run) => run.stage !== 'monitor' || latestMonitors.has(run.id))
+    .map((attempt) => ({
+      attempt,
+      run:
+        attempt.stage === 'monitor' ? null : workflow.findIndex((run) => run.id === attempt.id) + 1,
+    }))
     .filter(({ attempt }) => attempt.terminal)
     .map(({ attempt, run }) => {
       const repositoryId =
@@ -55,7 +63,10 @@ export function terminalSessions(task) {
 export function terminalSelection(task, selectedId) {
   const sessions = terminalSessions(task);
   return (
-    sessions.find((s) => s.id === selectedId) ?? sessions.findLast((s) => s.live) ?? sessions.at(-1)
+    sessions.find((s) => s.id === selectedId) ??
+    sessions.findLast((s) => s.live && s.attempt?.stage !== 'monitor') ??
+    sessions.findLast((s) => s.attempt?.stage !== 'monitor') ??
+    sessions.at(-1)
   );
 }
 // A resumed conversation can span several attempts in the same repository.
@@ -116,7 +127,7 @@ function runPicker(sessions, selected) {
     .reverse()
     .map(
       (s) =>
-        `<option value="${e(s.id)}" ${s.id === selected.id ? 'selected' : ''}>${e(`${s.run ? `Run ${s.run}` : 'Manual shell'} · ${s.label} · ${s.status}`)}</option>`,
+        `<option value="${e(s.id)}" ${s.id === selected.id ? 'selected' : ''}>${e(`${s.run ? `Run ${s.run}` : s.attempt?.stage === 'monitor' ? 'PR status' : 'Manual shell'} · ${s.label} · ${s.status}`)}</option>`,
     )
     .join(
       '',

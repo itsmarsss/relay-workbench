@@ -147,6 +147,10 @@ export class PublicationMonitor {
       repositoryId = entry.repository.id,
       attemptId = randomUUID();
     const view = workspaceView(task, entry);
+    const publishedCommit =
+      entry.delivery?.status === 'complete' && entry.delivery?.phase === 'monitoring'
+        ? entry.delivery.commit
+        : undefined;
     const harness = task.routing.investigate;
     const startedAt = new Date(this.now()).toISOString();
     this.updateRun(
@@ -185,7 +189,7 @@ export class PublicationMonitor {
           publicationContext: {
             repository: entry.repository.name,
             branch: entry.branch,
-            commit: entry.submission?.commit,
+            commit: publishedCommit ?? entry.submission?.commit,
             submission: entry.submission
               ? {
                   status: entry.submission.status,
@@ -257,7 +261,13 @@ export class PublicationMonitor {
           });
         },
         changed
-          ? { type: 'publication', summary: result.summary, details: result.details, repositoryId }
+          ? {
+              type: 'publication',
+              observationChange: true,
+              summary: result.summary,
+              details: result.details,
+              repositoryId,
+            }
           : undefined,
       );
     } catch (error) {
@@ -281,7 +291,12 @@ export class PublicationMonitor {
             nextAt: new Date(this.now() + 300000 * failures).toISOString(),
           });
         },
-        { type: 'publication', summary: `PR status unavailable: ${error.message}`, repositoryId },
+        {
+          type: 'publication',
+          observationChange: true,
+          summary: `PR status unavailable: ${error.message}`,
+          repositoryId,
+        },
       );
     }
   }
