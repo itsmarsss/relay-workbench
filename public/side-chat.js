@@ -1,3 +1,4 @@
+import { sideAnswerText } from './side-answer.js';
 import { answerMemories } from './memory.js';
 import { e, prose, icon } from './ui.js';
 function sourceActivity(question) {
@@ -27,7 +28,7 @@ function sourceActivity(question) {
     .join('')}</ol></details>`;
 }
 function answerBody(question) {
-  return `${sourceActivity(question)}${question.answer ? `<div class="prose side-chat-response">${prose(question.answer)}</div>` : ''}${question.error ? `<p class="error-text">${e(question.error)}</p>` : ''}${question.status === 'running' ? `<p class="side-chat-thinking" role="status">${question.toolCalls?.some((call) => call.status === 'running') ? 'Inspecting source…' : question.answer ? 'Replying…' : 'Connecting…'}</p>` : ''}`;
+  return `${sourceActivity(question)}${question.answer ? `<div class="prose side-chat-response">${prose(sideAnswerText(question.answer))}</div>` : ''}${question.error ? `<p class="error-text">${e(question.error)}</p>` : ''}${question.status === 'running' ? `<p class="side-chat-thinking" role="status">${question.toolCalls?.some((call) => call.status === 'running') ? 'Inspecting source…' : question.answer ? 'Replying…' : 'Connecting…'}</p>` : ''}`;
 }
 export function sideChat(task, open = false) {
   const questions = task.sideQuestions ?? [];

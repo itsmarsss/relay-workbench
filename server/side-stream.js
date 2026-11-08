@@ -1,3 +1,4 @@
+import { sideAnswerText } from '../public/side-answer.js';
 // Claude public text and tool events only; private reasoning is never rendered.
 export function sideStream(onProgress = () => {}) {
   const messages = new Map(),
@@ -29,7 +30,10 @@ export function sideStream(onProgress = () => {}) {
       .filter(Boolean)
       .join('\n\n')
       .slice(0, 128000);
-    onProgress({ answer, toolCalls: [...tools.values()].map((t) => ({ ...t })) });
+    onProgress({
+      answer: sideAnswerText(answer),
+      toolCalls: [...tools.values()].map((t) => ({ ...t })),
+    });
   }
   return {
     consume(line) {
