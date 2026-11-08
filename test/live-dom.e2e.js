@@ -155,6 +155,14 @@ try {
     preserved.editorControls =
       root.querySelector('[data-mode="write"]') === write &&
       root.querySelector('[data-mode="preview"]') === preview;
+    const boardControls =
+      '<div><button data-action="task-layout" data-layout="list">List</button><button data-action="task-layout" data-layout="board">Board</button></div><nav><button data-action="filter" data-filter="all">All</button><button data-action="filter" data-filter="active">Running</button></nav>';
+    updateLiveDOM(root, boardControls, 'board-controls');
+    const originals = [...root.querySelectorAll('button')];
+    for (let count = 0; count < 5; count++) updateLiveDOM(root, boardControls, 'board-controls');
+    preserved.actionArguments = originals.every(
+      (button, index) => root.querySelectorAll('button')[index] === button,
+    );
     return preserved;
   });
   for (const [check, passed] of Object.entries(result))

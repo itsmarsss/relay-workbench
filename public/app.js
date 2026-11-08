@@ -1,3 +1,5 @@
+import { installRepositorySuggestions } from './repository-suggestions.js';
+import { notify, syncToastLayer } from './notifications.js';
 import { installBoardDrag } from './board-drag.js';
 import { boardStatuses, columns, workflowColumn } from './workflow.js';
 import { sidebarControls, syncSidebar } from './sidebar.js';
@@ -128,13 +130,8 @@ async function loadMemories() {
     return [];
   }
 }
-function toast(message, error = false) {
-  const element = document.querySelector('#toast');
-  element.textContent = message;
-  element.className = error ? 'show error' : 'show';
-  clearTimeout(element.timer);
-  element.timer = setTimeout(() => (element.className = ''), 6500);
-}
+const toast = notify;
+
 function button(action, label, kind = '', iconName = '', attrs = '') {
   return `<button class="btn ${kind}" data-action="${action}" ${attrs}>${iconName ? icon(iconName) : ''}${label}</button>`;
 }
@@ -561,6 +558,7 @@ function showModal(title, contents, wide = false) {
   const dialog = document.querySelector('#dialog');
   prepareSearchSelects(dialog);
   dialog.showModal();
+  syncToastLayer();
   dialog.addEventListener('close', () => {
     if (state.modal?.restoreId) {
       const previewId = state.modal.restoreId;
@@ -649,6 +647,7 @@ function repositoryModal(id, preset = {}) {
   );
   document.querySelector('#dialog').classList.add('repository-dialog');
   syncRepositoryProfile(document.querySelector('#repository-form'));
+  installRepositorySuggestions(document.querySelector('#repository-form'), { api, notify: toast });
 }
 const refresh = refreshQueue(refreshSnapshot, { onError: (error) => toast(error.message, true) });
 async function refreshSnapshot() {

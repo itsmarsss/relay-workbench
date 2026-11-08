@@ -17,7 +17,7 @@ Click **Try a demo** to exercise the entire workflow with clearly labeled simula
 
 Collapse the sidebar with the panel button beside the Relay logo. Drag its right edge to resize; focus the edge and use arrow keys, Home or End for keyboard resizing. Double-click the edge to reset its width. Width and desktop collapse state are remembered on this browser. On smaller screens the expanded navigation overlays the page.
 
-Repository profiles have **General**, **Workspace**, **Checks & setup**, **Integrations** and **Guidance** tabs. Optional command fields appear for the selected workspace and verification modes. All tabs save together; removing a profile asks for confirmation and preserves existing tasks and worktrees.
+Repository profiles have **General**, **Workspace**, **Checks & setup**, **Integrations** and **Guidance** tabs. Optional command fields appear for the selected workspace and verification modes. The General tab detects metadata after you enter a checkout path. Suggestions include a project name, checkout root, package subdirectories, declared check scripts, dependency setup and guidance-file locations. Apply suggestions individually; commands are never executed during detection and existing command lists are preserved. All tabs save together; removing a profile asks for confirmation and preserves existing tasks and worktrees.
 
 ## Your first live run
 

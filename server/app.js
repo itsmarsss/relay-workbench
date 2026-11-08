@@ -1,3 +1,4 @@
+import { repositorySuggestions } from './repository-suggestions.js';
 import { ModelCatalog } from './model-catalog.js';
 import { discoverRepositories } from './repository-discovery.js';
 import { FollowUpAgent } from './follow-up-agent.js';
@@ -372,6 +373,17 @@ export function createApp({ directory, publicDirectory, engineOptions = {} }) {
         );
         const config = store.setConfig(await body(req));
         return json(res, 200, config);
+      }
+      if (path === '/api/repositories/suggestions' && req.method === 'POST') {
+        const raw = await body(req);
+        return json(
+          res,
+          200,
+          await repositorySuggestions({
+            path: text(raw.path, 'Path', 2000),
+            cwd: text(raw.cwd ?? '.', 'Working subdirectory', 2000),
+          }),
+        );
       }
       if (path === '/api/repositories/inspect' && req.method === 'POST') {
         const raw = await body(req);

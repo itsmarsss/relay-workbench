@@ -215,8 +215,9 @@
   overflow: auto;
 }
 .repository-dialog .modal-heading {
-  padding: 22px 24px 16px;
+  padding: 22px 24px 6px;
   margin: 0;
+  border-bottom: 0;
 }
 .repository-dialog .modal-heading h2 {
   font-size: 19px;
@@ -578,7 +579,7 @@
     width: calc(100vw - 16px);
   }
   .repository-dialog .modal-heading {
-    padding: 18px 16px 12px;
+    padding: 18px 16px 6px;
   }
   .profile-intro {
     padding: 0 16px 16px;
@@ -694,4 +695,96 @@
   border-color: #638c65;
   outline: 2px solid #638c65;
   outline-offset: -2px;
+}
+
+/* A popover live region shares the modal top layer, rather than hiding behind it. */
+#toast[popover] {
+  inset: auto auto 24px 50%;
+  margin: 0;
+  width: max-content;
+  max-width: min(640px, calc(100vw - 32px));
+  border: 1px solid #496550;
+  white-space: normal;
+  line-height: 1.5;
+}
+.profile-suggestions {
+  margin-top: 24px;
+  padding-top: 18px;
+  border-top: 1px solid #dce3dc;
+}
+.profile-suggestions-heading {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.profile-suggestions-heading h4 {
+  margin: 0;
+  font-size: 13px;
+}
+.profile-suggestions-heading p {
+  margin: 4px 0 0;
+  color: #58645d;
+  font-size: 12px;
+  line-height: 1.5;
+}
+[data-profile-suggestions] ul {
+  margin: 12px 0;
+  padding: 0;
+  list-style: none;
+}
+[data-profile-suggestions] li {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+  padding: 12px 0;
+  border-top: 1px solid #e6ece2;
+}
+[data-profile-suggestions] li > div {
+  min-width: 0;
+}
+[data-profile-suggestions] strong,
+[data-profile-suggestions] code,
+[data-profile-suggestions] small {
+  display: block;
+}
+[data-profile-suggestions] strong {
+  font-size: 12px;
+  font-weight: 500;
+}
+[data-profile-suggestions] code {
+  font-size: 11px;
+  color: #42584a;
+  overflow-wrap: anywhere;
+  background: #f2f5ef;
+  margin-top: 4px;
+}
+[data-profile-suggestions] small {
+  font-size: 11px;
+  color: #58645d;
+  margin-top: 4px;
+}
+[data-profile-suggestions] .btn {
+  flex-shrink: 0;
+}
+.profile-detected-guidance {
+  color: #58645d;
+  font-size: 12px;
+  line-height: 1.7;
+  margin-top: 14px;
+}
+.profile-detected-guidance code {
+  display: inline;
+  font-size: 11px;
+}
+.profile-detection-error {
+  color: #954536;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+/* Keep dialog notifications clear of the persistent save/cancel bar. */
+dialog #toast[popover] {
+  bottom: calc(5dvh + 96px);
 }

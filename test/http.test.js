@@ -1209,3 +1209,33 @@ test('board moves validate all columns without changing workflow gates', async (
   const cleared = await f.request(`/api/tasks/${task.id}/status-override`, 'POST', { value: null });
   assert.equal(workflowColumn(cleared.data), 'backlog');
 });
+
+test('repository suggestion requests authenticate and validate the checkout', async (t) => {
+  const f = await fixture(t);
+  assert.equal(
+    (
+      await f.request(
+        '/api/repositories/suggestions',
+        'POST',
+        { path: '/example' },
+        { 'X-Relay-Token': '' },
+      )
+    ).status,
+    403,
+  );
+  assert.equal(
+    (await f.request('/api/repositories/suggestions', 'POST', { path: 'relative' })).status,
+    400,
+  );
+  const root = join(f.directory, 'metadata-repo');
+  await mkdir(root);
+  await git(root, ['init']);
+  await writeFile(
+    join(root, 'package.json'),
+    JSON.stringify({ name: 'Example package', scripts: { test: 'never execute' } }),
+  );
+  const response = await f.request('/api/repositories/suggestions', 'POST', { path: root });
+  assert.equal(response.status, 200);
+  assert.equal(response.data.suggestions[0].value, 'Example package');
+  assert.equal(f.app.store.config.repositories.length, 0);
+});
