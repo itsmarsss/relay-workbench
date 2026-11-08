@@ -137,7 +137,9 @@ export async function runProcess(
       const consume = (stream, chunk) => {
         bytes += Buffer.byteLength(chunk);
         if (bytes > maxBytes) {
-          stop('Execution exceeded output limit; inspect the harness session');
+          const error = new Error('Execution exceeded output limit; inspect the harness session');
+          error.code = 'OUTPUT_LIMIT';
+          stop(error);
           return;
         }
         if (stream === 'stdout') stdout += chunk;

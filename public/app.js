@@ -445,6 +445,8 @@ function diffView(t, suppliedDiff) {
         .join('')
     );
   if (d.error) return `<div class="error-panel">${e(d.error)}</div>`;
+  if (d.omitted)
+    return `<div class="error-panel"><h2>Changes exceed the preview limit</h2><p>${e(d.reason)} The full diff is available in the task’s worktree.</p></div>`;
   const repositoryId = d.repositoryId ?? t.repository.id;
   const comments = (t.reviewComments || []).filter((c) => c.repositoryId === repositoryId);
   const files = diffFileGroups(d);
@@ -1054,6 +1056,13 @@ document.addEventListener('click', async (event) => {
               Math.min(1.5, state.graphZoom + (action === 'graph-zoom-in' ? 0.1 : -0.1)),
             );
       renderMain();
+      return;
+    }
+    if (action === 'sync-base') {
+      const update = state.task.blockerDecision?.baseUpdate;
+      if (!update) return;
+      await api(`/tasks/${state.selected}/sync-base`, 'POST', update);
+      await refresh();
       return;
     }
     if (action === 'tab') {

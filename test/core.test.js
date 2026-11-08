@@ -12,7 +12,7 @@ import { buildInvocation, decodeEvent, demoHandoff } from '../server/harness.js'
 import { runProcess, executableExists } from '../server/process.js';
 
 const hasTmux = await executableExists('tmux');
-import { git, fingerprint, inspectRepository } from '../server/workspace.js';
+import { git, fingerprint, inspectRepository, diff } from '../server/workspace.js';
 
 async function fixture(t) {
   const directory = await mkdtemp(join(tmpdir(), 'relay-test-'));
@@ -1270,3 +1270,149 @@ for (const failure of [
     await assert.rejects(readFile(marker), { code: 'ENOENT' });
     if (rejected) assert.ok(!final.verifiedFingerprint);
   });
+
+test('oversized diffs are explicitly omitted without hiding Git failures', async (t) => {
+  const f = await fixture(t);
+  const repo = await makeRepo(f.directory);
+  const baseCommit = await git(repo, ['rev-parse', 'HEAD']);
+  await writeFile(join(repo, 'value.txt'), 'changed line\n'.repeat(1000));
+  const task = { workspace: repo, workspaceRoot: repo, baseCommit };
+  const before = await fingerprint(task);
+  const snapshot = await diff(task, { maxBytes: 1024 });
+  assert.equal(snapshot.omitted, true);
+  assert.equal(snapshot.text, '');
+  assert.match(snapshot.reason, /no partial patch/);
+  assert.equal(await fingerprint(task), before);
+  await assert.rejects(diff({ ...task, baseCommit: 'missing-base' }), /git.*failed/);
+});
+
+test('base synchronization checks state and preserves work and approvals', async (t) => {
+  const f = await fixture(t);
+  const repo = await makeRepo(f.directory);
+  f.store.setConfig({ ...DEFAULT_CONFIG, repositories: [profile(repo)] });
+  const engine = f.makeEngine();
+  const task = engine.create({ title: 'Preserve test work', repositoryId: 'repo' });
+  const baseCommit = await git(repo, ['rev-parse', 'HEAD']);
+  await writeFile(join(repo, 'upstream.txt'), 'new baseline\n');
+  await git(repo, ['add', 'upstream.txt']);
+  await runProcess('git', [
+    '-C',
+    repo,
+    '-c',
+    'user.name=Test',
+    '-c',
+    'user.email=test@example.test',
+    'commit',
+    '-m',
+    'test: advance baseline',
+  ]);
+  const head = await git(repo, ['rev-parse', 'HEAD']);
+  await writeFile(join(repo, 'value.txt'), 'approved edits\n');
+  Object.assign(task, {
+    status: 'blocked',
+    stage: 'verify',
+    workspace: repo,
+    workspaceRoot: repo,
+    baseCommit,
+    branch: 'feature/test',
+    chosenApproach: { id: 'approved' },
+    verifiedFingerprint: 'old',
+    reviewedFingerprint: 'old',
+    recovery: { active: true },
+  });
+  f.store.save(task);
+  const expectedFingerprint = await fingerprint(task);
+  const data = { expectedFingerprint, expectedBaseCommit: baseCommit, baseCommit: head };
+  await assert.rejects(
+    engine.action(task.id, 'sync-base', { ...data, expectedBaseCommit: head }),
+    /Recorded base changed/,
+  );
+  await assert.rejects(
+    engine.action(task.id, 'sync-base', { ...data, expectedFingerprint: 'stale' }),
+    /Workspace changed/,
+  );
+  await assert.rejects(engine.action(task.id, 'sync-base', { ...data, baseCommit }), /must match/);
+  engine.running.set(task.id, new AbortController());
+  await assert.rejects(engine.action(task.id, 'sync-base', data), /active process/);
+  engine.running.delete(task.id);
+  const result = await engine.action(task.id, 'sync-base', data);
+  assert.equal(result.baseCommit, head);
+  assert.equal(result.status, 'paused');
+  assert.equal(result.stage, 'verify');
+  assert.equal(result.chosenApproach.id, 'approved');
+  assert.equal(result.verifiedFingerprint, null);
+  assert.equal(result.reviewedFingerprint, null);
+  assert.equal(result.recovery, null);
+  assert.equal(await fingerprint(result), expectedFingerprint);
+  assert.equal(await readFile(join(repo, 'value.txt'), 'utf8'), 'approved edits\n');
+  assert.ok(f.store.events(task.id).some((e) => e.type === 'workspace_base'));
+});
+
+test('verification preparation failures stop before starting a debugger', async (t) => {
+  const f = await fixture(t);
+  const repo = await makeRepo(f.directory);
+  f.store.setConfig({
+    ...DEFAULT_CONFIG,
+    repositories: [profile(repo, { verificationMode: 'agent' })],
+  });
+  let calls = 0;
+  const engine = f.makeEngine({
+    harness: async () => {
+      calls++;
+      throw Error('Should not start');
+    },
+  });
+  const task = engine.create({ title: 'Prepare verification', repositoryId: 'repo' });
+  Object.assign(task, {
+    status: 'queued',
+    stage: 'verify',
+    workspace: repo,
+    workspaceRoot: repo,
+    baseCommit: 'missing-base',
+    branch: 'feature/test',
+    setupCompleted: true,
+  });
+  f.store.save(task);
+  engine.tick();
+  const blocked = await waitFor(f.store, task.id, (t) => t.status === 'blocked');
+  assert.equal(blocked.blockerDecision.kind, 'relay_preparation');
+  assert.equal(blocked.recovery, null);
+  assert.equal(blocked.attempts.length, 1);
+  assert.equal(calls, 0);
+  assert.match(blocked.error, /Recorded base.*differs/);
+  assert.equal(blocked.blockerDecision.baseUpdate.expectedBaseCommit, 'missing-base');
+  assert.equal(
+    blocked.blockerDecision.baseUpdate.baseCommit,
+    await git(repo, ['rev-parse', 'HEAD']),
+  );
+  assert.equal(blocked.blockerDecision.baseUpdate.expectedFingerprint, await fingerprint(blocked));
+});
+
+test('base synchronization updates the selected repository and primary mirror only', async (t) => {
+  const f = await fixture(t);
+  const repo = await makeRepo(f.directory);
+  f.store.setConfig({ ...DEFAULT_CONFIG, repositories: [profile(repo)] });
+  const engine = f.makeEngine();
+  const task = engine.create({ title: 'Cross repository metadata', repositoryId: 'repo' });
+  const head = await git(repo, ['rev-parse', 'HEAD']);
+  const primary = {
+    repository: task.repository,
+    workspace: repo,
+    workspaceRoot: repo,
+    branch: 'feature/test',
+    baseCommit: head,
+  };
+  task.repositories = [primary, { repository: { id: 'second' }, baseCommit: 'untouched' }];
+  Object.assign(task, primary, { status: 'paused', stage: 'verify' });
+  f.store.save(task);
+  const before = await fingerprint({ ...task, repositories: undefined });
+  const result = await engine.action(task.id, 'sync-base', {
+    repositoryId: 'repo',
+    baseCommit: head,
+    expectedBaseCommit: head,
+    expectedFingerprint: before,
+  });
+  assert.equal(result.baseCommit, head);
+  assert.equal(result.repositories[0].baseCommit, head);
+  assert.equal(result.repositories[1].baseCommit, 'untouched');
+});

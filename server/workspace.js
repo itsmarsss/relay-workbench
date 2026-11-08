@@ -150,7 +150,7 @@ export async function fingerprint(task) {
   }
   return hash.digest('hex');
 }
-export async function diff(task) {
+export async function diff(task, { maxBytes = 4 * 1024 * 1024 } = {}) {
   if (workspaces(task).length > 1) {
     const repositories = [];
     for (const entry of workspaces(task))
@@ -158,14 +158,23 @@ export async function diff(task) {
         repositoryId: entry.repository.id,
         name: entry.repository.name,
         baseCommit: entry.baseCommit,
-        ...(await diff(workspaceView(task, entry))),
+        ...(await diff(workspaceView(task, entry), { maxBytes })),
       });
     return { repositories };
   }
   if (!task.workspace || task.demo) return { text: '', stat: '', untracked: [], demo: task.demo };
+  let omitted = false;
+  const bounded = async (args, raw = false) => {
+    try {
+      return await git(task.workspaceRoot, args, { maxBytes, raw });
+    } catch (error) {
+      if (error.code !== 'OUTPUT_LIMIT') throw error;
+      omitted = true;
+      return '';
+    }
+  };
   const [text, stat, names] = await Promise.all([
-    git(
-      task.workspaceRoot,
+    bounded(
       [
         '-c',
         'core.quotePath=false',
@@ -179,12 +188,9 @@ export async function diff(task) {
         task.baseCommit,
         '--',
       ],
-      {
-        maxBytes: 4 * 1024 * 1024,
-        raw: true,
-      },
+      true,
     ),
-    git(task.workspaceRoot, ['diff', '--stat', task.baseCommit, '--']),
+    bounded(['diff', '--stat', task.baseCommit, '--']),
     git(task.workspaceRoot, ['ls-files', '--others', '--exclude-standard', '-z']),
   ]);
   const untracked = [];
@@ -198,5 +204,16 @@ export async function diff(task) {
     }
     untracked.push({ name, content });
   }
-  return { text, stat, untracked };
+  return {
+    text: omitted ? '' : text,
+    stat,
+    untracked,
+    ...(omitted
+      ? {
+          omitted: true,
+          reason:
+            'Diff exceeds the preview limit. Inspect changes locally; no partial patch is used as evidence.',
+        }
+      : {}),
+  };
 }

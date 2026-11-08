@@ -216,3 +216,27 @@ test('host execution applies independently of diagnostic context', () => {
     true,
   );
 });
+
+test('Relay preparation failures show metadata repair without debugger actions', () => {
+  const html = blockerDecisionView({
+    status: 'blocked',
+    blockerDecision: {
+      kind: 'relay_preparation',
+      explanation: 'Recorded base differs from HEAD <script>unsafe</script>',
+      baseUpdate: { expectedBaseCommit: 'a'.repeat(40), baseCommit: 'b'.repeat(40) },
+    },
+  });
+  assert.match(html, /Sync recorded base/);
+  assert.match(html, /aaaaaaaaaa/);
+  assert.match(html, /bbbbbbbbbb/);
+  assert.doesNotMatch(html, /<script>|Run debugger/);
+  const retry = blockerDecisionView({
+    status: 'blocked',
+    blockerDecision: {
+      kind: 'relay_preparation',
+      explanation: 'Git access failed',
+    },
+  });
+  assert.match(retry, /Retry verification/);
+  assert.doesNotMatch(retry, /Sync recorded base|Run debugger/);
+});

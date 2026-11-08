@@ -27,7 +27,7 @@ import {
   text,
   HARNESSES,
 } from './domain.js';
-import { prepareWorkspace, fingerprint, inspectRepository, diff } from './workspace.js';
+import { prepareWorkspace, fingerprint, inspectRepository, diff, git } from './workspace.js';
 import { executeHarness, demoHandoff, resumeInvocation } from './harness.js';
 import { runProcess, executableExists } from './process.js';
 
@@ -122,7 +122,78 @@ export class Engine {
       const task = this.store.get(id);
       requireValue(task, 'Task not found', 404);
       const status = task.status;
-      if (action === 'review-comment') {
+      if (action === 'sync-base') {
+        requireValue(
+          !this.running.has(id) && !this.manualRuns.has(id),
+          'Wait for the active process to stop',
+          409,
+        );
+        requireValue(
+          ['blocked', 'paused', 'interrupted'].includes(status),
+          'Pause the task before synchronizing its base',
+          409,
+        );
+        requireValue(
+          !task.recoveryNotBefore || Date.now() >= task.recoveryNotBefore,
+          'Wait for interrupted workers to stop',
+          409,
+        );
+        const entry = workspaces(task).find(
+          (e) => e.repository.id === (data.repositoryId ?? task.repository.id),
+        );
+        requireValue(entry?.workspaceRoot && !task.demo, 'Select an existing workspace');
+        requireValue(
+          typeof data.baseCommit === 'string' && /^[a-f0-9]{40,64}$/.test(data.baseCommit),
+          'Supply a full base commit',
+        );
+        requireValue(
+          data.expectedBaseCommit === entry.baseCommit,
+          'Recorded base changed; reload before retrying',
+          409,
+        );
+        const view = workspaceView(task, entry);
+        const before = await fingerprint(view);
+        requireValue(
+          data.expectedFingerprint === before,
+          'Workspace changed; inspect it before synchronizing',
+          409,
+        );
+        const head = await git(entry.workspaceRoot, ['rev-parse', 'HEAD']);
+        requireValue(
+          head === data.baseCommit,
+          'New base must match the inspected workspace HEAD',
+          409,
+        );
+        requireValue(
+          (await git(entry.workspaceRoot, ['symbolic-ref', '--short', 'HEAD'])) === entry.branch,
+          'Workspace branch changed',
+          409,
+        );
+        await git(entry.workspaceRoot, ['merge-base', '--is-ancestor', entry.baseCommit, head]);
+        requireValue(
+          (await fingerprint(view)) === before,
+          'Workspace changed during synchronization',
+          409,
+        );
+        const oldBase = entry.baseCommit;
+        entry.baseCommit = head;
+        syncPrimary(task);
+        task.verifiedFingerprint = null;
+        task.reviewedFingerprint = null;
+        task.verificationReportRepair = null;
+        task.recovery = null;
+        task.blockerDecision = null;
+        task.budgetContinuationAttemptId = null;
+        task.status = 'paused';
+        task.error = null;
+        this.store.save(task, {
+          type: 'workspace_base',
+          repositoryId: entry.repository.id,
+          summary:
+            'Recorded base synchronized with the inspected workspace. Prior evidence is retained; verification must assess the updated base.',
+          details: JSON.stringify({ oldBase, baseCommit: head, fingerprint: before }),
+        });
+      } else if (action === 'review-comment') {
         const comment = await addComment(task, data);
         this.store.save(task, {
           type: 'feedback',
@@ -717,6 +788,25 @@ export class Engine {
               });
               return;
             }
+            if (error.code === 'RELAY_PREPARATION_FAILED') {
+              current.recovery = null;
+              current.blockerDecision = {
+                ...blockerDecision(current, {
+                  ...diagnosticFailure,
+                  details:
+                    'Relay failed before the agent started. Source changes and completed evidence are preserved. Repair task metadata or local Git access, then retry verification.',
+                }),
+                kind: 'relay_preparation',
+                ...(error.baseUpdate ? { baseUpdate: error.baseUpdate } : {}),
+              };
+              this.store.save(current, {
+                type: 'blocked',
+                summary: error.message,
+                details:
+                  'No debugger was started: this is a Relay preparation failure, not an agent or test failure.',
+              });
+              return;
+            }
             if (
               !changedDuringAnalysis &&
               ['VERIFICATION_REPORT_INVALID', 'VERIFICATION_CHECK_FAILED'].includes(error.code) &&
@@ -1149,7 +1239,32 @@ export class Engine {
         signature,
         executionConfig(task, this.store.config, stage).timeoutMinutes * 60000,
       );
-      const sourceSnapshot = await diff(task);
+      let sourceSnapshot;
+      try {
+        for (const workspace of entries) {
+          const head = await git(workspace.workspaceRoot, ['rev-parse', 'HEAD']);
+          if (head !== workspace.baseCommit) {
+            const error = new Error(
+              `Recorded base for ${workspace.repository.name} differs from workspace HEAD. Synchronize the inspected base before verification; source changes and completed checks are preserved.`,
+            );
+            error.baseUpdate = {
+              repositoryId: workspace.repository.id,
+              baseCommit: head,
+              expectedBaseCommit: workspace.baseCommit,
+              expectedFingerprint: await fingerprint(workspaceView(task, workspace)),
+            };
+            throw error;
+          }
+        }
+        sourceSnapshot = await diff(task);
+      } catch (cause) {
+        const error = new Error(`Relay could not prepare the verification diff: ${cause.message}`, {
+          cause,
+        });
+        error.code = 'RELAY_PREPARATION_FAILED';
+        error.baseUpdate = cause.baseUpdate;
+        throw error;
+      }
       const snapshotText = JSON.stringify(sourceSnapshot);
       const source =
         snapshotText.length < 60000

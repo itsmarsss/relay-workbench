@@ -1036,3 +1036,16 @@ test('manual status overrides persist without changing workflow or approvals', a
   assert.equal(cleared.data.statusOverride, null);
   assert.equal(cleared.data.status, before.status);
 });
+
+test('workspace base synchronization requires authentication and valid state', async (t) => {
+  const f = await fixture(t);
+  const task = f.app.engine.create({ title: 'No workspace yet', demo: true });
+  assert.equal(
+    (await f.request(`/api/tasks/${task.id}/sync-base`, 'POST', {}, { 'X-Relay-Token': '' }))
+      .status,
+    403,
+  );
+  const response = await f.request(`/api/tasks/${task.id}/sync-base`, 'POST', {});
+  assert.equal(response.status, 409);
+  assert.match(response.data.error, /Pause the task/);
+});

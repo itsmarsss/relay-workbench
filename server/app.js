@@ -465,6 +465,8 @@ export function createApp({ directory, publicDirectory, engineOptions = {} }) {
             ),
           );
         }
+        if (operation === 'sync-base' && req.method === 'POST')
+          return json(res, 200, await engine.action(id, 'sync-base', await body(req)));
         if (operation === 'question' && req.method === 'POST')
           return json(res, 202, sideQuestions.ask(id, (await body(req)).question));
         if (!operation && req.method === 'GET')

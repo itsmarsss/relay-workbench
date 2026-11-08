@@ -4,6 +4,10 @@ export function blockerDecisionView(task) {
   if (task.status !== 'blocked') return '';
   if (task.blockerDecision?.kind === 'runtime_budget')
     return `<section class="blocker-decision" aria-label="Execution time budget"><span class="eyebrow">MORE TIME NEEDED</span><h2>The stage reached its time budget</h2><p>Completed checks and logs are preserved. A timeout does not establish a test failure. Resume to continue with a new bounded budget, or inspect the latest output first.</p><button class="btn primary" data-action="task-action" data-operation="resume">Continue with more time</button><button class="btn secondary" data-action="tab" data-tab="transcript">Inspect logs</button></section>`;
+  if (task.blockerDecision?.kind === 'relay_preparation') {
+    const update = task.blockerDecision.baseUpdate;
+    return `<section class="blocker-decision"><h2>Relay could not start verification</h2><p>${e(task.blockerDecision.explanation)}</p>${update ? `<p>Recorded base <code>${e(update.expectedBaseCommit.slice(0, 10))}</code> → workspace HEAD <code>${e(update.baseCommit.slice(0, 10))}</code>. Syncing changes Relay’s metadata only; source files and approvals stay intact.</p><button class="btn primary" data-action="sync-base">Sync recorded base</button>` : '<button class="btn primary" data-action="task-action" data-operation="resume">Retry verification</button>'}</section>`;
+  }
   if (task.blockerDecision?.kind === 'verification_report') {
     const recovering = task.verificationReportRepair?.mode === 'check_recovery';
     return `<section class="blocker-decision" aria-label="Verification report correction"><h2>${recovering ? 'A failed check still needs resolution' : 'Checks are preserved; the report needs correction'}</h2><p>${e(task.blockerDecision.explanation)}</p><button class="btn primary" data-action="task-action" data-operation="resume">${recovering ? 'Continue verifier recovery' : 'Retry report correction'}</button></section>`;
