@@ -275,17 +275,6 @@ export class PublicationMonitor {
         (e) => {
           const failures =
             snapshot.state === 'unknown' ? (e.publicationMonitor.failures ?? 0) + 1 : 0;
-          if (
-            e.feedbackAutopilot?.current?.state === 'publishing' &&
-            ['open', 'merged'].includes(snapshot.state) &&
-            e.delivery?.status === 'complete'
-          ) {
-            e.feedbackAutopilot.current.state = 'complete';
-            const record = e.feedbackAutopilot.history.find(
-              (r) => r.id === e.feedbackAutopilot.current.id,
-            );
-            if (record) record.state = 'complete';
-          }
           if (snapshot.state !== 'unknown' || !e.publication || e.publication.state === 'unknown')
             e.publication = {
               ...snapshot,

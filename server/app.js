@@ -121,6 +121,7 @@ export function createApp({ directory, publicDirectory, engineOptions = {} }) {
         external.size === 0 &&
         publicationMonitor.running.size === 0 &&
         publicationWorkflow.running.size === 0 &&
+        feedbackAutopilot.jobs.size === 0 &&
         sideQuestions.running.size === 0 &&
         !workspaceAgent.controller &&
         followUpAgent.running.size === 0 &&
@@ -396,7 +397,9 @@ export function createApp({ directory, publicDirectory, engineOptions = {} }) {
               request.operation === 'resume'));
         requireValue(allowed, 'Decision changed; refresh the inbox', 409);
         requireValue(
-          !publicationWorkflow.running.has(item.taskId) && !followUpAgent.running.has(item.taskId),
+          !feedbackAutopilot.jobs.has(item.taskId) &&
+            !publicationWorkflow.running.has(item.taskId) &&
+            !followUpAgent.running.has(item.taskId),
           'Wait for the active agent',
           409,
         );
@@ -424,6 +427,8 @@ export function createApp({ directory, publicDirectory, engineOptions = {} }) {
             engine.running.size +
             publicationMonitor.running.size +
             publicationWorkflow.running.size +
+            [...feedbackAutopilot.jobs.keys()].filter((id) => !publicationWorkflow.running.has(id))
+              .length +
             (workspaceAgent.controller ? 1 : 0),
           monitoring: publicationMonitor.running.size,
           version: '0.1.0',
@@ -558,6 +563,7 @@ export function createApp({ directory, publicDirectory, engineOptions = {} }) {
               !engine.manualRuns.has(id) &&
               !engine.actionLocks.has(id) &&
               !sideQuestions.running.has(id) &&
+              !feedbackAutopilot.jobs.has(id) &&
               !publicationWorkflow.running.has(id) &&
               !followUpAgent.running.has(id) &&
               !keyedRun(publicationMonitor.running) &&
@@ -625,9 +631,11 @@ export function createApp({ directory, publicDirectory, engineOptions = {} }) {
         if (operation === 'feedback' && req.method === 'POST') {
           const request = await body(req);
           requireValue(
-            !publicationWorkflow.running.has(id) &&
-              !followUpAgent.running.has(id) &&
-              !engine.running.has(id),
+            request.enabled === false ||
+              (!feedbackAutopilot.jobs.has(id) &&
+                !publicationWorkflow.running.has(id) &&
+                !followUpAgent.running.has(id) &&
+                !engine.running.has(id)),
             'Wait for the active agent before changing feedback automation',
             409,
           );
@@ -641,6 +649,11 @@ export function createApp({ directory, publicDirectory, engineOptions = {} }) {
         if (operation === 'publish-stop' && req.method === 'POST')
           return json(res, 202, publicationWorkflow.pause(id));
         if (operation === 'publish' && req.method === 'POST') {
+          requireValue(
+            !feedbackAutopilot.jobs.has(id),
+            'Feedback publication is already starting or running',
+            409,
+          );
           requireValue(
             ![...external.keys()].some((key) => key.startsWith(`${id}:`)),
             'Publication is already running',
@@ -656,7 +669,9 @@ export function createApp({ directory, publicDirectory, engineOptions = {} }) {
         if (operation === 'publication' && req.method === 'POST') {
           const request = await body(req);
           requireValue(
-            !publicationWorkflow.running.has(id) && !followUpAgent.running.has(id),
+            !feedbackAutopilot.jobs.has(id) &&
+              !publicationWorkflow.running.has(id) &&
+              !followUpAgent.running.has(id),
             'Wait for the active agent to finish before changing monitoring',
             409,
           );
@@ -683,7 +698,8 @@ export function createApp({ directory, publicDirectory, engineOptions = {} }) {
           if (request.mode === 'question')
             return json(res, 202, sideQuestions.ask(id, request.message));
           requireValue(
-            !publicationWorkflow.running.has(id) &&
+            !feedbackAutopilot.jobs.has(id) &&
+              !publicationWorkflow.running.has(id) &&
               !followUpAgent.running.has(id) &&
               ![...external.keys()].some((key) => key.startsWith(`${id}:`)),
             'Wait for publication to finish',
@@ -881,6 +897,11 @@ export function createApp({ directory, publicDirectory, engineOptions = {} }) {
         }
         if (operation === 'submit' && req.method === 'POST') {
           requireValue(
+            !feedbackAutopilot.jobs.has(id),
+            'Feedback publication is already starting or running',
+            409,
+          );
+          requireValue(
             task.status === 'completed' && !task.demo,
             'Accept a live task before submitting a PR',
             409,
@@ -910,7 +931,9 @@ export function createApp({ directory, publicDirectory, engineOptions = {} }) {
           requireValue(entry, 'Select a task repository');
           const target = workspaceView(task, entry);
           requireValue(
-            !publicationWorkflow.running.has(id) && !followUpAgent.running.has(id),
+            !feedbackAutopilot.jobs.has(id) &&
+              !publicationWorkflow.running.has(id) &&
+              !followUpAgent.running.has(id),
             'Another agent is already running',
             409,
           );
@@ -1068,7 +1091,9 @@ export function createApp({ directory, publicDirectory, engineOptions = {} }) {
           ].includes(operation)
         ) {
           requireValue(
-            !publicationWorkflow.running.has(id) && !followUpAgent.running.has(id),
+            !feedbackAutopilot.jobs.has(id) &&
+              !publicationWorkflow.running.has(id) &&
+              !followUpAgent.running.has(id),
             'Stop the active agent before changing the development workflow',
             409,
           );
@@ -1115,6 +1140,7 @@ export function createApp({ directory, publicDirectory, engineOptions = {} }) {
     }
   });
   async function close() {
+    await feedbackAutopilot.stop();
     for (const preview of restorePreviews.values()) {
       clearTimeout(preview.timer);
       await rm(preview.directory, { recursive: true, force: true });

@@ -51,7 +51,10 @@ export function taskSummary(task, events = []) {
                 interrupted: 'Resume to continue from the saved conversation.',
                 paused: 'Resume when ready.',
                 manual: 'Return control when you are ready for automation.',
-                completed: 'Accepted. No action needed.',
+                completed:
+                  task.preset === 'investigate'
+                    ? 'Review the findings. Duplicate this task to plan an implementation.'
+                    : 'Accepted. No action needed.',
                 cancelled: 'Cancelled. No action needed.',
               }[task.status] ?? 'Agents will continue and bring the next decision to you.');
   const live = ['running', 'queued'].includes(task.status);
@@ -73,7 +76,7 @@ export function taskSummary(task, events = []) {
         (live
           ? `${stageNames[task.stage] ?? 'Work'} is starting with the saved task context.`
           : latest?.summary));
-  return `<section class="task-summary" aria-label="Current task context"><div><span class="eyebrow">${recovering ? 'RESOLVING A BLOCKER' : 'CURRENT STATUS'}</span><h2>${e(followUp ? 'Follow-up' : publishing ? runLabel(attempt ?? { stage: 'publish' }) : publicationBlocked ? 'Publishing needs attention' : hostVerification ? runLabel(attempt) : recovering ? 'Debugger' : task.status === 'completed' ? 'Done' : (stageNames[task.stage] ?? 'Ready'))}</h2><p>${e(concise(summary || task.title))}</p></div><div class="summary-next"><strong>${publicationBlocked || ['awaiting_plan', 'awaiting_final', 'blocked', 'manual', 'interrupted', 'paused', 'draft'].includes(task.status) ? 'Your next step' : 'What happens next'}</strong><p>${e(next)}</p></div></section>`;
+  return `<section class="task-summary" aria-label="Current task context"><div><span class="eyebrow">${recovering ? 'RESOLVING A BLOCKER' : 'CURRENT STATUS'}</span><h2>${e(followUp ? 'Follow-up' : publishing ? runLabel(attempt ?? { stage: 'publish' }) : publicationBlocked ? 'Publishing needs attention' : hostVerification ? runLabel(attempt) : recovering ? 'Debugger' : task.status === 'completed' ? (task.preset === 'investigate' ? 'Investigation complete' : 'Done') : (stageNames[task.stage] ?? 'Ready'))}</h2><p>${e(concise(summary || task.title))}</p></div><div class="summary-next"><strong>${publicationBlocked || ['awaiting_plan', 'awaiting_final', 'blocked', 'manual', 'interrupted', 'paused', 'draft'].includes(task.status) ? 'Your next step' : 'What happens next'}</strong><p>${e(next)}</p></div></section>`;
 }
 
 export function activityArchiveCount(task, events) {

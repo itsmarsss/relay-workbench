@@ -29,12 +29,20 @@ export function feedbackItems(raw = []) {
         'Invalid feedback URL',
       );
     }
+    const revision = item.revision ?? item.details;
+    requireValue(
+      typeof revision === 'string' && revision.length <= 12000,
+      'Invalid feedback revision',
+    );
     const value = Object.fromEntries(
       ['id', 'kind', 'summary', 'details', 'url'].map((key) => [key, item[key]]),
     );
     return {
       ...value,
-      signature: createHash('sha256').update(JSON.stringify(value)).digest('hex'),
+      revision,
+      signature: createHash('sha256')
+        .update(JSON.stringify([value.id, value.url, revision]))
+        .digest('hex'),
     };
   });
 }
@@ -43,6 +51,19 @@ export class FeedbackAutopilot {
     this.store = store;
     this.engine = engine;
     this.publisher = publisher;
+    this.stopping = false;
+    this.jobs = new Map();
+    this.starting = new Set();
+    // Recover saved publication queues through a fresh, read-only PR observation.
+    for (const task of store.all?.() ?? [])
+      for (const entry of workspaces(task)) {
+        const current = entry.feedbackAutopilot?.current;
+        if (current?.state === 'publishing' && !current.publicationQueue) {
+          current.publicationQueue = [entry.repository.id];
+          current.acceptedCycle = task.followUpContext?.id ?? null;
+          store.save(task);
+        }
+      }
   }
   configure(id, repositoryId, enabled) {
     const task = this.store.get(id),
@@ -66,6 +87,15 @@ export class FeedbackAutopilot {
     return task;
   }
   async observe(id, repositoryId, raw) {
+    if (this.stopping) return;
+    const existing = this.store.get(id);
+    const publishing = workspaces(existing).find(
+      (e) => e.feedbackAutopilot?.enabled && e.feedbackAutopilot.current?.state === 'publishing',
+    );
+    if (publishing) {
+      await this.publishNext(id, publishing.repository.id);
+      return;
+    }
     const items = feedbackItems(raw);
     const task = this.store.get(id),
       entry = workspaces(task).find((e) => e.repository.id === repositoryId);
@@ -160,28 +190,135 @@ export class FeedbackAutopilot {
     return task;
   }
   async afterAccept(id) {
+    if (this.stopping) return;
     const task = this.store.get(id);
     if (task.status !== 'completed') return;
     const entry = workspaces(task).find(
       (e) => e.feedbackAutopilot?.enabled && e.feedbackAutopilot.current?.state === 'proposed',
     );
     if (!entry) return;
-    const policy = entry.feedbackAutopilot,
-      recordId = policy.current.id;
+    const policy = entry.feedbackAutopilot;
+    const recordId = policy.current.id;
     policy.current.state = 'publishing';
+    policy.current.acceptedCycle = task.followUpContext?.id ?? null;
+    policy.current.reason = 'Publishing accepted repairs in repository dependency order.';
+    // Repositories are already topologically ordered by task validation.
+    policy.current.publicationQueue = workspaces(task)
+      .filter(
+        (e) =>
+          e.repository.id === entry.repository.id ||
+          !e.delivery?.workingFingerprint ||
+          e.delivery.workingFingerprint !== e.acceptedFingerprint,
+      )
+      .map((e) => e.repository.id);
     policy.history.find((r) => r.id === recordId).state = 'publishing';
     this.store.save(task);
-    try {
-      await this.publisher.start(id, entry.repository.id);
-    } catch (error) {
-      const latest = this.store.get(id),
-        current = workspaces(latest).find(
-          (e) => e.repository.id === entry.repository.id,
-        ).feedbackAutopilot;
-      current.current.state = 'needs_decision';
-      current.current.reason = error.message;
-      current.history.find((r) => r.id === recordId).state = 'needs_decision';
-      this.store.save(latest);
+    await this.publishNext(id, entry.repository.id);
+  }
+  async publishNext(id, ownerId) {
+    if (this.stopping || this.jobs.has(id) || this.publisher.running?.has(id)) return;
+    const task = this.store.get(id);
+    const owner = workspaces(task).find((e) => e.repository.id === ownerId);
+    const current = owner?.feedbackAutopilot?.current;
+    if (
+      !owner?.feedbackAutopilot?.enabled ||
+      current?.state !== 'publishing' ||
+      task.status !== 'completed'
+    )
+      return;
+    if (current.acceptedCycle !== (task.followUpContext?.id ?? null)) return;
+    const repositoryId = current.publicationQueue?.[0];
+    if (!repositoryId) {
+      current.state = 'complete';
+      owner.feedbackAutopilot.history.find((r) => r.id === current.id).state = 'complete';
+      this.store.save(task, {
+        type: 'publication',
+        observationChange: true,
+        summary: 'Accepted feedback repairs published across the coordinated repositories.',
+      });
+      return;
     }
+    const published = workspaces(task).find((e) => e.repository.id === repositoryId);
+    if (
+      current.inFlight?.repositoryId === repositoryId &&
+      current.inFlight.runId &&
+      published?.delivery?.id === current.inFlight.runId &&
+      published.delivery.status === 'complete'
+    ) {
+      current.publicationQueue.shift();
+      current.inFlight = null;
+      this.store.save(task);
+      return this.publishNext(id, ownerId);
+    }
+    // Reserve before asynchronous provider/branch inspection to prevent duplicate starts.
+    this.jobs.set(id, true);
+    try {
+      const start = this.publisher.start(id, repositoryId);
+      this.starting.add(start);
+      try {
+        await start;
+      } finally {
+        this.starting.delete(start);
+      }
+      const runningTask = this.store.get(id);
+      const policy = workspaces(runningTask).find(
+        (e) => e.repository.id === ownerId,
+      ).feedbackAutopilot;
+      const run = workspaces(runningTask).find((e) => e.repository.id === repositoryId).delivery;
+      policy.current.inFlight = { repositoryId, runId: run?.id };
+      this.store.save(runningTask);
+      const done = this.publisher.running?.get(id)?.done;
+      if (!done) {
+        this.jobs.delete(id);
+        return;
+      }
+      const job = done
+        .then(async () => {
+          this.jobs.delete(id);
+          if (this.stopping) return;
+          const latest = this.store.get(id);
+          const savedOwner = workspaces(latest).find((e) => e.repository.id === ownerId);
+          const record = savedOwner.feedbackAutopilot.current;
+          const published = workspaces(latest).find((e) => e.repository.id === repositoryId);
+          if (published.delivery?.status !== 'complete') {
+            this.publicationFailed(
+              id,
+              ownerId,
+              published.delivery?.summary ||
+                'Publication interrupted; inspect the saved agent run.',
+            );
+            return;
+          }
+          record.publicationQueue.shift();
+          record.inFlight = null;
+          this.store.save(latest);
+          await this.publishNext(id, ownerId);
+        })
+        .catch((error) => {
+          this.jobs.delete(id);
+          if (!this.stopping) this.publicationFailed(id, ownerId, error.message);
+        });
+      this.jobs.set(id, job);
+    } catch (error) {
+      this.jobs.delete(id);
+      this.publicationFailed(id, ownerId, error.message);
+    }
+  }
+  publicationFailed(id, ownerId, reason) {
+    const task = this.store.get(id),
+      policy = workspaces(task).find((e) => e.repository.id === ownerId).feedbackAutopilot;
+    policy.current.state = 'needs_decision';
+    policy.current.reason = reason;
+    policy.history.find((r) => r.id === policy.current.id).state = 'needs_decision';
+    this.store.save(task, {
+      type: 'publication',
+      observationChange: true,
+      summary: 'Feedback publication needs attention.',
+      details: reason,
+    });
+  }
+  async stop() {
+    this.stopping = true;
+    await Promise.allSettled([...this.starting]);
   }
 }

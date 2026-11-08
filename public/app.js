@@ -1238,6 +1238,7 @@ document.addEventListener('click', async (event) => {
         confirmation({
           subject: item.title,
           description,
+          tone: 'primary',
           confirm:
             operation === 'approve-plan'
               ? 'Approve approach'

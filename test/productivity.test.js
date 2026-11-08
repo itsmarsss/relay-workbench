@@ -291,3 +291,170 @@ test('inbox decisions require human authentication and reject a superseded propo
   assert.equal((await post(payload)).status, 200);
   assert.equal((await post(payload)).status, 409);
 });
+
+test('accepted multi-repository feedback publishes in order and resumes a completed run without duplication', async () => {
+  const f = feedbackFixture();
+  const task = f.store.get();
+  const owner = {
+    repository: { id: 'api', name: 'API' },
+    acceptedFingerprint: 'new-api',
+    publication: { state: 'open', url: 'https://code.example/pull/1' },
+    feedbackAutopilot: {
+      enabled: true,
+      current: { id: 'cycle', state: 'proposed' },
+      history: [{ id: 'cycle', signatures: [], state: 'proposed' }],
+    },
+  };
+  task.repositories = [
+    owner,
+    { repository: { id: 'web', name: 'Web' }, acceptedFingerprint: 'new-web' },
+  ];
+  task.repository = owner.repository;
+  task.followUpContext = { id: 'repair-cycle' };
+  f.store.save(task);
+  const calls = [],
+    pending = new Map();
+  const publisher = {
+    running: new Map(),
+    start: async (id, repo) => {
+      calls.push(repo);
+      const value = f.store.get();
+      value.repositories.find((e) => e.repository.id === repo).delivery = {
+        id: `run-${repo}`,
+        status: 'running',
+      };
+      f.store.save(value);
+      let resolve;
+      const done = new Promise((r) => (resolve = r));
+      pending.set(repo, resolve);
+      publisher.running.set(id, { done });
+    },
+  };
+  const agent = new FeedbackAutopilot(f.store, f.engine, publisher);
+  await agent.afterAccept('task');
+  assert.deepEqual(calls, ['api']);
+  async function finish(repo) {
+    const value = f.store.get();
+    value.repositories.find((e) => e.repository.id === repo).delivery.status = 'complete';
+    f.store.save(value);
+    publisher.running.delete('task');
+    pending.get(repo)();
+    for (let n = 0; n < 10; n++) await new Promise((r) => setImmediate(r));
+  }
+  await finish('api');
+  assert.deepEqual(calls, ['api', 'web']);
+  await finish('web');
+  assert.equal(f.store.get().repositories[0].feedbackAutopilot.current.state, 'complete');
+  const saved = f.store.get();
+  const record = saved.repositories[0].feedbackAutopilot.current;
+  record.state = 'publishing';
+  record.publicationQueue = ['web'];
+  record.inFlight = { repositoryId: 'web', runId: 'run-web' };
+  f.store.save(saved);
+  const restored = new FeedbackAutopilot(f.store, f.engine, publisher);
+  await restored.observe('task', 'api', []);
+  assert.deepEqual(calls, ['api', 'web']);
+  assert.equal(f.store.get().repositories[0].feedbackAutopilot.current.state, 'complete');
+});
+
+test('feedback identity uses provider revisions, never model wording', () => {
+  const original = feedbackItems([{ ...item, revision: 'provider-updated-at-1' }])[0];
+  const rephrased = feedbackItems([
+    {
+      ...item,
+      revision: 'provider-updated-at-1',
+      summary: 'Same comment, reworded',
+      details: 'A different model summary',
+    },
+  ])[0];
+  assert.equal(original.signature, rephrased.signature);
+  assert.notEqual(
+    original.signature,
+    feedbackItems([{ ...item, revision: 'provider-updated-at-2' }])[0].signature,
+  );
+});
+test('result notifications ignore polling updates and link to the result', async () => {
+  const { notifyResults } = await import('../public/inbox.js');
+  const previous = Object.fromEntries(
+    ['window', 'Notification', 'localStorage', 'location'].map((k) => [k, globalThis[k]]),
+  );
+  const storage = new Map([['relay-notifications', 'enabled']]),
+    sent = [];
+  class Notification {
+    static permission = 'granted';
+    constructor(title, options) {
+      this.title = title;
+      this.options = options;
+      sent.push(this);
+    }
+    close() {}
+  }
+  globalThis.window = { Notification, focus() {} };
+  globalThis.Notification = Notification;
+  globalThis.location = { hash: '' };
+  globalThis.localStorage = {
+    getItem: (k) => storage.get(k) ?? null,
+    setItem: (k, v) => storage.set(k, v),
+  };
+  try {
+    const base = {
+      id: 'notification-task',
+      title: 'Findings',
+      preset: 'investigate',
+      createdAt: 'initial',
+    };
+    notifyResults([{ ...base, status: 'running' }]);
+    assert.equal(sent.length, 0);
+    notifyResults([{ ...base, status: 'completed' }]);
+    assert.equal(sent.length, 1);
+    assert.equal(sent[0].title, 'Investigation complete');
+    sent[0].onclick();
+    assert.equal(globalThis.location.hash, 'task/notification-task/overview');
+    notifyResults([{ ...base, status: 'completed', updatedAt: 'polling' }]);
+    assert.equal(sent.length, 1);
+    notifyResults([{ ...base, status: 'running' }]);
+    notifyResults([{ ...base, status: 'completed' }]);
+    assert.equal(sent.length, 1);
+  } finally {
+    for (const [key, value] of Object.entries(previous)) {
+      if (value === undefined) delete globalThis[key];
+      else globalThis[key] = value;
+    }
+  }
+});
+
+test('feedback shutdown waits for publication startup and never advances the queue', async () => {
+  const f = feedbackFixture();
+  f.agent.configure('task', 'repo', true);
+  const task = f.store.get();
+  task.feedbackAutopilot.current = { id: 'shutdown', state: 'proposed' };
+  task.feedbackAutopilot.history = [{ id: 'shutdown', state: 'proposed', signatures: [] }];
+  f.store.save(task);
+  let releaseStart, releaseRun;
+  const done = new Promise((r) => (releaseRun = r));
+  const publisher = {
+    running: new Map(),
+    start: () =>
+      new Promise(
+        (resolve) =>
+          (releaseStart = () => {
+            publisher.running.set('task', { done });
+            resolve();
+          }),
+      ),
+  };
+  const agent = new FeedbackAutopilot(f.store, f.engine, publisher);
+  const accepting = agent.afterAccept('task');
+  await new Promise((r) => setImmediate(r));
+  let stopped = false;
+  const stopping = agent.stop().then(() => (stopped = true));
+  await new Promise((r) => setImmediate(r));
+  assert.equal(stopped, false);
+  releaseStart();
+  await accepting;
+  await stopping;
+  assert.equal(stopped, true);
+  releaseRun();
+  await new Promise((r) => setImmediate(r));
+  assert.equal(agent.jobs.size, 0);
+});

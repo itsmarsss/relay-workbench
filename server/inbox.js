@@ -8,7 +8,10 @@ const labels = {
   manual: 'Return control when ready',
 };
 function feedbackBlocker(task) {
-  return workspaces(task).find((e) => e.feedbackAutopilot?.current?.state === 'needs_decision');
+  return (
+    task.status === 'completed' &&
+    workspaces(task).find((e) => e.feedbackAutopilot?.current?.state === 'needs_decision')
+  );
 }
 function publishingBlocker(task) {
   return (
@@ -52,7 +55,14 @@ export function inbox(store) {
           task.error ||
           task.attempts.findLast((a) => a.handoff)?.handoff.summary ||
           '',
-        brief: decisionBrief(task),
+        brief: feedback
+          ? {
+              ...decisionBrief(task),
+              recommendation: feedback.feedbackAutopilot.current.reason,
+              evidence: feedback.feedbackAutopilot.current.items.map((item) => item.summary),
+              options: [],
+            }
+          : decisionBrief(task),
         revision: task.configRevision ?? 0,
         updatedAt: task.updatedAt,
         seen,
