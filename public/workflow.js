@@ -1,6 +1,6 @@
 import { currentTaskRun } from './task-runs.js';
 import { runLabel } from './run-label.js';
-import { displayStatus } from './task-status.js';
+import { displayStatus, followUpRunning } from './task-status.js';
 import { e, badge, harnessBadge, stageNames, ago } from './ui.js';
 
 export const columns = [
@@ -39,6 +39,7 @@ export function workflowColumn(task) {
   return 'discovery';
 }
 export function nextStep(task) {
+  if (followUpRunning(task)) return 'Follow-up agent running';
   if (displayStatus(task) === 'publishing') return 'Publishing approved changes';
   if (task.statusOverride) return 'Manual status · view task';
   if (task.status === 'completed' && displayStatus(task) === 'blocked')

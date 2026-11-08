@@ -100,3 +100,24 @@ test('legacy status endpoint stays queued and per-task conflicts do not block ot
   assert.equal(queue.apply({ id: 'busy' }).statusOverride.pending, true);
   assert.equal(queue.apply({ id: 'ready' }).statusOverride, undefined);
 });
+
+test('a live follow-up belongs in active work until it finishes', () => {
+  const task = {
+    id: 'followup-task',
+    title: 'Continue work',
+    status: 'completed',
+    stage: 'review',
+    repository: { id: 'repo', name: 'Example' },
+    deliveryRuns: [{ id: 'followup-run', stage: 'followup', status: 'running' }],
+  };
+  const state = { filter: 'active', search: '', taskSort: 'recent' };
+  assert.equal(displayStatus(task), 'running');
+  assert.equal(workflowColumn(task), 'progress');
+  assert.equal(filterTasks([task], state).length, 1);
+  const summary = { ...task, currentRun: { ...task.deliveryRuns[0] }, deliveryRuns: undefined };
+  assert.equal(displayStatus(summary), 'running');
+  assert.equal(filterTasks([summary], state).length, 1);
+  task.deliveryRuns[0].status = 'complete';
+  assert.equal(displayStatus(task), 'completed');
+  assert.equal(filterTasks([task], state).length, 0);
+});
