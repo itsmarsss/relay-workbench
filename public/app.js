@@ -1,3 +1,4 @@
+import { planOptions } from './plan-options.js';
 import { refreshQueue, latestLoader, eventBatch } from './async-state.js';
 import { statusQueue } from './pending-status.js';
 const pendingStatuses = statusQueue(localStorage);
@@ -340,7 +341,7 @@ function taskView() {
 }
 function planGate(t) {
   const plan = t.attempts.findLast((a) => a.stage === 'plan' && a.handoff)?.handoff;
-  return `<div class="approval-panel"><div class="gate-heading"><div class="approval-icon">${icon('git')}</div><div><span class="eyebrow">A DECISION FOR YOU</span><h2>Choose the way forward.</h2><p>The investigation is complete. Review the approaches before implementation starts.</p></div></div><form id="approve-form"><div class="approach-options">${(plan?.options ?? []).map((o, i) => `<label class="approach-option"><input type="radio" name="optionId" value="${e(o.id)}" ${i === 0 ? 'checked' : ''}><span><strong>${e(o.title)}${i === 0 ? '<em>Recommended</em>' : ''}</strong><span>${e(o.description)}</span><small>${e(o.tradeoffs)}</small></span></label>`).join('')}</div><label class="field-label" for="approval-note">Any additional direction? <span>Optional</span></label><input id="approval-note" class="input" placeholder="Constraints, preferences, things to keep in mind…" maxlength="10000"><div class="approval-actions"><button class="btn primary" type="submit">Approve & implement ${icon('arrow')}</button>${button('request-changes', 'Revise the proposal', 'text')}</div></form></div>`;
+  return `<div class="approval-panel"><div class="gate-heading"><div class="approval-icon">${icon('git')}</div><div><span class="eyebrow">A DECISION FOR YOU</span><h2>Choose the way forward.</h2><p>The investigation is complete. Review the approaches before implementation starts.</p></div></div><form id="approve-form"><div class="approach-options">${planOptions(plan?.options)}</div><label class="field-label" for="approval-note">Any additional direction? <span>Optional</span></label><input id="approval-note" class="input" placeholder="Constraints, preferences, things to keep in mind…" maxlength="10000"><div class="approval-actions"><button class="btn primary" type="submit">Approve & implement ${icon('arrow')}</button>${button('request-changes', 'Revise the proposal', 'text')}</div></form></div>`;
 }
 function threadView(t) {
   const meaningful = new Set([
@@ -632,12 +633,13 @@ async function refreshTerminal(task) {
       state.terminalPreview = { id, available: false, message: error.message };
   }
 }
-async function openTask(id, recordHistory = true, tab = 'overview') {
+async function openTask(id, recordHistory = true, tab = 'overview', sideChatOpen = false) {
   if (state.selected !== id) {
     state.sideChatOpen = false;
     state.executionMapOpen = false;
     state.graphSelectedId = null;
   }
+  state.sideChatOpen = sideChatOpen;
   state.selected = id;
   state.view = 'task';
   state.task = null;
@@ -648,7 +650,7 @@ async function openTask(id, recordHistory = true, tab = 'overview') {
   state.terminalPreview = null;
   state.terminalFollow = true;
   shell();
-  if (recordHistory) history.pushState(null, '', taskRoute(id, state.tab));
+  if (recordHistory) history.pushState(null, '', taskRoute(id, state.tab, state.sideChatOpen));
   await refresh();
   if (state.selected !== id) return;
   if (state.tab === 'diff') await loadDiff();
@@ -714,7 +716,7 @@ document.addEventListener('click', async (event) => {
       state.tab = 'thread';
       state.activityTaskId = state.selected;
       state.activitySelection = element.dataset.id || 'latest';
-      history.pushState(null, '', taskRoute(state.selected, 'thread'));
+      history.pushState(null, '', taskRoute(state.selected, 'thread', state.sideChatOpen));
       renderMain();
       return;
     }
@@ -931,7 +933,7 @@ document.addEventListener('click', async (event) => {
         sessionAttemptId: element.dataset.attemptId,
       });
       state.tab = 'terminals';
-      history.replaceState(null, '', taskRoute(state.selected, state.tab));
+      history.replaceState(null, '', taskRoute(state.selected, state.tab, state.sideChatOpen));
       await refresh();
       return;
     }
@@ -948,7 +950,7 @@ document.addEventListener('click', async (event) => {
       });
       closeModal();
       state.tab = 'terminals';
-      history.replaceState(null, '', taskRoute(state.selected, state.tab));
+      history.replaceState(null, '', taskRoute(state.selected, state.tab, state.sideChatOpen));
       await refresh();
       return;
     }
@@ -989,7 +991,7 @@ document.addEventListener('click', async (event) => {
       closeModal();
       state.tab = 'terminals';
       state.terminalId = element.dataset.terminalId;
-      history.pushState(null, '', taskRoute(state.selected, state.tab));
+      history.pushState(null, '', taskRoute(state.selected, state.tab, state.sideChatOpen));
       await refreshTerminal(state.task);
       renderMain();
       return;
@@ -1007,6 +1009,7 @@ document.addEventListener('click', async (event) => {
     }
     if (['open-side-chat', 'close-side-chat'].includes(action)) {
       state.sideChatOpen = action === 'open-side-chat';
+      history.pushState(null, '', taskRoute(state.selected, state.tab, state.sideChatOpen));
       renderMain();
       if (state.sideChatOpen) document.querySelector('#side-question')?.focus();
       return;
@@ -1033,7 +1036,7 @@ document.addEventListener('click', async (event) => {
       state.activitySelection = element.dataset.id;
       state.executionMapOpen = false;
       state.tab = 'thread';
-      history.pushState(null, '', taskRoute(state.selected, state.tab));
+      history.pushState(null, '', taskRoute(state.selected, state.tab, state.sideChatOpen));
       renderMain();
       return;
     }
@@ -1056,7 +1059,7 @@ document.addEventListener('click', async (event) => {
     if (action === 'tab') {
       state.tab = element.dataset.tab;
       if (state.tab === 'transcript' && element.dataset.runId) state.logRun = element.dataset.runId;
-      history.pushState(null, '', taskRoute(state.selected, state.tab));
+      history.pushState(null, '', taskRoute(state.selected, state.tab, state.sideChatOpen));
       renderMain();
       if (state.tab === 'diff') await loadDiff();
       return;
@@ -1147,7 +1150,7 @@ document.addEventListener('click', async (event) => {
       await api(`/tasks/${state.selected}/${element.dataset.operation}`, 'POST', {});
       if (['start', 'resume'].includes(element.dataset.operation)) {
         state.tab = 'thread';
-        history.replaceState(null, '', taskRoute(state.selected, state.tab));
+        history.replaceState(null, '', taskRoute(state.selected, state.tab, state.sideChatOpen));
       }
       closeModal();
       await refresh();
@@ -1504,15 +1507,25 @@ document.addEventListener('keydown', (event) => {
     event.target.dispatchEvent(new MouseEvent('click', { bubbles: true }));
   }
   if (event.key === 'Escape' && (state.sideChatOpen || state.executionMapOpen)) {
+    const closeChat = state.sideChatOpen;
     state.sideChatOpen = false;
     state.executionMapOpen = false;
+    if (closeChat) history.pushState(null, '', taskRoute(state.selected, state.tab));
     renderMain();
   }
 });
 window.addEventListener('popstate', () => {
   const hash = location.hash.slice(1);
-  const operation = hash.startsWith('task/')
-    ? openTask(parseTaskRoute(hash)?.id ?? hash.slice(5), false, parseTaskRoute(hash)?.tab)
+  const route = parseTaskRoute(hash);
+  if (route && state.view === 'task' && state.selected === route.id && state.task) {
+    state.tab = route.tab;
+    state.sideChatOpen = route.sideChatOpen === true;
+    renderMain();
+    if (state.tab === 'diff') loadDiff().catch((error) => toast(error.message, true));
+    return;
+  }
+  const operation = route
+    ? openTask(route.id, false, route.tab, route.sideChatOpen === true)
     : navigate(
         ['tasks', 'inbox', 'repositories', 'harnesses', 'settings', 'memory'].includes(hash)
           ? hash
@@ -1561,7 +1574,12 @@ async function boot() {
     ]);
     const hash = location.hash.slice(1);
     if (hash.startsWith('task/'))
-      await openTask(parseTaskRoute(hash)?.id ?? hash.slice(5), false, parseTaskRoute(hash)?.tab);
+      await openTask(
+        parseTaskRoute(hash)?.id ?? hash.slice(5),
+        false,
+        parseTaskRoute(hash)?.tab,
+        parseTaskRoute(hash)?.sideChatOpen === true,
+      );
     else {
       state.view = [
         'overview',

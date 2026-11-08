@@ -1011,6 +1011,18 @@ try {
     await page.getByRole('button', { name: 'Close execution graph', exact: true }).click();
 
     await page.getByRole('button', { name: 'Ask on the side', exact: false }).click();
+    assert.ok(page.url().endsWith('?chat=1'));
+    await page.reload();
+    await page.getByRole('region', { name: 'Side conversation', exact: true }).waitFor();
+    await page.getByRole('button', { name: 'Close side conversation', exact: true }).click();
+    assert.ok(!page.url().includes('?chat=1'));
+    await page.goBack();
+    await page.getByRole('region', { name: 'Side conversation', exact: true }).waitFor();
+    await page.goForward();
+    await page
+      .getByRole('region', { name: 'Side conversation', exact: true })
+      .waitFor({ state: 'hidden' });
+    await page.getByRole('button', { name: 'Ask on the side', exact: false }).click();
     await page.locator('#side-question').fill('What is blocked?');
     await page.getByRole('button', { name: 'Ask without interrupting', exact: true }).click();
     await page.getByText('Side answer: What is blocked?', { exact: true }).waitFor();

@@ -14,6 +14,20 @@ test('all task tabs roundtrip in URLs and legacy links retain overview', () => {
   assert.deepEqual(parseTaskRoute(`#task/${id}/unknown`), { id, tab: 'overview' });
   assert.equal(parseTaskRoute('#tasks'), null);
 });
+test('side chat roundtrips in task URLs without changing legacy routes', () => {
+  const id = 'a1b2-1234';
+  for (const tab of taskTabs) {
+    assert.equal(taskRoute(id, tab, true), `#task/${id}/${tab}?chat=1`);
+    assert.deepEqual(parseTaskRoute(taskRoute(id, tab, true)), { id, tab, sideChatOpen: true });
+  }
+  assert.deepEqual(parseTaskRoute(`#task/${id}?chat=1`), {
+    id,
+    tab: 'overview',
+    sideChatOpen: true,
+  });
+  assert.deepEqual(parseTaskRoute(`#task/${id}/overview?chat=0`), { id, tab: 'overview' });
+  assert.deepEqual(parseTaskRoute(`#task/${id}/overview?chat=unexpected`), { id, tab: 'overview' });
+});
 test('execution tree shows diagnostic branches, continuations and repairs without claiming legacy causality', () => {
   const task = {
     status: 'running',

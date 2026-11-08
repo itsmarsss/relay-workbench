@@ -31,14 +31,25 @@ try {
   });
   task.status = 'awaiting_plan';
   task.stage = 'plan';
+  const plan = demoHandoff(task, 'plan');
+  plan.options[0].description =
+    'Preserve behavior.\n\n- Read `src/example.js`\n- **Confirm** the result with [evidence](https://example.com).\n\n<script>alert(1)</script>';
+  plan.options[0].tradeoffs = '- Less runtime risk.\n- More test upkeep.';
   task.attempts.push({
     id: 'completed-plan',
     stage: 'plan',
     status: 'complete',
-    handoff: demoHandoff(task, 'plan'),
+    handoff: plan,
   });
   app.store.save(task, { type: 'handoff', summary: 'Plan ready for approval' });
   await page.getByRole('heading', { name: 'Choose the way forward.' }).waitFor({ timeout: 8000 });
+  assert.equal(
+    await page.locator('.approach-description code').first().innerText(),
+    'src/example.js',
+  );
+  assert.ok(await page.locator('.approach-description ul').count());
+  assert.equal(await page.locator('.approach-description script').count(), 0);
+  assert.ok(await page.locator('.approach-tradeoffs ul').count());
   releaseEvents();
   await page.unroute(`**/api/tasks/${task.id}/events?*`);
   // Polling also refreshes non-task pages when the event stream is unavailable.
