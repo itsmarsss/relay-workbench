@@ -50,12 +50,21 @@ function validate(store, change) {
         ),
       'Only workflow, routing and model settings can be proposed',
     );
+    const settings = structuredClone(change.settings);
+    for (const field of ['routing', 'models'])
+      if (Object.hasOwn(settings, field)) {
+        requireValue(
+          settings[field] && typeof settings[field] === 'object' && !Array.isArray(settings[field]),
+          'Choose valid per-stage settings',
+        );
+        settings[field] = { ...task[field], ...settings[field] };
+      }
     const result = reconfigureTask(
       structuredClone(task),
-      { ...change.settings, expectedRevision: task.configRevision ?? 0 },
+      { ...settings, expectedRevision: task.configRevision ?? 0 },
       store.config,
     );
-    return { task, candidate: result.task };
+    return { task, candidate: result.task, settings };
   }
   requireValue(change.operation === 'feedback', 'Unsupported task operation');
   const entry = workspaces(task).find((e) => e.repository.id === change.repositoryId);
@@ -94,9 +103,10 @@ export function proposeTaskChanges(store, changes, reason, messageId) {
     'Propose each task once',
   );
   const reviewed = changes.map((change) => {
-    const { task, candidate, entry } = validate(store, change);
+    const { task, candidate, entry, settings } = validate(store, change);
     return {
       ...structuredClone(change),
+      ...(settings ? { settings } : {}),
       title: task.title,
       base: fingerprint(task),
       before: candidate

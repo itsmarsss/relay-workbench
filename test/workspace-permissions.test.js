@@ -267,3 +267,33 @@ test('task proposals preview real presets, reject stale batches and require appr
   );
   await assert.rejects(agent.tool('approve_task_changes', {}), /Unsupported/);
 });
+
+test('partial task routing proposals preserve unrelated overrides', async (t) => {
+  const { store, engine } = await fixture(t);
+  const { proposeTaskChanges, decideTaskProposal } = await import('../server/task-proposals.js');
+  const task = engine.create({ title: 'Preserve stage choices', demo: true });
+  engine.update(task.id, {
+    routing: { ...task.routing, review: 'codex' },
+    models: { review: 'custom-review' },
+    expectedRevision: 0,
+  });
+  const proposal = proposeTaskChanges(
+    store,
+    [
+      {
+        taskId: task.id,
+        operation: 'settings',
+        settings: {
+          routing: { implement: 'claude' },
+          models: { implement: 'custom-implementation' },
+        },
+      },
+    ],
+    'Change implementation only',
+  );
+  assert.equal(proposal.changes[0].settings.routing.review, 'codex');
+  await decideTaskProposal(store, engine, { jobs: new Map() }, {}, proposal.id, 'approve');
+  assert.equal(store.get(task.id).routing.review, 'codex');
+  assert.equal(store.get(task.id).routing.implement, 'claude');
+  assert.equal(store.get(task.id).models.review, 'custom-review');
+});
