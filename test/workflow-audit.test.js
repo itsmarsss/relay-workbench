@@ -41,9 +41,9 @@ test('publication summary, timers, logs and handoffs follow the same run', () =>
     { type: 'transcript', attemptId: 'prepared', text: 'New publication output' },
     { type: 'transcript', attemptId: 'core', text: 'Old review output' },
   ];
-  assert.match(taskSummary(task), /Publishing · checks/);
+  assert.match(taskSummary(task), /Publish · verification/);
   assert.doesNotMatch(taskSummary(task), /Accepted. No action needed/);
-  assert.match(liveProgress(task), /Publishing · checks/);
+  assert.match(liveProgress(task), /Publish · verification/);
   assert.match(handoffList(task), /Publication evidence/);
   assert.match(executionLogs(task, events), /New publication output/);
   assert.doesNotMatch(executionLogs(task, events), /Old review output/);

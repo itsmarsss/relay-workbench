@@ -1049,3 +1049,28 @@ test('workspace base synchronization requires authentication and valid state', a
   assert.equal(response.status, 409);
   assert.match(response.data.error, /Pause the task/);
 });
+
+test('follow-up HTTP modes require auth and keep questions read-only', async (t) => {
+  const f = await fixture(t, { sideAnswer: async () => 'The accepted task context is available.' });
+  const task = f.app.engine.create({ title: 'Completed task', demo: true });
+  task.status = 'completed';
+  f.app.store.save(task);
+  const path = `/api/tasks/${task.id}/follow-up`;
+  assert.equal(
+    (await f.request(path, 'POST', { mode: 'question', message: 'Why?' }, { 'X-Relay-Token': '' }))
+      .status,
+    403,
+  );
+  assert.equal((await f.request(path, 'POST', { mode: 'invalid', message: 'Why?' })).status, 400);
+  assert.equal(
+    (await f.request(path, 'POST', { mode: 'question', message: 'Explain the tradeoffs' })).status,
+    202,
+  );
+  assert.equal(f.app.store.get(task.id).status, 'completed');
+  assert.equal(f.app.store.get(task.id).attempts.length, 0);
+  assert.equal(f.app.store.get(task.id).sideQuestions.length, 1);
+  assert.equal(
+    (await f.request(path, 'POST', { mode: 'publication', message: 'Edit the title' })).status,
+    409,
+  );
+});

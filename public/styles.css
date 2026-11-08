@@ -5350,3 +5350,213 @@ textarea::placeholder,
     width: 100%;
   }
 }
+
+/* Shared workflow and run-history hierarchy. */
+.stage-list .workflow-stage {
+  align-items: flex-start;
+  gap: 10px;
+  padding-bottom: 18px;
+}
+.workflow-stage-body {
+  flex: 1;
+  min-width: 0;
+}
+.workflow-stage-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.stage-list .workflow-stage-heading strong {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink);
+}
+.stage-list .run-metadata {
+  font-size: 12px;
+  color: #566050;
+  margin-top: 5px;
+}
+.run-status {
+  display: inline-flex;
+  font-size: 11px;
+  line-height: 1.4;
+  font-weight: 500;
+  color: #586151;
+}
+.run-status.complete {
+  color: #3f6237;
+}
+.run-status.running {
+  color: #405e83;
+}
+.run-status.failed,
+.run-status.blocked {
+  color: #914635;
+}
+.run-status.changes {
+  color: #806124;
+}
+.workflow-run-count {
+  display: inline-block;
+  margin-left: 8px;
+  color: #64705e;
+}
+.activity-browser {
+  grid-template-columns: 238px minmax(0, 1fr);
+  gap: 20px;
+}
+.activity-runs .activity-run {
+  grid-template-columns: 24px minmax(0, 1fr) 16px;
+  gap: 9px;
+  align-items: start;
+  padding: 13px 12px;
+  border-bottom: 1px solid #e9ece5;
+}
+.activity-run-body {
+  min-width: 0;
+}
+.activity-run .activity-run-body strong {
+  font-size: 13px;
+  line-height: 1.45;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.activity-run .run-metadata {
+  font-size: 12px;
+  margin-top: 4px;
+}
+.activity-run .run-status {
+  margin-top: 5px;
+}
+.activity-run-number {
+  padding-top: 2px;
+  color: #4c5946;
+  font-variant-numeric: tabular-nums;
+}
+.run-state {
+  font-size: 13px;
+  text-align: center;
+  padding-top: 2px;
+  color: #66705f;
+}
+.run-state.complete {
+  color: #43603a;
+}
+.run-state.running {
+  color: #405e83;
+}
+.run-state.failed,
+.run-state.blocked {
+  color: #914635;
+}
+.follow-up-panel {
+  margin-top: 24px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+  padding: 20px;
+}
+.follow-up-panel h2 {
+  font-size: 16px;
+  margin: 0;
+}
+.follow-up-panel header p {
+  font-size: 13px;
+  color: #566050;
+  margin: 5px 0 14px;
+}
+.follow-up-modes {
+  border: 0;
+  padding: 0;
+  margin: 0 0 12px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.follow-up-modes label {
+  position: relative;
+  cursor: pointer;
+}
+.follow-up-modes input {
+  position: absolute;
+  opacity: 0;
+  width: 1px;
+  height: 1px;
+}
+.follow-up-modes span {
+  display: block;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 7px 12px;
+  font-size: 13px;
+  color: #46523f;
+}
+.follow-up-modes input:checked + span {
+  background: #eaf0e3;
+  border-color: #849a73;
+  color: #344d2c;
+}
+.follow-up-modes input:focus-visible + span {
+  outline: 2px solid #607c4e;
+  outline-offset: 2px;
+}
+.follow-up-modes input:disabled + span {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.follow-up-panel textarea {
+  width: 100%;
+  resize: vertical;
+  min-height: 84px;
+}
+.follow-up-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 12px;
+}
+.follow-up-footer small {
+  color: #566050;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.follow-up-repository {
+  display: block;
+  margin-top: 12px;
+  font-size: 13px;
+}
+.follow-up-repository[hidden] {
+  display: none;
+}
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+@media (max-width: 900px) {
+  .activity-browser {
+    grid-template-columns: 1fr;
+  }
+}
+@media (max-width: 600px) {
+  .task-context .stage-list {
+    grid-template-columns: 1fr;
+    gap: 0;
+  }
+  .follow-up-footer {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .workflow-stage-heading {
+    gap: 4px;
+  }
+}

@@ -11,7 +11,7 @@ import { randomUUID, createHash } from 'node:crypto';
 import { readFile, lstat, mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { executeHarness } from './harness.js';
-import { requireValue, executionConfig } from './domain.js';
+import { requireValue, executionConfig, text } from './domain.js';
 import { git, fingerprint } from './workspace.js';
 import { workspaces, workspaceView, syncPrimary } from './task-repositories.js';
 import { publicationSnapshot } from './publication-monitor.js';
@@ -106,7 +106,10 @@ export class PublicationWorkflow {
     );
     return task;
   }
-  async start(id, repositoryId) {
+  async start(id, repositoryId, { request } = {}) {
+    requireValue(!this.engine.actionLocks?.has(id), 'Another workflow action is in progress', 409);
+    let followUpRequest =
+      request === undefined ? undefined : text(request, 'PR update request', 20000);
     const task = this.store.get(id);
     requireValue(
       task?.status === 'completed' && !task.demo,
@@ -115,12 +118,25 @@ export class PublicationWorkflow {
     );
     const entry = workspaces(task).find((e) => e.repository.id === repositoryId);
     requireValue(entry, 'Select a task repository');
+    if (request === undefined && ['blocked', 'interrupted'].includes(entry.delivery?.status))
+      followUpRequest = entry.delivery.followUpRequest;
+    requireValue(
+      !followUpRequest || entry.publication?.state === 'open',
+      'Publish an open PR before requesting metadata updates',
+      409,
+    );
     requireValue(
       !this.running.has(id) && entry.submission?.status !== 'running',
       'Publication is already running',
       409,
     );
     const view = workspaceView(task, entry);
+    if (followUpRequest)
+      requireValue(
+        !(await git(view.workspaceRoot, ['status', '--porcelain', '--untracked-files=normal'])),
+        'Finish and publish accepted source changes before requesting PR metadata updates',
+        409,
+      );
     requireValue(
       !this.engine.workspaceReservations.has(view.workspaceRoot),
       'Another task owns this workspace',
@@ -203,6 +219,7 @@ export class PublicationWorkflow {
           approvalBaseline: previous?.approvalBaseline,
           workingFingerprint: previous?.workingFingerprint,
           stage: 'publish',
+          followUpRequest,
           auxiliary: true,
           previous: previous
             ? {
@@ -216,7 +233,8 @@ export class PublicationWorkflow {
       },
       {
         type: 'publication',
-        summary: `Publication agent started for ${entry.repository.name}.`,
+        summary: `${followUpRequest ? 'PR update' : 'Publication'} agent started for ${entry.repository.name}.`,
+        ...(followUpRequest ? { details: followUpRequest } : {}),
         repositoryId,
       },
     );
@@ -333,6 +351,13 @@ export class PublicationWorkflow {
           originalHead: record.originalHead,
           acceptedContent: record.content,
           previous: record.previous,
+          followUpRequest: record.followUpRequest,
+          ...(record.followUpRequest
+            ? {
+                requestScope:
+                  'Update the existing PR as requested. This request authorizes PR metadata updates only, not source edits. If code changes are needed, return blocked and direct the user to Request edits. Preserve the approved source and draft status.',
+              }
+            : {}),
           submission: entry.submission
             ? {
                 ...entry.submission,
@@ -341,7 +366,7 @@ export class PublicationWorkflow {
               }
             : null,
           providerHint: entry.repository.prCommand,
-          expectedDraft: true,
+          expectedDraft: record.followUpRequest ? entry.publication?.draft !== false : true,
           approvalBaseline: record.approvalBaseline,
           ...context,
         },

@@ -1,3 +1,4 @@
+import { workflowRow } from './run-presentation.js';
 import { e, ago } from './ui.js';
 import { concise } from './task-summary.js';
 function safeURL(value) {
@@ -19,7 +20,39 @@ export function deliveryWorkflowStages(task) {
       (r.delivery?.status === 'complete' && r.delivery?.phase === 'monitoring') ||
       ['open', 'closed', 'merged'].includes(r.publication?.state),
   );
-  return `<li class="${publishing ? 'current' : published ? 'done' : ''}"><span class="stage-number">${published ? '✓' : '7'}</span><div><strong>Publish</strong><small>${publishing ? 'Agent is publishing accepted changes' : published ? 'PR published' : task.status === 'completed' ? 'Ready for publication' : 'After final acceptance'}</small></div></li>`;
+  const records = entries
+    .map((entry) => entry.delivery)
+    .filter(Boolean)
+    .sort((a, b) => Date.parse(a.startedAt || 0) - Date.parse(b.startedAt || 0));
+  const run = records.findLast((record) => record.status === 'running') || records.at(-1);
+  const currentCycle =
+    !task.followUpContext ||
+    (records.length === entries.length &&
+      records.every((record) => record.startedAt >= task.followUpContext.startedAt));
+  const done = published && currentCycle;
+  return workflowRow({
+    title: 'Publish',
+    index: 7,
+    run: currentCycle ? run : null,
+    state: {
+      key: publishing
+        ? 'running'
+        : done
+          ? 'complete'
+          : ['blocked', 'interrupted'].includes(run?.status) && currentCycle
+            ? 'blocked'
+            : 'pending',
+      label: publishing
+        ? 'Running'
+        : done
+          ? 'Published'
+          : ['blocked', 'interrupted'].includes(run?.status) && currentCycle
+            ? 'Blocked'
+            : 'Pending',
+      mark: publishing ? '●' : done ? '✓' : '!',
+    },
+    fallback: task.status === 'completed' ? 'Ready to publish' : 'After acceptance',
+  });
 }
 export function publicationPanel(task) {
   if (task.status !== 'completed' || task.demo) return '';

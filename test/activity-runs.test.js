@@ -99,7 +99,7 @@ test('delivery runs follow publication and retain prior retries and scoped outpu
   assert.equal(activityRunSelection(task, events).selected.id, 'retry');
   assert.deepEqual(activityRunSelection(task, events, 'first').events, [events[0]]);
   assert.equal(taskRuns(task).length, 3);
-  assert.match(activityRunNavigation(task, taskRuns(task).at(-1), 'latest'), /Publishing/);
+  assert.match(activityRunNavigation(task, taskRuns(task).at(-1), 'latest'), /Publish/);
   assert.equal(terminalSessions(task).length, 2);
   assert.equal(terminalSessions(task).at(-1).live, true);
   assert.equal(executionNodes(task).at(-1).stage, 'publish');

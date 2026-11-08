@@ -465,6 +465,30 @@ export function createApp({ directory, publicDirectory, engineOptions = {} }) {
             ),
           );
         }
+        if (operation === 'follow-up' && req.method === 'POST') {
+          const request = await body(req);
+          requireValue(
+            ['question', 'changes', 'publication'].includes(request.mode),
+            'Choose a follow-up mode',
+          );
+          if (request.mode === 'question')
+            return json(res, 202, sideQuestions.ask(id, request.message));
+          requireValue(
+            !publicationWorkflow.running.has(id) &&
+              ![...external.keys()].some((key) => key.startsWith(`${id}:`)),
+            'Wait for publication to finish',
+            409,
+          );
+          if (request.mode === 'publication')
+            return json(
+              res,
+              202,
+              await publicationWorkflow.start(id, request.repositoryId ?? task.repository.id, {
+                request: request.message,
+              }),
+            );
+          return json(res, 202, await engine.action(id, 'follow-up', request));
+        }
         if (operation === 'sync-base' && req.method === 'POST')
           return json(res, 200, await engine.action(id, 'sync-base', await body(req)));
         if (operation === 'question' && req.method === 'POST')

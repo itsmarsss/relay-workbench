@@ -635,3 +635,31 @@ test('unchanged successful preparation does not repeat verification and review',
   assert.equal(checks, 1);
   assert.equal(reviews, 1);
 });
+
+test('PR metadata follow-up reaches the publication agent and retains draft state', async (t) => {
+  const request = 'Shorten the PR description and add a testing note';
+  const f = await fixture(t, async (input) => {
+    assert.equal(input.task.publicationContext.followUpRequest, request);
+    assert.match(input.task.publicationContext.requestScope, /metadata updates only/);
+    assert.equal(input.task.publicationContext.expectedDraft, false);
+    return {
+      verdict: 'complete',
+      summary: 'Updated PR description',
+      details: 'Existing PR updated',
+      evidence: ['Read back the updated description'],
+      risks: [],
+      options: [],
+      publication: { ...snapshot, draft: false },
+    };
+  });
+  await commit(f.root);
+  f.task.acceptedFingerprint = await fingerprint(f.task);
+  f.task.publication = { ...snapshot, draft: false };
+  const before = await fingerprint(f.task);
+  await f.workflow.start('task', 'repo', { request });
+  await f.settle();
+  assert.equal(f.task.delivery.status, 'complete', f.task.delivery.details);
+  assert.equal(f.task.delivery.followUpRequest, request);
+  assert.equal(await fingerprint(f.task), before);
+  assert.equal(f.task.publication.draft, false);
+});

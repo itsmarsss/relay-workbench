@@ -1,3 +1,4 @@
+import { followUpComposer, updateFollowUpForm } from './follow-up.js';
 import { planOptions } from './plan-options.js';
 import { refreshQueue, latestLoader, eventBatch } from './async-state.js';
 import { statusQueue } from './pending-status.js';
@@ -171,6 +172,8 @@ function renderMain() {
     [...main.querySelectorAll('details[data-event-key]')].map((d) => [d.dataset.eventKey, d.open]),
   );
   const selectedApproach = main.querySelector('input[name="optionId"]:checked')?.value;
+  const followUpMode = main.querySelector('[name="followup-mode"]:checked')?.value;
+  const followUpRepository = main.querySelector('#follow-up-form [name="repositoryId"]')?.value;
   const markup =
     state.view === 'memory'
       ? state.memoryAvailable
@@ -211,6 +214,16 @@ function renderMain() {
   if (selectedApproach)
     for (const input of main.querySelectorAll('input[name="optionId"]'))
       input.checked = input.value === selectedApproach;
+  const followUpForm = main.querySelector('#follow-up-form');
+  if (followUpForm) {
+    const choice = [...followUpForm.querySelectorAll('[name="followup-mode"]')].find(
+      (input) => input.value === followUpMode && !input.disabled,
+    );
+    if (choice) choice.checked = true;
+    const repository = followUpForm.querySelector('[name="repositoryId"]');
+    if (repository && followUpRepository) repository.value = followUpRepository;
+    updateFollowUpForm(followUpForm);
+  }
   for (const mode of editorModes)
     if (mode.preview) {
       const editor = [...main.querySelectorAll('[data-editor]')].find(
@@ -317,7 +330,7 @@ function taskView() {
     )
     .join(
       '',
-    )}</div><div class="detail-content">${state.tab === 'overview' ? taskDetails(t) || empty('book', 'No description yet', 'Configure this task to add requirements.') : state.tab === 'terminals' ? terminalView(t, state) : state.tab === 'thread' ? threadView(t) : state.tab === 'handoffs' ? handoffsView(t) : state.tab === 'diff' ? diffView(t) : transcriptView(t)}</div>${!['completed', 'cancelled'].includes(t.status) ? `<form id="message-form" class="message-box">${markdownEditor({ id: 'task-message', name: 'message', label: 'Add direction or context', rows: 3, max: 20000 })}<div><small>${t.canSteer ? 'Steer sends direction to the active session; Claude interrupts and resumes.' : 'Context stays pending until an agent receives it.'} ${t.messages.filter((m) => m.delivery === 'pending').length} pending.</small>${t.canSteer ? '<label><input id="steer-active" type="checkbox" name="steer" checked> Steer active agent</label>' : ''}<button class="btn secondary small" type="submit">Send direction ${icon('arrow')}</button></div></form>` : ''}</div><aside class="task-context">${sideChat(t, state.sideChatOpen)}${state.memoryAvailable ? runMemories(t) : ''}<section class="context-card"><div class="context-title">WORKFLOW <span class="live-label ${live ? 'is-live' : ''}">${live ? '● LIVE' : t.demo ? '6 STAGES' : '7 STAGES'}</span></div><ol class="stage-list">${workflowStages(t)}${deliveryWorkflowStages(t)}</ol><button class="btn secondary workflow-graph-button" data-action="open-execution-map" aria-label="Open execution graph">Execution graph ↗</button></section>${(t
+    )}</div><div class="detail-content">${state.tab === 'overview' ? taskDetails(t) || empty('book', 'No description yet', 'Configure this task to add requirements.') : state.tab === 'terminals' ? terminalView(t, state) : state.tab === 'thread' ? threadView(t) : state.tab === 'handoffs' ? handoffsView(t) : state.tab === 'diff' ? diffView(t) : transcriptView(t)}</div>${!['completed', 'cancelled'].includes(t.status) ? `<form id="message-form" class="message-box">${markdownEditor({ id: 'task-message', name: 'message', label: 'Add direction or context', rows: 3, max: 20000 })}<div><small>${t.canSteer ? 'Steer sends direction to the active session; Claude interrupts and resumes.' : 'Context stays pending until an agent receives it.'} ${t.messages.filter((m) => m.delivery === 'pending').length} pending.</small>${t.canSteer ? '<label><input id="steer-active" type="checkbox" name="steer" checked> Steer active agent</label>' : ''}<button class="btn secondary small" type="submit">Send direction ${icon('arrow')}</button></div></form>` : ''}${followUpComposer(t)}</div><aside class="task-context">${sideChat(t, state.sideChatOpen)}${state.memoryAvailable ? runMemories(t) : ''}<section class="context-card"><div class="context-title">WORKFLOW <span class="live-label ${live ? 'is-live' : ''}">${live ? '● LIVE' : t.demo ? '6 STAGES' : '7 STAGES'}</span></div><ol class="stage-list">${workflowStages(t)}${deliveryWorkflowStages(t)}</ol><button class="btn secondary workflow-graph-button" data-action="open-execution-map" aria-label="Open execution graph">Execution graph ↗</button></section>${(t
     .repositories?.length > 1
     ? t.repositories
     : [t]
@@ -1355,6 +1368,24 @@ document.addEventListener('submit', async (event) => {
       closeModal();
       await refresh();
     }
+    if (form.id === 'follow-up-form') {
+      const mode = data.get('followup-mode');
+      await api(`/tasks/${state.selected}/follow-up`, 'POST', {
+        mode,
+        message: data.get('message'),
+        repositoryId: data.get('repositoryId') || state.task.repository.id,
+      });
+      form.querySelector('textarea').value = '';
+      if (mode === 'question') {
+        state.sideChatOpen = true;
+        history.pushState(null, '', taskRoute(state.selected, state.tab, true));
+      } else {
+        state.tab = 'thread';
+        history.pushState(null, '', taskRoute(state.selected, state.tab, state.sideChatOpen));
+      }
+      await refresh();
+      return;
+    }
     if (form.id === 'side-question-form') {
       await api(`/tasks/${state.selected}/question`, 'POST', { question: values.question });
       document.querySelector('#side-question').value = '';
@@ -1646,3 +1677,7 @@ document.addEventListener(
 );
 document.addEventListener('relay-images-updated', () => renderMain());
 boot();
+
+document.addEventListener('change', (event) => {
+  if (event.target.name === 'followup-mode') updateFollowUpForm(event.target.form);
+});

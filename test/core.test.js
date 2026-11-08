@@ -1416,3 +1416,95 @@ test('base synchronization updates the selected repository and primary mirror on
   assert.equal(result.repositories[0].baseCommit, head);
   assert.equal(result.repositories[1].baseCommit, 'untouched');
 });
+
+test('follow-up edits retain the published workspace and require both approvals', async (t) => {
+  const f = await fixture(t);
+  const repo = await makeRepo(f.directory);
+  const baseCommit = await git(repo, ['rev-parse', 'HEAD']);
+  await writeFile(join(repo, 'published.txt'), 'accepted work\n');
+  await git(repo, ['add', '.']);
+  await git(repo, [
+    '-c',
+    'user.name=Test',
+    '-c',
+    'user.email=test@example.test',
+    'commit',
+    '-m',
+    'feat: published fixture',
+  ]);
+  const head = await git(repo, ['rev-parse', 'HEAD']);
+  f.store.setConfig({ ...DEFAULT_CONFIG, repositories: [profile(repo)] });
+  const calls = [];
+  const engine = f.makeEngine({
+    harness: async ({ task, stage }) => {
+      calls.push(stage);
+      assert.match(task.followUpContext.request, /additional case/);
+      if (stage === 'implement')
+        await writeFile(join(task.workspace, 'value.txt'), 'follow-up edit\n');
+      return { ...demoHandoff(task, stage), risks: [] };
+    },
+  });
+  const task = engine.create({ title: 'Published task', repositoryId: 'repo' });
+  Object.assign(task, {
+    status: 'completed',
+    stage: 'review',
+    workspace: repo,
+    workspaceRoot: repo,
+    branch: 'feature/test',
+    baseCommit,
+    setupCompleted: true,
+    chosenApproach: { id: 'old' },
+    reviewedFingerprint: await fingerprint({ workspaceRoot: repo }),
+    publication: { state: 'open', url: 'https://code.example/repo/pull/1' },
+    approvals: [{ type: 'final', at: new Date().toISOString() }],
+  });
+  f.store.save(task);
+  await engine.action(task.id, 'follow-up', { message: 'Add an additional case' });
+  const planned = await waitFor(f.store, task.id, (t) => t.status === 'awaiting_plan');
+  assert.deepEqual(calls, ['plan']);
+  assert.equal(planned.workspace, repo);
+  assert.equal(planned.baseCommit, baseCommit);
+  assert.equal(planned.workspaceHead, head);
+  assert.equal(planned.chosenApproach, null);
+  assert.equal(planned.followUps.length, 1);
+  assert.equal(planned.approvals.length, 1);
+  assert.equal(planned.publication.state, 'open');
+  assert.equal(engine.workspaceReservations.get(repo), task.id);
+  assert.equal(await readFile(join(repo, 'value.txt'), 'utf8'), 'before\n');
+  await assert.rejects(engine.action(task.id, 'accept'), /not awaiting final/);
+  await engine.action(task.id, 'approve-plan', { optionId: 'shared-boundary' });
+  const final = await waitFor(f.store, task.id, (t) =>
+    ['awaiting_final', 'blocked'].includes(t.status),
+  );
+  assert.equal(final.status, 'awaiting_final', final.error);
+  assert.deepEqual(calls, ['plan', 'implement', 'review']);
+  assert.equal(final.attempts.find((a) => a.stage === 'verify').status, 'complete');
+  assert.equal(await readFile(join(repo, 'published.txt'), 'utf8'), 'accepted work\n');
+  assert.equal(final.followUpContext.id, final.attempts.at(-1).followUpId);
+  await engine.action(task.id, 'accept');
+  assert.equal(f.store.get(task.id).status, 'completed');
+  assert.equal(engine.workspaceReservations.has(repo), false);
+});
+
+test('follow-up requests reject busy, cleaned and merged workspaces', async (t) => {
+  const f = await fixture(t);
+  const engine = f.makeEngine();
+  const task = engine.create({ title: 'Unavailable task', demo: true });
+  await assert.rejects(
+    engine.action(task.id, 'follow-up', { message: 'Edit' }),
+    /Finish the current/,
+  );
+  task.status = 'completed';
+  task.publication = { state: 'merged' };
+  f.store.save(task);
+  await assert.rejects(
+    engine.action(task.id, 'follow-up', { message: 'Edit' }),
+    /Create a new task/,
+  );
+  task.publication = null;
+  task.demo = false;
+  task.workspace = null;
+  f.store.save(task);
+  await assert.rejects(engine.action(task.id, 'follow-up', { message: 'Edit' }), /cleaned up/);
+  assert.equal(f.store.get(task.id).status, 'completed');
+});

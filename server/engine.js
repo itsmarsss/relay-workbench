@@ -122,7 +122,93 @@ export class Engine {
       const task = this.store.get(id);
       requireValue(task, 'Task not found', 404);
       const status = task.status;
-      if (action === 'sync-base') {
+      if (action === 'follow-up') {
+        requireValue(
+          status === 'completed',
+          'Finish the current workflow before requesting follow-up edits',
+          409,
+        );
+        requireValue(
+          !this.running.has(id) && !this.manualRuns.has(id),
+          'The workspace is busy',
+          409,
+        );
+        const request = text(data.message, 'Follow-up request', 20000);
+        const entries = workspaces(task);
+        requireValue(
+          !entries.some((entry) => ['merged', 'closed'].includes(entry.publication?.state)),
+          'This PR has finished. Create a new task for further edits.',
+          409,
+        );
+        const heads = [];
+        for (const entry of entries) {
+          requireValue(
+            task.demo || (entry.workspace && entry.workspaceRoot && !entry.cleanedWorkspace),
+            'The workspace was cleaned up. Create a new task to continue.',
+            409,
+          );
+          requireValue(
+            !this.workspaceReservations.has(entry.workspaceRoot),
+            'Another process owns this workspace',
+            409,
+          );
+          if (!task.demo) {
+            const branch = await git(entry.workspaceRoot, ['symbolic-ref', '--short', 'HEAD']);
+            requireValue(
+              branch === entry.branch,
+              'Workspace branch changed; inspect it before continuing',
+              409,
+            );
+            heads.push(await git(entry.workspaceRoot, ['rev-parse', 'HEAD']));
+          }
+        }
+        requireValue(
+          entries.every((entry) => !this.workspaceReservations.has(entry.workspaceRoot)),
+          'The workspace became busy',
+          409,
+        );
+        const followUp = {
+          id: randomUUID(),
+          request,
+          startedAt: new Date().toISOString(),
+          previousApproach: task.chosenApproach,
+        };
+        for (const [index, entry] of entries.entries()) {
+          if (!task.demo) {
+            entry.workspaceHead = heads[index];
+            this.workspaceReservations.set(entry.workspaceRoot, id);
+          }
+          entry.acceptedFingerprint = null;
+          if (entry.publicationMonitor) entry.publicationMonitor.enabled = false;
+        }
+        syncPrimary(task);
+        task.followUpContext = followUp;
+        (task.followUps ??= []).push(followUp);
+        task.messages.push({
+          id: randomUUID(),
+          at: followUp.startedAt,
+          role: 'user',
+          text: request,
+        });
+        task.chosenApproach = null;
+        task.verifiedFingerprint = null;
+        task.reviewedFingerprint = null;
+        task.verificationCheckpoint = null;
+        task.verificationReportRepair = null;
+        task.recovery = null;
+        task.blockerDecision = null;
+        task.budgetContinuationAttemptId = null;
+        task.round = 0;
+        task.repositoryCursor = 0;
+        task.stage = 'plan';
+        task.status = 'queued';
+        task.error = null;
+        this.store.save(task, {
+          type: 'follow_up',
+          summary: 'Follow-up edits requested. Planning in the existing workspace.',
+          details: request,
+        });
+      } else if (action === 'sync-base') {
         requireValue(
           !this.running.has(id) && !this.manualRuns.has(id),
           'Wait for the active process to stop',
@@ -177,6 +263,7 @@ export class Engine {
         );
         const oldBase = entry.baseCommit;
         entry.baseCommit = head;
+        entry.workspaceHead = head;
         syncPrimary(task);
         task.verifiedFingerprint = null;
         task.reviewedFingerprint = null;
@@ -1084,10 +1171,15 @@ export class Engine {
       }
     }
     const parentAttempt = task.attempts.at(-1);
+    const firstFollowUp =
+      task.followUpContext &&
+      !task.attempts.some((run) => run.followUpId === task.followUpContext.id);
     const attempt = {
+      followUpId: task.followUpContext?.id,
       parentAttemptId: parentAttempt?.id ?? null,
-      relation:
-        task.verificationReportRepair && agentVerification && !debugging
+      relation: firstFollowUp
+        ? 'Follow-up request'
+        : task.verificationReportRepair && agentVerification && !debugging
           ? task.verificationReportRepair.mode === 'check_recovery'
             ? 'Resolve failed check'
             : 'Report correction'
@@ -1243,7 +1335,7 @@ export class Engine {
       try {
         for (const workspace of entries) {
           const head = await git(workspace.workspaceRoot, ['rev-parse', 'HEAD']);
-          if (head !== workspace.baseCommit) {
+          if (head !== (workspace.workspaceHead ?? workspace.baseCommit)) {
             const error = new Error(
               `Recorded base for ${workspace.repository.name} differs from workspace HEAD. Synchronize the inspected base before verification; source changes and completed checks are preserved.`,
             );

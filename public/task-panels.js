@@ -1,3 +1,4 @@
+import { workflowRow, runState } from './run-presentation.js';
 import { taskRuns, currentTaskRun } from './task-runs.js';
 import { runLabel } from './run-label.js';
 import { verificationReport } from './verification-report.js';
@@ -41,24 +42,49 @@ export function handoffList(task) {
   return `<div class="panel-heading"><div><h2>Handoffs</h2><p>Latest outcome first. Open a run for the reasoning and evidence.</p></div><span class="panel-count">${attempts.length} runs</span></div>${attempts.length ? attempts.map((a, i) => `<details class="handoff-card report-card" data-event-key="handoff-${e(a.id)}" ${i === 0 ? 'open' : ''}><summary><div class="report-heading">${harnessBadge(a.harness)}<div><strong>${e(runLabel(a))}</strong><small>Run ${a.number} · ${e(a.harness)}${a.finishedAt ? ` · ${duration(new Date(a.finishedAt) - new Date(a.startedAt))}` : ''}</small></div><span class="verdict ${a.handoff?.verdict === 'complete' ? 'pass' : ['repair_requested', 'verification_requested'].includes(a.handoff?.verdict) ? 'pending' : 'fail'}">${e(a.handoff?.verdict === 'blocked' ? 'Blocked' : a.handoff?.verdict === 'complete' ? 'Complete' : a.handoff?.verdict === 'changes_requested' ? 'Changes requested' : a.handoff?.verdict === 'repair_requested' ? 'Repair delegated' : a.handoff?.verdict === 'verification_requested' ? 'Verification requested' : 'Failed')}</span></div><p class="report-takeaway">${e(concise(a.handoff?.summary || a.error, i === 0 ? 500 : 180))}</p></summary><div class="report-body">${(a.handoff?.summary || a.error || '').length > (i === 0 ? 500 : 180) ? `<p class="report-full-summary">${e(a.handoff?.summary || a.error)}</p>` : ''}${handoffBody(a.handoff)}</div></details>`).join('') : '<p class="panel-empty">Agent outcomes will appear here after the first run.</p>'}`;
 }
 export function workflowStages(task) {
-  const live = ['running', 'queued'].includes(task.status);
-  const subrun = task.attempts.findLast(
-    (a) => ['debug', 'verifier'].includes(a.role) && a.status === 'running',
-  );
+  const cycleStart = task.followUpContext?.startedAt;
   return Object.keys(stageNames)
-    .map((stage, i) => {
-      const a = task.attempts.findLast(
-        (a) => a.stage === stage && !['debug', 'verifier'].includes(a.role),
+    .map((stage, index) => {
+      const runs = task.attempts.filter(
+        (run) =>
+          run.stage === stage &&
+          run.role !== 'debug' &&
+          (stage === 'verify' || run.role !== 'verifier') &&
+          (!cycleStart || ['triage', 'investigate'].includes(stage) || run.startedAt >= cycleStart),
       );
-      const active = task.stage === stage && !['completed', 'cancelled'].includes(task.status);
-      const done = a?.status === 'complete' && a.handoff?.verdict === 'complete';
-      const h =
-        stage === 'verify'
-          ? 'Repository checks'
-          : ({ codex: 'Codex', claude: 'Claude', pi: 'Pi' }[task.routing[stage]] ??
-            task.routing[stage]);
-      const suspended = active && live && subrun;
-      return `<li class="${active ? 'current' : done ? 'done' : ''}"><span class="stage-number">${done && !active ? '✓' : i + 1}</span><div><strong>${e(stageNames[stage])}</strong><small>${suspended ? 'Waiting for ' + (subrun.role === 'verifier' ? 'checks' : 'diagnosis') : e(h)}${!suspended && a?.finishedAt ? ` · ${duration(new Date(a.finishedAt) - new Date(a.startedAt))}` : !suspended && active && live && a?.status === 'running' ? ` · ${timer(a.startedAt)}` : ''}</small>${suspended ? `<div class="workflow-subrun"><span class="pulse-dot"></span><span>${e(runLabel(subrun))}</span>${timer(subrun.startedAt)}</div>` : ''}</div>${active && live && !suspended ? '<span class="pulse-dot"></span>' : ''}</li>`;
+      const run = runs.at(-1);
+      const state = runState(run);
+      const active = task.stage === stage && ['running', 'queued'].includes(task.status);
+      const subrun =
+        active &&
+        task.attempts.findLast(
+          (a) =>
+            a.status === 'running' &&
+            (a.role === 'debug' || (stage !== 'verify' && a.role === 'verifier')),
+        );
+      const display =
+        task.status === 'awaiting_plan' && stage === 'plan'
+          ? { key: 'pending', label: 'Awaiting approval', mark: '○' }
+          : subrun
+            ? {
+                ...state,
+                key: 'running',
+                label: subrun.role === 'debug' ? 'Diagnosing' : 'Checking',
+                mark: '●',
+              }
+            : state;
+      return workflowRow({
+        title: stage === 'verify' && run ? runLabel(run) : stageNames[stage],
+        index: index + 1,
+        run: subrun || run,
+        state: display,
+        fallback: stage === 'verify' ? 'Required checks' : 'Not started',
+        extra: subrun
+          ? `<span class="workflow-subrun">${e(runLabel(subrun))}</span>`
+          : runs.length > 1
+            ? `<span class="workflow-run-count">${runs.length} runs</span>`
+            : '',
+      });
     })
     .join('');
 }
