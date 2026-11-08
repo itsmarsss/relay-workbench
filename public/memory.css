@@ -163,3 +163,222 @@
     padding: 16px;
   }
 }
+
+/* Keep memory readable as a preference library, with settings on demand. */
+.memory-guide {
+  padding: 12px 16px;
+  margin: 18px 0;
+  background: #f4f7f2;
+  border-color: #dce5d8;
+  font-size: 13px;
+}
+.memory-guide summary {
+  cursor: pointer;
+  font-weight: 500;
+  color: #3d5645;
+}
+.memory-guide p {
+  margin-top: 10px;
+  font-size: 13px;
+}
+.memory-toolbar {
+  gap: 12px;
+}
+.memory-card {
+  padding: 18px 20px;
+  border-color: #dce2db;
+  box-shadow: 0 1px 2px #152f1f04;
+}
+.memory-card h2 {
+  margin: 9px 0 0;
+  font-size: 15px;
+}
+.memory-meta {
+  gap: 6px;
+  font-size: 11px;
+  align-items: center;
+}
+.memory-meta > span {
+  border: 1px solid #e0e6dd;
+  background: #f6f8f4;
+  border-radius: 4px;
+  padding: 2px 6px;
+  color: #4c5f51;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+.memory-meta .memory-state {
+  color: #335f43;
+  background: #eef5eb;
+  border-color: #d8e6d2;
+}
+.memory-meta .memory-state.pending {
+  color: #78501c;
+  background: #fff5df;
+  border-color: #eadabb;
+}
+.memory-version {
+  font-size: 11px;
+}
+.memory-content {
+  font-size: 14px;
+  line-height: 1.65;
+  margin: 14px 0;
+}
+.memory-actions {
+  padding-top: 12px;
+  margin-top: 14px;
+  border-top: 1px solid #e7ebe4;
+  gap: 6px;
+}
+.memory-actions .btn {
+  font-size: 12px;
+}
+.memory-card .report-section {
+  margin-top: 12px;
+  padding: 10px 0 0;
+  border-top: 1px solid #e7ebe4;
+}
+.memory-card .report-section summary {
+  font-size: 12px;
+  font-weight: 500;
+}
+.memory-card .report-section p {
+  font-size: 13px;
+}
+#memory-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+}
+#memory-form .field-label {
+  margin-top: 16px;
+  margin-bottom: 6px;
+  font-size: 13px;
+}
+#memory-form .memory-form-grid {
+  margin: 16px 0 0;
+  gap: 14px;
+}
+#memory-form > .memory-form-note {
+  margin: 0 0 2px;
+  font-size: 13px;
+}
+#memory-form .memory-form-grid label {
+  font-size: 13px;
+  font-weight: 500;
+}
+#memory-form .input {
+  width: 100%;
+  min-width: 0;
+}
+#memory-form textarea {
+  resize: vertical;
+}
+.memory-advanced {
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid #e2e7e0;
+}
+.memory-advanced > summary {
+  cursor: pointer;
+  color: #354d42;
+  font-size: 13px;
+  font-weight: 500;
+}
+.memory-form-note {
+  color: #58645d;
+}
+.task-memory-card {
+  padding: 16px;
+}
+.task-memory-card > p {
+  font-size: 13px;
+  line-height: 1.55;
+  color: #58645d;
+  margin: 12px 0;
+}
+.task-memory-card .context-title {
+  font-size: 11px;
+  letter-spacing: 0.07em;
+}
+.memory-compact-list li {
+  font-size: 13px;
+  line-height: 1.5;
+  padding: 8px 0;
+}
+.memory-compact-actions {
+  padding-top: 10px;
+  margin-top: 10px;
+  border-top: 1px solid #e7ebe4;
+  gap: 8px;
+}
+.memory-compact-actions .btn {
+  font-size: 12px;
+  padding: 4px 0;
+}
+.memory-history {
+  gap: 18px;
+}
+.memory-history nav {
+  border-right: 1px solid #e2e7e0;
+  padding-right: 12px;
+  max-height: 55vh;
+}
+.memory-history-run {
+  border: 1px solid transparent;
+  border-radius: 6px;
+  padding: 10px;
+}
+.memory-history-run.selected {
+  border-color: #d4e1ce;
+  background: #edf3e8;
+}
+.memory-history-run strong {
+  font-size: 13px;
+  line-height: 1.45;
+}
+.memory-history-run small {
+  font-size: 11px;
+  line-height: 1.6;
+}
+.memory-history > section {
+  min-width: 0;
+}
+.memory-history h3 {
+  font-size: 14px;
+  margin: 2px 0 14px;
+}
+.memory-run-entry {
+  padding: 14px;
+  border: 1px solid #e0e7db;
+  background: #f8faf5;
+  border-radius: 7px;
+  overflow-wrap: anywhere;
+}
+.memory-run-entry > strong {
+  display: block;
+  font-size: 13px;
+}
+.memory-run-entry > small {
+  display: block;
+  font-size: 11px;
+  margin-top: 4px;
+  color: #58645d;
+}
+.memory-run-entry p {
+  font-size: 13px;
+  line-height: 1.65;
+  margin: 10px 0 0;
+  white-space: pre-wrap;
+}
+@media (max-width: 650px) {
+  .memory-card {
+    padding: 16px;
+  }
+  .memory-history nav {
+    border-right: 0;
+    border-bottom: 1px solid #e2e7e0;
+    padding: 0 0 10px;
+    max-height: 180px;
+  }
+}

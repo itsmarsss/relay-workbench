@@ -88,7 +88,21 @@ export function createApp({ directory, publicDirectory, engineOptions = {} }) {
     publish: engineOptions.publicationPublish,
     validate: engineOptions.publicationValidate,
   });
-  const sideQuestions = new SideQuestions(store, { answer: engineOptions.sideAnswer });
+  const sideQuestions = new SideQuestions(store, {
+    answer: engineOptions.sideAnswer,
+    dispatchFollowUp: async (id, decision) => {
+      requireValue(!maintenance, 'Relay is undergoing maintenance', 409);
+      requireValue(
+        !publicationWorkflow.running.has(id) &&
+          ![...external.keys()].some((key) => key.startsWith(`${id}:`)),
+        'Wait for publication to finish',
+        409,
+      );
+      if (decision.action === 'publication')
+        return publicationWorkflow.start(id, decision.repositoryId, { request: decision.message });
+      return engine.action(id, 'follow-up', { message: decision.message });
+    },
+  });
   const token = randomBytes(32).toString('hex');
   const streams = new Set();
   const terminalStreams = new Map();
@@ -103,6 +117,7 @@ export function createApp({ directory, publicDirectory, engineOptions = {} }) {
         external.size === 0 &&
         publicationMonitor.running.size === 0 &&
         publicationWorkflow.running.size === 0 &&
+        sideQuestions.running.size === 0 &&
         !store.all().some((t) => ['running', 'queued', 'manual'].includes(t.status)),
       'Pause active workflows and submissions before maintenance',
       409,
@@ -468,9 +483,11 @@ export function createApp({ directory, publicDirectory, engineOptions = {} }) {
         if (operation === 'follow-up' && req.method === 'POST') {
           const request = await body(req);
           requireValue(
-            ['question', 'changes', 'publication'].includes(request.mode),
+            ['auto', 'question', 'changes', 'publication'].includes(request.mode ?? 'auto'),
             'Choose a follow-up mode',
           );
+          if (!request.mode || request.mode === 'auto')
+            return json(res, 202, sideQuestions.ask(id, request.message, { followUp: true }));
           if (request.mode === 'question')
             return json(res, 202, sideQuestions.ask(id, request.message));
           requireValue(

@@ -1074,3 +1074,29 @@ test('follow-up HTTP modes require auth and keep questions read-only', async (t)
     409,
   );
 });
+
+test('single-prompt follow-up authenticates and answers without changing accepted work', async (t) => {
+  const f = await fixture(t, {
+    sideAnswer: async ({ followUp }) => {
+      assert.equal(followUp, true);
+      return { action: 'question', answer: 'Here is the accepted context.', repositoryId: '' };
+    },
+  });
+  const task = f.app.engine.create({ title: 'Accepted work', demo: true });
+  task.demo = false;
+  task.status = 'completed';
+  f.app.store.save(task);
+  const path = `/api/tasks/${task.id}/follow-up`;
+  assert.equal(
+    (await f.request(path, 'POST', { message: 'Explain it' }, { 'X-Relay-Token': '' })).status,
+    403,
+  );
+  assert.equal((await f.request(path, 'POST', { message: 'Explain it' })).status, 202);
+  for (let i = 0; i < 100 && f.app.store.get(task.id).sideQuestions[0].status === 'running'; i++)
+    await new Promise((r) => setTimeout(r, 10));
+  const result = f.app.store.get(task.id);
+  assert.equal(result.status, 'completed');
+  assert.equal(result.attempts.length, 0);
+  assert.equal(result.sideQuestions[0].action, 'question');
+  assert.equal(result.sideQuestions[0].answer, 'Here is the accepted context.');
+});

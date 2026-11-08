@@ -37,7 +37,22 @@ const app = createApp({
   publicDirectory: resolve('public'),
   engineOptions: {
     harness: async ({ task, stage }) => demoHandoff(task, stage),
-    sideAnswer: async () => 'The implementation and review context are available.',
+    sideAnswer: async ({ question, followUp }) => {
+      if (!followUp) return 'The implementation and review context are available.';
+      return {
+        action:
+          question === 'Shorten the PR description'
+            ? 'publication'
+            : question === 'Add a focused regression case'
+              ? 'changes'
+              : 'question',
+        answer:
+          question === 'Explain the accepted implementation'
+            ? 'The implementation and review context are available.'
+            : 'I am starting the requested follow-up.',
+        repositoryId: question === 'Shorten the PR description' ? 'repo' : '',
+      };
+    },
     publicationPublish: async ({ task }) => {
       publicationRequest = task.publicationContext.followUpRequest;
       return {
@@ -108,16 +123,15 @@ try {
   await page.getByRole('region', { name: 'Continue work', exact: true }).waitFor();
   const stage = page.locator('.workflow-stage').filter({ hasText: 'Verification agent' });
   assert.equal(await stage.getAttribute('data-stage-state'), 'complete');
-  await page.getByLabel('Request edits', { exact: true }).check();
   await page.locator('#follow-up-message').fill('Keep this draft while the page updates');
   app.store.event(task.id, { type: 'publication', summary: 'A background status refresh' });
   await page.waitForTimeout(500);
-  assert.equal(await page.getByLabel('Request edits', { exact: true }).isChecked(), true);
+  assert.equal(await page.locator('[name="followup-mode"]').count(), 0);
   assert.equal(
     await page.locator('#follow-up-message').inputValue(),
     'Keep this draft while the page updates',
   );
-  assert.equal(await page.getByRole('button', { name: 'Plan edits', exact: true }).count(), 1);
+  assert.equal(await page.getByRole('button', { name: 'Send request', exact: true }).count(), 1);
   if (process.env.RELAY_VISUAL_DIR) {
     await mkdir(process.env.RELAY_VISUAL_DIR, { recursive: true });
     await page.screenshot({
@@ -135,11 +149,10 @@ try {
     );
     await page.setViewportSize({ width: 1440, height: 1000 });
   }
-  await page.getByLabel('Ask', { exact: true }).check();
   await page.locator('#follow-up-message').fill('Explain the accepted implementation');
   await page
     .locator('#follow-up-form')
-    .getByRole('button', { name: 'Ask Relay', exact: true })
+    .getByRole('button', { name: 'Send request', exact: true })
     .click();
   await page
     .locator('.side-chat-response')
@@ -147,11 +160,10 @@ try {
     .waitFor();
   assert.equal(app.store.get(task.id).status, 'completed');
   await page.getByRole('button', { name: 'Close side conversation', exact: true }).click();
-  await page.getByLabel('Update PR', { exact: true }).check();
   await page.locator('#follow-up-message').fill('Shorten the PR description');
   await page
     .locator('#follow-up-form')
-    .getByRole('button', { name: 'Update PR', exact: true })
+    .getByRole('button', { name: 'Send request', exact: true })
     .click();
   for (let i = 0; i < 200 && app.store.get(task.id).delivery?.status !== 'complete'; i++)
     await page.waitForTimeout(25);
@@ -161,9 +173,9 @@ try {
     'complete',
     app.store.get(task.id).delivery.details,
   );
-  await page.getByLabel('Request edits', { exact: true }).check();
+  await page.getByRole('button', { name: 'Close side conversation', exact: true }).click();
   await page.locator('#follow-up-message').fill('Add a focused regression case');
-  await page.getByRole('button', { name: 'Plan edits', exact: true }).click();
+  await page.getByRole('button', { name: 'Send request', exact: true }).click();
   await page.getByRole('heading', { name: 'Choose an approach', exact: true }).waitFor();
   assert.equal(app.store.get(task.id).workspace, repo);
   assert.equal(app.store.get(task.id).status, 'awaiting_plan');

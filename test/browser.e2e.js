@@ -762,7 +762,8 @@ try {
     );
     await page.getByText('Checks: pending · Review: required', { exact: true }).waitFor();
     await page.getByRole('button', { name: 'PR details for service', exact: true }).first().click();
-    await page.getByRole('dialog').getByRole('heading', { name: 'Branch and commit' }).waitFor();
+    await page.getByRole('dialog').getByText('Branch & commit', { exact: true }).click();
+    await page.getByRole('dialog').locator('.detail-path').first().waitFor();
     await page.keyboard.press('Escape');
     for (const width of [1440, 390]) {
       await page.setViewportSize({ width, height: 1000 });

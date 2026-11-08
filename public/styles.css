@@ -5467,45 +5467,6 @@ textarea::placeholder,
   color: #566050;
   margin: 5px 0 14px;
 }
-.follow-up-modes {
-  border: 0;
-  padding: 0;
-  margin: 0 0 12px;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-.follow-up-modes label {
-  position: relative;
-  cursor: pointer;
-}
-.follow-up-modes input {
-  position: absolute;
-  opacity: 0;
-  width: 1px;
-  height: 1px;
-}
-.follow-up-modes span {
-  display: block;
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  padding: 7px 12px;
-  font-size: 13px;
-  color: #46523f;
-}
-.follow-up-modes input:checked + span {
-  background: #eaf0e3;
-  border-color: #849a73;
-  color: #344d2c;
-}
-.follow-up-modes input:focus-visible + span {
-  outline: 2px solid #607c4e;
-  outline-offset: 2px;
-}
-.follow-up-modes input:disabled + span {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
 .follow-up-panel textarea {
   width: 100%;
   resize: vertical;

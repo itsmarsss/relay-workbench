@@ -1,0 +1,541 @@
+/* Shared detail surfaces: consistent type, spacing and progressive disclosure. */
+.detail-kicker {
+  font-size: 11px;
+  line-height: 1.5;
+  font-weight: 600;
+  letter-spacing: 0.07em;
+  color: #58645d;
+}
+.detail-muted {
+  color: #58645d;
+  font-size: 13px;
+  line-height: 1.6;
+}
+.detail-facts {
+  margin: 0;
+  display: grid;
+  gap: 14px;
+}
+.detail-facts > div {
+  min-width: 0;
+}
+.detail-facts dt {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 500;
+  color: #58645d;
+}
+.detail-facts dd {
+  margin: 4px 0 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+.detail-facts dd small {
+  display: block;
+  margin-top: 3px;
+  color: #58645d;
+}
+.detail-path {
+  display: block;
+  max-width: 100%;
+  padding: 8px 10px;
+  border: 1px solid #e2e7e1;
+  background: #f7f9f6;
+  border-radius: 6px;
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-weight: 400;
+}
+.detail-disclosure {
+  border-top: 1px solid var(--line);
+  margin-top: 16px;
+  padding-top: 14px;
+}
+.detail-disclosure > summary,
+.memory-advanced > summary {
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  color: #354d42;
+}
+.detail-disclosure[open] > summary {
+  margin-bottom: 14px;
+}
+.detail-disclosure p,
+.detail-disclosure li {
+  font-size: 13px;
+  line-height: 1.65;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+.detail-disclosure ul {
+  padding-left: 18px;
+}
+.detail-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 16px 0;
+}
+.detail-section {
+  margin: 22px 0;
+}
+.detail-section h3,
+.detail-attention h3 {
+  font-size: 13px;
+  margin: 0 0 8px;
+  font-weight: 600;
+}
+.detail-section p,
+.detail-attention p {
+  font-size: 14px;
+  line-height: 1.65;
+  margin: 0 0 8px;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+.detail-attention {
+  background: #fff7e8;
+  border: 1px solid #e2d4b6;
+  padding: 14px;
+  border-radius: 8px;
+  margin-top: 16px;
+}
+.modal {
+  padding: 24px;
+  border-color: #dbe2db;
+  border-radius: 12px;
+  font-size: 14px;
+  line-height: 1.6;
+}
+.modal.wide {
+  max-width: 720px;
+}
+.modal-heading {
+  gap: 16px;
+  padding-bottom: 16px;
+  margin-bottom: 20px;
+  border-bottom: 1px solid var(--line);
+}
+.modal-heading h2 {
+  font-size: 18px;
+  letter-spacing: -0.3px;
+  margin: 0;
+  color: var(--ink);
+}
+.modal-heading > button {
+  flex-shrink: 0;
+}
+.modal .field-label {
+  font-size: 13px;
+  margin-top: 16px;
+  margin-bottom: 6px;
+}
+.modal .input {
+  font-size: 14px;
+  line-height: 1.5;
+}
+.modal .modal-footer {
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 24px;
+  padding-top: 16px;
+}
+.modal-footer > small {
+  margin-right: auto;
+  max-width: 230px;
+}
+
+/* Workspace presents useful identity first, technical location on demand. */
+.workspace-card {
+  padding: 16px;
+}
+.workspace-card .context-title {
+  font-size: 11px;
+  letter-spacing: 0.07em;
+  margin-bottom: 14px;
+}
+.workspace-heading {
+  display: grid;
+  gap: 3px;
+}
+.workspace-card .workspace-name {
+  font-size: 14px;
+  margin: 0;
+  line-height: 1.5;
+  color: var(--ink);
+}
+.workspace-heading > span {
+  font-size: 12px;
+  color: #58645d;
+}
+.workspace-branch {
+  margin: 14px 0;
+  min-width: 0;
+}
+.workspace-branch > span {
+  display: block;
+  font-size: 12px;
+  margin-bottom: 5px;
+  color: #58645d;
+}
+.workspace-branch code {
+  display: block;
+  font-size: 12px;
+  line-height: 1.6;
+  font-weight: 400;
+  overflow-wrap: anywhere;
+  color: #354d42;
+}
+.workspace-details {
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+.workspace-details summary {
+  font-size: 12px;
+  font-weight: 500;
+  color: #465b4c;
+}
+.workspace-details[open] > summary {
+  margin-bottom: 14px;
+}
+.workspace-card .detail-facts dt {
+  margin: 0;
+  font-size: 12px;
+}
+.workspace-card .detail-facts dd {
+  margin: 5px 0 0;
+  font-size: 13px;
+}
+.workspace-card .detail-path {
+  font-size: 12px;
+  line-height: 1.6;
+  padding: 8px;
+}
+.follow-up-panel {
+  padding: 18px;
+}
+.follow-up-panel header p {
+  margin-bottom: 12px;
+}
+.follow-up-reply {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  border: 0;
+  border-top: 1px solid var(--line);
+  background: transparent;
+  margin-top: 16px;
+  padding: 12px 0 0;
+  text-align: left;
+  font: inherit;
+  font-size: 13px;
+  color: #354d42;
+  cursor: pointer;
+}
+.follow-up-dispatch {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 12px;
+  background: #eef4ef;
+  border: 1px solid #d7e3d8;
+  border-radius: 7px;
+  font-size: 13px;
+  margin-top: 12px;
+}
+
+/* PR details lead with the linked PR, status and most recent outcome. */
+.pr-detail-overview {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 16px;
+  background: #f8faf7;
+}
+.pr-detail-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+.pr-detail-link {
+  display: block;
+  color: #244f42;
+  font-size: 16px;
+  line-height: 1.5;
+  font-weight: 600;
+  margin: 10px 0 14px;
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+.pr-detail-link:hover {
+  text-decoration: underline;
+}
+.pr-detail-signals {
+  display: flex;
+  gap: 24px;
+  flex-wrap: wrap;
+  font-size: 12px;
+  color: #58645d;
+}
+.pr-detail-signals strong {
+  display: block;
+  margin-top: 3px;
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 500;
+  text-transform: capitalize;
+}
+.pr-detail-overview > small {
+  display: block;
+  margin-top: 12px;
+}
+.delivery-detail-content .delivery-provider-output {
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #f7f9f6;
+  font-size: 12px;
+  max-height: 240px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* The execution canvas and inspector share the same run hierarchy. */
+.graph-dialog {
+  inset: 32px;
+  border-radius: 12px;
+  background: white;
+  box-shadow:
+    0 24px 90px #152d2533,
+    0 0 0 100vmax #1c302830;
+}
+.graph-header {
+  padding: 16px 20px;
+}
+.graph-header h2 {
+  font-size: 18px;
+  margin: 3px 0 0;
+  letter-spacing: -0.3px;
+}
+.graph-run-count {
+  font-size: 12px;
+  font-weight: 400;
+  color: #58645d;
+  margin-left: 8px;
+  letter-spacing: 0;
+}
+.graph-toolbar {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.graph-zoom-controls {
+  display: flex;
+  align-items: center;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+.graph-zoom-controls .btn {
+  border: 0;
+  min-width: 32px;
+  margin: 0;
+  padding: 6px 8px;
+}
+.graph-close {
+  margin-left: 8px;
+}
+.graph-body {
+  grid-template-columns: minmax(0, 1fr) 300px;
+}
+.graph-canvas {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: #f7f9f7;
+}
+.graph-canvas-caption {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 18px;
+  color: #58645d;
+  font-size: 12px;
+  border-bottom: 1px solid #e7ebe6;
+}
+.graph-canvas-caption small {
+  font-size: 11px;
+}
+.node-graph-scroll {
+  flex: 1;
+  min-height: 0;
+  padding: 24px 0;
+  background: radial-gradient(#d8e0d9 0.8px, transparent 0.8px);
+  background-size: 16px 16px;
+}
+.graph-lane {
+  fill: #f0f4f0;
+  fill-opacity: 0.85;
+  stroke: #e3e9e3;
+}
+.graph-lane-title {
+  fill: #52645a;
+  font-size: 12px;
+  letter-spacing: 0.2px;
+  font-weight: 500;
+}
+.graph-edge {
+  stroke: #84918b;
+  stroke-width: 1.5;
+}
+.graph-node rect,
+.graph-node.debug-branch rect,
+.graph-node.checks-branch rect {
+  fill: white;
+  stroke: #ccd7cf;
+  stroke-width: 1;
+}
+.graph-node.debug-branch rect {
+  stroke: #b9b0cf;
+}
+.graph-node.checks-branch rect {
+  stroke: #a8b9ce;
+}
+.graph-node.is-blocked rect {
+  stroke: #bb7b66;
+}
+.graph-node.is-running rect {
+  stroke: #53846b;
+  stroke-width: 2;
+}
+.graph-node.selected rect,
+.graph-node:focus rect {
+  fill: #fbfdfb;
+  stroke: #285b46;
+  stroke-width: 2;
+}
+.graph-node text {
+  fill: #4e6257;
+  font-size: 12px;
+}
+.graph-node .graph-node-meta {
+  fill: #58645d;
+  font-size: 11px;
+}
+.graph-node .graph-node-title {
+  fill: #233d30;
+  font-size: 13px;
+  font-weight: 600;
+}
+.graph-node .graph-node-status {
+  fill: #465c4d;
+  font-size: 12px;
+}
+.graph-status-dot {
+  fill: #7d8981;
+}
+.graph-status-dot.complete {
+  fill: #487858;
+}
+.graph-status-dot.running {
+  fill: #326783;
+}
+.graph-status-dot.failed,
+.graph-status-dot.blocked {
+  fill: #a14d36;
+}
+.graph-inspector {
+  padding: 18px;
+  background: white;
+}
+.graph-inspector-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.graph-inspector-title {
+  margin-top: 14px;
+  align-items: center;
+  gap: 10px;
+}
+.graph-inspector-title h3 {
+  font-size: 16px;
+  line-height: 1.45;
+  margin: 0;
+}
+.graph-inspector .graph-run-summary {
+  font-size: 13px;
+  line-height: 1.65;
+  margin: 16px 0;
+}
+.graph-open-run {
+  width: 100%;
+}
+.graph-facts {
+  padding-top: 18px;
+  margin-top: 18px;
+  border-top: 1px solid var(--line);
+}
+.graph-inspector .detail-disclosure {
+  font-size: 13px;
+}
+.graph-inspector .graph-evidence {
+  padding-left: 18px;
+}
+.graph-handoff {
+  max-height: 300px;
+  overflow: auto;
+}
+@media (max-width: 800px) {
+  .graph-dialog {
+    inset: 12px;
+  }
+  .graph-body {
+    grid-template-columns: 1fr;
+    grid-template-rows: minmax(200px, 1fr) minmax(180px, 38%);
+  }
+  .graph-inspector {
+    border-left: 0;
+    border-top: 1px solid var(--line);
+  }
+  .graph-header {
+    align-items: flex-start;
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+  .graph-toolbar {
+    width: 100%;
+    gap: 6px;
+  }
+  .graph-close {
+    margin-left: auto;
+  }
+  .graph-canvas-caption small {
+    display: none;
+  }
+}
+@media (max-width: 600px) {
+  .modal {
+    padding: 18px;
+    width: calc(100% - 24px);
+  }
+  .modal .modal-footer {
+    flex-wrap: wrap;
+  }
+  .modal-footer > small {
+    flex-basis: 100%;
+    max-width: none;
+  }
+}

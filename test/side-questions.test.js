@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Store } from '../server/store.js';
 import { newTask, DEFAULT_CONFIG } from '../server/domain.js';
-import { SideQuestions, questionContext } from '../server/side-questions.js';
+import { SideQuestions, questionContext, followUpDecision } from '../server/side-questions.js';
 import { elapsed, timer, liveProgress, updateTimers } from '../public/live-progress.js';
 import { sideChat } from '../public/side-chat.js';
 test('side questions use a snapshot and never steer or overwrite the worker', async (t) => {
@@ -165,4 +165,83 @@ test('side progress is visible before completion without overwriting worker stat
   const done = store.get(task.id).sideQuestions[0];
   assert.equal(done.answer, 'Completed answer');
   assert.equal(done.toolCalls[0].status, 'interrupted');
+});
+
+for (const action of ['question', 'changes', 'publication']) {
+  test(`automatic follow-up routes ${action} from current request`, async (t) => {
+    const directory = await mkdtemp(join(tmpdir(), 'relay-followup-route-'));
+    const store = new Store(directory);
+    const dispatches = [];
+    const side = new SideQuestions(store, {
+      answer: async ({ question, followUp, context, onProgress }) => {
+        assert.equal(followUp, true);
+        assert.equal(question, 'Current explicit request');
+        assert.equal(context.status, 'completed');
+        onProgress({ answer: 'Inspecting context', toolCalls: [] });
+        return {
+          action,
+          answer: 'The requested next step',
+          repositoryId: action === 'publication' ? 'repo' : '',
+        };
+      },
+      dispatchFollowUp: async (id, decision) => dispatches.push({ id, ...decision }),
+    });
+    t.after(async () => {
+      await side.stop();
+      store.close();
+      await rm(directory, { recursive: true, force: true });
+    });
+    const task = newTask({ title: 'Completed work', demo: true }, DEFAULT_CONFIG);
+    task.demo = false;
+    task.repository = { id: 'repo', name: 'Example' };
+    task.status = 'completed';
+    store.save(task);
+    side.ask(task.id, 'Current explicit request', { followUp: true });
+    await side.running.get(task.id).done;
+    const record = store.get(task.id).sideQuestions[0];
+    assert.equal(record.status, 'complete');
+    assert.equal(record.action, action);
+    assert.equal(record.answer, 'The requested next step');
+    assert.equal(dispatches.length, action === 'question' ? 0 : 1);
+    if (dispatches.length) assert.equal(dispatches[0].message, 'Current explicit request');
+    assert.equal(store.get(task.id).status, 'completed');
+  });
+}
+test('automatic follow-up rejects invalid routing and surfaces failed dispatch', async (t) => {
+  const context = { repositories: [{ id: 'repo' }] };
+  assert.throws(
+    () => followUpDecision({ action: 'merge', answer: 'Done' }, context),
+    /valid follow-up/,
+  );
+  assert.throws(
+    () =>
+      followUpDecision(
+        { action: 'publication', answer: 'Update', repositoryId: 'invented' },
+        context,
+      ),
+    /select a repository/,
+  );
+  const directory = await mkdtemp(join(tmpdir(), 'relay-followup-blocked-'));
+  const store = new Store(directory);
+  const side = new SideQuestions(store, {
+    answer: async () => ({ action: 'changes', answer: 'Planning edits', repositoryId: '' }),
+    dispatchFollowUp: async () => {
+      throw new Error('Another process owns this workspace');
+    },
+  });
+  t.after(async () => {
+    await side.stop();
+    store.close();
+    await rm(directory, { recursive: true, force: true });
+  });
+  const task = newTask({ title: 'Completed work', demo: true }, DEFAULT_CONFIG);
+  task.demo = false;
+  task.status = 'completed';
+  store.save(task);
+  side.ask(task.id, 'Change the implementation', { followUp: true });
+  await side.running.get(task.id).done;
+  const result = store.get(task.id);
+  assert.equal(result.status, 'completed');
+  assert.equal(result.sideQuestions[0].status, 'failed');
+  assert.match(result.sideQuestions[0].error, /Another process owns/);
 });

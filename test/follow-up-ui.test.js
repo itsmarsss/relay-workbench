@@ -5,14 +5,15 @@ import { workflowStages } from '../public/task-panels.js';
 import { deliveryWorkflowStages } from '../public/publication.js';
 import { activityRunNavigation } from '../public/activity-runs.js';
 
-test('completed task exposes questions, edits and PR updates without raw status text', () => {
+test('completed task exposes one request without requiring a routing choice', () => {
   const task = { status: 'completed', repository: { id: 'repo', name: 'Example' }, attempts: [] };
   const html = followUpComposer(task);
-  for (const label of ['Continue work', 'Ask', 'Request edits', 'Update PR'])
-    assert.match(html, new RegExp(label));
+  assert.match(html, /Continue work/);
+  assert.match(html, /Send request/);
+  assert.doesNotMatch(html, /type="radio"|name="followup-mode"/);
   assert.equal(followUpComposer({ ...task, status: 'running' }), '');
-  const busy = followUpComposer({ ...task, delivery: { status: 'running' } });
-  assert.match(busy, /value="changes"[^>]*disabled/);
+  const busy = followUpComposer({ ...task, sideQuestions: [{ status: 'running' }] });
+  assert.match(busy, /type="submit" disabled/);
 });
 
 test('workflow includes completed verification agents and resets follow-up progress', () => {

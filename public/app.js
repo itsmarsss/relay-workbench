@@ -1,4 +1,5 @@
-import { followUpComposer, updateFollowUpForm } from './follow-up.js';
+import { workspaceCard } from './workspace-card.js';
+import { followUpComposer } from './follow-up.js';
 import { planOptions } from './plan-options.js';
 import { refreshQueue, latestLoader, eventBatch } from './async-state.js';
 import { statusQueue } from './pending-status.js';
@@ -18,7 +19,7 @@ import {
   activityEventMeta,
 } from './activity-runs.js';
 import { taskRoute, parseTaskRoute } from './task-route.js';
-import { executionMap } from './execution-map.js';
+import { executionMap, graphLayout } from './execution-map.js';
 import { liveProgress, timer, updateTimers } from './live-progress.js';
 import { sideChat } from './side-chat.js';
 import { blockerDecisionView } from './blocker-decision.js';
@@ -129,7 +130,7 @@ function button(action, label, kind = '', iconName = '', attrs = '') {
   return `<button class="btn ${kind}" data-action="${action}" ${attrs}>${iconName ? icon(iconName) : ''}${label}</button>`;
 }
 function nav(view, label, name, extra = '') {
-  return `<button class="nav-item ${state.view === view ? 'active' : ''}" data-action="navigate" data-view="${view}">${icon(name)}<span>${label}</span>${extra}</button>`;
+  return `<button class="nav-item ${state.view === view ? 'active' : ''}" data-action="navigate" data-view="${view}" aria-label="${e(label)}" title="${e(label)}">${icon(name)}<span>${label}</span>${extra}</button>`;
 }
 function shell() {
   app.innerHTML = `<aside class="sidebar"><a class="brand" href="#" data-action="navigate" data-view="overview"><span class="brand-mark">${icon('relay')}</span>relay<span class="brand-caption">WORKBENCH</span></a><div class="workspace-label"><span class="workspace-avatar">Y</span><div>Your workspace<small>Local · Personal</small></div><span class="local-dot"></span></div><div class="nav-label">WORKSPACE</div><nav>${nav('overview', 'Overview', 'grid')}${nav('tasks', 'All tasks', 'layers', `<span class="nav-count">${state.tasks.length}</span>`)}${nav('inbox', 'Approval inbox', 'eye')}${nav('repositories', 'Repositories', 'folder')}${nav('harnesses', 'Harnesses', 'bolt')}${nav('memory', 'Memory', 'book')}</nav><div class="sidebar-bottom"><div class="sidebar-note">${icon('spark')}<p>Different minds.<br>One shared workspace.</p></div>${nav('settings', 'Settings', 'settings')}<div class="connection"><span class="local-dot ${state.connected ? '' : 'offline'}"></span><span>${state.connected ? 'Connected locally' : 'Reconnecting…'}</span><small>v0.1</small></div></div></aside><div class="main-shell"><header class="topbar"><div class="breadcrumb">Workspace ${icon('chevron')} <span>${state.view === 'task' ? 'Task workspace' : state.view.charAt(0).toUpperCase() + state.view.slice(1)}</span></div><div class="top-actions"><span class="keyboard-hint">N <span>new task</span></span>${button('new-task', 'New task', 'primary small', 'plus')}</div></header><main id="main"></main></div>`;
@@ -172,8 +173,6 @@ function renderMain() {
     [...main.querySelectorAll('details[data-event-key]')].map((d) => [d.dataset.eventKey, d.open]),
   );
   const selectedApproach = main.querySelector('input[name="optionId"]:checked')?.value;
-  const followUpMode = main.querySelector('[name="followup-mode"]:checked')?.value;
-  const followUpRepository = main.querySelector('#follow-up-form [name="repositoryId"]')?.value;
   const markup =
     state.view === 'memory'
       ? state.memoryAvailable
@@ -214,16 +213,6 @@ function renderMain() {
   if (selectedApproach)
     for (const input of main.querySelectorAll('input[name="optionId"]'))
       input.checked = input.value === selectedApproach;
-  const followUpForm = main.querySelector('#follow-up-form');
-  if (followUpForm) {
-    const choice = [...followUpForm.querySelectorAll('[name="followup-mode"]')].find(
-      (input) => input.value === followUpMode && !input.disabled,
-    );
-    if (choice) choice.checked = true;
-    const repository = followUpForm.querySelector('[name="repositoryId"]');
-    if (repository && followUpRepository) repository.value = followUpRepository;
-    updateFollowUpForm(followUpForm);
-  }
   for (const mode of editorModes)
     if (mode.preview) {
       const editor = [...main.querySelectorAll('[data-editor]')].find(
@@ -335,19 +324,7 @@ function taskView() {
     ? t.repositories
     : [t]
   )
-    .map(
-      (r) =>
-        `<section class="context-card"><div class="context-title">WORKSPACE ${icon('git')}</div><strong class="workspace-name">${e(r.repository.name)}</strong><details class="workspace-details" data-event-key="workspace-${e(r.repository.id)}"><summary>Branch, directory &amp; setup</summary><dl><dt>Repository</dt><dd>${e(r.repository.name)}</dd><dt>Prerequisites</dt><dd>${e(
-          (t.dependencies ?? [])
-            .filter((d) => d.repositoryId === r.repository.id)
-            .map(
-              (d) =>
-                (t.repositories ?? [t]).find((x) => x.repository.id === d.dependsOn)?.repository
-                  .name ?? d.dependsOn,
-            )
-            .join(', ') || 'Independent',
-        )}</dd><dt>Workspace mode</dt><dd>${r.repository.strategy === 'attach' ? 'Attach existing checkout (explicit opt-in)' : r.repository.strategy === 'managed' ? 'New managed worktree per task' : 'New isolated worktree per task'}</dd><dt>Branch</dt><dd class="mono wrap">${e(r.branch || 'Assigned when started')}</dd><dt>Directory</dt><dd class="mono wrap">${e(r.workspace || 'Created when started')}</dd></dl></details></section>`,
-    )
+    .map((r) => workspaceCard(t, r))
     .join(
       '',
     )}${t.chosenApproach ? `<section class="context-card approved-card"><div class="context-title">APPROVED APPROACH ${icon('check')}</div><strong>${e(t.chosenApproach.title)}</strong><p>${e(t.chosenApproach.description)}</p></section>` : ''}</aside></div>`;
@@ -1068,12 +1045,26 @@ document.addEventListener('click', async (event) => {
       renderMain();
       return;
     }
+    if (action === 'graph-fit') {
+      const canvas = document.querySelector('.node-graph-scroll');
+      const layout = graphLayout(state.task);
+      state.graphZoom = Math.max(
+        0.15,
+        Math.min(
+          1,
+          (canvas.clientWidth - 24) / layout.width,
+          (canvas.clientHeight - 24) / layout.height,
+        ),
+      );
+      renderMain();
+      return;
+    }
     if (['graph-zoom-in', 'graph-zoom-out', 'graph-reset'].includes(action)) {
       state.graphZoom =
         action === 'graph-reset'
           ? 1
           : Math.max(
-              0.5,
+              0.15,
               Math.min(1.5, state.graphZoom + (action === 'graph-zoom-in' ? 0.1 : -0.1)),
             );
       renderMain();
@@ -1087,6 +1078,8 @@ document.addEventListener('click', async (event) => {
       return;
     }
     if (action === 'tab') {
+      if (element.closest('dialog')) closeModal();
+      if (element.closest('.follow-up-dispatch')) state.sideChatOpen = false;
       state.tab = element.dataset.tab;
       if (state.tab === 'transcript' && element.dataset.runId) state.logRun = element.dataset.runId;
       history.pushState(null, '', taskRoute(state.selected, state.tab, state.sideChatOpen));
@@ -1369,20 +1362,13 @@ document.addEventListener('submit', async (event) => {
       await refresh();
     }
     if (form.id === 'follow-up-form') {
-      const mode = data.get('followup-mode');
       await api(`/tasks/${state.selected}/follow-up`, 'POST', {
-        mode,
+        mode: 'auto',
         message: data.get('message'),
-        repositoryId: data.get('repositoryId') || state.task.repository.id,
       });
       form.querySelector('textarea').value = '';
-      if (mode === 'question') {
-        state.sideChatOpen = true;
-        history.pushState(null, '', taskRoute(state.selected, state.tab, true));
-      } else {
-        state.tab = 'thread';
-        history.pushState(null, '', taskRoute(state.selected, state.tab, state.sideChatOpen));
-      }
+      state.sideChatOpen = true;
+      history.pushState(null, '', taskRoute(state.selected, state.tab, true));
       await refresh();
       return;
     }
@@ -1677,7 +1663,3 @@ document.addEventListener(
 );
 document.addEventListener('relay-images-updated', () => renderMain());
 boot();
-
-document.addEventListener('change', (event) => {
-  if (event.target.name === 'followup-mode') updateFollowUpForm(event.target.form);
-});

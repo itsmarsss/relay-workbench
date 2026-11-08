@@ -1,6 +1,7 @@
 import { taskRuns } from './task-runs.js';
 import { runLabel } from './run-label.js';
 import { e, stageNames, harnessBadge } from './ui.js';
+import { runState, harnessName, runTiming } from './run-presentation.js';
 import { timer } from './live-progress.js';
 export function executionNodes(task) {
   const attempts = taskRuns(task);
@@ -27,74 +28,62 @@ export function executionNodes(task) {
     };
   });
 }
+const laneFor = (node) =>
+  node.role === 'debug'
+    ? 'debug'
+    : node.role === 'verifier' || node.harness === 'checks'
+      ? 'verify'
+      : 'workflow';
+const laneNames = { workflow: 'Workflow', debug: 'Debugging', verify: 'Verification' };
 export function graphLayout(task) {
-  const nodes = executionNodes(task).map((node, i) => ({
+  const runs = executionNodes(task);
+  const lanes = ['workflow', 'debug', 'verify']
+    .filter((key) => runs.some((n) => laneFor(n) === key))
+    .map((key, index) => ({ key, label: laneNames[key], y: 24 + index * 164 }));
+  const nodes = runs.map((node, index) => ({
     ...node,
-    x: 40 + i * 280,
-    y:
-      node.role === 'debug'
-        ? 236
-        : node.role === 'verifier' || node.harness === 'checks'
-          ? 416
-          : 56,
+    lane: laneFor(node),
+    x: 32 + index * 268,
+    y: 58 + lanes.findIndex((l) => l.key === laneFor(node)) * 164,
   }));
   const edges = nodes
     .filter((n) => n.parentNumber)
     .map((n) => {
       const parent = nodes[n.parentNumber - 1];
-      const startX = parent.x + 224;
-      const endX = n.x;
-      const midX = (startX + endX) / 2;
+      const startX = parent.x + 216,
+        endX = n.x,
+        midX = (startX + endX) / 2;
       return {
         from: parent.number,
         to: n.number,
         inferred: n.inferred,
         relation: n.relation,
-        path: `M ${startX} ${parent.y + 48} C ${midX} ${parent.y + 48}, ${midX} ${n.y + 48}, ${endX} ${n.y + 48}`,
+        path: `M ${startX} ${parent.y + 52} C ${midX} ${parent.y + 52}, ${midX} ${n.y + 52}, ${endX} ${n.y + 52}`,
       };
     });
-  return { nodes, edges, width: Math.max(800, nodes.length * 280 + 40), height: 560 };
+  return {
+    nodes,
+    edges,
+    lanes,
+    width: Math.max(640, nodes.length * 268 + 12),
+    height: Math.max(240, lanes.length * 164 + 24),
+  };
 }
 export function executionMap(task, { selectedId, zoom = 1 } = {}) {
-  const { nodes, edges, width, height } = graphLayout(task);
-  const selected = nodes.find((n) => n.id === selectedId) ?? nodes.at(-1);
-  const short = (value, max = 31) =>
+  const { nodes, edges, lanes, width, height } = graphLayout(task);
+  const selected =
+    nodes.find((n) => n.id === selectedId) ??
+    nodes.findLast((n) => n.status === 'running') ??
+    nodes.at(-1);
+  const short = (value, max = 24) =>
     String(value ?? '').length > max ? String(value).slice(0, max - 1) + '…' : String(value ?? '');
   const status = (a) =>
     a.handoff?.verdict === 'repair_requested'
       ? 'Repair delegated'
       : a.handoff?.verdict === 'verification_requested'
         ? 'Verification requested'
-        : a.handoff?.verdict === 'blocked'
-          ? 'Blocked'
-          : a.handoff?.verdict === 'changes_requested'
-            ? 'Changes requested'
-            : a.status === 'complete'
-              ? 'Completed'
-              : a.status;
-  return `<section class="execution-map graph-dialog" role="region" aria-label="Execution graph"><header class="graph-header"><div><h2>Execution graph</h2><p>${nodes.length} runs · left to right · select a run to inspect</p></div><div class="inline-actions"><button class="btn secondary small" data-action="graph-current">Current run</button><button class="btn secondary small" data-action="graph-zoom-out" aria-label="Zoom out">−</button><button class="btn text small" data-action="graph-reset">${Math.round(zoom * 100)}%</button><button class="btn secondary small" data-action="graph-zoom-in" aria-label="Zoom in">+</button><button class="btn text small" data-action="close-execution-map" aria-label="Close execution graph">✕</button></div></header><div class="graph-legend"><span><i></i>Workflow</span><span><i class="debug"></i>Debugger</span><span><i class="checks"></i>Verification</span><small>Solid: recorded handoff · Dashed: historical order</small></div><div class="graph-body"><div class="node-graph-scroll" tabindex="0" aria-label="Scrollable execution graph"><svg class="node-graph" width="${width * zoom}" height="${height * zoom}" viewBox="0 0 ${width} ${height}" role="img" aria-label="Task runs and their connected execution paths"><defs><marker id="execution-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0 0L10 5L0 10z" fill="#7c8d70"/></marker></defs>${[
-    ['WORKFLOW', 24],
-    ['DEBUGGER', 204],
-    ['HOST CHECKS', 384],
-  ]
-    .map(
-      ([name, y]) =>
-        `<rect class="graph-lane" x="16" y="${y + 14}" width="${width - 32}" height="132" rx="12"/><text x="40" y="${y}" class="graph-lane-title">${name}</text>`,
-    )
-    .join(
-      '',
-    )}${edges.map((edge) => `<path class="graph-edge ${edge.inferred ? 'inferred' : ''}" d="${edge.path}" marker-end="url(#execution-arrow)"><title>${edge.inferred ? 'Recorded order: ' : ''}${e(edge.relation)} · ${edge.from} → ${edge.to}</title></path>`).join('')}${nodes.map((a) => `<g class="graph-node ${a.role === 'debug' ? 'debug-branch' : a.role === 'verifier' || a.harness === 'checks' ? 'checks-branch' : ''} ${a.status === 'running' ? 'is-running' : ''} ${a.handoff?.verdict === 'blocked' || a.status === 'failed' ? 'is-blocked' : ''} ${selected?.id === a.id ? 'selected' : ''}" transform="translate(${a.x} ${a.y})" role="button" tabindex="0" aria-label="Run ${a.number}: ${e(runLabel(a))}, ${e(status(a))}" data-action="graph-select" data-id="${e(a.id)}"><rect width="224" height="96" rx="10"/><text x="16" y="25" class="graph-node-title">${a.number}. ${e(runLabel(a))}</text><text x="16" y="47">${e(short(`${a.harness} · ${a.actualModel || a.model || (a.harness === 'checks' ? 'configured commands' : 'CLI default')}`))}</text><text x="16" y="72" class="graph-node-status">${e(short(status(a)))}</text><title>${e(a.relation)}${a.handoff ? `: ${e(a.handoff.summary)}` : ''}</title></g>`).join('')}</svg>${!nodes.length ? '<p class="graph-empty">Start the workflow to see its execution path.</p>' : ''}</div><aside class="graph-inspector">${
-    selected
-      ? `<span class="eyebrow">SELECTED RUN · ${selected.number}</span><div class="graph-inspector-title">${harnessBadge(selected.harness)}<h3>${e(runLabel(selected))}</h3></div><span class="graph-status">${e(status(selected))}</span><dl class="graph-metadata"><dt>Model</dt><dd>${e(selected.actualModel || selected.model || (selected.harness === 'checks' ? 'Configured commands' : 'CLI default · not reported'))}</dd><dt>Path</dt><dd>${e(selected.relation)}${selected.parentNumber ? ` · From run ${selected.parentNumber}` : ''}</dd><dt>Duration</dt><dd>${timer(selected.startedAt, selected.finishedAt)}</dd></dl><p class="graph-run-summary">${e(selected.handoff?.summary || selected.error || 'Output and evidence appear as this run progresses.')}</p><button class="btn secondary" data-action="graph-open-activity" data-id="${e(selected.id)}">Open run activity ↗</button>${
-          selected.handoff?.evidence?.length
-            ? `<h4>Evidence</h4><ul class="graph-evidence">${selected.handoff.evidence
-                .slice(0, 8)
-                .map((v) => `<li>${e(v)}</li>`)
-                .join('')}</ul>`
-            : ''
-        }${selected.handoff?.details ? `<details class="event-details"><summary>Full handoff</summary><p class="graph-handoff">${e(selected.handoff.details)}</p></details>` : ''}`
-      : '<p>No runs yet.</p>'
-  }</aside></div></section>`;
+        : runState(a).label;
+  return `<section class="execution-map graph-dialog" role="region" aria-label="Execution graph"><header class="graph-header"><div><span class="detail-kicker">WORKFLOW HISTORY</span><h2>Execution graph <span class="graph-run-count">${nodes.length} runs</span></h2></div><div class="graph-toolbar"><button class="btn secondary small" data-action="graph-current">Latest run</button><div class="graph-zoom-controls"><button class="btn text small" data-action="graph-zoom-out" aria-label="Zoom out">−</button><button class="btn text small" data-action="graph-reset" aria-label="Reset zoom">${Math.round(zoom * 100)}%</button><button class="btn text small" data-action="graph-zoom-in" aria-label="Zoom in">+</button></div><button class="btn text small" data-action="graph-fit">Fit view</button><button class="btn text small graph-close" data-action="close-execution-map" aria-label="Close execution graph">✕</button></div></header><div class="graph-body"><div class="graph-canvas"><div class="graph-canvas-caption"><span>Select a run to inspect its outcome</span><small>Dashed links show recorded order</small></div><div class="node-graph-scroll" tabindex="0" aria-label="Scrollable execution graph"><svg class="node-graph" width="${width * zoom}" height="${height * zoom}" viewBox="0 0 ${width} ${height}" role="img" aria-label="Task runs and their connected execution paths"><defs><marker id="execution-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5" markerHeight="5" orient="auto"><path d="M0 0L10 5L0 10z" fill="#84918b"/></marker></defs>${lanes.map((lane) => `<rect class="graph-lane" x="16" y="${lane.y + 18}" width="${width - 32}" height="126" rx="8"/><text x="32" y="${lane.y}" class="graph-lane-title">${e(lane.label)}</text>`).join('')}${edges.map((edge) => `<path class="graph-edge ${edge.inferred ? 'inferred' : ''}" d="${edge.path}" marker-end="url(#execution-arrow)"><title>${edge.inferred ? 'Recorded order: ' : ''}${e(edge.relation)} · ${edge.from} → ${edge.to}</title></path>`).join('')}${nodes.map((node) => `<g class="graph-node ${node.lane === 'debug' ? 'debug-branch' : node.lane === 'verify' ? 'checks-branch' : ''} ${node.status === 'running' ? 'is-running' : ''} ${['blocked', 'failed'].includes(runState(node).key) ? 'is-blocked' : ''} ${selected?.id === node.id ? 'selected' : ''}" transform="translate(${node.x} ${node.y})" role="button" tabindex="0" aria-label="Run ${node.number}: ${e(runLabel(node))}, ${e(status(node))}" data-action="graph-select" data-id="${e(node.id)}"><rect width="216" height="104" rx="8"/><text x="14" y="23" class="graph-node-meta">${e(harnessName(node.harness))} · RUN ${node.number}</text><text x="14" y="47" class="graph-node-title">${e(short(runLabel(node)))}</text><circle cx="18" cy="76" r="3" class="graph-status-dot ${e(runState(node).key)}"/><text x="29" y="80" class="graph-node-status">${e(short(status(node)))}</text><title>${e(node.relation)}${node.handoff ? `: ${e(node.handoff.summary)}` : ''}</title></g>`).join('')}</svg>${!nodes.length ? '<p class="graph-empty">Start the workflow to see its execution path.</p>' : ''}</div></div><aside class="graph-inspector">${selected ? `<div class="graph-inspector-heading"><span class="detail-kicker">RUN ${selected.number}</span><span class="run-status ${e(runState(selected).key)}">${e(status(selected))}</span></div><div class="graph-inspector-title">${harnessBadge(selected.harness)}<h3>${e(runLabel(selected))}</h3></div><p class="graph-run-summary">${e(selected.handoff?.summary || selected.error || 'Output and evidence appear as this run progresses.')}</p><button class="btn secondary small graph-open-run" data-action="graph-open-activity" data-id="${e(selected.id)}">Open run activity ↗</button><dl class="detail-facts graph-facts"><div><dt>Agent</dt><dd>${e(harnessName(selected.harness))}</dd></div><div><dt>Model</dt><dd>${e(selected.actualModel || selected.model || (selected.harness === 'checks' ? 'Configured commands' : 'CLI default · not reported'))}</dd></div><div><dt>Duration</dt><dd>${runTiming(selected) || 'Not started'}</dd></div><div><dt>Handoff</dt><dd>${e(selected.relation)}${selected.parentNumber ? `<small>From run ${selected.parentNumber}</small>` : ''}</dd></div></dl>${selected.handoff?.evidence?.length ? `<details class="detail-disclosure"><summary>Evidence <span>${selected.handoff.evidence.length}</span></summary><ul class="graph-evidence">${selected.handoff.evidence.map((v) => `<li>${e(v)}</li>`).join('')}</ul></details>` : ''}${selected.handoff?.details ? `<details class="detail-disclosure"><summary>Full handoff</summary><p class="graph-handoff">${e(selected.handoff.details)}</p></details>` : ''}` : '<p class="detail-muted">No runs yet.</p>'}</aside></div></section>`;
 }
 export function debuggerStep(task) {
   const a = task.attempts?.findLast(

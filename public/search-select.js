@@ -3,8 +3,10 @@ export function prepareSearchSelects(root) {
     if (select.multiple || select.size > 1 || select.closest('relay-select')) continue;
     const host = root.ownerDocument.createElement('relay-select');
     host.dataset.eventKey = `select-${select.id || select.name || index}`;
-    select.replaceWith(host);
+    const parent = select.parentNode;
+    const next = select.nextSibling;
     host.append(select);
+    parent.insertBefore(host, next);
   }
 }
 
