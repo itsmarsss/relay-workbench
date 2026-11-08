@@ -12,7 +12,7 @@
     "dev": "node --watch server/index.js",
     "test": "node --test test/*.test.js",
     "check": "node scripts/check.js",
-    "test:browser": "node test/live-dom.e2e.js && node test/search-select.e2e.js && node test/memory.e2e.js && node test/browser.e2e.js && node test/follow-up.e2e.js && node test/ui-sweep.e2e.js",
+    "test:browser": "node test/live-dom.e2e.js && node test/search-select.e2e.js && node test/memory.e2e.js && node test/browser.e2e.js && node test/follow-up.e2e.js && node test/ui-sweep.e2e.js && node test/workspace-pages.e2e.js",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "vendor": "node scripts/vendor.js"

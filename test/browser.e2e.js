@@ -247,7 +247,7 @@ try {
       .waitFor();
   await page.getByRole('button', { name: 'All tasks', exact: false }).first().click();
   await page.getByRole('textbox', { name: 'Search tasks' }).fill('does-not-exist');
-  await page.getByRole('heading', { name: 'No tasks here yet' }).waitFor();
+  await page.getByRole('heading', { name: 'No matching tasks' }).waitFor();
   await page.getByRole('textbox', { name: 'Search tasks' }).fill('Unify');
   await page.locator('.task-list-row').first().waitFor();
   await page.getByRole('button', { name: 'Board', exact: true }).click();
@@ -535,7 +535,7 @@ try {
   await page.screenshot({ path: join(screenshots, 'mobile-task-list.png'), fullPage: true });
   await page.setViewportSize({ width: 1440, height: 1100 });
 
-  await page.getByRole('button', { name: 'Harnesses', exact: true }).click();
+  await page.getByRole('button', { name: 'Agents', exact: true }).click();
   await page.getByRole('heading', { name: 'Specialist routing' }).waitFor();
   assert.equal(await page.locator('.harness-card').count(), 3);
   await page.getByRole('button', { name: 'Settings', exact: true }).click();
@@ -876,7 +876,7 @@ try {
     await page.getByRole('button', { name: 'Approval inbox', exact: true }).click();
     await page.getByRole('heading', { name: 'Approval inbox', exact: true }).waitFor();
     await assertReadableText(page);
-    await page.getByRole('button', { name: 'Harnesses', exact: true }).click();
+    await page.getByRole('button', { name: 'Agents', exact: true }).click();
     await page.getByRole('heading', { name: 'Routing evidence', exact: true }).waitFor();
     await page.locator('#outcomes-repository').selectOption('service', { force: true });
     await page.getByRole('heading', { name: 'Suggested defaults', exact: true }).waitFor();

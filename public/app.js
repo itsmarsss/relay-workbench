@@ -130,10 +130,10 @@ function button(action, label, kind = '', iconName = '', attrs = '') {
   return `<button class="btn ${kind}" data-action="${action}" ${attrs}>${iconName ? icon(iconName) : ''}${label}</button>`;
 }
 function nav(view, label, name, extra = '') {
-  return `<button class="nav-item ${state.view === view ? 'active' : ''}" data-action="navigate" data-view="${view}" aria-label="${e(label)}" title="${e(label)}">${icon(name)}<span>${label}</span>${extra}</button>`;
+  return `<button class="nav-item ${state.view === view ? 'active' : ''}" ${state.view === view ? 'aria-current="page"' : ''} data-action="navigate" data-view="${view}" aria-label="${e(label)}" title="${e(label)}">${icon(name)}<span>${label}</span>${extra}</button>`;
 }
 function shell() {
-  app.innerHTML = `<aside class="sidebar"><a class="brand" href="#" data-action="navigate" data-view="overview"><span class="brand-mark">${icon('relay')}</span>relay<span class="brand-caption">WORKBENCH</span></a><div class="workspace-label"><span class="workspace-avatar">Y</span><div>Your workspace<small>Local · Personal</small></div><span class="local-dot"></span></div><div class="nav-label">WORKSPACE</div><nav>${nav('overview', 'Overview', 'grid')}${nav('tasks', 'All tasks', 'layers', `<span class="nav-count">${state.tasks.length}</span>`)}${nav('inbox', 'Approval inbox', 'eye')}${nav('repositories', 'Repositories', 'folder')}${nav('harnesses', 'Harnesses', 'bolt')}${nav('memory', 'Memory', 'book')}</nav><div class="sidebar-bottom"><div class="sidebar-note">${icon('spark')}<p>Different minds.<br>One shared workspace.</p></div>${nav('settings', 'Settings', 'settings')}<div class="connection"><span class="local-dot ${state.connected ? '' : 'offline'}"></span><span>${state.connected ? 'Connected locally' : 'Reconnecting…'}</span><small>v0.1</small></div></div></aside><div class="main-shell"><header class="topbar"><div class="breadcrumb">Workspace ${icon('chevron')} <span>${state.view === 'task' ? 'Task workspace' : state.view.charAt(0).toUpperCase() + state.view.slice(1)}</span></div><div class="top-actions"><span class="keyboard-hint">N <span>new task</span></span>${button('new-task', 'New task', 'primary small', 'plus')}</div></header><main id="main"></main></div>`;
+  app.innerHTML = `<aside class="sidebar"><a class="brand" href="#" data-action="navigate" data-view="overview"><span class="brand-mark">${icon('relay')}</span>relay<span class="brand-caption">WORKBENCH</span></a><div class="workspace-label"><span class="workspace-avatar">Y</span><div>Your workspace<small>Local · Personal</small></div><span class="local-dot"></span></div><div class="nav-label">WORKSPACE</div><nav>${nav('overview', 'Overview', 'grid')}${nav('tasks', 'All tasks', 'layers', `<span class="nav-count">${state.tasks.length}</span>`)}${nav('inbox', 'Approval inbox', 'eye')}${nav('repositories', 'Repositories', 'folder')}${nav('harnesses', 'Agents', 'bolt')}${nav('memory', 'Memory', 'book')}</nav><div class="sidebar-bottom"><div class="sidebar-note">${icon('spark')}<p>Different minds.<br>One shared workspace.</p></div>${nav('settings', 'Settings', 'settings')}<div class="connection"><span class="local-dot ${state.connected ? '' : 'offline'}"></span><span>${state.connected ? 'Connected locally' : 'Reconnecting…'}</span><small>v0.1</small></div></div></aside><div class="main-shell"><header class="topbar"><div class="breadcrumb">Workspace ${icon('chevron')} <span>${state.view === 'task' ? 'Task workspace' : ({ harnesses: 'Agents', inbox: 'Approval inbox' }[state.view] ?? state.view.charAt(0).toUpperCase() + state.view.slice(1))}</span></div><div class="top-actions"><span class="keyboard-hint">N <span>new task</span></span>${button('new-task', 'New task', 'primary small', 'plus')}</div></header><main id="main"></main></div>`;
   renderMain();
 }
 function renderMain() {
@@ -161,7 +161,7 @@ function renderMain() {
   const focusId = main.contains(focused) ? focused.id : null;
   const terminalFocused = !!focused?.closest('[data-browser-terminal]');
   const inputs = [...main.querySelectorAll('textarea,input')]
-    .filter((i) => i.id && i.id !== 'task-search' && i.type !== 'file')
+    .filter((i) => i.id && !['task-search', 'memory-search'].includes(i.id) && i.type !== 'file')
     .map((i) => ({
       id: i.id,
       value: i.value,
@@ -267,9 +267,9 @@ function overview() {
   const c = counts();
   const hour = new Date().getHours();
   const greeting = hour < 12 ? 'Good morning.' : hour < 18 ? 'Good afternoon.' : 'Good evening.';
-  return `${pageHeading('YOUR DEVELOPMENT, ORCHESTRATED', `${greeting} Let’s make progress.`, 'Give your specialists a task. Stay in control of the decisions.', button('demo', 'Try a demo', 'secondary', 'spark'))}<div class="stats-grid"><div class="stat-card"><span>In motion</span>${icon('bolt')}<strong>${c.active.length}<small>active workflows</small></strong><div class="stat-foot">${c.active.length ? 'Your specialists are on it' : 'Ready when you are'}</div></div><div class="stat-card attention"><span>Needs your input</span>${icon('eye')}<strong>${c.waiting.length}<small>decisions & blockers</small></strong><div class="stat-foot">${c.waiting.length ? 'A little direction goes a long way' : 'Nothing waiting on you'}</div></div><div class="stat-card"><span>Completed</span>${icon('check')}<strong>${c.complete.length}<small>accepted results</small></strong><div class="stat-foot">Reviewed by a specialist, accepted by you</div></div></div>${
+  return `${pageHeading('YOUR DEVELOPMENT, ORCHESTRATED', `${greeting} Let’s make progress.`, 'Your active work, decisions, and recent results.', button('demo', 'Try a demo', 'secondary', 'spark'))}<div class="stats-grid"><button class="stat-card" data-action="overview-filter" data-filter="active"><span>In progress</span>${icon('bolt')}<strong>${c.active.length}<small>active workflows</small></strong><div class="stat-foot">View active work</div></button><button class="stat-card attention" data-action="overview-filter" data-filter="attention"><span>Needs your input</span>${icon('eye')}<strong>${c.waiting.length}<small>decisions & blockers</small></strong><div class="stat-foot">${c.waiting.length ? 'Review decisions and blockers' : 'Nothing waiting on you'}</div></button><button class="stat-card" data-action="overview-filter" data-filter="completed"><span>Done</span>${icon('check')}<strong>${c.complete.length}<small>accepted results</small></strong><div class="stat-foot">View accepted work</div></button></div>${
     c.waiting.length
-      ? `<section class="section"><div class="section-title"><h2>Your attention, please <span class="count-chip">${c.waiting.length}</span></h2><span>Make a decision. Keep things moving.</span></div><div class="decision-grid">${c.waiting
+      ? `<section class="section"><div class="section-title"><h2>Needs your input <span class="count-chip">${c.waiting.length}</span></h2></div><div class="decision-grid">${c.waiting
           .slice(0, 4)
           .map(
             (t) =>
@@ -277,7 +277,7 @@ function overview() {
           )
           .join('')}</div></section>`
       : ''
-  }<section class="section"><div class="section-title"><h2>Recent work <span class="count-chip">${state.tasks.length}</span></h2>${button('navigate', 'View all tasks', 'text', 'arrow', 'data-view="tasks"')}</div>${state.tasks.length ? taskTable(state.tasks.slice(0, 8)) : `<div class="welcome-card"><div class="welcome-art"><span class="orbit-label left">${harnessBadge('codex')} Codex</span><span class="orbit-center">${icon('relay')}</span><span class="orbit-label right">${harnessBadge('claude')} Claude</span><span class="orbit-label bottom">${harnessBadge('pi')} Pi</span></div><h2>Your next task has a whole team behind it.</h2><p>Investigation, thoughtful design, implementation, and an independent<br> review — connected by one clear thread.</p><div class="welcome-actions">${button('new-task', 'Create your first task', 'primary', 'plus')}${button('demo', 'Explore a demo', 'secondary', 'arrow')}</div><small>You approve the approach. You have the final say.</small></div>`}</section><div class="how-it-works"><div><span class="eyebrow">A WORKFLOW THAT THINKS AHEAD</span><h3>Hands-free work.<br>Human-led decisions.</h3></div><div class="flow-mini">${['Investigate', 'Design', 'You approve', 'Build & verify', 'Review', 'You accept'].map((s, i) => `${i ? icon('chevron') : ''}<span class="${s.startsWith('You') ? 'human' : ''}">${s}</span>`).join('')}</div></div>`;
+  }<section class="section"><div class="section-title"><h2>Recent work <span class="count-chip">${state.tasks.length}</span></h2>${button('navigate', 'View all tasks', 'text', 'arrow', 'data-view="tasks"')}</div>${state.tasks.length ? taskTable(state.tasks.slice(0, 8)) : `<div class="welcome-card"><div class="welcome-art"><span class="orbit-label left">${harnessBadge('codex')} Codex</span><span class="orbit-center">${icon('relay')}</span><span class="orbit-label right">${harnessBadge('claude')} Claude</span><span class="orbit-label bottom">${harnessBadge('pi')} Pi</span></div><h2>Your next task has a whole team behind it.</h2><p>Investigation, thoughtful design, implementation, and an independent<br> review — connected by one clear thread.</p><div class="welcome-actions">${button('new-task', 'Create your first task', 'primary', 'plus')}${button('demo', 'Explore a demo', 'secondary', 'arrow')}</div><small>You approve the approach. You have the final say.</small></div>`}</section>${!state.tasks.length ? `<div class="how-it-works"><div><span class="eyebrow">A WORKFLOW THAT THINKS AHEAD</span><h3>Hands-free work.<br>Human-led decisions.</h3></div><div class="flow-mini">${['Investigate', 'Design', 'You approve', 'Build & verify', 'Review', 'You accept'].map((s, i) => `${i ? icon('chevron') : ''}<span class="${s.startsWith('You') ? 'human' : ''}">${s}</span>`).join('')}</div></div>` : ''}`;
 }
 function taskTable(tasks) {
   return `<div class="task-table"><div class="table-header"><span>Task</span><span>Status</span><span>Specialists</span><span>Updated</span><span></span></div>${tasks.map((t) => `<button class="task-row" data-action="open-task" data-id="${t.id}"><span class="task-name"><span class="task-symbol">${icon('layers')}</span><span><strong>${e(t.title)} ${t.demo ? '<em class="demo-label">DEMO</em>' : ''}</strong><small>${e((t.repositories?.length ? t.repositories.map((r) => r.repository.name) : [t.repository.name]).join(' + '))} <span>·</span> ${e(stageNames[t.stage] || 'Ready')}</small></span></span><span>${badge(displayStatus(t))}</span><span class="avatar-stack">${[...new Set(Object.values(t.routing).filter((h) => h !== 'checks'))].map((h) => harnessBadge(h)).join('')}</span><span class="muted">${ago(t.updatedAt)}</span>${icon('chevron')}</button>`).join('')}</div>`;
@@ -451,10 +451,10 @@ function transcriptView(t) {
   });
 }
 function repositoriesView() {
-  return `${pageHeading('ONE TASK, CONNECTED REPOSITORIES', 'Repositories', 'Bring your own codebase. Keep its conventions and tooling.', button('add-repository', 'Add repository', 'primary', 'plus'))}<div class="repository-grid">${state.config.repositories.map((r) => `<article class="repository-card"><div class="repo-top"><span class="repo-icon">${icon('folder')}</span>${button('edit-repository', 'Edit profile', 'text small', '', `data-id="${e(r.id)}"`)}</div><h2>${e(r.name)}</h2><p class="mono wrap">${e(r.path)}</p><div class="repo-tags"><span>${icon('git')}${r.strategy === 'attach' ? 'Attach existing checkout' : r.strategy === 'managed' ? 'Managed task worktrees' : 'Isolated worktrees'}</span><span>${icon('check')}${r.checks.length} verification ${r.checks.length === 1 ? 'command' : 'commands'}</span></div><div class="repo-footer"><small>Working directory <code>${e(r.cwd)}</code></small><span class="configured-dot">Agent publication</span></div></article>`).join('')}${!state.config.repositories.length ? empty('folder', 'Connect your first repository', 'Add a checkout and its verification commands to start real work.', button('add-repository', 'Add repository', 'primary', 'plus')) : ''}</div><div class="info-panel">${icon('git')}<div><strong>Your repository stays yours.</strong><p>Every specialist uses the same task workspace. Relay preserves changes and worktrees when a task finishes. Repository-specific policies and private integrations stay in your ignored local configuration.</p></div></div>`;
+  return `${pageHeading('WORKSPACE', 'Repositories', 'Repository profiles and task workspaces.', button('add-repository', 'Add repository', 'primary', 'plus'))}<div class="repository-grid">${state.config.repositories.map((r) => `<article class="repository-card"><div class="repo-card-heading"><span class="repo-icon">${icon('folder')}</span><h2>${e(r.name)}</h2>${button('edit-repository', 'Edit profile', 'text small', '', `data-id="${e(r.id)}" aria-label="Edit ${e(r.name)} profile"`)}</div><p class="repo-path mono">${e(r.path)}</p><dl class="repository-facts"><div><dt>Workspace</dt><dd>${r.strategy === 'attach' ? 'Existing checkout' : r.strategy === 'managed' ? 'Managed task worktree' : 'New worktree per task'}</dd></div><div><dt>Verification</dt><dd>${r.verificationMode !== 'commands' ? 'Agent discovers checks' : `${r.checks.length} configured ${r.checks.length === 1 ? 'command' : 'commands'}`}</dd></div><div><dt>Working directory</dt><dd class="mono">${e(r.cwd || '.')}</dd></div></dl></article>`).join('')}${!state.config.repositories.length ? empty('folder', 'Connect your first repository', 'Choose a local checkout to start real work.', button('add-repository', 'Add repository', 'primary', 'plus')) : ''}</div><div class="info-panel">${icon('git')}<div><strong>One shared workspace per task</strong><p>Agents share the same files. Finished worktrees and changes are kept until you clean them up.</p></div></div>`;
 }
 function harnessesView() {
-  return `${pageHeading('THE RIGHT SPECIALIST, EACH STEP', 'Harnesses', 'Use your existing CLI accounts. Choose models and route work your way.')}<form id="harness-form"><div class="harness-grid">${[
+  return `${pageHeading('WORKSPACE', 'Agents', 'Configure providers and defaults for new tasks.')}<form id="harness-form"><div class="harness-grid">${[
     'codex',
     'claude',
     'pi',
@@ -462,7 +462,7 @@ function harnessesView() {
     .map((id) => {
       const h = state.config.harnesses[id];
       const available = state.harnesses.find((v) => v.id === id)?.available;
-      return `<article class="harness-card"><div class="harness-card-heading">${harnessBadge(id)}<div><h2>${id === 'pi' ? 'Pi' : id === 'codex' ? 'Codex' : 'Claude Code'}</h2><small>${id === 'codex' ? 'Investigate. Implement. Iterate.' : id === 'claude' ? 'Design. Challenge. Review.' : 'Triage. Route. Adapt.'}</small></div></div><div class="availability ${available ? 'available' : ''}"><span class="status-dot"></span>${available ? 'Executable available' : 'Executable not found'}<small>Authentication checked when run</small></div><label class="field-label" for="${id}-command">Executable</label><input class="input mono" id="${id}-command" name="${id}-command" value="${e(h.command)}" required><label class="field-label" for="${id}-model">Model override <span>Optional</span></label><input class="input" id="${id}-model" name="${id}-model" placeholder="Use harness default" value="${e(h.model)}"><label class="toggle-label"><input type="checkbox" name="${id}-enabled" ${h.enabled ? 'checked' : ''}> Enabled for routing</label></article>`;
+      return `<article class="harness-card"><div class="harness-card-heading">${harnessBadge(id)}<div><h2>${id === 'pi' ? 'Pi' : id === 'codex' ? 'Codex' : 'Claude Code'}</h2><small>${h.enabled ? 'Enabled' : 'Disabled'}</small></div></div><div class="availability ${available ? 'available' : ''}"><span class="status-dot"></span>${available ? 'CLI found' : 'CLI not found'}<small>Sign-in checked when a run starts</small></div><label class="field-label" for="${id}-command">Executable</label><input class="input mono" id="${id}-command" name="${id}-command" value="${e(h.command)}" required><label class="field-label" for="${id}-model">Model override <span>Optional</span></label><input class="input" id="${id}-model" name="${id}-model" placeholder="Use harness default" value="${e(h.model)}"><label class="toggle-label"><input id="${id}-enabled" type="checkbox" name="${id}-enabled" ${h.enabled ? 'checked' : ''}> Enabled for routing</label></article>`;
     })
     .join(
       '',
@@ -471,14 +471,14 @@ function harnessesView() {
   )
     .map(
       ([stage, id]) =>
-        `<label>${e(stageNames[stage])}<select class="input" name="route-${stage}">${['codex', 'claude', 'pi'].map((h) => `<option value="${h}" ${id === h ? 'selected' : ''}>${h === 'pi' ? 'Pi' : h === 'codex' ? 'Codex' : 'Claude'}</option>`).join('')}</select></label>`,
+        `<label>${e(stageNames[stage])}<select id="route-${stage}" class="input" name="route-${stage}">${['codex', 'claude', 'pi'].map((h) => `<option value="${h}" ${id === h ? 'selected' : ''}>${h === 'pi' ? 'Pi' : h === 'codex' ? 'Codex' : 'Claude'}</option>`).join('')}</select></label>`,
     )
     .join(
       '',
-    )}</div></section><div class="form-footer"><span>Model IDs and permissions follow your installed harness configuration.</span><button class="btn primary" type="submit">Save harness configuration ${icon('check')}</button></div></form>${outcomesView(state.outcomes, state.config, state.outcomesRepository)}`;
+    )}</div></section><div class="form-footer"><span>Uses your installed CLIs and their existing sign-in.</span><button class="btn primary" type="submit">Save agent settings ${icon('check')}</button></div></form>${outcomesView(state.outcomes, state.config, state.outcomesRepository)}`;
 }
 function settingsView() {
-  return `${pageHeading('MAKE IT YOURS', 'Settings', 'Local configuration, execution limits, and private integration profiles.')}${storageView(state.storage)}<form id="settings-form" class="settings-panel"><h2>Execution</h2><p>Quality-first workflows, with explicit limits on runaway retries.</p><div class="settings-fields"><label>Concurrent tasks<input id="setting-concurrency" class="input" type="number" name="concurrency" min="1" max="8" value="${state.config.concurrency}" required><small>Work in different repositories concurrently.</small></label><label>Automatic repair rounds<input id="setting-rounds" class="input" type="number" name="maxRepairRounds" min="1" max="10" value="${state.config.maxRepairRounds}" required><small>Pause for your input after repeated failures.</small></label><label>Blocker recovery attempts<input class="input" type="number" name="maxRecoveryAttempts" min="0" max="5" value="${state.config.maxRecoveryAttempts ?? 2}" required><small>Agents try to resolve blockers before asking you.</small></label><label>Stage budget (minutes)<input id="setting-timeout" class="input" type="number" name="timeoutMinutes" min="1" max="240" value="${state.config.timeoutMinutes}" required><small>Progress can extend each agent or check up to twice this budget.</small></label></div><button class="btn primary" type="submit">Save execution settings</button></form><section class="settings-panel"><h2>Private integration profiles</h2><p>Import a repository profile or complete configuration as JSON. Private hostnames, paths, instructions, and provider commands stay in ignored local state.</p><div class="inline-actions">${button('import-profile', 'Import local profile', 'secondary', 'download')}${button('view-config', 'View configuration', 'text', 'code')}</div></section><section class="settings-panel"><h2>Local by design</h2><p>Relay listens on <code>127.0.0.1</code>. Task history, transcripts, and approvals are stored on this machine. Your harness CLIs handle authentication; Relay does not store API keys.</p><p>Harness and verification commands run with your user account. Use an isolated environment for untrusted code. Read the project README for execution and recovery details.</p></section>`;
+  return `${pageHeading('MAKE IT YOURS', 'Settings', 'Local configuration, execution limits, and private integration profiles.')}<form id="settings-form" class="settings-panel"><h2>Execution</h2><p>Control concurrency, retries, and run duration.</p><div class="settings-fields"><label>Concurrent tasks<input id="setting-concurrency" class="input" type="number" name="concurrency" min="1" max="8" value="${state.config.concurrency}" required><small>Work in different repositories concurrently.</small></label><label>Automatic repair rounds<input id="setting-rounds" class="input" type="number" name="maxRepairRounds" min="1" max="10" value="${state.config.maxRepairRounds}" required><small>Pause for your input after repeated failures.</small></label><label>Blocker recovery attempts<input id="setting-recovery" class="input" type="number" name="maxRecoveryAttempts" min="0" max="5" value="${state.config.maxRecoveryAttempts ?? 2}" required><small>Agents try to resolve blockers before asking you.</small></label><label>Stage budget (minutes)<input id="setting-timeout" class="input" type="number" name="timeoutMinutes" min="1" max="240" value="${state.config.timeoutMinutes}" required><small>Progress can extend each agent or check up to twice this budget.</small></label></div><button class="btn primary" type="submit">Save execution settings</button></form>${storageView(state.storage)}<section class="settings-panel"><h2>Private integration profiles</h2><p>Import repository profiles or a full configuration as JSON. Profiles stay on this machine.</p><div class="inline-actions">${button('import-profile', 'Import local profile', 'secondary', 'download')}${button('view-config', 'View configuration', 'text', 'code')}</div></section><details class="settings-panel local-execution-details"><summary>Local execution and privacy</summary><p>Relay listens on <code>127.0.0.1</code>. Task history, transcripts, and approvals are stored on this machine. Your harness CLIs handle authentication; Relay does not store API keys.</p><p>Harness and verification commands run with your user account. Use an isolated environment for untrusted code. Read the project README for execution and recovery details.</p></details>`;
 }
 
 function showModal(title, contents, wide = false) {
@@ -659,7 +659,10 @@ async function navigate(view, recordHistory = true) {
   shell();
   if (recordHistory) history.pushState(null, '', `#${view}`);
   if (view === 'harnesses') {
-    state.harnesses = await api('/harnesses');
+    [state.harnesses, state.outcomes] = await Promise.all([
+      api('/harnesses'),
+      api(`/outcomes?repositoryId=${encodeURIComponent(state.outcomesRepository)}`),
+    ]);
     renderMain();
   }
 }
@@ -977,6 +980,27 @@ document.addEventListener('click', async (event) => {
       }
     }
     if (action === 'close-modal') return closeModal();
+    if (action === 'overview-filter') {
+      state.filter = element.dataset.filter;
+      state.search = '';
+      state.repositoryFilter = '';
+      state.stageFilter = '';
+      await navigate('tasks');
+      return;
+    }
+    if (action === 'clear-memory-filters') {
+      state.memoryQuery = '';
+      state.memoryFilter = 'all';
+      const search = document.querySelector('#memory-search');
+      if (search) search.value = '';
+      const filter = document.querySelector('#memory-filter');
+      if (filter) {
+        filter.value = 'all';
+        filter.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+      renderMain();
+      return;
+    }
     if (action === 'open-task') return await openTask(element.dataset.id);
     if (action === 'clear-task-filters') {
       state.filter = 'all';
@@ -1432,7 +1456,7 @@ document.addEventListener('submit', async (event) => {
         config.routing[stage] = values[`route-${stage}`];
       await saveConfig(config);
       renderMain();
-      toast('Harness configuration saved.');
+      toast('Agent settings saved.');
     }
     if (form.id === 'settings-form') {
       const config = structuredClone(state.config);
