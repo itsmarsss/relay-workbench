@@ -60,6 +60,36 @@ try {
   await page
     .locator(`[data-action="open-task"][data-id="${polled.id}"]`)
     .waitFor({ timeout: 12000 });
+  // A failed diff remains retryable, and a slow Git snapshot gets more than 10 seconds.
+  let diffRequests = 0;
+  await page.route(`**/api/tasks/${task.id}/diff`, async (route) => {
+    diffRequests++;
+    if (diffRequests === 1)
+      return route.fulfill({
+        status: 503,
+        contentType: 'application/json',
+        body: JSON.stringify({ error: 'Temporary snapshot failure' }),
+      });
+    await new Promise((resolve) => setTimeout(resolve, 11000));
+    await route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({
+        text: 'diff --git a/example.js b/example.js\n--- a/example.js\n+++ b/example.js\n@@ -1 +1 @@\n-before\n+after\n',
+        stat: '1 file changed',
+        untracked: [],
+        fingerprint: 'example',
+      }),
+    });
+  });
+  task.demo = false;
+  task.workspace = directory;
+  app.store.save(task);
+  await page.goto(`http://127.0.0.1:${app.server.address().port}/#task/${task.id}/overview`);
+  await page.getByRole('tab', { name: 'Changes', exact: true }).click();
+  await page.getByRole('button', { name: 'Retry loading changes', exact: true }).click();
+  await page.locator('.diff-file').waitFor({ timeout: 20000 });
+  assert.equal(diffRequests, 2);
+  assert.equal(await page.locator('.error-panel').count(), 0);
   const result = await page.evaluate(async () => {
     const { updateLiveDOM } = await import('/live-dom.js');
     document.querySelector('#app').remove();

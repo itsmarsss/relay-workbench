@@ -90,10 +90,10 @@ const state = {
 };
 const app = document.querySelector('#app');
 let refreshTimer, stream, modalReturnFocus;
-async function api(path, method = 'GET', data) {
+async function api(path, method = 'GET', data, { timeoutMs = 10000 } = {}) {
   const response = await fetch(`/api${path}`, {
     method,
-    signal: method === 'GET' ? AbortSignal.timeout(10000) : undefined,
+    signal: method === 'GET' ? AbortSignal.timeout(timeoutMs) : undefined,
     cache: 'no-store',
     headers: { 'Content-Type': 'application/json', 'X-Relay-Token': state.token },
     body: data === undefined ? undefined : JSON.stringify(data),
@@ -444,7 +444,8 @@ function diffView(t, suppliedDiff) {
         )
         .join('')
     );
-  if (d.error) return `<div class="error-panel">${e(d.error)}</div>`;
+  if (d.error)
+    return `<div class="error-panel"><h2>Couldn’t load changes</h2><p>${e(d.error)}</p>${button('refresh-diff', 'Retry loading changes', 'secondary small')}</div>`;
   if (d.omitted)
     return `<div class="error-panel"><h2>Changes exceed the preview limit</h2><p>${e(d.reason)} The full diff is available in the task’s worktree.</p></div>`;
   const repositoryId = d.repositoryId ?? t.repository.id;
@@ -601,7 +602,11 @@ async function refreshSnapshot() {
     const selected = state.selected;
     const task = await api(`/tasks/${selected}`);
     if (state.selected !== selected) return;
+    const baseChanged = state.task?.id === task.id && state.task.baseCommit !== task.baseCommit;
     state.task = pendingStatuses.apply(task);
+    if (baseChanged) state.diff = null;
+    if (baseChanged && state.tab === 'diff')
+      loadDiff().catch((error) => toast(error.message, true));
     // Status and approval gates must not wait for logs or terminal capture.
     renderMain();
     let events = state.task?.id === selected ? state.events : [];
@@ -672,17 +677,20 @@ async function saveConfig(config) {
   state.config = await api('/config', 'PUT', config);
   state.harnesses = await api('/harnesses');
 }
-const fetchDiff = latestLoader((id) => api(`/tasks/${id}/diff`), {
-  isCurrent: (id) => state.selected === id,
-  apply: (diff) => {
-    state.diff = diff;
-    renderMain();
+const fetchDiff = latestLoader(
+  (id) => api(`/tasks/${id}/diff`, 'GET', undefined, { timeoutMs: 60000 }),
+  {
+    isCurrent: (id) => state.selected === id,
+    apply: (diff) => {
+      state.diff = diff;
+      renderMain();
+    },
+    fail: (error) => {
+      state.diff = { error: error.message };
+      renderMain();
+    },
   },
-  fail: (error) => {
-    state.diff = { error: error.message };
-    renderMain();
-  },
-});
+);
 async function loadDiff() {
   const id = state.selected;
   if (!id) return;
