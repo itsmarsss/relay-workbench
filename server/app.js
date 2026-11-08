@@ -791,6 +791,7 @@ export function createApp({ directory, publicDirectory, engineOptions = {} }) {
               external.delete(submissionKey);
               if (engine.workspaceReservations.get(target.workspaceRoot) === id)
                 engine.workspaceReservations.delete(target.workspaceRoot);
+              publicationMonitor.tick();
             });
           return json(res, 202, task);
         }

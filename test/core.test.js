@@ -182,19 +182,21 @@ test('harness invocations preserve models and use explicit permissions', () => {
     '/tmp/schema',
     'implement',
   );
-  assert.ok(c.args.includes('workspace-write'));
+  assert.ok(c.args.includes('--dangerously-bypass-approvals-and-sandbox'));
   assert.ok(c.args.includes('my-model'));
   assert.ok(
     buildInvocation('codex', { command: 'codex' }, '/tmp/schema', 'review').args.includes(
-      'read-only',
+      '--dangerously-bypass-approvals-and-sandbox',
     ),
   );
   assert.ok(
-    buildInvocation('claude', { command: 'claude' }, '/tmp/schema', 'review').args.includes('plan'),
+    buildInvocation('claude', { command: 'claude' }, '/tmp/schema', 'review').args.includes(
+      'bypassPermissions',
+    ),
   );
   assert.ok(
     buildInvocation('pi', { command: 'pi' }, '/tmp/schema', 'review').args.includes(
-      'read,grep,find,ls',
+      'read,bash,edit,write,grep,find,ls',
     ),
   );
 });

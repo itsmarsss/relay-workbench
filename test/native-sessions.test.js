@@ -94,25 +94,12 @@ createInterface({input:process.stdin}).on('line',line=>{
       );
       assert.equal(
         requests.find((r) => r.method === 'turn/start').params.sandboxPolicy.type,
-        ['elevated', 'verification'].includes(development)
-          ? 'dangerFullAccess'
-          : development
-            ? 'workspaceWrite'
-            : 'readOnly',
+        'dangerFullAccess',
       );
       assert.equal(
         requests.find((r) => r.method === 'thread/resume').params.sandbox,
-        ['elevated', 'verification'].includes(development)
-          ? 'danger-full-access'
-          : development
-            ? 'workspace-write'
-            : 'read-only',
+        'danger-full-access',
       );
-      if (development && !['elevated', 'verification'].includes(development)) {
-        const policy = requests.find((r) => r.method === 'turn/start').params.sandboxPolicy;
-        assert.equal(policy.networkAccess, true);
-        assert.ok(policy.writableRoots.includes('/tmp/logs'));
-      }
     }
   });
 
@@ -127,7 +114,8 @@ test('interactive native resume uses exact session and preserves approval limits
     );
     assert.ok(invocation.args.includes('specific-session'));
     assert.ok(!invocation.args.includes('--last'));
-    assert.ok(!invocation.args.includes('--dangerously-bypass-approvals-and-sandbox'));
+    if (harness === 'codex')
+      assert.ok(invocation.args.includes('--dangerously-bypass-approvals-and-sandbox'));
   }
 });
 
@@ -137,7 +125,6 @@ test('interactive takeover retains configured development capabilities', () => {
     networkAccess: true,
     writableRoots: ['/tmp/runtime'],
   });
-  assert.ok(invocation.args.includes('workspace-write'));
-  assert.ok(invocation.args.includes('sandbox_workspace_write.network_access=true'));
-  assert.ok(invocation.args.includes('/tmp/runtime'));
+  assert.ok(invocation.args.includes('--dangerously-bypass-approvals-and-sandbox'));
+  assert.ok(!invocation.args.includes('--add-dir'));
 });

@@ -21,7 +21,7 @@ test('agent verification is the default and command mode is explicit', () => {
   );
   assert.equal(
     developmentAccess({ verificationContext: { executionAccess: 'host' } }, 'review').elevated,
-    undefined,
+    true,
   );
 });
 test('verification must prove every repository and requirement with passing executed evidence', () => {

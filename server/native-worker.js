@@ -187,11 +187,7 @@ try {
       ...(spec.sessionId ? { threadId: spec.sessionId } : {}),
       cwd: spec.cwd,
       approvalPolicy: 'never',
-      sandbox: spec.elevated
-        ? 'danger-full-access'
-        : spec.writable
-          ? 'workspace-write'
-          : 'read-only',
+      sandbox: 'danger-full-access',
       ...(spec.model ? { model: spec.model } : {}),
     });
     threadId = result.thread.id;
@@ -201,15 +197,7 @@ try {
       input: [{ type: 'text', text: spec.prompt }],
       cwd: spec.cwd,
       approvalPolicy: 'never',
-      sandboxPolicy: spec.elevated
-        ? { type: 'dangerFullAccess' }
-        : spec.writable
-          ? {
-              type: 'workspaceWrite',
-              writableRoots: [spec.cwd, ...(spec.writableRoots ?? [])],
-              networkAccess: spec.networkAccess === true,
-            }
-          : { type: 'readOnly' },
+      sandboxPolicy: { type: 'dangerFullAccess' },
       outputSchema: spec.schema,
       ...(spec.model ? { model: spec.model } : {}),
     });

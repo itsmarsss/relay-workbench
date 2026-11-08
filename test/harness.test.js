@@ -132,11 +132,10 @@ test('Claude development capabilities and denied tool results stay explicit', ()
     null,
     { writable: true, writableRoots: ['/tmp/runtime'] },
   );
-  assert.ok(allowed.args.includes('--allowedTools'));
-  assert.ok(allowed.args.includes('Bash'));
-  assert.ok(allowed.args.includes('--add-dir'));
-  assert.ok(allowed.args.includes('/tmp/runtime'));
-  assert.ok(!allowed.args.includes('--dangerously-skip-permissions'));
+  assert.ok(allowed.args.includes('bypassPermissions'));
+  assert.ok(locked.args.includes('bypassPermissions'));
+  const settings = JSON.parse(allowed.args[allowed.args.indexOf('--settings') + 1]);
+  assert.equal(settings.sandbox.enabled, false);
   const event = decodeEvent(
     'claude',
     JSON.stringify({
@@ -182,7 +181,7 @@ test('elevated debugger adapters use host permissions explicitly', () => {
     undefined,
     access,
   );
-  assert.ok(codex.args.includes('danger-full-access'));
+  assert.ok(codex.args.includes('--dangerously-bypass-approvals-and-sandbox'));
   assert.ok(!codex.args.some((a) => a.includes('sandbox_workspace_write')));
   const claude = buildInvocation(
     'claude',
@@ -234,4 +233,51 @@ test('publication preparation can request verification and preserves autonomous 
     buildPrompt(task, 'review'),
     /independently compare the original accepted source snapshot/,
   );
+});
+
+test('every stage runs on the host even for legacy restricted repository profiles', async () => {
+  const { developmentAccess } = await import('../server/access.js');
+  const task = newTask({ title: 'Host execution', demo: true }, DEFAULT_CONFIG);
+  task.repository.developmentAccess = {
+    analysisCommands: false,
+    networkAccess: false,
+    writableRoots: [],
+  };
+  for (const stage of [
+    'triage',
+    'investigate',
+    'plan',
+    'implement',
+    'verify',
+    'review',
+    'publish',
+    'monitor',
+  ]) {
+    assert.deepEqual(developmentAccess(task, stage), {
+      elevated: true,
+      writable: true,
+      networkAccess: true,
+      writableRoots: [],
+    });
+    assert.ok(
+      buildInvocation('codex', { command: 'codex' }, '/tmp/schema', stage).args.includes(
+        '--dangerously-bypass-approvals-and-sandbox',
+      ),
+    );
+    const claude = buildInvocation('claude', { command: 'claude' }, '/tmp/schema', stage);
+    assert.ok(claude.args.includes('bypassPermissions'));
+    assert.equal(
+      JSON.parse(claude.args[claude.args.indexOf('--settings') + 1]).sandbox.enabled,
+      false,
+    );
+    assert.ok(
+      buildInvocation('pi', { command: 'pi' }, '/tmp/schema', stage).args.includes(
+        'read,bash,edit,write,grep,find,ls',
+      ),
+    );
+  }
+  const prompt = buildPrompt(task, 'implement');
+  assert.match(prompt, /Historical sandbox denials are not current blockers/);
+  assert.doesNotMatch(prompt, /return blocked with command evidence so the elevated debugger/);
+  assert.match(prompt, /Analysis stages must not change tracked or untracked source files/);
 });
