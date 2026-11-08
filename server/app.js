@@ -1,3 +1,5 @@
+import { requirePublicationPrerequisites } from './publication-prerequisites.js';
+import { FeedbackAutopilot } from './feedback-autopilot.js';
 import { configurationProposals, decideConfiguration } from './workspace-permissions.js';
 import { WorkspaceAgent } from './workspace-agent.js';
 import { repositorySuggestions } from './repository-suggestions.js';
@@ -94,6 +96,9 @@ export function createApp({ directory, publicDirectory, engineOptions = {} }) {
     publish: engineOptions.publicationPublish,
     validate: engineOptions.publicationValidate,
   });
+  const feedbackAutopilot = new FeedbackAutopilot(store, engine, publicationWorkflow);
+  publicationMonitor.onFeedback = (id, repositoryId, feedback) =>
+    feedbackAutopilot.observe(id, repositoryId, feedback);
   const sideQuestions = new SideQuestions(store, { answer: engineOptions.sideAnswer });
   const followUpAgent = new FollowUpAgent(store, engine, publicationMonitor, {
     run: engineOptions.followUpRun ?? engineOptions.harness,
@@ -374,6 +379,35 @@ export function createApp({ directory, publicDirectory, engineOptions = {} }) {
       if (path === '/api/bootstrap' && req.method === 'GET')
         return json(res, 200, { token, config: store.config, version: '0.1.0' });
       if (path === '/api/inbox' && req.method === 'GET') return json(res, 200, inbox(store));
+      if (path === '/api/inbox/decide' && req.method === 'POST') {
+        const request = await body(req);
+        const item = inbox(store).find(
+          (item) => item.key === request.key && item.taskId === request.taskId,
+        );
+        const allowed =
+          item &&
+          ((item.status === 'awaiting_plan' && request.operation === 'approve-plan') ||
+            (item.status === 'awaiting_final' && request.operation === 'accept') ||
+            (item.status === 'blocked' &&
+              item.brief.decisionId &&
+              request.operation === 'resolve-blocker') ||
+            (item.status === 'blocked' &&
+              item.brief.kind === 'runtime_budget' &&
+              request.operation === 'resume'));
+        requireValue(allowed, 'Decision changed; refresh the inbox', 409);
+        requireValue(
+          !publicationWorkflow.running.has(item.taskId) && !followUpAgent.running.has(item.taskId),
+          'Wait for the active agent',
+          409,
+        );
+        const result = await engine.action(item.taskId, request.operation, {
+          optionId: request.optionId,
+          decisionId: item.brief.decisionId,
+          resolution: request.resolution,
+        });
+        if (request.operation === 'accept') await feedbackAutopilot.afterAccept(item.taskId);
+        return json(res, 200, result);
+      }
       if (path === '/api/inbox/seen' && req.method === 'POST') {
         requireValue(
           acknowledge(store, (await body(req)).key),
@@ -587,6 +621,22 @@ export function createApp({ directory, publicDirectory, engineOptions = {} }) {
                 : 'Task status now follows the workflow.',
           });
           return json(res, 200, current);
+        }
+        if (operation === 'feedback' && req.method === 'POST') {
+          const request = await body(req);
+          requireValue(
+            !publicationWorkflow.running.has(id) &&
+              !followUpAgent.running.has(id) &&
+              !engine.running.has(id),
+            'Wait for the active agent before changing feedback automation',
+            409,
+          );
+          const repositoryId = request.repositoryId ?? task.repository.id;
+          const result = request.dismiss
+            ? feedbackAutopilot.dismiss(id, repositoryId, request.dismiss)
+            : feedbackAutopilot.configure(id, repositoryId, request.enabled);
+          if (request.enabled === true) publicationMonitor.configure(id, repositoryId, true);
+          return json(res, 200, result);
         }
         if (operation === 'publish-stop' && req.method === 'POST')
           return json(res, 202, publicationWorkflow.pause(id));
@@ -836,6 +886,7 @@ export function createApp({ directory, publicDirectory, engineOptions = {} }) {
             409,
           );
           const request = await body(req);
+          requirePublicationPrerequisites(task, request.repositoryId ?? task.repository.id);
           requireValue(
             request.mode === undefined || ['agent', 'commands'].includes(request.mode),
             'Choose agent or commands publication mode',
@@ -1021,7 +1072,9 @@ export function createApp({ directory, publicDirectory, engineOptions = {} }) {
             'Stop the active agent before changing the development workflow',
             409,
           );
-          return json(res, 200, await engine.action(id, operation, await body(req)));
+          const result = await engine.action(id, operation, await body(req));
+          if (operation === 'accept') await feedbackAutopilot.afterAccept(id);
+          return json(res, 200, result);
         }
       }
       if (path.startsWith('/api/')) throw new InputError('Endpoint not found', 404);

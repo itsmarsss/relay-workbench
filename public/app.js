@@ -1,3 +1,4 @@
+import { healthPanel, completionPanel, coordinationPanel } from './productivity.js';
 import { syncTabMotion } from './tab-motion.js';
 import { installTaskContextMenu } from './task-context-menu.js';
 import { confirmation } from './confirmation.js';
@@ -49,7 +50,7 @@ import { taskSummary, concise } from './task-summary.js';
 import { storageView, bytes } from './storage.js';
 import { outcomesView } from './outcomes.js';
 import { diffLines, diffFileGroups } from './diff-lines.js';
-import { inboxPage, notifyInbox } from './inbox.js';
+import { inboxPage, notifyInbox, notifyResults } from './inbox.js';
 import { installImageUploads, openImageViewer } from './image-uploads.js';
 import { tasksPage } from './tasks.js';
 import { taskForm, syncTaskForm, readTaskForm } from './task-editor.js';
@@ -413,7 +414,7 @@ function taskView() {
   }
   const live = ['running', 'queued'].includes(t.status);
   const last = t.attempts.findLast((a) => a.handoff)?.handoff;
-  return `<div class="task-heading"><button class="back-link" data-action="navigate" data-view="tasks">← All tasks</button><div class="task-title-row"><h1>${e(t.title)}</h1>${t.demo ? '<span class="demo-label large">SIMULATED DEMO</span>' : ''}</div><div class="task-subtitle"><button class="status-editor" data-action="edit-status" aria-label="Change task status" title="${t.statusOverride ? 'Manual status override' : 'Change task status'}">${badge(displayStatus(t))}${icon('chevron')}</button><span>${e((t.repositories?.length ? t.repositories.map((r) => r.repository.name) : [t.repository.name]).join(' + '))}</span><span>·</span><span>${t.id.slice(0, 8)}</span>${t.ticket ? `<span>·</span>${issueLink(t.ticket)}` : ''}<span>·</span><span>Created ${ago(t.createdAt).toLowerCase()}</span></div>${liveProgress(t, state.events)}<div class="task-controls">${!['completed', 'cancelled'].includes(t.status) ? button('configure-task', ['running', 'queued', 'manual'].includes(t.status) ? 'Pause & configure' : 'Configure task', 'secondary', 'settings') : ''}${button('duplicate-task', 'Duplicate task', 'text small', 'plus')}${button('delete-task', 'Delete task', 'text small danger', 'trash')}${t.status === 'draft' ? button('task-action', 'Start workflow', 'primary', 'bolt', 'data-operation="start"') : ''}${['blocked', 'interrupted', 'paused'].includes(t.status) && !(t.status === 'blocked' && t.blockerDecision) ? button('task-action', 'Resume workflow', 'primary', 'arrow', 'data-operation="resume"') : ''}${t.status === 'manual' ? button('task-action', 'Return to automation', 'primary', 'arrow', 'data-operation="return-control"') : ''}${live ? button('task-action', 'Pause', 'secondary small', 'pause', 'data-operation="pause"') : ''}${!['completed', 'cancelled'].includes(t.status) ? button('confirm-cancel', 'Cancel', 'text small') : ''}<a class="btn text small" href="/api/tasks/${t.id}/export" download>${icon('download')}Export</a></div></div>${t.demo ? '<div class="demo-banner">' + icon('spark') + 'Demo mode. Harness responses and checks are simulated; no repository files are changed.</div>' : ''}<div class="task-layout"><div class="task-center">${t.status === 'blocked' && t.blockerDecision ? '' : taskSummary(t, state.events)}${state.executionMapOpen ? executionMap(t, { selectedId: state.graphSelectedId, zoom: state.graphZoom }) : ''}${t.error && !(t.status === 'blocked' && t.blockerDecision) ? `<details class="error-panel" data-event-key="blocker"><summary>Blocker details</summary><p>${e(t.error)}</p></details>` : ''}${blockerDecisionView(t)}${t.status === 'awaiting_plan' ? planGate(t) : ''}${t.status === 'awaiting_final' ? `<div class="approval-panel final-panel"><div class="approval-icon">${icon('check')}</div><div><span class="eyebrow">YOUR FINAL LOOK</span><h2>The specialists are done. Over to you.</h2><p>Verification passed and independent review is complete. Inspect the handoffs and diff before accepting. Acceptance does not commit or publish; those steps follow below.</p><div class="approval-actions">${button('task-action', 'Accept result', 'primary', 'check', 'data-operation="accept"')}${button('request-changes', 'Request changes', 'secondary')}</div></div></div>` : ''}${publicationPanel(t)}<div class="detail-tabs relay-tabs" role="tablist">${tabIndicator}${[
+  return `<div class="task-heading"><button class="back-link" data-action="navigate" data-view="tasks">← All tasks</button><div class="task-title-row"><h1>${e(t.title)}</h1>${t.demo ? '<span class="demo-label large">SIMULATED DEMO</span>' : ''}</div><div class="task-subtitle"><button class="status-editor" data-action="edit-status" aria-label="Change task status" title="${t.statusOverride ? 'Manual status override' : 'Change task status'}">${badge(displayStatus(t))}${icon('chevron')}</button><span>${e((t.repositories?.length ? t.repositories.map((r) => r.repository.name) : [t.repository.name]).join(' + '))}</span><span>·</span><span>${t.id.slice(0, 8)}</span>${t.ticket ? `<span>·</span>${issueLink(t.ticket)}` : ''}<span>·</span><span>Created ${ago(t.createdAt).toLowerCase()}</span></div>${liveProgress(t, state.events)}<div class="task-controls">${!['completed', 'cancelled'].includes(t.status) ? button('configure-task', ['running', 'queued', 'manual'].includes(t.status) ? 'Pause & configure' : 'Configure task', 'secondary', 'settings') : ''}${button('duplicate-task', 'Duplicate task', 'text small', 'plus')}${button('delete-task', 'Delete task', 'text small danger', 'trash')}${t.status === 'draft' ? button('task-action', 'Start workflow', 'primary', 'bolt', 'data-operation="start"') : ''}${['blocked', 'interrupted', 'paused'].includes(t.status) && !(t.status === 'blocked' && t.blockerDecision) ? button('task-action', 'Resume workflow', 'primary', 'arrow', 'data-operation="resume"') : ''}${t.status === 'manual' ? button('task-action', 'Return to automation', 'primary', 'arrow', 'data-operation="return-control"') : ''}${live ? button('task-action', 'Pause', 'secondary small', 'pause', 'data-operation="pause"') : ''}${!['completed', 'cancelled'].includes(t.status) ? button('confirm-cancel', 'Cancel', 'text small') : ''}<a class="btn text small" href="/api/tasks/${t.id}/export" download>${icon('download')}Export</a></div></div>${t.demo ? '<div class="demo-banner">' + icon('spark') + 'Demo mode. Harness responses and checks are simulated; no repository files are changed.</div>' : ''}<div class="task-layout"><div class="task-center">${t.status === 'blocked' && t.blockerDecision ? '' : taskSummary(t, state.events)}${state.executionMapOpen ? executionMap(t, { selectedId: state.graphSelectedId, zoom: state.graphZoom }) : ''}${t.error && !(t.status === 'blocked' && t.blockerDecision) ? `<details class="error-panel" data-event-key="blocker"><summary>Blocker details</summary><p>${e(t.error)}</p></details>` : ''}${blockerDecisionView(t)}${t.status === 'awaiting_plan' ? planGate(t) : ''}${t.status === 'awaiting_final' ? `<div class="approval-panel final-panel"><div class="approval-icon">${icon('check')}</div><div><span class="eyebrow">YOUR FINAL LOOK</span><h2>The specialists are done. Over to you.</h2><p>Verification passed and independent review is complete. Inspect the handoffs and diff before accepting. Acceptance does not commit or publish; those steps follow below.</p><div class="approval-actions">${button('task-action', 'Accept result', 'primary', 'check', 'data-operation="accept"')}${button('request-changes', 'Request changes', 'secondary')}</div></div></div>` : ''}${healthPanel(t)}${publicationPanel(t)}<div class="detail-tabs relay-tabs" role="tablist">${tabIndicator}${[
     ['overview', 'Overview'],
     ['thread', 'Activity'],
     ['terminals', 'Terminals'],
@@ -427,7 +428,7 @@ function taskView() {
     )
     .join(
       '',
-    )}</div><div class="detail-content" data-event-key="task-panel-${state.tab}">${state.tab === 'overview' ? taskDetails(t) || empty('book', 'No description yet', 'Configure this task to add requirements.') : state.tab === 'terminals' ? terminalView(t, state) : state.tab === 'thread' ? threadView(t) : state.tab === 'handoffs' ? handoffsView(t) : state.tab === 'diff' ? diffView(t) : transcriptView(t)}</div>${!['completed', 'cancelled'].includes(t.status) ? `<form id="message-form" class="message-box">${markdownEditor({ id: 'task-message', name: 'message', label: 'Add direction or context', rows: 3, max: 20000 })}<div><small>${t.canSteer ? 'Steer sends direction to the active session; Claude interrupts and resumes.' : 'Context stays pending until an agent receives it.'} ${t.messages.filter((m) => m.delivery === 'pending').length} pending.</small>${t.canSteer ? '<label><input id="steer-active" type="checkbox" name="steer" checked> Steer active agent</label>' : ''}<button class="btn secondary small" type="submit">Send direction ${icon('arrow')}</button></div></form>` : ''}${followUpComposer(t, state.config, state.followUpProviders?.[t.id], state.followUpSettings?.[t.id], state.modelCatalog)}</div><aside class="task-context">${sideChat(t, state.sideChatOpen)}${state.memoryAvailable ? runMemories(t) : ''}<section class="context-card"><div class="context-title">WORKFLOW <span class="live-label ${live ? 'is-live' : ''}">${live ? '● LIVE' : t.demo ? '6 STAGES' : '7 STAGES'}</span></div><ol class="stage-list">${workflowStages(t)}${deliveryWorkflowStages(t)}</ol><button class="btn secondary workflow-graph-button" data-action="open-execution-map" aria-label="Open execution graph">Execution graph ↗</button></section>${(t
+    )}</div><div class="detail-content" data-event-key="task-panel-${state.tab}">${state.tab === 'overview' ? completionPanel(t) + coordinationPanel(t) + (taskDetails(t) || empty('book', 'No description yet', 'Configure this task to add requirements.')) : state.tab === 'terminals' ? terminalView(t, state) : state.tab === 'thread' ? threadView(t) : state.tab === 'handoffs' ? handoffsView(t) : state.tab === 'diff' ? diffView(t) : transcriptView(t)}</div>${!['completed', 'cancelled'].includes(t.status) ? `<form id="message-form" class="message-box">${markdownEditor({ id: 'task-message', name: 'message', label: 'Add direction or context', rows: 3, max: 20000 })}<div><small>${t.canSteer ? 'Steer sends direction to the active session; Claude interrupts and resumes.' : 'Context stays pending until an agent receives it.'} ${t.messages.filter((m) => m.delivery === 'pending').length} pending.</small>${t.canSteer ? '<label><input id="steer-active" type="checkbox" name="steer" checked> Steer active agent</label>' : ''}<button class="btn secondary small" type="submit">Send direction ${icon('arrow')}</button></div></form>` : ''}${followUpComposer(t, state.config, state.followUpProviders?.[t.id], state.followUpSettings?.[t.id], state.modelCatalog)}</div><aside class="task-context">${sideChat(t, state.sideChatOpen)}${state.memoryAvailable ? runMemories(t) : ''}<section class="context-card"><div class="context-title">WORKFLOW <span class="live-label ${live ? 'is-live' : ''}">${live ? '● LIVE' : t.demo ? '6 STAGES' : '7 STAGES'}</span></div><ol class="stage-list">${workflowStages(t)}${deliveryWorkflowStages(t)}</ol><button class="btn secondary workflow-graph-button" data-action="open-execution-map" aria-label="Open execution graph">Execution graph ↗</button></section>${(t
     .repositories?.length > 1
     ? t.repositories
     : [t]
@@ -443,6 +444,7 @@ function planGate(t) {
 }
 function threadView(t) {
   const meaningful = new Set([
+    'health',
     'created',
     'configuration',
     'queued',
@@ -586,7 +588,7 @@ function harnessesView() {
     )}</div></section><div class="form-footer"><span>Uses your installed CLIs and their existing sign-in.</span><button class="btn primary" type="submit">Save agent settings ${icon('check')}</button></div></form>${outcomesView(state.outcomes, state.config, state.outcomesRepository)}`;
 }
 function settingsView() {
-  return `${pageHeading('MAKE IT YOURS', 'Settings', 'Local configuration, execution limits, and private integration profiles.')}<section class="settings-panel"><h2>Appearance</h2><label class="field-label" for="theme-preference">Theme</label><select id="theme-preference" class="input">${['system', 'light', 'dark'].map((value) => `<option value="${value}" ${window.RelayTheme.preference() === value ? 'selected' : ''}>${value === 'system' ? 'System' : value === 'dark' ? 'Dark' : 'Light'}</option>`).join('')}</select><label class="motion-preference"><input type="checkbox" id="low-motion" ${lowMotion() ? 'checked' : ''}> Low motion</label><p>Turn off animations and transitions. Saved in this browser.</p></section><form id="settings-form" class="settings-panel"><h2>Execution</h2><p>Control concurrency, retries, and run duration.</p><div class="settings-fields"><label>Concurrent tasks<input id="setting-concurrency" class="input" type="number" name="concurrency" min="1" max="8" value="${state.config.concurrency}" required><small>Work in different repositories concurrently.</small></label><label>Automatic repair rounds<input id="setting-rounds" class="input" type="number" name="maxRepairRounds" min="1" max="10" value="${state.config.maxRepairRounds}" required><small>Pause for your input after repeated failures.</small></label><label>Blocker recovery attempts<input id="setting-recovery" class="input" type="number" name="maxRecoveryAttempts" min="0" max="5" value="${state.config.maxRecoveryAttempts ?? 2}" required><small>Agents try to resolve blockers before asking you.</small></label><label>Stage budget (minutes)<input id="setting-timeout" class="input" type="number" name="timeoutMinutes" min="1" max="240" value="${state.config.timeoutMinutes}" required><small>Progress can extend each agent or check up to twice this budget.</small></label></div><button class="btn primary" type="submit">Save execution settings</button></form>${storageView(state.storage)}<section class="settings-panel"><h2>Private integration profiles</h2><p>Import repository profiles or a full configuration as JSON. Profiles stay on this machine.</p><div class="inline-actions">${button('import-profile', 'Import local profile', 'secondary', 'download')}${button('view-config', 'View configuration', 'text', 'code')}</div></section><details class="settings-panel local-execution-details"><summary>Local execution and privacy</summary><p>Relay listens on <code>127.0.0.1</code>. Task history, transcripts, and approvals are stored on this machine. Your harness CLIs handle authentication; Relay does not store API keys.</p><p>Harness and verification commands run with your user account. Use an isolated environment for untrusted code. Read the project README for execution and recovery details.</p></details>`;
+  return `${pageHeading('MAKE IT YOURS', 'Settings', 'Local configuration, execution limits, and private integration profiles.')}<section class="settings-panel"><h2>Appearance</h2><label class="field-label" for="theme-preference">Theme</label><select id="theme-preference" class="input">${['system', 'light', 'dark'].map((value) => `<option value="${value}" ${window.RelayTheme.preference() === value ? 'selected' : ''}>${value === 'system' ? 'System' : value === 'dark' ? 'Dark' : 'Light'}</option>`).join('')}</select><label class="motion-preference"><input type="checkbox" id="low-motion" ${lowMotion() ? 'checked' : ''}> Low motion</label><p>Turn off animations and transitions. Saved in this browser.</p></section><section class="settings-panel"><h2>Notifications</h2><p>Desktop alerts for decisions, ready results, and completed investigations while Relay is open.</p><button class="btn secondary" data-action="enable-notifications">${localStorage.getItem('relay-notifications') === 'enabled' ? 'Disable desktop notifications' : 'Enable desktop notifications'}</button></section><form id="settings-form" class="settings-panel"><h2>Execution</h2><p>Control concurrency, retries, and run duration.</p><div class="settings-fields"><label>Concurrent tasks<input id="setting-concurrency" class="input" type="number" name="concurrency" min="1" max="8" value="${state.config.concurrency}" required><small>Work in different repositories concurrently.</small></label><label>Automatic repair rounds<input id="setting-rounds" class="input" type="number" name="maxRepairRounds" min="1" max="10" value="${state.config.maxRepairRounds}" required><small>Pause for your input after repeated failures.</small></label><label>Blocker recovery attempts<input id="setting-recovery" class="input" type="number" name="maxRecoveryAttempts" min="0" max="5" value="${state.config.maxRecoveryAttempts ?? 2}" required><small>Agents try to resolve blockers before asking you.</small></label><label>Stage budget (minutes)<input id="setting-timeout" class="input" type="number" name="timeoutMinutes" min="1" max="240" value="${state.config.timeoutMinutes}" required><small>Progress can extend each agent or check up to twice this budget.</small></label></div><button class="btn primary" type="submit">Save execution settings</button></form>${storageView(state.storage)}<section class="settings-panel"><h2>Private integration profiles</h2><p>Import repository profiles or a full configuration as JSON. Profiles stay on this machine.</p><div class="inline-actions">${button('import-profile', 'Import local profile', 'secondary', 'download')}${button('view-config', 'View configuration', 'text', 'code')}</div></section><details class="settings-panel local-execution-details"><summary>Local execution and privacy</summary><p>Relay listens on <code>127.0.0.1</code>. Task history, transcripts, and approvals are stored on this machine. Your harness CLIs handle authentication; Relay does not store API keys.</p><p>Harness and verification commands run with your user account. Use an isolated environment for untrusted code. Read the project README for execution and recovery details.</p></details>`;
 }
 
 function showModal(title, contents, wide = false) {
@@ -714,6 +716,7 @@ async function refreshSnapshot() {
   ]);
   state.tasks = state.tasks.map((task) => pendingStatuses.apply(task));
   notifyInbox(state.inbox);
+  notifyResults(state.tasks);
   if (state.view === 'assistant' || state.orchestratorOpen) await loadWorkspaceAgent();
   if (state.view === 'harnesses')
     state.outcomes = await api(
@@ -1148,6 +1151,41 @@ document.addEventListener('click', async (event) => {
       toast('Routing defaults updated for new tasks; models preserved.');
       return;
     }
+    if (action === 'feedback-toggle') {
+      if (element.dataset.enabled === 'false') {
+        await api(`/tasks/${state.selected}/feedback`, 'POST', {
+          repositoryId: element.dataset.repositoryId,
+          enabled: false,
+        });
+        await refresh();
+        return;
+      }
+      state.modal = { feedbackRepository: element.dataset.repositoryId };
+      showModal(
+        'Automate PR feedback',
+        `<p class="modal-description">Relay will read unresolved reviews and failed CI, then prepare focused repair proposals. You approve implementation and accept the reviewed result. Relay then updates the PR through its publication agent.</p><p class="form-help">Questions and design decisions come to your inbox. Three repair cycles maximum. Relay never posts replies or merges.</p><div class="modal-footer"><button class="btn secondary" data-action="close-modal">Cancel</button><button class="btn primary" data-action="feedback-enable">Enable automation</button></div>`,
+      );
+      return;
+    }
+    if (action === 'feedback-enable') {
+      await api(`/tasks/${state.selected}/feedback`, 'POST', {
+        repositoryId: state.modal.feedbackRepository,
+        enabled: true,
+      });
+      closeModal();
+      await refresh();
+      toast('PR feedback automation enabled.');
+      return;
+    }
+    if (action === 'feedback-dismiss') {
+      await api(`/tasks/${state.selected}/feedback`, 'POST', {
+        repositoryId: element.dataset.repositoryId,
+        dismiss: element.dataset.feedbackId,
+      });
+      await refresh();
+      toast('Feedback marked reviewed; no external reply sent.');
+      return;
+    }
     if (action === 'enable-notifications') {
       if (localStorage.getItem('relay-notifications') === 'enabled') {
         localStorage.setItem('relay-notifications', 'disabled');
@@ -1169,7 +1207,53 @@ document.addEventListener('click', async (event) => {
       );
       state.tasks = state.tasks.map((task) => pendingStatuses.apply(task));
       notifyInbox(state.inbox);
+      notifyResults(state.tasks);
       renderMain();
+      return;
+    }
+    if (action === 'inbox-decide') {
+      const item = state.inbox.find((item) => item.key === element.dataset.key);
+      if (!item) throw new Error('Decision changed; refresh the inbox.');
+      const operation = element.dataset.operation;
+      const option = item.brief.options.find((option) => option.id === element.dataset.optionId);
+      if (operation === 'approve-plan' && !option)
+        throw new Error('Approach is no longer available.');
+      state.modal = {
+        inboxDecision: {
+          taskId: item.taskId,
+          key: item.key,
+          operation,
+          optionId: option?.id,
+          resolution: element.dataset.resolution,
+        },
+      };
+      const description =
+        operation === 'approve-plan'
+          ? `Implement “${option.title}”? Verification and independent review follow, with your final acceptance before publication.`
+          : operation === 'accept'
+            ? 'Accept this independently reviewed result? Enabled PR feedback automation will publish the accepted repairs.'
+            : 'Send this direction to the workflow? Your existing approval scope stays in effect.';
+      showModal(
+        operation === 'approve-plan' ? 'Approve implementation' : 'Confirm decision',
+        confirmation({
+          subject: item.title,
+          description,
+          confirm:
+            operation === 'approve-plan'
+              ? 'Approve approach'
+              : operation === 'accept'
+                ? 'Accept result'
+                : 'Continue',
+          action: 'inbox-confirm',
+        }),
+      );
+      return;
+    }
+    if (action === 'inbox-confirm') {
+      await api('/inbox/decide', 'POST', state.modal.inboxDecision);
+      closeModal();
+      await refresh();
+      toast('Decision recorded.');
       return;
     }
     if (action === 'inbox-open' || action === 'inbox-seen') {
@@ -2093,6 +2177,7 @@ async function boot() {
     if (state.view === 'inbox') renderMain();
     state.tasks = state.tasks.map((task) => pendingStatuses.apply(task));
     notifyInbox(state.inbox);
+    notifyResults(state.tasks);
     connect();
     setInterval(() => updateTimers(), 1000);
     setInterval(() => {

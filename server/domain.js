@@ -1,3 +1,4 @@
+import { workflowPresets } from '../public/workflow-insights.js';
 import { isAbsolute, normalize, parse } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { effortLevels } from '../public/agent-options.js';
@@ -356,7 +357,24 @@ export function handoffSchema(stage) {
                 required: ['baseCommit', 'scope', 'summary'],
               },
             }
-          : {}),
+          : {
+              feedback: {
+                type: 'array',
+                maxItems: 30,
+                items: {
+                  type: 'object',
+                  additionalProperties: false,
+                  properties: {
+                    id: { type: 'string' },
+                    kind: { type: 'string', enum: ['repair', 'decision', 'question'] },
+                    summary: { type: 'string' },
+                    details: { type: 'string' },
+                    url: { type: 'string' },
+                  },
+                  required: ['id', 'kind', 'summary', 'details', 'url'],
+                },
+              },
+            }),
         publication: {
           type: 'object',
           additionalProperties: false,
@@ -378,7 +396,7 @@ export function handoffSchema(stage) {
       required: [
         ...HANDOFF_SCHEMA.required,
         'publication',
-        ...(stage === 'publish' ? ['preparation'] : []),
+        ...(stage === 'publish' ? ['preparation'] : ['feedback']),
       ],
     };
   if (stage !== 'verify') return HANDOFF_SCHEMA;
@@ -597,6 +615,13 @@ export function executionConfig(task, config, stage) {
 }
 
 export function newTask(raw, config) {
+  requireValue(
+    raw.preset === undefined ||
+      raw.preset === null ||
+      workflowPresets.some((p) => p.id === raw.preset),
+    'Choose a supported workflow preset',
+  );
+  const preset = workflowPresets.find((p) => p.id === raw.preset);
   const demo = raw.demo === true;
   const repository = config.repositories.find((r) => r.id === raw.repositoryId);
   requireValue(demo || repository || raw.repositoryIds?.length, 'Select a configured repository');
@@ -657,6 +682,8 @@ export function newTask(raw, config) {
     repositories: demo ? [] : ordered,
     dependencies: structuredClone(dependencies),
     repositoryCursor: 0,
+    preset: preset?.id ?? null,
+    workflowGuidance: preset?.guidance ?? '',
     id: randomUUID(),
     title: text(raw.title, 'Title', 240),
     description: text(raw.description ?? '', 'Description', 50000, true),
@@ -704,6 +731,7 @@ export function reconfigureTask(task, raw, config) {
   );
   const allowed = [
     'expectedRevision',
+    'preset',
     'title',
     'description',
     'ticket',
@@ -732,6 +760,10 @@ export function reconfigureTask(task, raw, config) {
     'Pause the workflow before editing. Finished tasks can be duplicated.',
     409,
   );
+  requireValue(
+    raw.preset === undefined || task.status === 'draft' || raw.preset === task.preset,
+    'Workflow preset is fixed after starting',
+  );
   const current = task.repositories?.length > 1 ? task.repositories : [task];
   const profiles = new Map(config.repositories.map((profile) => [profile.id, profile]));
   for (const entry of current) if (!task.demo) profiles.set(entry.repository.id, entry.repository);
@@ -747,6 +779,7 @@ export function reconfigureTask(task, raw, config) {
       models: task.models ?? {},
       execution: task.execution ?? {},
       smartRouting: task.smartRouting,
+      preset: task.preset,
       ...raw,
       demo: task.demo,
     },
@@ -794,6 +827,8 @@ export function reconfigureTask(task, raw, config) {
         ),
   );
   for (const key of [
+    'preset',
+    'workflowGuidance',
     'title',
     'description',
     'ticket',

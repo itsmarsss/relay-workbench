@@ -2,6 +2,18 @@
 
 A local workbench that coordinates Codex, Claude Code and Pi across investigation, planning, implementation, verification and independent review. You approve an approach and accept the final result. Every stage shares a worktree and leaves an inspectable handoff.
 
+## Workflow intelligence
+
+Choose a workflow when creating a task: **Bug fix**, **Small change**, **Investigate only**, **Cross-repo feature**, or a custom workflow. Specialist and model settings remain editable. Small changes skip routing triage when smart routing is off; investigation-only tasks stop with findings and cannot implement or publish. Other workflows retain approach approval, verification, independent review, and final acceptance.
+
+The **Approval inbox** shows recommendations, attempted remedies and evidence. Choose an approach or accept a reviewed result from the inbox with explicit confirmation. Stale decisions are rejected. Task **Overview** includes a result brief and repository coordination; workflow health is expandable. Identical failures with the same evidence on unchanged source trigger different-strategy guidance, then a bounded stop. Timeouts alone never count as test failures.
+
+For an accepted task with an open PR, choose **Automate PR feedback** in the PR tracker. A read-only monitoring agent discovers the repository’s actual provider, unresolved review feedback, and failed CI. Routine repairs automatically enter the existing proposal workflow. You approve implementation and accept the verified, independently reviewed result before the publication agent updates the PR. Questions and design choices need your direction. Feedback receipts persist, duplicate observations do not create another repair, and automation stops after three repair cycles. Relay never replies to reviewers or merges automatically.
+
+Repository prerequisites determine implementation order and publication eligibility: publish a prerequisite PR before a dependent PR. The coordination view separately shows manual landing order; an open prerequisite PR does not mean it has merged. All workspaces share verification and approval gates.
+
+Enable desktop notifications in **Settings** or **Approval inbox**. Decisions and completed results link directly to the task overview. Notifications require browser permission and an open Relay tab; this is not an offline push service.
+
 ## Start
 
 Requires **Node.js 24 or newer** and Git on macOS or Linux. Install **tmux** to watch agent terminals and use manual takeover; automatic execution and the activity thread still work without it. No install step or API keys are required by Relay; harnesses use their existing CLI authentication.

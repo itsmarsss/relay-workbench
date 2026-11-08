@@ -520,3 +520,136 @@ summary::before {
     gap: 12px;
   }
 }
+
+.productivity-panel {
+  margin-block: 16px;
+  padding: 16px 18px;
+  border: 1px solid var(--tone-c9d2c4, #c9d2c4);
+  border-radius: 10px;
+  background: var(--tone-ffffff, #fff);
+  min-width: 0;
+}
+.productivity-panel header,
+.health-panel > summary,
+.health-panel > summary > span:first-child {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  justify-content: space-between;
+}
+.productivity-panel h2 {
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.4;
+}
+.productivity-panel h3 {
+  font-size: 13px;
+  margin: 14px 0 8px;
+}
+.productivity-panel p,
+.productivity-panel li {
+  font-size: 13px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+.productivity-panel p {
+  margin: 10px 0;
+}
+.productivity-panel pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 240px;
+  overflow: auto;
+}
+.brief-signals {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  font-size: 12px;
+  margin-block: 12px;
+}
+.brief-signals > span {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.coordination-panel ol {
+  margin: 12px 0;
+  padding-left: 22px;
+}
+.coordination-panel li {
+  padding: 8px 0 8px 6px;
+}
+.coordination-panel li > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.coordination-panel li p {
+  margin: 4px 0;
+}
+.inbox-recommendation {
+  font-size: 13px;
+}
+.inbox-recommendation strong {
+  display: block;
+  margin-bottom: 4px;
+}
+.inbox-options {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(250px, 100%), 1fr));
+  gap: 12px;
+  margin-top: 14px;
+}
+.inbox-options article {
+  border: 1px solid var(--tone-c9d2c4, #c9d2c4);
+  border-radius: 8px;
+  padding: 14px;
+}
+.inbox-options h3 {
+  margin: 0 0 8px;
+  font-size: 14px;
+}
+.inbox-options h3 small {
+  display: block;
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--tone-58645d, #58645d);
+  font-weight: 500;
+}
+.inbox-options .btn {
+  margin-top: 12px;
+}
+@media (max-width: 600px) {
+  .productivity-panel header,
+  .health-panel > summary {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}
+
+.feedback-control,
+.feedback-summary {
+  grid-column: 1 / -1;
+}
+.feedback-control {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.feedback-summary {
+  font-size: 13px;
+  line-height: 1.6;
+  margin-top: 10px;
+}
+.feedback-summary ul {
+  padding-left: 20px;
+}
+.feedback-summary li {
+  padding-block: 6px;
+  overflow-wrap: anywhere;
+}
+.feedback-summary p {
+  margin: 6px 0;
+}

@@ -1,3 +1,4 @@
+import { requirePublicationPrerequisites } from './publication-prerequisites.js';
 import { publicationEvidence, PUBLICATION_CHECK_SCOPE } from './publication-evidence.js';
 import { memoryContext } from './memory.js';
 import {
@@ -118,6 +119,7 @@ export class PublicationWorkflow {
     );
     const entry = workspaces(task).find((e) => e.repository.id === repositoryId);
     requireValue(entry, 'Select a task repository');
+    requirePublicationPrerequisites(task, repositoryId);
     if (request === undefined && ['blocked', 'interrupted'].includes(entry.delivery?.status))
       followUpRequest = entry.delivery.followUpRequest;
     requireValue(

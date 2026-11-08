@@ -1,3 +1,4 @@
+import { applyLoopGuard } from './loop-guard.js';
 import {
   prepareCheckRunner,
   readCheckJournal,
@@ -124,6 +125,11 @@ export class Engine {
       requireValue(task, 'Task not found', 404);
       const status = task.status;
       if (action === 'follow-up') {
+        requireValue(
+          task.preset !== 'investigate',
+          'Duplicate this investigation with an implementation preset to request edits',
+          409,
+        );
         requireValue(
           status === 'completed',
           'Finish the current workflow before requesting follow-up edits',
@@ -522,6 +528,8 @@ export class Engine {
             ? task.blockerDecision.options.find((o) => o.id === data.optionId)
             : null;
           requireValue(!data.optionId || option, 'Choose a current debugging option');
+          task.loopGuardAcknowledgedAt = task.attempts.length;
+          task.loopGuard = null;
           task.blockerDecision.resolved = true;
           task.blockerDecision.resolution = data.resolution;
           if (option)
@@ -588,6 +596,8 @@ export class Engine {
         );
         const budgetAttempt =
           task.blockerDecision?.kind === 'runtime_budget' ? task.attempts.at(-1) : null;
+        task.loopGuardAcknowledgedAt = task.attempts.length;
+        task.loopGuard = null;
         task.budgetContinuationAttemptId = budgetAttempt?.id ?? null;
         if (budgetAttempt?.role !== 'debug') task.recovery = null;
         if (task.blockerDecision?.kind === 'verification_report' && task.verificationReportRepair)
@@ -622,6 +632,8 @@ export class Engine {
             );
           }
         }
+        if (action === 'start' && task.preset === 'small' && !task.smartRouting)
+          task.stage = 'investigate';
         task.status = 'queued';
         task.error = null;
         this.store.save(task, {
@@ -632,6 +644,11 @@ export class Engine {
               : `Resuming ${task.stage} after explicit approval.`,
         });
       } else if (action === 'approve-plan') {
+        requireValue(
+          task.preset !== 'investigate',
+          'Investigation-only tasks cannot implement changes',
+          409,
+        );
         requireValue(
           !task.messages.some((m) => m.delivery === 'pending'),
           'Pending direction must be processed before approval. Request proposal changes first.',
@@ -1779,8 +1796,9 @@ export class Engine {
       task.status = 'queued';
     } else if (stage === 'investigate') {
       task.repositoryCursor = 0;
-      task.stage = 'plan';
-      task.status = 'queued';
+      task.stage = task.preset === 'investigate' ? 'investigate' : 'plan';
+      task.status = task.preset === 'investigate' ? 'completed' : 'queued';
+      if (task.status === 'completed') this.releaseReservation(id);
     } else if (stage === 'plan') {
       task.status = 'awaiting_plan';
     } else if (stage === 'implement') {
@@ -1811,6 +1829,15 @@ export class Engine {
         task.status = 'awaiting_final';
       }
     }
+    if (applyLoopGuard(task, savedAttempt))
+      this.store.event(id, {
+        type: 'health',
+        stage,
+        attemptId: attempt.id,
+        summary: task.loopGuard.stopped
+          ? 'Stopped a repeated failure loop; work and evidence are preserved.'
+          : 'Repeated failure detected; next agent must change diagnostic strategy.',
+      });
     this.store.save(task, {
       type: 'handoff',
       stage,

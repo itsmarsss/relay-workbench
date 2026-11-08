@@ -1,3 +1,4 @@
+import { feedbackItems } from './feedback-autopilot.js';
 import { saveDeliveryRun } from './delivery-runs.js';
 import { randomUUID } from 'node:crypto';
 import { executeHarness } from './harness.js';
@@ -42,8 +43,14 @@ export function observationDelay({ failures = 0, unchanged = 0 } = {}) {
 export class PublicationMonitor {
   constructor(
     store,
-    { observe = executeHarness, now = () => Date.now(), isWorkspaceBusy = () => false } = {},
+    {
+      observe = executeHarness,
+      now = () => Date.now(),
+      isWorkspaceBusy = () => false,
+      onFeedback = async () => {},
+    } = {},
   ) {
+    this.onFeedback = onFeedback;
     this.store = store;
     this.observe = observe;
     this.now = now;
@@ -221,6 +228,7 @@ export class PublicationMonitor {
                   error: entry.submission.error,
                 }
               : null,
+            feedbackEnabled: entry.feedbackAutopilot?.enabled === true,
             previous: entry.publication,
             checkedAt: entry.publication?.checkedAt,
           },
@@ -255,6 +263,7 @@ export class PublicationMonitor {
         result.verdict === 'complete',
         result.summary || 'Monitor could not observe publication status',
       );
+      const feedback = feedbackItems(result.feedback ?? []);
       const snapshot = publicationSnapshot(result.publication);
       requireValue(result.evidence?.length, 'Publication status needs observed evidence');
       const previous = this.store.get(id);
@@ -266,6 +275,17 @@ export class PublicationMonitor {
         (e) => {
           const failures =
             snapshot.state === 'unknown' ? (e.publicationMonitor.failures ?? 0) + 1 : 0;
+          if (
+            e.feedbackAutopilot?.current?.state === 'publishing' &&
+            ['open', 'merged'].includes(snapshot.state) &&
+            e.delivery?.status === 'complete'
+          ) {
+            e.feedbackAutopilot.current.state = 'complete';
+            const record = e.feedbackAutopilot.history.find(
+              (r) => r.id === e.feedbackAutopilot.current.id,
+            );
+            if (record) record.state = 'complete';
+          }
           if (snapshot.state !== 'unknown' || !e.publication || e.publication.state === 'unknown')
             e.publication = {
               ...snapshot,
@@ -298,6 +318,7 @@ export class PublicationMonitor {
             }
           : undefined,
       );
+      await this.onFeedback(id, repositoryId, feedback);
     } catch (error) {
       if (!signal.aborted && this.taskBusy(this.store.get(id))) {
         this.updateRun(id, repositoryId, (e) =>
