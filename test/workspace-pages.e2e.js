@@ -163,6 +163,84 @@ try {
   app.store.event(waiting.id, { type: 'activity', summary: 'Another background update' });
   await page.waitForTimeout(700);
   assert.equal(await page.locator('#setting-recovery').inputValue(), '4');
+  // Exercise routing advice with populated and historical evidence.
+  const evidenceRow = {
+    stage: 'implement',
+    harness: 'claude',
+    model: '',
+    attempts: 4,
+    settled: 4,
+    successful: 3,
+    failed: 1,
+    interrupted: 1,
+    pending: 0,
+    tasks: 3,
+    acceptedTasks: 2,
+    reviewFindings: 1,
+    medianMs: 60000,
+    p90Ms: 120000,
+    confidenceLower: 0.3,
+    eligible: true,
+  };
+  const evidence = {
+    rows: [
+      evidenceRow,
+      { ...evidenceRow, harness: 'codex', model: 'retired-model', eligible: false },
+      {
+        ...evidenceRow,
+        harness: 'pi',
+        model: null,
+        settled: 0,
+        successful: 0,
+        medianMs: null,
+        eligible: false,
+      },
+    ],
+    recommendations: [{ stage: 'implement', harness: 'claude', samples: 4, alternatives: 1 }],
+    minimumSamples: 3,
+    minimumTasks: 2,
+    notes: 'Results reflect observed tasks, not a controlled comparison.',
+  };
+  await page.route('**/api/outcomes?*', (route) =>
+    route.fulfill({ contentType: 'application/json', body: JSON.stringify(evidence) }),
+  );
+  await page.getByRole('button', { name: 'Agents', exact: true }).click();
+  await page
+    .getByText('1 stage could use a different agent. Review the results below.', { exact: true })
+    .waitFor();
+  const routing = page.getByRole('region', { name: 'Routing evidence', exact: true });
+  await routing.getByText('Different model configured', { exact: true }).waitFor();
+  await routing.getByText('Model not recorded', { exact: true }).first().waitFor();
+  assert.equal(await routing.locator('.evidence-metric strong').first().innerText(), '75%');
+  await page.locator('#outcomes-repository').selectOption('example', { force: true });
+  await routing
+    .getByText(/Updates global defaults for new tasks, using Example service results/)
+    .waitFor();
+  for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 1000 });
+    await routing.locator('.evidence-details').first().locator('summary').click();
+    await routing.getByText('90th percentile time', { exact: true }).first().waitFor();
+    await routing.locator('.evidence-method summary').click();
+    await assertReadableText(page);
+    assert.ok(
+      await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1),
+      'Routing evidence fits viewport',
+    );
+    if (process.env.RELAY_VISUAL_DIR)
+      await routing.screenshot({
+        path: join(process.env.RELAY_VISUAL_DIR, `routing-evidence-${width}.png`),
+      });
+    await routing.locator('.evidence-details').first().locator('summary').click();
+    await routing.locator('.evidence-method summary').click();
+  }
+  const previousModels = JSON.stringify(app.store.config.harnesses);
+  await routing.getByRole('button', { name: 'Apply suggested route', exact: true }).click();
+  await routing
+    .getByText('Your current routes match the available evidence.', { exact: true })
+    .waitFor();
+  assert.equal(app.store.config.routing.implement, 'claude');
+  assert.equal(JSON.stringify(app.store.config.harnesses), previousModels);
+  assert.equal(await routing.locator('[data-action=apply-routing-advice]').count(), 0);
   assert.deepEqual(errors, []);
   console.log(
     'Workspace pages passed: responsive navigation, contrast, live follow-up filters, memory reset, repository mode, settings hierarchy, and draft preservation.',
