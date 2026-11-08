@@ -3,6 +3,7 @@ import { markdown } from './markdown.js';
 export { escapeHTML };
 export const e = escapeHTML;
 const icons = {
+  move: '<circle cx="9" cy="6" r="1"/><circle cx="15" cy="6" r="1"/><circle cx="9" cy="12" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="9" cy="18" r="1"/><circle cx="15" cy="18" r="1"/>',
   sidebar: '<rect x="3" y="4" width="18" height="16" rx="3"/><path d="M9 4v16"/>',
   relay: '<path d="M4 4h10a5 5 0 0 1 0 10H9l-5 5V4Z"/><path d="M9 9v5m4-5h2"/>',
   grid: '<rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="3" width="7" height="7" rx="2"/><rect x="3" y="14" width="7" height="7" rx="2"/><rect x="14" y="14" width="7" height="7" rx="2"/>',

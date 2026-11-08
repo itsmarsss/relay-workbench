@@ -445,19 +445,52 @@ export function createApp({ directory, publicDirectory, engineOptions = {} }) {
           const request = await body(req);
           requireValue(
             request.value === null ||
-              ['draft', 'running', 'review', 'completed', 'blocked', 'cancelled'].includes(
-                request.value,
-              ),
+              [
+                'draft',
+                'running',
+                'awaiting_plan',
+                'awaiting_final',
+                'review',
+                'completed',
+                'blocked',
+                'cancelled',
+              ].includes(request.value),
             'Choose a valid task status',
+          );
+          const lanes = {
+            backlog: 'draft',
+            discovery: 'running',
+            approach: 'awaiting_plan',
+            progress: 'running',
+            review: 'review',
+            final: 'awaiting_final',
+            done: 'completed',
+            attention: 'blocked',
+            cancelled: 'cancelled',
+          };
+          requireValue(
+            request.lane === undefined ||
+              (typeof request.lane === 'string' &&
+                Object.hasOwn(lanes, request.lane) &&
+                lanes[request.lane] === request.value),
+            'Choose a matching board column',
           );
           const current = store.get(id);
           current.statusOverride =
-            request.value === null ? null : { value: request.value, at: new Date().toISOString() };
+            request.value === null
+              ? null
+              : {
+                  value: request.value,
+                  ...(request.lane ? { lane: request.lane } : {}),
+                  at: new Date().toISOString(),
+                };
           store.save(current, {
             type: 'status_override',
-            summary: request.value
-              ? `Task status overridden to ${request.value}. Automation is unchanged.`
-              : 'Task status now follows the workflow.',
+            summary: request.lane
+              ? `Task moved to board column ${request.lane}. Automation is unchanged.`
+              : request.value
+                ? `Task status overridden to ${request.value}. Automation is unchanged.`
+                : 'Task status now follows the workflow.',
           });
           return json(res, 200, current);
         }

@@ -6,6 +6,8 @@ export function followUpRunning(task) {
 export const overrideStatuses = {
   draft: 'Backlog',
   running: 'In progress',
+  awaiting_plan: 'Choose an approach',
+  awaiting_final: 'Final approval',
   review: 'In review',
   completed: 'Done',
   blocked: 'Needs attention',

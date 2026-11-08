@@ -1,3 +1,4 @@
+import { boardStatuses, workflowColumn } from '../public/workflow.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, rm, writeFile, mkdir, readFile } from 'node:fs/promises';
@@ -1175,4 +1176,36 @@ test('discovery endpoints authenticate and validate metadata requests', async (t
   const repos = await f.request('/api/repositories/discover', 'POST', { root });
   assert.equal(repos.data.repositories[0].name, 'service');
   assert.equal(f.app.store.config.repositories.length, 0);
+});
+
+test('board moves validate all columns without changing workflow gates', async (t) => {
+  const f = await fixture(t);
+  const task = f.app.engine.create({ title: 'Move board card', demo: true });
+  const status = task.status,
+    stage = task.stage,
+    approvals = structuredClone(task.approvals);
+  for (const [lane, value] of Object.entries(boardStatuses)) {
+    const changed = await f.request(`/api/tasks/${task.id}/status-override`, 'POST', {
+      value,
+      lane,
+    });
+    assert.equal(changed.status, 200);
+    assert.equal(workflowColumn(changed.data), lane);
+    assert.equal(changed.data.status, status);
+    assert.equal(changed.data.stage, stage);
+    assert.deepEqual(changed.data.approvals, approvals);
+    assert.equal((await f.request(`/api/tasks/${task.id}`)).data.statusOverride.lane, lane);
+  }
+  for (const invalid of [
+    { value: 'completed', lane: 'discovery' },
+    { value: 'running', lane: 'unknown' },
+    { value: null, lane: 'done' },
+    { value: 'running', lane: '__proto__' },
+  ])
+    assert.equal(
+      (await f.request(`/api/tasks/${task.id}/status-override`, 'POST', invalid)).status,
+      400,
+    );
+  const cleared = await f.request(`/api/tasks/${task.id}/status-override`, 'POST', { value: null });
+  assert.equal(workflowColumn(cleared.data), 'backlog');
 });

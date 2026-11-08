@@ -12,8 +12,8 @@ export function statusQueue(storage) {
   const persist = () => storage.setItem(key, JSON.stringify(values));
   let nextSync = 0;
   return {
-    set(id, value) {
-      values[id] = { value, at: new Date().toISOString() };
+    set(id, value, lane) {
+      values[id] = { value, ...(lane ? { lane } : {}), at: new Date().toISOString() };
       persist();
       nextSync = 0;
     },
@@ -31,7 +31,10 @@ export function statusQueue(storage) {
       nextSync = now + 30000;
       for (const [id, entry] of Object.entries(values)) {
         try {
-          await api(`/tasks/${id}/status-override`, 'POST', { value: entry.value });
+          await api(`/tasks/${id}/status-override`, 'POST', {
+            value: entry.value,
+            ...(entry.lane ? { lane: entry.lane } : {}),
+          });
           if (values[id] === entry) {
             delete values[id];
             persist();

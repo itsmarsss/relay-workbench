@@ -1,3 +1,5 @@
+import { installBoardDrag } from './board-drag.js';
+import { boardStatuses, columns, workflowColumn } from './workflow.js';
 import { sidebarControls, syncSidebar } from './sidebar.js';
 import { repositoryProfileForm, syncRepositoryProfile } from './repository-profile.js';
 import { modelPicker, modelCatalogHint } from './model-picker.js';
@@ -146,7 +148,12 @@ function shell() {
 }
 function renderMain() {
   const main = document.querySelector('#main');
-  if (!main || main.querySelector('[data-uploading]')) return;
+  if (
+    !main ||
+    main.querySelector('[data-uploading]') ||
+    (state.view === 'tasks' && (state.boardDragging || state.boardMoving))
+  )
+    return;
   const editorModes = [...main.querySelectorAll('[data-editor]')].map((el) => ({
     id: el.dataset.editor,
     preview: el.querySelector('[data-mode="preview"]')?.getAttribute('aria-selected') === 'true',
@@ -304,6 +311,50 @@ function overview() {
 function taskTable(tasks) {
   return `<div class="task-table"><div class="table-header"><span>Task</span><span>Status</span><span>Specialists</span><span>Updated</span><span></span></div>${tasks.map((t) => `<button class="task-row" data-action="open-task" data-id="${t.id}"><span class="task-name"><span class="task-symbol">${icon('layers')}</span><span><strong>${e(t.title)} ${t.demo ? '<em class="demo-label">DEMO</em>' : ''}</strong><small>${e((t.repositories?.length ? t.repositories.map((r) => r.repository.name) : [t.repository.name]).join(' + '))} <span>·</span> ${e(stageNames[t.stage] || 'Ready')}</small></span></span><span>${badge(displayStatus(t))}</span><span class="avatar-stack">${[...new Set(Object.values(t.routing).filter((h) => h !== 'checks'))].map((h) => harnessBadge(h)).join('')}</span><span class="muted">${ago(t.updatedAt)}</span>${icon('chevron')}</button>`).join('')}</div>`;
 }
+async function moveBoardTask(id, lane) {
+  const task = state.tasks.find((task) => task.id === id);
+  if (
+    !task ||
+    !Object.hasOwn(boardStatuses, lane) ||
+    workflowColumn(task) === lane ||
+    state.boardMoving
+  )
+    return;
+  state.boardMoving = true;
+  const card = [...document.querySelectorAll('.board-card')].find((node) => node.dataset.id === id);
+  card?.setAttribute('aria-busy', 'true');
+  try {
+    const updated = await api(`/tasks/${id}/status-override`, 'POST', {
+      value: boardStatuses[lane],
+      lane,
+    });
+    pendingStatuses.clear(id);
+    state.tasks = state.tasks.map((task) => (task.id === id ? updated : task));
+    toast(`Moved to ${columns.find(([key]) => key === lane)[1]}. Workflow unchanged.`);
+  } catch (error) {
+    toast(`Couldn’t move task: ${error.message}`, true);
+  } finally {
+    state.boardMoving = false;
+    renderMain();
+  }
+}
+function chooseBoardMove(id) {
+  const task = state.tasks.find((task) => task.id === id);
+  if (!task) return;
+  state.modal = { boardTaskId: id };
+  showModal(
+    'Move task',
+    `<form id="board-move-form"><p class="modal-description">${e(task.title)}</p><label class="field-label" for="board-move-lane">Board column</label><select class="input" id="board-move-lane" name="lane">${columns.map(([key, label]) => `<option value="${key}" ${workflowColumn(task) === key ? 'selected' : ''}>${label}</option>`).join('')}</select><p class="form-help">Changes the board status only. Agents keep running and approval gates still apply. Choose Automatic in the task’s status editor to follow the workflow again.</p><div class="modal-footer"><button type="button" class="btn text" data-action="close-modal">Cancel</button><button type="submit" class="btn primary">Move task</button></div></form>`,
+  );
+}
+installBoardDrag({
+  onDrag: (active) => {
+    state.boardDragging = active;
+    if (!active) renderMain();
+  },
+  onMove: moveBoardTask,
+  onChoose: chooseBoardMove,
+});
 function focusBoard(lane) {
   const board = document.querySelector('.workflow-board');
   if (!board) return;
@@ -752,6 +803,10 @@ document.addEventListener('click', async (event) => {
   if (state.busy) return;
   const action = element.dataset.action;
   try {
+    if (action === 'move-board-task') {
+      chooseBoardMove(element.dataset.id);
+      return;
+    }
     if (action === 'edit-status') {
       showModal(
         'Task status',
@@ -1339,6 +1394,13 @@ document.addEventListener('submit', async (event) => {
   const submit = form.querySelector('button[type="submit"]');
   if (submit) submit.disabled = true;
   try {
+    if (form.id === 'board-move-form') {
+      const id = state.modal.boardTaskId;
+      const lane = data.get('lane');
+      closeModal();
+      await moveBoardTask(id, lane);
+      return;
+    }
     if (form.id === 'status-override-form') {
       const value = form.elements.namedItem('value').value || null;
       let pending = false;

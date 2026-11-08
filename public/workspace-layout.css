@@ -630,3 +630,68 @@
     display: none;
   }
 }
+
+/* Dragging changes board labels through the existing manual override path. */
+.board-card-container {
+  position: relative;
+  min-width: 0;
+}
+.board-card[draggable='true'] {
+  cursor: grab;
+}
+.board-card[draggable='true']:active {
+  cursor: grabbing;
+}
+.board-card.is-dragging {
+  opacity: 0.4;
+}
+.board-card[aria-busy='true'] {
+  opacity: 0.65;
+  pointer-events: none;
+}
+.board-card-container .board-card-meta {
+  padding-right: 22px;
+}
+.board-move {
+  position: absolute;
+  right: 9px;
+  top: 12px;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  background: transparent;
+  color: #58645d;
+  border: 0;
+  border-radius: 5px;
+  cursor: pointer;
+}
+.board-move:hover {
+  background: #edf2eb;
+  color: #193b35;
+}
+.board-move .icon {
+  width: 16px;
+  height: 16px;
+}
+.board-drag-hint {
+  font-size: 11px;
+  color: #58645d;
+  line-height: 1.5;
+  margin: 0 0 12px;
+}
+.board-column[hidden] {
+  display: none;
+}
+.workflow-board.is-dragging .board-column[hidden] {
+  display: block;
+}
+.workflow-board.is-dragging .board-column {
+  min-height: 320px;
+}
+.board-column.is-drop-target {
+  background: #e0eddb;
+  border-color: #638c65;
+  outline: 2px solid #638c65;
+  outline-offset: -2px;
+}
