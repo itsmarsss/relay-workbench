@@ -302,6 +302,15 @@ export const HANDOFF_SCHEMA = {
   ],
 };
 export function handoffSchema(stage) {
+  if (stage === 'followup')
+    return {
+      ...HANDOFF_SCHEMA,
+      properties: {
+        ...HANDOFF_SCHEMA.properties,
+        followUpAction: { type: 'string', enum: ['complete', 'changes'] },
+      },
+      required: [...HANDOFF_SCHEMA.required, 'followUpAction'],
+    };
   if (['monitor', 'publish'].includes(stage))
     return {
       ...HANDOFF_SCHEMA,
@@ -407,6 +416,8 @@ export function validateHandoff(raw, stage) {
       ),
     'Invalid review findings',
   );
+  if (stage === 'followup')
+    requireValue(['complete', 'changes'].includes(raw.followUpAction), 'Invalid follow-up action');
   if (stage === 'plan' && raw.verdict === 'complete')
     requireValue(raw.options.length > 0, 'Plan must include at least one approach');
   if (stage === 'triage')

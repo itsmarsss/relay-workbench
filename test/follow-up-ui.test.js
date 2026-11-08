@@ -9,10 +9,14 @@ test('completed task exposes one request without requiring a routing choice', ()
   const task = { status: 'completed', repository: { id: 'repo', name: 'Example' }, attempts: [] };
   const html = followUpComposer(task);
   assert.match(html, /Continue work/);
-  assert.match(html, /Send request/);
+  assert.match(html, /Run agent/);
   assert.doesNotMatch(html, /type="radio"|name="followup-mode"/);
+  assert.match(html, /name="provider"/);
   assert.equal(followUpComposer({ ...task, status: 'running' }), '');
-  const busy = followUpComposer({ ...task, sideQuestions: [{ status: 'running' }] });
+  const busy = followUpComposer({
+    ...task,
+    deliveryRuns: [{ stage: 'followup', status: 'running' }],
+  });
   assert.match(busy, /type="submit" disabled/);
 });
 

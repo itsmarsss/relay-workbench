@@ -1,3 +1,4 @@
+import { FollowUpAgent } from './follow-up-agent.js';
 import { currentTaskRun } from '../public/task-runs.js';
 import { PublicationWorkflow } from './publication-workflow.js';
 import { PublicationMonitor } from './publication-monitor.js';
@@ -88,20 +89,9 @@ export function createApp({ directory, publicDirectory, engineOptions = {} }) {
     publish: engineOptions.publicationPublish,
     validate: engineOptions.publicationValidate,
   });
-  const sideQuestions = new SideQuestions(store, {
-    answer: engineOptions.sideAnswer,
-    dispatchFollowUp: async (id, decision) => {
-      requireValue(!maintenance, 'Relay is undergoing maintenance', 409);
-      requireValue(
-        !publicationWorkflow.running.has(id) &&
-          ![...external.keys()].some((key) => key.startsWith(`${id}:`)),
-        'Wait for publication to finish',
-        409,
-      );
-      if (decision.action === 'publication')
-        return publicationWorkflow.start(id, decision.repositoryId, { request: decision.message });
-      return engine.action(id, 'follow-up', { message: decision.message });
-    },
+  const sideQuestions = new SideQuestions(store, { answer: engineOptions.sideAnswer });
+  const followUpAgent = new FollowUpAgent(store, engine, publicationMonitor, {
+    run: engineOptions.followUpRun ?? engineOptions.harness,
   });
   const token = randomBytes(32).toString('hex');
   const streams = new Set();
@@ -118,6 +108,7 @@ export function createApp({ directory, publicDirectory, engineOptions = {} }) {
         publicationMonitor.running.size === 0 &&
         publicationWorkflow.running.size === 0 &&
         sideQuestions.running.size === 0 &&
+        followUpAgent.running.size === 0 &&
         !store.all().some((t) => ['running', 'queued', 'manual'].includes(t.status)),
       'Pause active workflows and submissions before maintenance',
       409,
@@ -331,6 +322,7 @@ export function createApp({ directory, publicDirectory, engineOptions = {} }) {
         return json(res, 200, {
           ok: true,
           running:
+            followUpAgent.running.size +
             engine.running.size +
             publicationMonitor.running.size +
             publicationWorkflow.running.size,
@@ -462,8 +454,8 @@ export function createApp({ directory, publicDirectory, engineOptions = {} }) {
         if (operation === 'publication' && req.method === 'POST') {
           const request = await body(req);
           requireValue(
-            !publicationWorkflow.running.has(id),
-            'Wait for publication to finish before changing monitoring',
+            !publicationWorkflow.running.has(id) && !followUpAgent.running.has(id),
+            'Wait for the active agent to finish before changing monitoring',
             409,
           );
           requireValue(
@@ -486,16 +478,17 @@ export function createApp({ directory, publicDirectory, engineOptions = {} }) {
             ['auto', 'question', 'changes', 'publication'].includes(request.mode ?? 'auto'),
             'Choose a follow-up mode',
           );
-          if (!request.mode || request.mode === 'auto')
-            return json(res, 202, sideQuestions.ask(id, request.message, { followUp: true }));
           if (request.mode === 'question')
             return json(res, 202, sideQuestions.ask(id, request.message));
           requireValue(
             !publicationWorkflow.running.has(id) &&
+              !followUpAgent.running.has(id) &&
               ![...external.keys()].some((key) => key.startsWith(`${id}:`)),
             'Wait for publication to finish',
             409,
           );
+          if (!request.mode || request.mode === 'auto')
+            return json(res, 202, await followUpAgent.start(id, request));
           if (request.mode === 'publication')
             return json(
               res,
@@ -506,6 +499,10 @@ export function createApp({ directory, publicDirectory, engineOptions = {} }) {
             );
           return json(res, 202, await engine.action(id, 'follow-up', request));
         }
+        if (operation === 'follow-up-stop' && req.method === 'POST') {
+          await followUpAgent.pause(id);
+          return json(res, 200, { stopped: true });
+        }
         if (operation === 'sync-base' && req.method === 'POST')
           return json(res, 200, await engine.action(id, 'sync-base', await body(req)));
         if (operation === 'question' && req.method === 'POST')
@@ -513,7 +510,8 @@ export function createApp({ directory, publicDirectory, engineOptions = {} }) {
         if (!operation && req.method === 'GET')
           return json(res, 200, {
             ...task,
-            executionActive: engine.running.has(id) || engine.manualRuns.has(id),
+            executionActive:
+              engine.running.has(id) || engine.manualRuns.has(id) || followUpAgent.running.has(id),
             canSteer:
               engine.controls.has(id) ||
               (task.status === 'running' &&
@@ -707,8 +705,8 @@ export function createApp({ directory, publicDirectory, engineOptions = {} }) {
           requireValue(entry, 'Select a task repository');
           const target = workspaceView(task, entry);
           requireValue(
-            !publicationWorkflow.running.has(id),
-            'Publication agent is already running',
+            !publicationWorkflow.running.has(id) && !followUpAgent.running.has(id),
+            'Another agent is already running',
             409,
           );
           const submissionKey = `${id}:${entry.repository.id}`;
@@ -865,8 +863,8 @@ export function createApp({ directory, publicDirectory, engineOptions = {} }) {
           ].includes(operation)
         ) {
           requireValue(
-            !publicationWorkflow.running.has(id),
-            'Pause publication before changing the development workflow',
+            !publicationWorkflow.running.has(id) && !followUpAgent.running.has(id),
+            'Stop the active agent before changing the development workflow',
             409,
           );
           return json(res, 200, await engine.action(id, operation, await body(req)));
@@ -917,6 +915,7 @@ export function createApp({ directory, publicDirectory, engineOptions = {} }) {
     restorePreviews.clear();
     for (const stream of streams) stream.end();
     for (const controller of external.values()) controller.abort();
+    await followUpAgent.stop();
     await publicationWorkflow.stop();
     await publicationMonitor.stop();
     await sideQuestions.stop();

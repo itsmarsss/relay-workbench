@@ -26,31 +26,39 @@ export function taskSummary(task, events = []) {
   const hostVerification =
     task.attempts?.at(-1)?.role === 'verifier' && ['running', 'queued'].includes(task.status);
   const recovering = task.recovery?.active && ['running', 'queued'].includes(task.status);
-  const next = publishing
-    ? 'The agent is preparing and publishing accepted changes. Follow its run below.'
-    : publicationBlocked
-      ? 'Open PR details to inspect the publishing blocker and retry.'
-      : hostVerification
-        ? task.stage === 'verify'
-          ? 'The agent is running required checks and investigating failures before independent review.'
-          : 'Check results return to the interrupted agent, then the workflow continues.'
-        : recovering
-          ? 'Debugger is investigating the blocker. No action needed.'
-          : ({
-              draft: 'Start when ready.',
-              awaiting_plan: 'Choose an approach below.',
-              awaiting_final: 'Review the code changes and accept or request repairs.',
-              blocked: task.recovery?.exhausted
-                ? `Recovery stopped after ${task.recovery.attempts} attempts. Choose a direction in the blocker decision below.`
-                : 'Inspect the latest handoff, add direction, and resume.',
-              interrupted: 'Resume to continue from the saved conversation.',
-              paused: 'Resume when ready.',
-              manual: 'Return control when you are ready for automation.',
-              completed: 'Accepted. No action needed.',
-              cancelled: 'Cancelled. No action needed.',
-            }[task.status] ?? 'Agents will continue and bring the next decision to you.');
+  const followUp = (task.deliveryRuns ?? []).findLast(
+    (run) => run.stage === 'followup' && run.status === 'running',
+  );
+  const next = followUp
+    ? 'Follow the agent in Activity or Terminals.'
+    : publishing
+      ? 'The agent is preparing and publishing accepted changes. Follow its run below.'
+      : publicationBlocked
+        ? 'Open PR details to inspect the publishing blocker and retry.'
+        : hostVerification
+          ? task.stage === 'verify'
+            ? 'The agent is running required checks and investigating failures before independent review.'
+            : 'Check results return to the interrupted agent, then the workflow continues.'
+          : recovering
+            ? 'Debugger is investigating the blocker. No action needed.'
+            : ({
+                draft: 'Start when ready.',
+                awaiting_plan: 'Choose an approach below.',
+                awaiting_final: 'Review the code changes and accept or request repairs.',
+                blocked: task.recovery?.exhausted
+                  ? `Recovery stopped after ${task.recovery.attempts} attempts. Choose a direction in the blocker decision below.`
+                  : 'Inspect the latest handoff, add direction, and resume.',
+                interrupted: 'Resume to continue from the saved conversation.',
+                paused: 'Resume when ready.',
+                manual: 'Return control when you are ready for automation.',
+                completed: 'Accepted. No action needed.',
+                cancelled: 'Cancelled. No action needed.',
+              }[task.status] ?? 'Agents will continue and bring the next decision to you.');
   const live = ['running', 'queued'].includes(task.status);
   const summary =
+    (followUp
+      ? progress?.summary || 'The selected agent is working on your follow-up request.'
+      : null) ||
     (publishing ? publishing.delivery?.summary || 'Publishing accepted changes.' : null) ||
     (publicationBlocked ? publicationBlocked.delivery?.summary : null) ||
     task.error ||
@@ -65,7 +73,7 @@ export function taskSummary(task, events = []) {
         (live
           ? `${stageNames[task.stage] ?? 'Work'} is starting with the saved task context.`
           : latest?.summary));
-  return `<section class="task-summary" aria-label="Current task context"><div><span class="eyebrow">${recovering ? 'RESOLVING A BLOCKER' : 'CURRENT STATUS'}</span><h2>${e(publishing ? runLabel(attempt ?? { stage: 'publish' }) : publicationBlocked ? 'Publishing needs attention' : hostVerification ? runLabel(attempt) : recovering ? 'Debugger' : task.status === 'completed' ? 'Done' : (stageNames[task.stage] ?? 'Ready'))}</h2><p>${e(concise(summary || task.title))}</p></div><div class="summary-next"><strong>${publicationBlocked || ['awaiting_plan', 'awaiting_final', 'blocked', 'manual', 'interrupted', 'paused', 'draft'].includes(task.status) ? 'Your next step' : 'What happens next'}</strong><p>${e(next)}</p></div></section>`;
+  return `<section class="task-summary" aria-label="Current task context"><div><span class="eyebrow">${recovering ? 'RESOLVING A BLOCKER' : 'CURRENT STATUS'}</span><h2>${e(followUp ? 'Follow-up' : publishing ? runLabel(attempt ?? { stage: 'publish' }) : publicationBlocked ? 'Publishing needs attention' : hostVerification ? runLabel(attempt) : recovering ? 'Debugger' : task.status === 'completed' ? 'Done' : (stageNames[task.stage] ?? 'Ready'))}</h2><p>${e(concise(summary || task.title))}</p></div><div class="summary-next"><strong>${publicationBlocked || ['awaiting_plan', 'awaiting_final', 'blocked', 'manual', 'interrupted', 'paused', 'draft'].includes(task.status) ? 'Your next step' : 'What happens next'}</strong><p>${e(next)}</p></div></section>`;
 }
 
 export function activityArchiveCount(task, events) {

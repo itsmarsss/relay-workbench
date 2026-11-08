@@ -1075,28 +1075,70 @@ test('follow-up HTTP modes require auth and keep questions read-only', async (t)
   );
 });
 
-test('single-prompt follow-up authenticates and answers without changing accepted work', async (t) => {
+test('working follow-up authenticates and uses the requested harness', async (t) => {
+  let release;
   const f = await fixture(t, {
-    sideAnswer: async ({ followUp }) => {
-      assert.equal(followUp, true);
-      return { action: 'question', answer: 'Here is the accepted context.', repositoryId: '' };
+    followUpRun: async ({ task, harness, signal }) => {
+      await new Promise((resolve) => {
+        release = resolve;
+        signal.addEventListener('abort', resolve, { once: true });
+      });
+      assert.equal(harness, 'pi');
+      return {
+        ...demoHandoff(task, 'investigate'),
+        followUpAction: 'complete',
+        summary: 'Requested update finished',
+      };
     },
   });
+  const root = join(f.directory, 'followup-repo');
+  await mkdir(root);
+  await git(root, ['init', '-b', 'feature/followup']);
+  await writeFile(join(root, 'value.txt'), 'accepted');
+  await git(root, ['add', '.']);
+  await git(root, [
+    '-c',
+    'user.name=Fixture',
+    '-c',
+    'user.email=fixture@example.test',
+    'commit',
+    '-m',
+    'test: accepted work',
+  ]);
   const task = f.app.engine.create({ title: 'Accepted work', demo: true });
-  task.demo = false;
-  task.status = 'completed';
+  Object.assign(task, {
+    demo: false,
+    status: 'completed',
+    workspace: root,
+    workspaceRoot: root,
+    branch: 'feature/followup',
+    baseCommit: await git(root, ['rev-parse', 'HEAD']),
+  });
   f.app.store.save(task);
   const path = `/api/tasks/${task.id}/follow-up`;
   assert.equal(
-    (await f.request(path, 'POST', { message: 'Explain it' }, { 'X-Relay-Token': '' })).status,
+    (
+      await f.request(
+        path,
+        'POST',
+        { message: 'Update description', provider: 'pi' },
+        { 'X-Relay-Token': '' },
+      )
+    ).status,
     403,
   );
-  assert.equal((await f.request(path, 'POST', { message: 'Explain it' })).status, 202);
-  for (let i = 0; i < 100 && f.app.store.get(task.id).sideQuestions[0].status === 'running'; i++)
+  assert.equal(
+    (await f.request(path, 'POST', { message: 'Update description', provider: 'pi' })).status,
+    202,
+  );
+  assert.equal((await f.request(`/api/tasks/${task.id}/resume`, 'POST', {})).status, 409);
+  assert.ok((await f.request('/api/health')).data.running >= 1);
+  release();
+  for (let i = 0; i < 200 && f.app.store.get(task.id).deliveryRuns.at(-1).status === 'running'; i++)
     await new Promise((r) => setTimeout(r, 10));
-  const result = f.app.store.get(task.id);
-  assert.equal(result.status, 'completed');
-  assert.equal(result.attempts.length, 0);
-  assert.equal(result.sideQuestions[0].action, 'question');
-  assert.equal(result.sideQuestions[0].answer, 'Here is the accepted context.');
+  const current = f.app.store.get(task.id);
+  assert.equal(current.deliveryRuns.at(-1).harness, 'pi');
+  assert.equal(current.deliveryRuns.at(-1).status, 'complete');
+  assert.equal(current.status, 'completed');
+  assert.equal(current.sideQuestions?.length ?? 0, 0);
 });

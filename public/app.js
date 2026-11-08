@@ -319,7 +319,7 @@ function taskView() {
     )
     .join(
       '',
-    )}</div><div class="detail-content">${state.tab === 'overview' ? taskDetails(t) || empty('book', 'No description yet', 'Configure this task to add requirements.') : state.tab === 'terminals' ? terminalView(t, state) : state.tab === 'thread' ? threadView(t) : state.tab === 'handoffs' ? handoffsView(t) : state.tab === 'diff' ? diffView(t) : transcriptView(t)}</div>${!['completed', 'cancelled'].includes(t.status) ? `<form id="message-form" class="message-box">${markdownEditor({ id: 'task-message', name: 'message', label: 'Add direction or context', rows: 3, max: 20000 })}<div><small>${t.canSteer ? 'Steer sends direction to the active session; Claude interrupts and resumes.' : 'Context stays pending until an agent receives it.'} ${t.messages.filter((m) => m.delivery === 'pending').length} pending.</small>${t.canSteer ? '<label><input id="steer-active" type="checkbox" name="steer" checked> Steer active agent</label>' : ''}<button class="btn secondary small" type="submit">Send direction ${icon('arrow')}</button></div></form>` : ''}${followUpComposer(t)}</div><aside class="task-context">${sideChat(t, state.sideChatOpen)}${state.memoryAvailable ? runMemories(t) : ''}<section class="context-card"><div class="context-title">WORKFLOW <span class="live-label ${live ? 'is-live' : ''}">${live ? '● LIVE' : t.demo ? '6 STAGES' : '7 STAGES'}</span></div><ol class="stage-list">${workflowStages(t)}${deliveryWorkflowStages(t)}</ol><button class="btn secondary workflow-graph-button" data-action="open-execution-map" aria-label="Open execution graph">Execution graph ↗</button></section>${(t
+    )}</div><div class="detail-content">${state.tab === 'overview' ? taskDetails(t) || empty('book', 'No description yet', 'Configure this task to add requirements.') : state.tab === 'terminals' ? terminalView(t, state) : state.tab === 'thread' ? threadView(t) : state.tab === 'handoffs' ? handoffsView(t) : state.tab === 'diff' ? diffView(t) : transcriptView(t)}</div>${!['completed', 'cancelled'].includes(t.status) ? `<form id="message-form" class="message-box">${markdownEditor({ id: 'task-message', name: 'message', label: 'Add direction or context', rows: 3, max: 20000 })}<div><small>${t.canSteer ? 'Steer sends direction to the active session; Claude interrupts and resumes.' : 'Context stays pending until an agent receives it.'} ${t.messages.filter((m) => m.delivery === 'pending').length} pending.</small>${t.canSteer ? '<label><input id="steer-active" type="checkbox" name="steer" checked> Steer active agent</label>' : ''}<button class="btn secondary small" type="submit">Send direction ${icon('arrow')}</button></div></form>` : ''}${followUpComposer(t, state.config, state.followUpProviders?.[t.id])}</div><aside class="task-context">${sideChat(t, state.sideChatOpen)}${state.memoryAvailable ? runMemories(t) : ''}<section class="context-card"><div class="context-title">WORKFLOW <span class="live-label ${live ? 'is-live' : ''}">${live ? '● LIVE' : t.demo ? '6 STAGES' : '7 STAGES'}</span></div><ol class="stage-list">${workflowStages(t)}${deliveryWorkflowStages(t)}</ol><button class="btn secondary workflow-graph-button" data-action="open-execution-map" aria-label="Open execution graph">Execution graph ↗</button></section>${(t
     .repositories?.length > 1
     ? t.repositories
     : [t]
@@ -710,6 +710,11 @@ document.addEventListener('click', async (event) => {
             '',
           )}</select><p class="form-help">Overrides the status in your task list and board. Agents keep running and approval checks still apply. Choose Automatic to follow the workflow again.</p><div class="modal-footer"><button class="btn primary" type="submit">Save status</button></div></form>`,
       );
+      return;
+    }
+    if (action === 'follow-up-stop') {
+      await api(`/tasks/${state.selected}/follow-up-stop`, 'POST', {});
+      await refresh();
       return;
     }
     if (action === 'delivery-run') {
@@ -1362,13 +1367,16 @@ document.addEventListener('submit', async (event) => {
       await refresh();
     }
     if (form.id === 'follow-up-form') {
-      await api(`/tasks/${state.selected}/follow-up`, 'POST', {
-        mode: 'auto',
+      const run = await api(`/tasks/${state.selected}/follow-up`, 'POST', {
         message: data.get('message'),
+        provider: data.get('provider'),
       });
       form.querySelector('textarea').value = '';
-      state.sideChatOpen = true;
-      history.pushState(null, '', taskRoute(state.selected, state.tab, true));
+      state.sideChatOpen = false;
+      state.tab = 'thread';
+      state.activityTaskId = state.selected;
+      state.activitySelection = run.id;
+      history.pushState(null, '', taskRoute(state.selected, state.tab));
       await refresh();
       return;
     }
@@ -1468,6 +1476,10 @@ document.addEventListener('change', async (event) => {
   if (['log-run', 'log-stream'].includes(event.target.id)) {
     state[event.target.id === 'log-run' ? 'logRun' : 'logStream'] = event.target.value;
     renderMain();
+    return;
+  }
+  if (event.target.name === 'provider' && event.target.closest('#follow-up-form')) {
+    (state.followUpProviders ??= {})[state.selected] = event.target.value;
     return;
   }
   if (event.target.id === 'terminal-run') {

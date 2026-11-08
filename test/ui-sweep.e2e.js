@@ -71,6 +71,23 @@ try {
       details: 'The implementation preserves existing behavior outside the requested surface.',
     },
   }));
+  const memorySnapshot = {
+    entries: [
+      {
+        id: 'memory',
+        title: 'Keep changes focused',
+        scope: 'global',
+        kind: 'preference',
+        revision: 1,
+        content:
+          'Change the requested surface and relevant callers. Explain additional scope before proceeding.',
+        evidence: 'Explicit developer preference.',
+      },
+    ],
+    omitted: 0,
+  };
+  for (const run of task.attempts) run.memorySnapshot = memorySnapshot;
+  task.delivery.memorySnapshot = memorySnapshot;
   app.store.save(task);
   createMemory(app.store, {
     scope: 'global',
@@ -115,6 +132,18 @@ try {
         .evaluate((el) => parseFloat(getComputedStyle(el).fontSize) <= 13),
     );
     await check('workspace', width);
+    await page.getByRole('button', { name: /View run history/ }).click();
+    await page.getByRole('heading', { name: 'Memory used', exact: true }).waitFor();
+    assert.ok(
+      await page
+        .locator('.memory-history .memory-run-entry')
+        .first()
+        .evaluate((el) => parseFloat(getComputedStyle(el).paddingLeft) >= 14),
+    );
+    assert.equal(await page.getByText('1 memories', { exact: false }).count(), 0);
+    await check('memory-history', width);
+    await page.getByRole('button', { name: 'Close dialog', exact: true }).click();
+
     await page.getByRole('button', { name: 'Open execution graph', exact: true }).click();
     await page.getByRole('region', { name: 'Execution graph', exact: true }).waitFor();
     assert.equal(await page.locator('.graph-lane-title').count(), 3);

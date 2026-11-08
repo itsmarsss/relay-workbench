@@ -37,32 +37,21 @@ const app = createApp({
   publicDirectory: resolve('public'),
   engineOptions: {
     harness: async ({ task, stage }) => demoHandoff(task, stage),
-    sideAnswer: async ({ question, followUp }) => {
-      if (!followUp) return 'The implementation and review context are available.';
+    sideAnswer: async () => 'A read-only side answer.',
+    followUpRun: async ({ task, harness, onEvent }) => {
+      assert.equal(harness, 'claude');
+      onEvent({ type: 'activity', kind: 'message', summary: 'Working on the follow-up request.' });
+      if (task.followUpRequest === 'Shorten the PR description')
+        publicationRequest = task.followUpRequest;
       return {
-        action:
-          question === 'Shorten the PR description'
-            ? 'publication'
-            : question === 'Add a focused regression case'
-              ? 'changes'
-              : 'question',
-        answer:
-          question === 'Explain the accepted implementation'
+        ...demoHandoff(task, 'investigate'),
+        summary:
+          task.followUpRequest === 'Explain the accepted implementation'
             ? 'The implementation and review context are available.'
-            : 'I am starting the requested follow-up.',
-        repositoryId: question === 'Shorten the PR description' ? 'repo' : '',
-      };
-    },
-    publicationPublish: async ({ task }) => {
-      publicationRequest = task.publicationContext.followUpRequest;
-      return {
-        verdict: 'complete',
-        summary: 'Updated PR details',
-        details: 'Existing PR metadata updated',
-        evidence: ['Read back PR metadata'],
-        risks: [],
-        options: [],
-        publication: pr,
+            : 'Requested follow-up finished',
+        details: 'The selected agent inspected the context and completed the requested work.',
+        followUpAction:
+          task.followUpRequest === 'Add a focused regression case' ? 'changes' : 'complete',
       };
     },
     publicationObserve: async () => ({ publication: pr }),
@@ -110,6 +99,27 @@ try {
       handoff: { verdict: 'complete', summary: 'Checks passed' },
     },
   ];
+  task.sideQuestions = [
+    {
+      id: 'historical-followup',
+      question: 'A historical follow-up',
+      answer: 'The previous requested update was recorded.',
+      followUp: true,
+      action: 'publication',
+      status: 'complete',
+      stage: 'review',
+      createdAt: new Date().toISOString(),
+      toolCalls: [
+        { id: 'schema', name: 'StructuredOutput', status: 'complete' },
+        {
+          id: 'read',
+          name: 'mcp__relay_source__read_file',
+          input: { path: 'value.txt' },
+          status: 'complete',
+        },
+      ],
+    },
+  ];
   app.store.save(task);
   await new Promise((resolve) => app.server.listen(0, '127.0.0.1', resolve));
   browser = await chromium.launch({
@@ -123,6 +133,8 @@ try {
   await page.getByRole('region', { name: 'Continue work', exact: true }).waitFor();
   const stage = page.locator('.workflow-stage').filter({ hasText: 'Verification agent' });
   assert.equal(await stage.getAttribute('data-stage-state'), 'complete');
+  await page.getByRole('combobox', { name: 'Agent', exact: true }).click();
+  await page.getByRole('option', { name: 'Claude', exact: true }).click();
   await page.locator('#follow-up-message').fill('Keep this draft while the page updates');
   app.store.event(task.id, { type: 'publication', summary: 'A background status refresh' });
   await page.waitForTimeout(500);
@@ -131,7 +143,7 @@ try {
     await page.locator('#follow-up-message').inputValue(),
     'Keep this draft while the page updates',
   );
-  assert.equal(await page.getByRole('button', { name: 'Send request', exact: true }).count(), 1);
+  assert.equal(await page.getByRole('button', { name: 'Run agent', exact: true }).count(), 1);
   if (process.env.RELAY_VISUAL_DIR) {
     await mkdir(process.env.RELAY_VISUAL_DIR, { recursive: true });
     await page.screenshot({
@@ -149,37 +161,47 @@ try {
     );
     await page.setViewportSize({ width: 1440, height: 1000 });
   }
-  await page.locator('#follow-up-message').fill('Explain the accepted implementation');
-  await page
-    .locator('#follow-up-form')
-    .getByRole('button', { name: 'Send request', exact: true })
-    .click();
-  await page
-    .locator('.side-chat-response')
-    .filter({ hasText: 'implementation and review context' })
-    .waitFor();
-  assert.equal(app.store.get(task.id).status, 'completed');
+  // Historical routed messages must not break the drawer's DOM or reflow the page.
+  const before = await page.locator('.task-center').evaluate((el) => ({
+    x: el.getBoundingClientRect().x,
+    width: el.getBoundingClientRect().width,
+  }));
+  await page.getByRole('button', { name: 'Ask Relay', exact: false }).click();
+  assert.equal(await page.locator('.side-chat-drawer > form#side-question-form').count(), 1);
+  assert.equal(await page.locator('.task-context > #side-question-form').count(), 0);
+  assert.equal(await page.getByText('StructuredOutput', { exact: true }).count(), 0);
+  const after = await page.locator('.task-center').evaluate((el) => ({
+    x: el.getBoundingClientRect().x,
+    width: el.getBoundingClientRect().width,
+  }));
+  assert.deepEqual(after, before);
   await page.getByRole('button', { name: 'Close side conversation', exact: true }).click();
-  await page.locator('#follow-up-message').fill('Shorten the PR description');
-  await page
-    .locator('#follow-up-form')
-    .getByRole('button', { name: 'Send request', exact: true })
-    .click();
-  for (let i = 0; i < 200 && app.store.get(task.id).delivery?.status !== 'complete'; i++)
-    await page.waitForTimeout(25);
+  for (const request of ['Explain the accepted implementation', 'Shorten the PR description']) {
+    const count = app.store.get(task.id).deliveryRuns?.length ?? 0;
+    await page.locator('#follow-up-message').fill(request);
+    await page.getByRole('button', { name: 'Run agent', exact: true }).click();
+    for (
+      let i = 0;
+      i < 200 &&
+      ((app.store.get(task.id).deliveryRuns?.length ?? 0) <= count ||
+        app.store.get(task.id).deliveryRuns?.at(-1)?.status !== 'complete');
+      i++
+    )
+      await page.waitForTimeout(25);
+    assert.equal(app.store.get(task.id).deliveryRuns.at(-1).status, 'complete');
+    assert.equal(app.store.get(task.id).deliveryRuns.at(-1).harness, 'claude');
+    assert.equal(await page.locator('.side-chat-drawer').count(), 0);
+    assert.ok(page.url().endsWith('/thread'));
+    assert.equal(app.store.get(task.id).sideQuestions.length, 1);
+  }
   assert.equal(publicationRequest, 'Shorten the PR description');
-  assert.equal(
-    app.store.get(task.id).delivery.status,
-    'complete',
-    app.store.get(task.id).delivery.details,
-  );
-  await page.getByRole('button', { name: 'Close side conversation', exact: true }).click();
   await page.locator('#follow-up-message').fill('Add a focused regression case');
-  await page.getByRole('button', { name: 'Send request', exact: true }).click();
+  await page.getByRole('button', { name: 'Run agent', exact: true }).click();
   await page.getByRole('heading', { name: 'Choose an approach', exact: true }).waitFor();
   assert.equal(app.store.get(task.id).workspace, repo);
   assert.equal(app.store.get(task.id).status, 'awaiting_plan');
   assert.equal(app.store.get(task.id).followUps.length, 1);
+  assert.equal(app.store.get(task.id).routing.plan, 'claude');
   assert.equal(errors.length, 0, errors.join('\n'));
   console.log(
     'Follow-up browser checks passed: questions, edit approval, PR updates, live drafts, workflow status, and responsive layout.',

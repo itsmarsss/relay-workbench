@@ -539,3 +539,169 @@
     max-width: none;
   }
 }
+
+.follow-up-footer .follow-up-provider {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  font-size: 12px;
+  color: #58645d;
+}
+.follow-up-provider relay-select {
+  width: 150px;
+}
+.follow-up-outcome {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  border-top: 1px solid var(--line);
+  margin-top: 16px;
+  padding-top: 12px;
+}
+.follow-up-outcome p {
+  font-size: 13px;
+  line-height: 1.5;
+  margin: 4px 0 0;
+  overflow-wrap: anywhere;
+}
+.follow-up-outcome .btn {
+  flex-shrink: 0;
+}
+/* The drawer owns its composer; the task page must never reflow around it. */
+.side-chat-drawer {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.side-chat-drawer > .side-chat-history {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+.side-chat-drawer > form {
+  margin: 0;
+  width: 100%;
+}
+.side-chat-drawer .side-chat-tools > summary {
+  font-size: 12px;
+  font-weight: 500;
+}
+.side-chat-drawer .side-chat-response {
+  font-size: 14px;
+  line-height: 1.65;
+}
+.memory-history .memory-run-entry {
+  padding: 16px;
+  margin: 0 0 12px;
+  border: 1px solid #e0e7db;
+  border-radius: 8px;
+  background: #f8faf6;
+}
+.memory-history-content {
+  max-height: 58vh;
+  overflow: auto;
+  padding-right: 4px;
+}
+.memory-history-content > header {
+  margin-bottom: 16px;
+}
+.memory-history-content > header h3 {
+  font-size: 14px;
+  margin: 0;
+}
+.memory-history-content > header p {
+  font-size: 12px;
+  color: #58645d;
+  margin: 5px 0 0;
+}
+.memory-history nav {
+  gap: 4px;
+}
+.memory-history-run strong {
+  font-size: 13px;
+  font-weight: 600;
+}
+.memory-history-run > span {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+  color: #58645d;
+  margin-top: 4px;
+}
+.memory-history-run small {
+  font-size: 11px;
+  line-height: 1.5;
+  margin-top: 4px;
+}
+.memory-entry-heading {
+  display: grid;
+  gap: 5px;
+}
+.memory-entry-heading strong {
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.5;
+}
+.memory-entry-heading > span {
+  font-size: 11px;
+  color: #58645d;
+  text-transform: capitalize;
+}
+.memory-history .memory-run-entry > p {
+  font-size: 13px;
+  line-height: 1.65;
+  margin: 12px 0 0;
+}
+.memory-entry-evidence {
+  margin-top: 14px;
+  padding-top: 10px;
+  border-top: 1px solid #e0e7db;
+}
+.memory-entry-evidence summary {
+  font-size: 12px;
+  color: #465b4c;
+  cursor: pointer;
+}
+.memory-entry-evidence p {
+  font-size: 12px;
+  line-height: 1.6;
+  margin: 8px 0 0;
+  color: #58645d;
+}
+.task-memory-card .memory-compact-list li {
+  border: 0;
+  padding: 0;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.task-memory-card .memory-compact-list li + li {
+  margin-top: 10px;
+}
+.task-memory-card .memory-compact-list small {
+  font-size: 11px;
+  margin-top: 3px;
+  line-height: 1.4;
+  color: #58645d;
+}
+.task-memory-card .memory-compact-actions {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+  gap: 12px;
+}
+.task-memory-card .memory-compact-actions .btn {
+  font-size: 12px;
+  font-weight: 500;
+  padding: 2px 0;
+  min-height: 28px;
+}
+@media (max-width: 600px) {
+  .memory-history-content {
+    max-height: 45vh;
+  }
+  .follow-up-footer .follow-up-provider {
+    justify-content: space-between;
+  }
+}

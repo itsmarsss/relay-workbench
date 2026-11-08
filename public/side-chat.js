@@ -2,7 +2,9 @@ import { sideAnswerText } from './side-answer.js';
 import { answerMemories } from './memory.js';
 import { e, prose, icon } from './ui.js';
 function sourceActivity(question) {
-  const calls = question.toolCalls ?? [];
+  const calls = (question.toolCalls ?? []).filter(
+    (call) => !/structuredoutput$/i.test(call.name ?? ''),
+  );
   if (!calls.length) return '';
   const names = {
     github_read: 'Read GitHub',
@@ -11,7 +13,7 @@ function sourceActivity(question) {
     search: 'Search source',
     git_inspect: 'Inspect Git',
   };
-  return `<details class="side-chat-tools" data-event-key="side-tools-${e(question.id)}" ${question.followUp && question.action && question.action !== 'question' ? `<div class="follow-up-dispatch"><strong>${question.action === 'changes' ? 'Planning edits' : 'Updating PR'}</strong><button class="btn text small" data-action="tab" data-tab="thread">View activity ↗</button></div>` : ''}${question.status === 'running' ? 'open' : ''}><summary>Source activity <span>${calls.length}</span></summary><ol>${calls
+  return `<details class="side-chat-tools" data-event-key="side-tools-${e(question.id)}" ${question.status === 'running' ? 'open' : ''}><summary>Source activity <span>${calls.length}</span></summary><ol>${calls
     .map((call) => {
       const name = call.name?.replace(/^mcp__relay_source__/, '') ?? 'inspection';
       const target = [

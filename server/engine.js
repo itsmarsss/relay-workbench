@@ -134,6 +134,17 @@ export class Engine {
           409,
         );
         const request = text(data.message, 'Follow-up request', 20000);
+        if (data.provider !== undefined) {
+          requireValue(
+            HARNESSES.includes(data.provider) &&
+              this.store.config.harnesses[data.provider]?.enabled,
+            'Choose an enabled agent provider',
+          );
+          for (const stage of ['plan', 'implement']) {
+            if (task.routing[stage] !== data.provider && task.models) delete task.models[stage];
+            task.routing[stage] = data.provider;
+          }
+        }
         const entries = workspaces(task);
         requireValue(
           !entries.some((entry) => ['merged', 'closed'].includes(entry.publication?.state)),
