@@ -173,6 +173,17 @@ try {
   const sendBounds = await dialog.getByRole('button', { name: 'Send', exact: true }).boundingBox();
   assert.ok(sendBounds.y + sendBounds.height <= 844, 'orchestrator composer stays visible');
   await page.screenshot({ path: 'docs/screenshots/orchestrator-panel-mobile.png', fullPage: true });
+  await page.keyboard.press('Escape');
+  await page.goto(`${base}/#task/${task.id}/overview`);
+  await page.getByRole('button', { name: 'Delete task', exact: true }).click();
+  const deletion = page.locator('#dialog');
+  await deletion.getByRole('button', { name: 'Keep task', exact: true }).click();
+  assert.ok(app.store.get(task.id), 'cancelling deletion keeps the task');
+  await page.getByRole('button', { name: 'Delete task', exact: true }).click();
+  await deletion.getByRole('button', { name: 'Delete task', exact: true }).click();
+  await page.waitForURL('**/#tasks*');
+  await page.waitForFunction(() => !document.querySelector('.task-heading'));
+  assert.equal(app.store.get(task.id), null, 'confirmed deletion removes the task');
   assert.deepEqual(errors, []);
   console.log(
     'Control audit passed: sizing, disclosures, custom controls, anchored resizing, global orchestrator, motion and low motion.',

@@ -119,6 +119,18 @@ export class Store {
     if (entry) this.notify(entry);
     return task;
   }
+  deleteTask(id) {
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      this.db.prepare('DELETE FROM events WHERE task_id=?').run(id);
+      this.db.prepare('DELETE FROM tasks WHERE id=?').run(id);
+      this.db.exec('COMMIT');
+    } catch (error) {
+      this.db.exec('ROLLBACK');
+      throw error;
+    }
+    this.notify({ taskId: id, type: 'deleted' });
+  }
   event(id, event) {
     const entry = { taskId: id, at: new Date().toISOString(), ...event };
     const result = this.db

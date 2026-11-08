@@ -3,6 +3,7 @@ import { markdown } from './markdown.js';
 export { escapeHTML };
 export const e = escapeHTML;
 const icons = {
+  trash: '<path d="M3 6h18M9 6V4h6v2M5 6l1 14h12l1-14M10 10v6M14 10v6"/>',
   resize: '<path d="m8 20 12-12M14 20l6-6M20 20h.01"/>',
   orchestrator:
     '<rect x="8" y="3" width="8" height="6" rx="2"/><rect x="2" y="16" width="7" height="5" rx="1.5"/><rect x="15" y="16" width="7" height="5" rx="1.5"/><path d="M12 9v4H5.5v3M12 13h6.5v3"/>',

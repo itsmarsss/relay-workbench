@@ -480,6 +480,27 @@ export function createApp({ directory, publicDirectory, engineOptions = {} }) {
         const [, id, operation] = match;
         const task = store.get(id);
         requireValue(task, 'Task not found', 404);
+        if (!operation && req.method === 'DELETE') {
+          requireValue(mutations === 1, 'Wait for pending changes before deleting this task.', 409);
+          const keyedRun = (runs) =>
+            [...runs.keys()].some((key) => key === id || key.startsWith(id + ':'));
+          requireValue(
+            !['running', 'queued', 'manual'].includes(task.status) &&
+              !engine.running.has(id) &&
+              !engine.manualRuns.has(id) &&
+              !engine.actionLocks.has(id) &&
+              !sideQuestions.running.has(id) &&
+              !publicationWorkflow.running.has(id) &&
+              !followUpAgent.running.has(id) &&
+              !keyedRun(publicationMonitor.running) &&
+              !keyedRun(external),
+            'Pause active work and wait for agents to stop before deleting this task.',
+            409,
+          );
+          engine.releaseReservation(id);
+          store.deleteTask(id);
+          return json(res, 200, { deleted: true, id });
+        }
         if (operation === 'status-override' && req.method === 'POST') {
           const request = await body(req);
           requireValue(

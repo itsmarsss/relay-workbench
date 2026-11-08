@@ -1239,3 +1239,29 @@ test('repository suggestion requests authenticate and validate the checkout', as
   assert.equal(response.data.suggestions[0].value, 'Example package');
   assert.equal(f.app.store.config.repositories.length, 0);
 });
+
+test('HTTP deletes idle tasks and history, protects active work and authentication', async (t) => {
+  const f = await fixture(t);
+  const created = await f.request('/api/tasks', 'POST', { title: 'Declutter me', demo: true });
+  const id = created.data.id;
+  f.app.store.event(id, { type: 'note', summary: 'History' });
+  assert.equal(
+    (await f.request(`/api/tasks/${id}`, 'DELETE', undefined, { 'X-Relay-Token': '' })).status,
+    403,
+  );
+  const task = f.app.store.get(id);
+  task.status = 'queued';
+  f.app.store.save(task);
+  assert.equal((await f.request(`/api/tasks/${id}`, 'DELETE')).status, 409);
+  task.status = 'paused';
+  f.app.store.save(task);
+  f.app.engine.running.set(id, new AbortController());
+  assert.equal((await f.request(`/api/tasks/${id}`, 'DELETE')).status, 409);
+  f.app.engine.running.delete(id);
+  assert.equal((await f.request(`/api/tasks/${id}`, 'DELETE')).status, 200);
+  assert.equal(f.app.store.get(id), null);
+  assert.deepEqual(f.app.store.events(id), []);
+  assert.equal((await f.request(`/api/tasks/${id}`)).status, 404);
+  assert.equal((await f.request(`/api/tasks/${id}`, 'DELETE')).status, 404);
+  assert.ok(!(await f.request('/api/tasks')).data.some((task) => task.id === id));
+});
