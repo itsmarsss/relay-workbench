@@ -6,6 +6,7 @@ export function saveDeliveryRun(task, entry, stage) {
   task.deliveryRuns ??= [];
   const index = task.deliveryRuns.findIndex((run) => run.id === id);
   const old = task.deliveryRuns[index];
+  if (stage === 'monitor' && old?.stage === 'feedback') return;
   const status =
     { idle: 'complete', unavailable: 'failed', paused: 'interrupted' }[record.status] ??
     record.status;

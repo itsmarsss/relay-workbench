@@ -30,6 +30,7 @@ export const DEFAULT_CONFIG = {
       readMemory: true,
       createDrafts: true,
       proposeSettings: true,
+      proposeTasks: true,
     },
   },
   repositories: [],

@@ -153,6 +153,20 @@ test('HTTP approval requires human auth, refuses active workers, and persists se
       body: JSON.stringify(data),
     });
   }
+  const { proposeTaskChanges } = await import('../server/task-proposals.js');
+  const draft = app.engine.create({ title: 'Draft settings', demo: true });
+  const taskProposal = proposeTaskChanges(
+    app.store,
+    [{ taskId: draft.id, operation: 'settings', settings: { preset: 'small' } }],
+    'Focus scope',
+  );
+  const taskPath = `/api/workspace-agent/task-proposals/${taskProposal.id}`;
+  assert.equal((await request(taskPath, { decision: 'approve' }, false)).status, 403);
+  app.engine.running.set(draft.id, new AbortController());
+  assert.equal((await request(taskPath, { decision: 'approve' })).status, 409);
+  app.engine.running.delete(draft.id);
+  assert.equal((await request(taskPath, { decision: 'approve' })).status, 200);
+  assert.equal(app.store.get(draft.id).preset, 'small');
   const proposal = proposeConfiguration(
     app.store,
     [{ path: ['concurrency'], value: 3 }],
@@ -178,4 +192,78 @@ test('HTTP approval requires human auth, refuses active workers, and persists se
     (await request('/api/workspace-agent/settings', { model: 'no' }, false, 'PATCH')).status,
     403,
   );
+});
+
+// Task configuration is visible to Relay, but only the human applies proposals.
+
+test('task proposals preview real presets, reject stale batches and require approval', async (t) => {
+  const { store, engine, agent } = await fixture(t);
+  const { proposeTaskChanges, decideTaskProposal, latestTaskConfirmation } =
+    await import('../server/task-proposals.js');
+  const first = engine.create({ title: 'First', demo: true }),
+    second = engine.create({ title: 'Second', demo: true });
+  agent.controller = new AbortController();
+  const details = await agent.tool('get_task', { id: first.id });
+  assert.ok(details.routing);
+  assert.ok(details.developmentAccess);
+  assert.equal(details.configRevision, 0);
+  const proposal = proposeTaskChanges(
+    store,
+    [first, second].map((task) => ({
+      taskId: task.id,
+      operation: 'settings',
+      settings: { preset: 'small' },
+    })),
+    'Use a focused workflow',
+    'exchange',
+  );
+  assert.notEqual(store.get(first.id).preset, 'small');
+  assert.equal(
+    latestTaskConfirmation(store, [{ id: 'exchange', status: 'complete' }], 'yes').id,
+    proposal.id,
+  );
+  assert.equal(latestTaskConfirmation(store, [{ id: 'other', status: 'complete' }], 'yes'), null);
+  assert.equal(latestTaskConfirmation(store, [{ id: 'exchange', status: 'running' }], 'yes'), null);
+  assert.equal(
+    latestTaskConfirmation(
+      store,
+      [{ id: 'exchange', status: 'complete' }],
+      'yes and start everything',
+    ),
+    null,
+  );
+  engine.update(second.id, { preset: 'bugfix', expectedRevision: 0 });
+  const feedback = { jobs: new Map() },
+    monitor = {};
+  await assert.rejects(
+    decideTaskProposal(store, engine, feedback, monitor, proposal.id, 'approve'),
+    /changed/,
+  );
+  assert.notEqual(store.get(first.id).preset, 'small');
+  await decideTaskProposal(store, engine, feedback, monitor, proposal.id, 'reject');
+  const fresh = proposeTaskChanges(
+    store,
+    [{ taskId: first.id, operation: 'settings', settings: { preset: 'small' } }],
+    'Focus scope',
+    'next',
+  );
+  await decideTaskProposal(store, engine, feedback, monitor, fresh.id, 'approve');
+  assert.equal(store.get(first.id).preset, 'small');
+  await assert.rejects(
+    decideTaskProposal(store, engine, feedback, monitor, fresh.id, 'approve'),
+    /changed/,
+  );
+  store.config.workspaceAgent.permissions.readSettings = false;
+  assert.equal((await agent.tool('get_task', { id: first.id })).routing, undefined);
+  assert.equal((await agent.tool('list_tasks')).tasks[0].models, undefined);
+  assert.throws(
+    () =>
+      proposeTaskChanges(
+        store,
+        [{ taskId: first.id, operation: 'settings', settings: { preset: 'bugfix' } }],
+        'No access',
+      ),
+    /Read settings/,
+  );
+  await assert.rejects(agent.tool('approve_task_changes', {}), /Unsupported/);
 });

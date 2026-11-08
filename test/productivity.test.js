@@ -458,3 +458,67 @@ test('feedback shutdown waits for publication startup and never advances the que
   await new Promise((r) => setImmediate(r));
   assert.equal(agent.jobs.size, 0);
 });
+
+test('completion uses implementation outcome instead of publication reviews', () => {
+  const task = {
+    status: 'completed',
+    attempts: [{ id: 'impl', stage: 'implement', handoff: { summary: 'Fixed affected behavior' } }],
+    deliveryRuns: [
+      {
+        id: 'pub-review',
+        stage: 'review',
+        auxiliary: true,
+        handoff: { summary: 'Publication reviewed' },
+      },
+    ],
+  };
+  assert.equal(completionBrief(task).summary, 'Fixed affected behavior');
+});
+test('feedback observations appear in workflow activity without routine polls', async () => {
+  const { saveDeliveryRun } = await import('../server/delivery-runs.js');
+  const { activityRunSelection } = await import('../public/activity-runs.js');
+  const task = {
+    attempts: [],
+    repository: { id: 'repo' },
+    deliveryRuns: [{ id: 'feedback-run', stage: 'feedback', auxiliary: true, status: 'complete' }],
+    publicationMonitor: {
+      attemptId: 'feedback-run',
+      startedAt: new Date().toISOString(),
+      status: 'idle',
+    },
+  };
+  saveDeliveryRun(task, task, 'monitor');
+  assert.equal(task.deliveryRuns[0].stage, 'feedback');
+  const events = [
+    { stage: 'monitor', attemptId: 'feedback-run', summary: 'Feedback found' },
+    { stage: 'monitor', attemptId: 'poll', summary: 'No change' },
+  ];
+  assert.deepEqual(activityRunSelection(task, events, 'all').events, [events[0]]);
+});
+
+test('actionable feedback promotes its real observer run and links the repair', async () => {
+  const f = feedbackFixture();
+  const task = f.store.get();
+  task.publicationMonitor = {
+    attemptId: 'real-observer',
+    startedAt: new Date().toISOString(),
+    harness: 'claude',
+    status: 'idle',
+  };
+  task.deliveryRuns = [
+    {
+      id: 'real-observer',
+      stage: 'monitor',
+      startedAt: task.publicationMonitor.startedAt,
+      status: 'complete',
+    },
+  ];
+  f.store.save(task);
+  f.agent.configure('task', 'repo', true);
+  await f.agent.observe('task', 'repo', [item]);
+  const observed = f.store.get();
+  assert.equal(observed.deliveryRuns[0].stage, 'feedback');
+  assert.equal(observed.deliveryRuns[0].handoff.evidence[0], item.url);
+  assert.equal(f.calls[0][2].sourceFeedbackId, 'real-observer');
+  assert.equal(observed.feedbackAutopilot.current.runId, 'real-observer');
+});

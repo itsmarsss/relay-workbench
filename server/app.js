@@ -1,3 +1,4 @@
+import { taskProposals, decideTaskProposal, latestTaskConfirmation } from './task-proposals.js';
 import { requirePublicationPrerequisites } from './publication-prerequisites.js';
 import { FeedbackAutopilot } from './feedback-autopilot.js';
 import { configurationProposals, decideConfiguration } from './workspace-permissions.js';
@@ -207,8 +208,29 @@ export function createApp({ directory, publicDirectory, engineOptions = {} }) {
         return json(res, 200, {
           ...workspaceAgent.context(),
           settings: store.config.workspaceAgent,
+          taskProposals: taskProposals(store).map(({ changes, ...p }) => ({
+            ...p,
+            changes: changes.map(({ base, ...c }) => c),
+          })),
           proposals: configurationProposals(store).map(({ config, base, ...proposal }) => proposal),
         });
+      const taskProposal = path.match(/^\/api\/workspace-agent\/task-proposals\/([a-f0-9-]+)$/);
+      if (taskProposal && req.method === 'POST') {
+        const request = await body(req);
+        return json(
+          res,
+          200,
+          await decideTaskProposal(
+            store,
+            engine,
+            feedbackAutopilot,
+            publicationMonitor,
+            taskProposal[1],
+            request.decision,
+            (id) => publicationWorkflow.running.has(id) || followUpAgent.running.has(id),
+          ),
+        );
+      }
       if (path === '/api/workspace-agent/settings' && req.method === 'PATCH') {
         const raw = await body(req);
         requireValue(
@@ -237,7 +259,22 @@ export function createApp({ directory, publicDirectory, engineOptions = {} }) {
         return json(
           res,
           202,
-          await workspaceAgent.ask(request.question, origin, request.revisionOf),
+          await (async () => {
+            const proposal =
+              !request.revisionOf &&
+              latestTaskConfirmation(store, workspaceAgent.history, String(request.question ?? ''));
+            if (proposal)
+              await decideTaskProposal(
+                store,
+                engine,
+                feedbackAutopilot,
+                publicationMonitor,
+                proposal.id,
+                'approve',
+                (id) => publicationWorkflow.running.has(id) || followUpAgent.running.has(id),
+              );
+            return workspaceAgent.ask(request.question, origin, request.revisionOf);
+          })(),
         );
       }
       if (path === '/api/workspace-agent/stop' && req.method === 'POST') {

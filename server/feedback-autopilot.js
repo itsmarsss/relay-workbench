@@ -124,6 +124,42 @@ export class FeedbackAutopilot {
       state: 'needs_decision',
     };
     const rounds = history.filter((r) => r.state !== 'dismissed').length;
+    const observation = entry.publicationMonitor;
+    if (observation?.attemptId) {
+      record.runId = observation.attemptId;
+      task.deliveryRuns ??= [];
+      const previous = task.deliveryRuns.find((run) => run.id === record.runId);
+      const run = {
+        ...observation,
+        ...previous,
+        id: record.runId,
+        stage: 'feedback',
+        role: 'feedback',
+        auxiliary: true,
+        status: 'complete',
+        repositoryId,
+        relation: 'PR feedback',
+        handoff: {
+          verdict: 'complete',
+          summary: `Reviewed ${fresh.length} actionable feedback ${fresh.length === 1 ? 'item' : 'items'}.`,
+          details: fresh.map((i) => `${i.summary}\n${i.details}`).join('\n\n'),
+          evidence: fresh.map((i) => i.url).filter(Boolean),
+          risks: [],
+        },
+      };
+      if (previous) Object.assign(previous, run);
+      else task.deliveryRuns.push(run);
+      this.store.event?.(id, {
+        type: 'handoff',
+        source: 'relay',
+        stage: 'feedback',
+        harness: observation.harness,
+        attemptId: record.runId,
+        repositoryId,
+        summary: run.handoff.summary,
+        details: run.handoff.details,
+      });
+    }
     policy.current = record;
     history.push(record);
     if (rounds >= 3)
@@ -146,6 +182,7 @@ export class FeedbackAutopilot {
     if (record.state !== 'proposed') return;
     try {
       await this.engine.action(id, 'follow-up', {
+        sourceFeedbackId: record.runId,
         message:
           'Address the following observed PR feedback within the existing approved goal. Read the linked source feedback, distinguish routine repairs from product decisions, reuse passing evidence, and propose a focused repair. Do not publish or send comments.\n' +
           fresh

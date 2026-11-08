@@ -194,6 +194,7 @@ export class Engine {
           request,
           startedAt: new Date().toISOString(),
           previousApproach: task.chosenApproach,
+          sourceFeedbackId: data.sourceFeedbackId,
         };
         for (const [index, entry] of entries.entries()) {
           if (!task.demo) {
@@ -1209,9 +1210,14 @@ export class Engine {
       !task.attempts.some((run) => run.followUpId === task.followUpContext.id);
     const attempt = {
       followUpId: task.followUpContext?.id,
-      parentAttemptId: parentAttempt?.id ?? null,
+      parentAttemptId:
+        firstFollowUp && task.followUpContext.sourceFeedbackId
+          ? task.followUpContext.sourceFeedbackId
+          : (parentAttempt?.id ?? null),
       relation: firstFollowUp
-        ? 'Follow-up request'
+        ? task.followUpContext.sourceFeedbackId
+          ? 'PR feedback repair'
+          : 'Follow-up request'
         : task.verificationReportRepair && agentVerification && !debugging
           ? task.verificationReportRepair.mode === 'check_recovery'
             ? 'Resolve failed check'
