@@ -59,25 +59,30 @@ try {
   });
   assert.ok(padding <= 1.5, `disclosure top padding ${padding}`);
   const disclosure = page.locator('.memory-card .report-section');
-  const collapsedHeight = await disclosure.evaluate((node) => node.getBoundingClientRect().height);
-  await disclosure.locator('summary').click();
-  await page.waitForTimeout(50);
-  const expanding = await disclosure.evaluate((node) => ({
-    height: node.getBoundingClientRect().height,
-    full: node.scrollHeight,
-    open: node.open,
-  }));
-  assert.equal(expanding.open, true);
+  const expansion = await disclosure.evaluate((node) => {
+    const from = node.getBoundingClientRect().height;
+    const heights = [];
+    node.querySelector('summary').click();
+    const start = performance.now();
+    return new Promise((resolve) => {
+      function frame() {
+        heights.push(node.getBoundingClientRect().height);
+        if (performance.now() - start < 450) requestAnimationFrame(frame);
+        else resolve({ from, to: node.getBoundingClientRect().height, heights, open: node.open });
+      }
+      requestAnimationFrame(frame);
+    });
+  });
+  assert.equal(expansion.open, true);
   assert.ok(
-    expanding.height > collapsedHeight && expanding.height < expanding.full,
+    expansion.heights.some((height) => height > expansion.from && height < expansion.to),
     'disclosure grows through intermediate heights',
   );
-  await page.waitForFunction(
-    () => !document.querySelector('.memory-card .report-section').style.height,
-  );
-  await disclosure.locator('summary').click();
   assert.equal(
-    await disclosure.evaluate((node) => node.open),
+    await disclosure.evaluate((node) => {
+      node.querySelector('summary').click();
+      return node.open;
+    }),
     true,
     'closing content stays visible during transition',
   );

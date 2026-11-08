@@ -443,3 +443,142 @@ main[data-render-scope^='assistant:'] .workspace-messages {
     display: none;
   }
 }
+
+/* Keep the workspace header to one compact row above the conversation. */
+main[data-render-scope^='assistant:'] {
+  padding-top: 16px;
+  padding-bottom: 20px;
+}
+.orchestrator-intro {
+  margin-bottom: 12px;
+  gap: 12px;
+  min-height: 32px;
+}
+.orchestrator-heading {
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+.orchestrator-heading h1 {
+  font-size: 18px;
+  letter-spacing: -0.3px;
+}
+.relay-model-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: 12px;
+  padding: 5px 6px;
+  cursor: pointer;
+}
+.relay-model-button:hover {
+  background: var(--mint);
+}
+.relay-model-button .icon {
+  width: 13px;
+  height: 13px;
+}
+.orchestrator-status {
+  font-size: 11px;
+  gap: 10px;
+}
+.orchestrator-dialog .orchestrator-intro {
+  margin-bottom: 10px;
+}
+.workspace-permission {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 12px;
+  margin: 12px 0;
+  background: var(--mint);
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.workspace-permission > div {
+  flex: 1;
+  min-width: 0;
+}
+.workspace-permission .icon {
+  width: 16px;
+  height: 16px;
+  margin-right: 6px;
+  vertical-align: middle;
+}
+.workspace-permission p {
+  margin: 5px 0 0;
+  font-size: 13px;
+}
+.workspace-permissions {
+  display: grid;
+  gap: 12px;
+  border: 0;
+  padding: 16px 0 4px;
+  margin-top: 12px;
+}
+.workspace-permissions legend {
+  font-size: 14px;
+  font-weight: 600;
+}
+.workspace-permissions label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+}
+#workspace-agent-settings-form > .field-label {
+  margin-top: 14px;
+}
+.workspace-setting-diff {
+  max-height: 50dvh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.workspace-setting-diff h3 {
+  font-size: 14px;
+  margin: 14px 0 8px;
+}
+.workspace-setting-diff strong {
+  font-size: 12px;
+  color: var(--muted);
+}
+.workspace-setting-diff pre {
+  max-height: 200px;
+  overflow: auto;
+}
+@media (max-width: 700px) {
+  .orchestrator-intro {
+    gap: 6px;
+  }
+  .orchestrator-status {
+    gap: 8px;
+  }
+  .workspace-permission {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 8px;
+  }
+}
+
+.relay-model-button {
+  min-width: 0;
+  max-width: 300px;
+}
+.relay-model-button > span {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.relay-model-button > .icon {
+  flex: none;
+}
+@media (max-width: 700px) {
+  .relay-model-button {
+    max-width: 180px;
+  }
+}

@@ -21,6 +21,16 @@ export const DEFAULT_CONFIG = {
     claude: { command: 'claude', model: '', enabled: true },
     pi: { command: 'pi', model: '', enabled: true },
   },
+  workspaceAgent: {
+    model: '',
+    effort: '',
+    permissions: {
+      readSettings: true,
+      readMemory: true,
+      createDrafts: true,
+      proposeSettings: true,
+    },
+  },
   repositories: [],
 };
 
@@ -80,6 +90,22 @@ export function validateConfig(raw) {
       model: text(h.model ?? '', 'Model', 200, true),
       enabled: h.enabled !== false,
     };
+  }
+  const assistant = raw.workspaceAgent ?? c.workspaceAgent;
+  requireValue(
+    assistant && typeof assistant === 'object' && !Array.isArray(assistant),
+    'Invalid workspace agent settings',
+  );
+  c.workspaceAgent.model = text(assistant.model ?? '', 'Relay model', 200, true);
+  c.workspaceAgent.effort = text(assistant.effort ?? '', 'Relay effort', 20, true);
+  requireValue(
+    !c.workspaceAgent.effort || effortLevels.claude.includes(c.workspaceAgent.effort),
+    'Unsupported Relay effort',
+  );
+  for (const permission of Object.keys(c.workspaceAgent.permissions)) {
+    const value = assistant.permissions?.[permission] ?? c.workspaceAgent.permissions[permission];
+    requireValue(typeof value === 'boolean', 'Permissions must be true or false');
+    c.workspaceAgent.permissions[permission] = value;
   }
   for (const stage of Object.keys(c.routing)) {
     const id = raw.routing?.[stage] ?? c.routing[stage];

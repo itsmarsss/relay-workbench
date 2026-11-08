@@ -1,3 +1,4 @@
+import { configurationProposals, decideConfiguration } from './workspace-permissions.js';
 import { WorkspaceAgent } from './workspace-agent.js';
 import { repositorySuggestions } from './repository-suggestions.js';
 import { ModelCatalog } from './model-catalog.js';
@@ -195,6 +196,33 @@ export function createApp({ directory, publicDirectory, engineOptions = {} }) {
           'JSON content type required',
           415,
         );
+      }
+      if (path === '/api/workspace-agent/context' && req.method === 'GET')
+        return json(res, 200, {
+          ...workspaceAgent.context(),
+          settings: store.config.workspaceAgent,
+          proposals: configurationProposals(store).map(({ config, base, ...proposal }) => proposal),
+        });
+      if (path === '/api/workspace-agent/settings' && req.method === 'PATCH') {
+        const raw = await body(req);
+        requireValue(
+          Object.keys(raw).every((key) => ['model', 'effort', 'permissions'].includes(key)),
+          'Unknown Relay setting',
+        );
+        const settings = {
+          ...store.config.workspaceAgent,
+          ...raw,
+          permissions: { ...store.config.workspaceAgent.permissions, ...raw.permissions },
+        };
+        const config = store.setConfig({ ...store.config, workspaceAgent: settings });
+        return json(res, 200, config);
+      }
+      const permissionRequest = path.match(/^\/api\/workspace-agent\/permissions\/([a-f0-9-]+)$/);
+      if (permissionRequest && req.method === 'POST') {
+        const request = await body(req);
+        if (request.decision === 'approve') requireIdle();
+        const proposal = decideConfiguration(store, permissionRequest[1], request.decision);
+        return json(res, 200, { status: proposal.status, config: store.config });
       }
       if (path === '/api/workspace-agent' && req.method === 'GET')
         return json(res, 200, workspaceAgent.history);

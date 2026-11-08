@@ -216,7 +216,7 @@ function renderMain() {
   const selectedApproach = main.querySelector('input[name="optionId"]:checked')?.value;
   const markup =
     state.view === 'assistant'
-      ? workspaceAgentView(state.workspaceMessages, state.tasks)
+      ? workspaceAgentView(state.workspaceMessages, state.tasks, { info: state.workspaceInfo })
       : state.view === 'memory'
         ? state.memoryAvailable
           ? memoryPage(state.memories, state.config, state.tasks, {
@@ -690,6 +690,17 @@ function repositoryModal(id, preset = {}) {
   installRepositorySuggestions(document.querySelector('#repository-form'), { api, notify: toast });
 }
 const refresh = refreshQueue(refreshSnapshot, { onError: (error) => toast(error.message, true) });
+async function loadWorkspaceAgent() {
+  const [messages, info] = await Promise.all([
+    api('/workspace-agent'),
+    api('/workspace-agent/context').catch((error) => {
+      if (error.status !== 404) throw error;
+      return { model: state.config?.harnesses.claude.model || 'Claude default', unavailable: true };
+    }),
+  ]);
+  state.workspaceMessages = messages;
+  state.workspaceInfo = info;
+}
 async function refreshSnapshot() {
   await pendingStatuses.sync(api);
   [state.tasks, state.inbox, state.memories] = await Promise.all([
@@ -699,8 +710,7 @@ async function refreshSnapshot() {
   ]);
   state.tasks = state.tasks.map((task) => pendingStatuses.apply(task));
   notifyInbox(state.inbox);
-  if (state.view === 'assistant' || state.orchestratorOpen)
-    state.workspaceMessages = await api('/workspace-agent');
+  if (state.view === 'assistant' || state.orchestratorOpen) await loadWorkspaceAgent();
   if (state.view === 'harnesses')
     state.outcomes = await api(
       `/outcomes?repositoryId=${encodeURIComponent(state.outcomesRepository)}`,
@@ -804,7 +814,7 @@ async function loadRepositoryDiscovery(root) {
 }
 async function navigate(view, recordHistory = true) {
   state.view = view;
-  if (view === 'assistant') state.workspaceMessages = await api('/workspace-agent');
+  if (view === 'assistant') await loadWorkspaceAgent();
   state.selected = null;
   state.task = null;
   shell();
@@ -869,6 +879,55 @@ document.addEventListener('click', async (event) => {
     }
     if (element.closest('#relay-orchestrator') && ['open-task', 'navigate'].includes(action))
       closeOrchestrator();
+    if (action === 'workspace-agent-settings') {
+      const info = state.workspaceInfo;
+      if (info?.unavailable)
+        throw new Error('Restart Relay to enable model settings and permissions.');
+      const settings = info?.settings ?? state.config.workspaceAgent;
+      const permissions = settings.permissions;
+      state.modal = {};
+      showModal(
+        'Relay model and permissions',
+        `<form id="workspace-agent-settings-form"><p class="modal-description">Workspace Relay uses Claude. These settings apply to its next message.</p><label class="field-label" for="workspace-agent-model">Model</label>${modelPicker({ id: 'workspace-agent-model', provider: 'claude', value: settings.model, catalog: state.modelCatalog, known: [state.config.harnesses.claude.model], defaultLabel: 'Use Claude agent default' })}<label class="field-label" for="workspace-agent-effort">Effort</label><select class="input" id="workspace-agent-effort" name="effort">${['', 'low', 'medium', 'high', 'xhigh', 'max'].map((effort) => `<option value="${effort}" ${effort === settings.effort ? 'selected' : ''}>${effort || 'Provider default'}</option>`).join('')}</select><fieldset class="workspace-permissions"><legend>Permissions</legend>${[
+          ['readSettings', 'Read all settings and repository profiles'],
+          ['readMemory', 'Read approved memory'],
+          ['createDrafts', 'Create draft tasks'],
+          ['proposeSettings', 'Propose setting changes for your approval'],
+        ]
+          .map(
+            ([id, label]) =>
+              `<label><input type="checkbox" name="${id}" ${permissions[id] ? 'checked' : ''}>${label}</label>`,
+          )
+          .join(
+            '',
+          )}</fieldset><p class="form-help">Relay cannot approve its own changes, start workflows, or bypass implementation and final review.</p><div class="modal-footer"><button type="button" class="btn secondary" data-action="close-modal">Cancel</button><button class="btn primary" type="submit">Save Relay settings</button></div></form>`,
+      );
+      return;
+    }
+    if (action === 'review-workspace-change') {
+      const proposal = state.workspaceInfo.proposals.find((item) => item.id === element.dataset.id);
+      if (!proposal || proposal.status !== 'pending')
+        throw new Error('This request has already been reviewed.');
+      state.modal = { proposalId: proposal.id };
+      showModal(
+        'Review setting changes',
+        `<p class="modal-description">${e(proposal.reason)}</p><div class="workspace-setting-diff">${proposal.changes.map((change) => `<section><h3>${e(change.path.join(' → '))}</h3><div><strong>Current</strong><pre class="code-block">${e(JSON.stringify(change.before, null, 2))}</pre><strong>Proposed</strong><pre class="code-block">${e(JSON.stringify(change.after, null, 2))}</pre></div></section>`).join('')}</div><p class="form-help">Approval applies only these changes. If settings have changed since the proposal, Relay must propose again.</p><div class="modal-footer"><button class="btn secondary" data-action="decide-workspace-change" data-decision="reject">Reject</button><button class="btn primary" data-action="decide-workspace-change" data-decision="approve">Approve changes</button></div>`,
+        true,
+      );
+      return;
+    }
+    if (action === 'decide-workspace-change') {
+      state.busy = true;
+      const result = await api(`/workspace-agent/permissions/${state.modal.proposalId}`, 'POST', {
+        decision: element.dataset.decision,
+      });
+      state.config = result.config;
+      closeModal();
+      await loadWorkspaceAgent();
+      renderMain();
+      toast(result.status === 'approved' ? 'Settings applied.' : 'Settings change rejected.');
+      return;
+    }
     if (action === 'stop-workspace-agent') {
       await api('/workspace-agent/stop', 'POST', {});
       await refresh();
@@ -1673,6 +1732,23 @@ document.addEventListener('submit', async (event) => {
       await refresh();
       return;
     }
+    if (form.id === 'workspace-agent-settings-form') {
+      state.config = await api('/workspace-agent/settings', 'PATCH', {
+        model: values.model,
+        effort: values.effort,
+        permissions: Object.fromEntries(
+          ['readSettings', 'readMemory', 'createDrafts', 'proposeSettings'].map((permission) => [
+            permission,
+            data.has(permission),
+          ]),
+        ),
+      });
+      closeModal();
+      await loadWorkspaceAgent();
+      renderMain();
+      toast('Relay settings saved for the next message.');
+      return;
+    }
     if (form.id === 'side-question-form') {
       await api(`/tasks/${state.selected}/question`, 'POST', { question: values.question });
       document.querySelector('#side-question').value = '';
@@ -1971,7 +2047,7 @@ async function boot() {
       ].includes(hash)
         ? hash
         : 'overview';
-      if (state.view === 'assistant') state.workspaceMessages = await api('/workspace-agent');
+      if (state.view === 'assistant') await loadWorkspaceAgent();
       shell();
     }
     loadModelCatalog();
@@ -2044,7 +2120,7 @@ async function openOrchestrator() {
     document.getElementById('workspace-request')?.focus();
     return;
   }
-  state.workspaceMessages = await api('/workspace-agent');
+  await loadWorkspaceAgent();
   state.orchestratorOpen = true;
   document
     .querySelector('[data-action="open-orchestrator"]')
@@ -2099,7 +2175,10 @@ function syncOrchestrator() {
     !messages || messages.scrollHeight - messages.clientHeight - messages.scrollTop < 48;
   updateLiveDOM(
     body,
-    workspaceAgentView(state.workspaceMessages, state.tasks, { compact: true }),
+    workspaceAgentView(state.workspaceMessages, state.tasks, {
+      compact: true,
+      info: state.workspaceInfo,
+    }),
     'orchestrator',
   );
   const next = body.querySelector('#workspace-request');

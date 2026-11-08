@@ -8,6 +8,10 @@ function sourceActivity(question) {
   if (!calls.length) return '';
   const names = {
     github_read: 'Read GitHub',
+    read_configuration: 'Read settings and runtime',
+    read_memory: 'Recall approved memory',
+    search_conversation: 'Search conversation',
+    propose_config_change: 'Request settings approval',
     list_tasks: 'Refresh tasks',
     get_task: 'Read task',
     create_draft: 'Create draft',
