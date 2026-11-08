@@ -1,3 +1,4 @@
+import { effortArgs } from '../public/agent-options.js';
 import { readCheckJournal } from './verification-evidence.js';
 import { readFileSync } from 'node:fs';
 import { MEMORY_RULES } from './memory.js';
@@ -11,7 +12,10 @@ import { handoffSchema, parseHandoff, validateHandoff, requireValue } from './do
 import { runProcess, executableExists } from './process.js';
 
 export function buildInvocation(id, config, schemaPath, stage, sessionId) {
-  const model = config.model ? ['--model', config.model] : [];
+  const model = [
+    ...(config.model ? ['--model', config.model] : []),
+    ...effortArgs(id, config.effort),
+  ];
   if (id === 'codex')
     return {
       command: config.command,
@@ -285,6 +289,7 @@ export async function executeHarness({
         schema: handoffSchema(stage),
         ...developmentAccess(task, stage),
         model: config.harnesses[harness].model,
+        effort: config.harnesses[harness].effort,
         sessionId,
         controlDirectory,
       }),
@@ -560,7 +565,10 @@ export function resumeInvocation(harness, config, sessionId) {
     typeof sessionId === 'string' && /^[A-Za-z0-9][A-Za-z0-9_-]{0,199}$/.test(sessionId),
     'Invalid native session identifier',
   );
-  const model = config.model ? ['--model', config.model] : [];
+  const model = [
+    ...(config.model ? ['--model', config.model] : []),
+    ...effortArgs(harness, config.effort),
+  ];
   if (harness === 'codex')
     return {
       command: config.command,

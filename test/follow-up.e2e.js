@@ -135,6 +135,9 @@ try {
   assert.equal(await stage.getAttribute('data-stage-state'), 'complete');
   await page.getByRole('combobox', { name: 'Agent', exact: true }).click();
   await page.getByRole('option', { name: 'Claude', exact: true }).click();
+  await page.locator('#follow-up-form [name=model]').fill('custom-followup-model');
+  await page.getByRole('combobox', { name: 'Effort', exact: true }).click();
+  await page.getByRole('option', { name: 'Max', exact: true }).click();
   await page.locator('#follow-up-message').fill('Keep this draft while the page updates');
   app.store.event(task.id, { type: 'publication', summary: 'A background status refresh' });
   await page.waitForTimeout(500);
@@ -143,6 +146,21 @@ try {
     await page.locator('#follow-up-message').inputValue(),
     'Keep this draft while the page updates',
   );
+  assert.equal(
+    await page.locator('#follow-up-form [name=model]').inputValue(),
+    'custom-followup-model',
+  );
+  assert.equal(await page.locator('#follow-up-form select[name=effort]').inputValue(), 'max');
+  await page.getByRole('combobox', { name: 'Agent', exact: true }).click();
+  await page.getByRole('option', { name: 'Pi', exact: true }).click();
+  assert.equal(await page.locator('#follow-up-form [name=model]').inputValue(), '');
+  await page.getByRole('combobox', { name: 'Agent', exact: true }).click();
+  await page.getByRole('option', { name: 'Claude', exact: true }).click();
+  assert.equal(
+    await page.locator('#follow-up-form [name=model]').inputValue(),
+    'custom-followup-model',
+  );
+  assert.equal(await page.locator('#follow-up-form select[name=effort]').inputValue(), 'max');
   assert.equal(await page.getByRole('button', { name: 'Run agent', exact: true }).count(), 1);
   if (process.env.RELAY_VISUAL_DIR) {
     await mkdir(process.env.RELAY_VISUAL_DIR, { recursive: true });
@@ -151,6 +169,7 @@ try {
       fullPage: true,
     });
     await page.setViewportSize({ width: 390, height: 844 });
+    assert.ok((await page.locator('.follow-up-footer').boundingBox()).height < 240);
     await page.screenshot({
       path: join(process.env.RELAY_VISUAL_DIR, 'follow-up-mobile.png'),
       fullPage: true,
@@ -190,6 +209,10 @@ try {
       await page.waitForTimeout(25);
     assert.equal(app.store.get(task.id).deliveryRuns.at(-1).status, 'complete');
     assert.equal(app.store.get(task.id).deliveryRuns.at(-1).harness, 'claude');
+    assert.deepEqual(app.store.get(task.id).deliveryRuns.at(-1).settings, {
+      model: 'custom-followup-model',
+      effort: 'max',
+    });
     assert.equal(await page.locator('.side-chat-drawer').count(), 0);
     assert.ok(page.url().endsWith('/thread'));
     assert.equal(app.store.get(task.id).sideQuestions.length, 1);

@@ -1,5 +1,12 @@
 import { randomUUID } from 'node:crypto';
-import { HARNESSES, requireValue, text, executionConfig, validateHandoff } from './domain.js';
+import {
+  HARNESSES,
+  requireValue,
+  text,
+  executionConfig,
+  validateHandoff,
+  agentOptions,
+} from './domain.js';
 import { executeHarness } from './harness.js';
 import { workspaces } from './task-repositories.js';
 import { fingerprint, git } from './workspace.js';
@@ -35,7 +42,7 @@ export class FollowUpAgent {
       event ? { ...event, stage: 'followup', attemptId: runId, harness: run.harness } : undefined,
     );
   }
-  async start(id, { message, provider } = {}) {
+  async start(id, { message, provider, model, effort } = {}) {
     requireValue(!this.stopping, 'Relay is shutting down', 409);
     const task = this.store.get(id);
     requireValue(
@@ -54,6 +61,7 @@ export class FollowUpAgent {
       'A follow-up is already starting or running',
       409,
     );
+    const settings = agentOptions(provider, { model, effort });
     const entries = workspaces(task),
       roots = [...new Set(entries.map((entry) => entry.workspaceRoot))];
     requireValue(
@@ -88,6 +96,7 @@ export class FollowUpAgent {
       role: 'followup',
       auxiliary: true,
       harness: provider,
+      settings,
       status: 'running',
       startedAt: new Date().toISOString(),
       request,
@@ -119,6 +128,10 @@ export class FollowUpAgent {
         if (this.engine.workspaceReservations.get(root) === id)
           this.engine.workspaceReservations.delete(root);
     };
+    const config = executionConfig(task, this.store.config, 'followup');
+    Object.assign(config.harnesses[provider], settings, {
+      model: settings.model || config.harnesses[provider].model,
+    });
     active.done = (async () => {
       const input = {
         ...task,
@@ -138,7 +151,7 @@ export class FollowUpAgent {
           task: input,
           stage: 'followup',
           harness: provider,
-          config: executionConfig(task, this.store.config, 'followup'),
+          config,
           directory: this.store.directory,
           attemptId: record.id,
           signal: controller.signal,
@@ -178,7 +191,7 @@ export class FollowUpAgent {
       );
       if (result.verdict === 'complete' && result.followUpAction === 'changes') {
         release();
-        await this.engine.action(id, 'follow-up', { message: request, provider });
+        await this.engine.action(id, 'follow-up', { message: request, provider, ...settings });
       }
     })()
       .catch((error) =>

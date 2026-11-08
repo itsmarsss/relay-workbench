@@ -281,3 +281,22 @@ test('every stage runs on the host even for legacy restricted repository profile
   assert.doesNotMatch(prompt, /return blocked with command evidence so the elevated debugger/);
   assert.match(prompt, /Analysis stages must not change tracked or untracked source files/);
 });
+
+test('effort and model reach fresh and resumed harness invocations', async () => {
+  const { resumeInvocation } = await import('../server/harness.js');
+  for (const provider of ['codex', 'claude', 'pi']) {
+    const config = { command: provider, model: 'chosen-model', effort: 'high' };
+    for (const invocation of [
+      buildInvocation(provider, config, 'schema.json', 'followup'),
+      resumeInvocation(provider, config, 'session'),
+    ]) {
+      assert.ok(invocation.args.includes('chosen-model'));
+      if (provider === 'codex')
+        assert.ok(invocation.args.includes('model_reasoning_effort="high"'));
+      else {
+        assert.ok(invocation.args.includes(provider === 'pi' ? '--thinking' : '--effort'));
+        assert.ok(invocation.args.includes('high'));
+      }
+    }
+  }
+});

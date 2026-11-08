@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { Store } from '../server/store.js';
 import { Engine } from '../server/engine.js';
 import { FollowUpAgent } from '../server/follow-up-agent.js';
-import { DEFAULT_CONFIG } from '../server/domain.js';
+import { DEFAULT_CONFIG, executionConfig } from '../server/domain.js';
 import { git } from '../server/workspace.js';
 import { demoHandoff, buildPrompt } from '../server/harness.js';
 async function fixture(t, run) {
@@ -79,6 +79,8 @@ test('working follow-up uses selected provider and records a regular run', async
   const f = await fixture(t, async (input) => {
     assert.equal(input.harness, 'pi');
     assert.equal(input.stage, 'followup');
+    assert.equal(input.config.harnesses.pi.model, 'custom-model');
+    assert.equal(input.config.harnesses.pi.effort, 'high');
     assert.equal(input.task.followUpRequest, 'Update the PR description');
     const prompt = buildPrompt(input.task, input.stage);
     assert.match(prompt, /perform the requested update now and read it back/);
@@ -87,7 +89,12 @@ test('working follow-up uses selected provider and records a regular run', async
     input.onTerminal({ session: 'fixture' });
     return result(input.task);
   });
-  await f.agent.start(f.task.id, { message: 'Update the PR description', provider: 'pi' });
+  await f.agent.start(f.task.id, {
+    message: 'Update the PR description',
+    provider: 'pi',
+    model: 'custom-model',
+    effort: 'high',
+  });
   await f.agent.running.get(f.task.id).done;
   const task = f.store.get(f.task.id),
     run = task.deliveryRuns.at(-1);
@@ -95,12 +102,19 @@ test('working follow-up uses selected provider and records a regular run', async
   assert.equal(task.sideQuestions?.length ?? 0, 0);
   assert.equal(run.status, 'complete');
   assert.equal(run.harness, 'pi');
+  assert.deepEqual(run.settings, { model: 'custom-model', effort: 'high' });
+  assert.equal(f.store.config.harnesses.pi.model, '');
   assert.equal(run.terminal.session, 'fixture');
   assert.equal(f.engine.workspaceReservations.size, 0);
 });
 test('source follow-up goes through selected-provider plan approval', async (t) => {
   const f = await fixture(t, async ({ task }) => result(task, 'changes'));
-  await f.agent.start(f.task.id, { message: 'Add a regression test', provider: 'claude' });
+  await f.agent.start(f.task.id, {
+    message: 'Add a regression test',
+    provider: 'claude',
+    model: 'custom-claude',
+    effort: 'max',
+  });
   await f.agent.running.get(f.task.id).done;
   for (let i = 0; i < 200 && f.store.get(f.task.id).status !== 'awaiting_plan'; i++)
     await new Promise((r) => setTimeout(r, 10));
@@ -108,6 +122,11 @@ test('source follow-up goes through selected-provider plan approval', async (t) 
   assert.equal(task.status, 'awaiting_plan');
   assert.equal(task.routing.plan, 'claude');
   assert.equal(task.routing.implement, 'claude');
+  for (const stage of ['plan', 'implement']) {
+    const config = executionConfig(task, f.store.config, stage);
+    assert.equal(config.harnesses.claude.model, 'custom-claude');
+    assert.equal(config.harnesses.claude.effort, 'max');
+  }
   assert.equal(await readFile(join(f.repo, 'value.txt'), 'utf8'), 'accepted\n');
 });
 test('unapproved source mutation is preserved and blocks the follow-up', async (t) => {
@@ -150,4 +169,22 @@ test('working follow-up rejects unknown providers and concurrent writers, and ca
   await f.agent.pause(f.task.id);
   assert.equal(f.store.get(f.task.id).deliveryRuns.at(-1).status, 'interrupted');
   assert.equal(f.engine.workspaceReservations.size, 0);
+});
+
+test('follow-up rejects invalid options before reserving or launching', async (t) => {
+  const f = await fixture(t, () => {
+    throw Error('must not launch');
+  });
+  for (const options of [
+    { effort: 'ultra', provider: 'claude' },
+    { model: { bad: true } },
+    { model: 'line\nbreak' },
+    { effort: 'unknown' },
+  ]) {
+    await assert.rejects(
+      f.agent.start(f.task.id, { message: 'Explain this', provider: 'codex', ...options }),
+    );
+    assert.equal(f.agent.running.size, 0);
+    assert.equal(f.engine.workspaceReservations.size, 0);
+  }
 });

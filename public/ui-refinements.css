@@ -705,3 +705,39 @@
     justify-content: space-between;
   }
 }
+
+/* Compact per-run configuration, wrapping naturally on narrow screens. */
+.follow-up-footer {
+  display: grid;
+  grid-template-columns: 150px minmax(0, 1fr) 130px auto;
+  align-items: end;
+  gap: 12px;
+}
+.follow-up-footer .follow-up-provider,
+.follow-up-footer .follow-up-model,
+.follow-up-footer .follow-up-effort {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 5px;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+.follow-up-footer .input,
+.follow-up-footer relay-select {
+  width: 100%;
+}
+@media (max-width: 850px) {
+  .follow-up-footer {
+    grid-template-columns: 1fr 1fr;
+  }
+  .follow-up-footer .follow-up-model {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+  .follow-up-footer > button {
+    grid-column: 1 / -1;
+    justify-self: end;
+  }
+}

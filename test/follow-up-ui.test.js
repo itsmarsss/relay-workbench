@@ -67,3 +67,18 @@ test('history rows use readable provider names, timing, and explicit completion 
   assert.match(html, /✓/);
   assert.doesNotMatch(html, /codex · complete/);
 });
+
+test('follow-up offers model and provider-specific effort overrides', () => {
+  const task = { status: 'completed', routing: { implement: 'claude' }, deliveryRuns: [] };
+  const html = followUpComposer(
+    task,
+    { harnesses: { claude: { enabled: true, model: 'configured-model' } } },
+    'claude',
+    { claude: { model: 'chosen-model', effort: 'max' } },
+  );
+  assert.match(html, /name="model" value="chosen-model"/);
+  assert.match(html, /Default \(configured-model\)/);
+  assert.match(html, /value="max" selected/);
+  assert.doesNotMatch(html, /value="ultra"/);
+  assert.match(followUpComposer(task, {}, 'pi'), /value="off"/);
+});

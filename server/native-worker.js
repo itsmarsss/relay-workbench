@@ -199,6 +199,7 @@ try {
       approvalPolicy: 'never',
       sandboxPolicy: { type: 'dangerFullAccess' },
       outputSchema: spec.schema,
+      ...(spec.effort ? { effort: spec.effort } : {}),
       ...(spec.model ? { model: spec.model } : {}),
     });
     turnId = turn.turn.id;

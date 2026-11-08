@@ -1,5 +1,6 @@
 import { isAbsolute, normalize, parse } from 'node:path';
 import { randomUUID } from 'node:crypto';
+import { effortLevels } from '../public/agent-options.js';
 
 export const STAGES = ['triage', 'investigate', 'plan', 'implement', 'verify', 'review'];
 export const HARNESSES = ['codex', 'claude', 'pi'];
@@ -542,11 +543,30 @@ function applyRepositorySettings(repositories, settings = []) {
       }
   }
 }
+export function agentOptions(provider, raw = {}) {
+  const model = text(raw.model ?? '', 'Model', 200, true);
+  requireValue(!/[\r\n\x00]/.test(model), 'Model must be a single line');
+  const effort = raw.effort ?? '';
+  requireValue(
+    typeof effort === 'string' && (effort === '' || effortLevels[provider]?.includes(effort)),
+    'Invalid effort for this agent',
+  );
+  return { model, effort };
+}
 export function executionConfig(task, config, stage) {
   const result = { ...structuredClone(config), ...(task.execution ?? {}) };
   const harness = task.routing[stage];
   if (task.models?.[stage] && result.harnesses[harness])
     result.harnesses[harness].model = task.models[stage];
+  if (
+    task.followUpAgent &&
+    ['plan', 'implement'].includes(stage) &&
+    harness === task.followUpAgent.provider
+  ) {
+    Object.assign(result.harnesses[harness], task.followUpAgent.settings);
+    if (!task.followUpAgent.settings.model)
+      result.harnesses[harness].model = config.harnesses[harness].model;
+  }
   return result;
 }
 

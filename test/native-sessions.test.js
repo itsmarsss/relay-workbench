@@ -55,6 +55,7 @@ createInterface({input:process.stdin}).on('line',line=>{
     );
     const config = structuredClone(DEFAULT_CONFIG);
     config.harnesses[harness].command = binary;
+    config.harnesses[harness].effort = 'high';
     let session;
     let steering;
     const activities = [];
@@ -88,6 +89,7 @@ createInterface({input:process.stdin}).on('line',line=>{
       requests.some((r) => (r.method || r.type) === (harness === 'codex' ? 'turn/steer' : 'steer')),
     );
     if (harness === 'codex') {
+      assert.equal(requests.find((r) => r.method === 'turn/start').params.effort, 'high');
       assert.equal(
         requests.find((r) => r.method === 'thread/resume').params.approvalPolicy,
         'never',

@@ -23,6 +23,7 @@ import {
   newTask,
   reconfigureTask,
   executionConfig,
+  agentOptions,
   requireValue,
   text,
   HARNESSES,
@@ -145,6 +146,10 @@ export class Engine {
             task.routing[stage] = data.provider;
           }
         }
+        task.followUpAgent = {
+          provider: data.provider ?? task.routing.implement,
+          settings: agentOptions(data.provider ?? task.routing.implement, data),
+        };
         const entries = workspaces(task);
         requireValue(
           !entries.some((entry) => ['merged', 'closed'].includes(entry.publication?.state)),

@@ -319,7 +319,7 @@ function taskView() {
     )
     .join(
       '',
-    )}</div><div class="detail-content">${state.tab === 'overview' ? taskDetails(t) || empty('book', 'No description yet', 'Configure this task to add requirements.') : state.tab === 'terminals' ? terminalView(t, state) : state.tab === 'thread' ? threadView(t) : state.tab === 'handoffs' ? handoffsView(t) : state.tab === 'diff' ? diffView(t) : transcriptView(t)}</div>${!['completed', 'cancelled'].includes(t.status) ? `<form id="message-form" class="message-box">${markdownEditor({ id: 'task-message', name: 'message', label: 'Add direction or context', rows: 3, max: 20000 })}<div><small>${t.canSteer ? 'Steer sends direction to the active session; Claude interrupts and resumes.' : 'Context stays pending until an agent receives it.'} ${t.messages.filter((m) => m.delivery === 'pending').length} pending.</small>${t.canSteer ? '<label><input id="steer-active" type="checkbox" name="steer" checked> Steer active agent</label>' : ''}<button class="btn secondary small" type="submit">Send direction ${icon('arrow')}</button></div></form>` : ''}${followUpComposer(t, state.config, state.followUpProviders?.[t.id])}</div><aside class="task-context">${sideChat(t, state.sideChatOpen)}${state.memoryAvailable ? runMemories(t) : ''}<section class="context-card"><div class="context-title">WORKFLOW <span class="live-label ${live ? 'is-live' : ''}">${live ? '● LIVE' : t.demo ? '6 STAGES' : '7 STAGES'}</span></div><ol class="stage-list">${workflowStages(t)}${deliveryWorkflowStages(t)}</ol><button class="btn secondary workflow-graph-button" data-action="open-execution-map" aria-label="Open execution graph">Execution graph ↗</button></section>${(t
+    )}</div><div class="detail-content">${state.tab === 'overview' ? taskDetails(t) || empty('book', 'No description yet', 'Configure this task to add requirements.') : state.tab === 'terminals' ? terminalView(t, state) : state.tab === 'thread' ? threadView(t) : state.tab === 'handoffs' ? handoffsView(t) : state.tab === 'diff' ? diffView(t) : transcriptView(t)}</div>${!['completed', 'cancelled'].includes(t.status) ? `<form id="message-form" class="message-box">${markdownEditor({ id: 'task-message', name: 'message', label: 'Add direction or context', rows: 3, max: 20000 })}<div><small>${t.canSteer ? 'Steer sends direction to the active session; Claude interrupts and resumes.' : 'Context stays pending until an agent receives it.'} ${t.messages.filter((m) => m.delivery === 'pending').length} pending.</small>${t.canSteer ? '<label><input id="steer-active" type="checkbox" name="steer" checked> Steer active agent</label>' : ''}<button class="btn secondary small" type="submit">Send direction ${icon('arrow')}</button></div></form>` : ''}${followUpComposer(t, state.config, state.followUpProviders?.[t.id], state.followUpSettings?.[t.id])}</div><aside class="task-context">${sideChat(t, state.sideChatOpen)}${state.memoryAvailable ? runMemories(t) : ''}<section class="context-card"><div class="context-title">WORKFLOW <span class="live-label ${live ? 'is-live' : ''}">${live ? '● LIVE' : t.demo ? '6 STAGES' : '7 STAGES'}</span></div><ol class="stage-list">${workflowStages(t)}${deliveryWorkflowStages(t)}</ol><button class="btn secondary workflow-graph-button" data-action="open-execution-map" aria-label="Open execution graph">Execution graph ↗</button></section>${(t
     .repositories?.length > 1
     ? t.repositories
     : [t]
@@ -1370,6 +1370,8 @@ document.addEventListener('submit', async (event) => {
       const run = await api(`/tasks/${state.selected}/follow-up`, 'POST', {
         message: data.get('message'),
         provider: data.get('provider'),
+        model: data.get('model'),
+        effort: data.get('effort'),
       });
       form.querySelector('textarea').value = '';
       state.sideChatOpen = false;
@@ -1478,8 +1480,16 @@ document.addEventListener('change', async (event) => {
     renderMain();
     return;
   }
+  if (['model', 'effort'].includes(event.target.name) && event.target.closest('#follow-up-form')) {
+    const form = event.target.closest('form'),
+      provider = new FormData(form).get('provider');
+    const options = ((state.followUpSettings ??= {})[state.selected] ??= {});
+    (options[provider] ??= {})[event.target.name] = event.target.value;
+    return;
+  }
   if (event.target.name === 'provider' && event.target.closest('#follow-up-form')) {
     (state.followUpProviders ??= {})[state.selected] = event.target.value;
+    renderMain();
     return;
   }
   if (event.target.id === 'terminal-run') {
@@ -1518,6 +1528,11 @@ document.addEventListener('change', async (event) => {
   if (event.target.closest('[data-task-editor]')) syncTaskForm(event.target.closest('form'));
 });
 document.addEventListener('input', (event) => {
+  if (event.target.name === 'model' && event.target.closest('#follow-up-form')) {
+    const provider = new FormData(event.target.closest('form')).get('provider');
+    const options = ((state.followUpSettings ??= {})[state.selected] ??= {});
+    (options[provider] ??= {}).model = event.target.value;
+  }
   if (event.target.id === 'memory-search') {
     state.memoryQuery = event.target.value;
     renderMain();
