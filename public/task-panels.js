@@ -72,7 +72,7 @@ export function executionLogs(task, events, { run = 'latest', stream = 'all', qu
       (stream === 'all' || ev.stream === stream) &&
       (!query || (ev.text ?? '').toLowerCase().includes(query.toLowerCase())),
   );
-  return `<div class="panel-heading"><div><h2>Execution log</h2><p>Command output for the selected run. Use Activity for the readable summary.</p></div></div><div class="log-filters"><label>Run<select class="input" id="log-run"><option value="latest" ${run === 'latest' ? 'selected' : ''}>Current / latest run</option><option value="all" ${run === 'all' ? 'selected' : ''}>All runs</option>${attempts
+  return `<div class="panel-heading"><div><h2>Logs</h2><p>Command output by run.</p></div></div><div class="log-filters"><label>Run<select class="input" id="log-run"><option value="latest" ${run === 'latest' ? 'selected' : ''}>Current / latest run</option><option value="all" ${run === 'all' ? 'selected' : ''}>All runs</option>${attempts
     .map(
       (a, i) =>
         `<option value="${e(a.id)}" ${run === a.id ? 'selected' : ''}>${i + 1} · ${e(runLabel(a))} · ${e(a.harness)}</option>`,

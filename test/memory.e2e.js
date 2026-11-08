@@ -88,7 +88,7 @@ try {
   for (let i = 0; i < 100 && app.store.get(task.id).status !== 'awaiting_plan'; i++)
     await new Promise((r) => setTimeout(r, 10));
   await page.goto(`http://127.0.0.1:${app.server.address().port}/#task/${task.id}/overview`);
-  await page.getByRole('button', { name: 'Ask on the side', exact: false }).click();
+  await page.getByRole('button', { name: 'Ask Relay', exact: false }).click();
   await page.locator('#side-question').fill('What memories are you using?');
   await page.getByRole('button', { name: 'Ask without interrupting' }).click();
   await page.getByText('A separate answer with recorded context.', { exact: true }).waitFor();

@@ -42,7 +42,7 @@ try {
     handoff: plan,
   });
   app.store.save(task, { type: 'handoff', summary: 'Plan ready for approval' });
-  await page.getByRole('heading', { name: 'Choose the way forward.' }).waitFor({ timeout: 8000 });
+  await page.getByRole('heading', { name: 'Choose an approach' }).waitFor({ timeout: 8000 });
   assert.equal(
     await page.locator('.approach-description code').first().innerText(),
     'src/example.js',

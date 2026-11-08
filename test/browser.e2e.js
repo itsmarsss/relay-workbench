@@ -99,7 +99,7 @@ try {
   await assertReadableText(page);
   await page.screenshot({ path: join(screenshots, 'overview.png'), fullPage: true });
   await page.getByRole('button', { name: 'Try a demo', exact: true }).click();
-  await page.getByRole('heading', { name: 'Choose the way forward.' }).waitFor();
+  await page.getByRole('heading', { name: 'Choose an approach' }).waitFor();
   await page.getByRole('region', { name: 'Current task context' }).waitFor();
   assert.ok(
     (await page
@@ -107,7 +107,7 @@ try {
       .first()
       .evaluate((el) => parseFloat(getComputedStyle(el).fontSize))) >= 14,
   );
-  await page.getByRole('tab', { name: 'Activity thread', exact: true }).click();
+  await page.getByRole('tab', { name: 'Activity', exact: true }).click();
   await page.getByRole('navigation', { name: 'Activity runs' }).waitFor();
   await page.getByRole('button', { name: 'All activity', exact: true }).click();
   await page.getByRole('heading', { name: 'All activity', exact: true }).waitFor();
@@ -120,7 +120,7 @@ try {
     .getByRole('textbox', { name: 'What should change?' })
     .fill('Include boundary cases and preserve compatibility.');
   await page.getByRole('button', { name: /Send feedback/ }).click();
-  await page.getByRole('heading', { name: 'Choose the way forward.' }).waitFor();
+  await page.getByRole('heading', { name: 'Choose an approach' }).waitFor();
   await page.locator('input[value="patch-callers"]').check();
   await page.locator('#approval-note').fill('Keep the change focused.');
   await page.screenshot({ path: join(screenshots, 'approach-approval.png'), fullPage: true });
@@ -128,9 +128,9 @@ try {
   await page.getByRole('heading', { name: 'The specialists are done. Over to you.' }).waitFor();
   await page.getByRole('tab', { name: /Handoffs/ }).click();
   assert.ok((await page.locator('.handoff-card').count()) >= 6);
-  await page.getByRole('tab', { name: 'Code changes' }).click();
+  await page.getByRole('tab', { name: 'Changes' }).click();
   await page.getByRole('heading', { name: 'No real files changed' }).waitFor();
-  await page.getByRole('tab', { name: 'Activity thread' }).click();
+  await page.getByRole('tab', { name: 'Activity' }).click();
   await page.screenshot({ path: join(screenshots, 'final-review.png'), fullPage: true });
   await page.getByRole('button', { name: 'Request changes', exact: true }).click();
   await page
@@ -238,7 +238,7 @@ try {
   }
   await page.reload();
   await page.locator('.task-subtitle .badge.completed').waitFor();
-  await page.getByRole('tab', { name: 'Activity thread', exact: true }).click();
+  await page.getByRole('tab', { name: 'Activity', exact: true }).click();
   await page.getByRole('button', { name: 'All activity', exact: true }).click();
   if (localApp)
     await page
@@ -295,9 +295,9 @@ try {
     'https://github.com/example/service/issues/42',
   );
   assert.equal(await issueLink.getAttribute('target'), '_blank');
-  await page.getByRole('tab', { name: 'Live terminals', exact: true }).click();
+  await page.getByRole('tab', { name: 'Terminals', exact: true }).click();
   await page
-    .getByRole('region', { name: 'Live terminals', exact: true })
+    .getByRole('region', { name: 'Terminals', exact: true })
     .getByText('No workspace yet.', { exact: false })
     .waitFor();
   assert.equal(await page.locator('#terminal-run').count(), 0);
@@ -616,8 +616,8 @@ try {
     await page.locator('#new-title').fill('Upgrade service and client');
     await page.getByRole('button', { name: 'Create task', exact: false }).click();
     await page.getByRole('button', { name: 'Start workflow' }).click();
-    await page.getByRole('heading', { name: 'Choose the way forward.' }).waitFor();
-    await page.getByRole('tab', { name: 'Live terminals', exact: true }).click();
+    await page.getByRole('heading', { name: 'Choose an approach' }).waitFor();
+    await page.getByRole('tab', { name: 'Terminals', exact: true }).click();
     await page.getByRole('button', { name: 'Configure task', exact: true }).click();
     assert.equal(await page.locator('#edit-repository').isDisabled(), true);
     assert.equal(await page.locator('textarea[name=repo-service-setup]').isDisabled(), true);
@@ -691,14 +691,14 @@ try {
     await page.screenshot({ path: join(screenshots, 'manual-terminal.png'), fullPage: true });
     await page.setViewportSize({ width: 1440, height: 1100 });
     await page.getByRole('button', { name: 'Return to automation', exact: true }).click();
-    await page.getByRole('heading', { name: 'Choose the way forward.' }).waitFor();
+    await page.getByRole('heading', { name: 'Choose an approach' }).waitFor();
     await page.getByRole('button', { name: 'Approve & implement' }).click();
     await page.getByRole('heading', { name: 'The specialists are done. Over to you.' }).waitFor();
     assert.equal(
       await page.locator('.task-context').getByText('WORKSPACE', { exact: true }).count(),
       2,
     );
-    await page.getByRole('tab', { name: 'Code changes' }).click();
+    await page.getByRole('tab', { name: 'Changes' }).click();
     await page.getByText('2 repository diffs', { exact: true }).waitFor();
     assert.equal(await page.locator('.repository-diff').count(), 2);
     await page
@@ -825,7 +825,7 @@ try {
         summary: kind === 'output' ? '{"protocol":"raw payload"}' : 'Checked the retry boundary.',
       });
     await page.goto(`${origin}/#task/${historyTask.id}`);
-    await page.getByRole('tab', { name: 'Live terminals', exact: true }).click();
+    await page.getByRole('tab', { name: 'Terminals', exact: true }).click();
     await page
       .getByRole('region', { name: 'Selected run', exact: true })
       .getByText('Run 10 found a runtime blocker.', { exact: true })
@@ -860,15 +860,15 @@ try {
       .getByLabel('Terminal output preview', { exact: true })
       .getByText('raw payload', { exact: false })
       .waitFor();
-    await page.getByRole('button', { name: 'Open execution log', exact: true }).click();
+    await page.getByRole('button', { name: 'Open logs', exact: true }).click();
     assert.equal(await page.locator('#log-run').inputValue(), 'history-9');
-    await page.getByRole('tab', { name: 'Live terminals', exact: true }).click();
+    await page.getByRole('tab', { name: 'Terminals', exact: true }).click();
     for (const width of [1440, 390]) {
       await page.setViewportSize({ width, height: 1100 });
       assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
       await assertReadableText(page);
       await page
-        .getByRole('region', { name: 'Live terminals', exact: true })
+        .getByRole('region', { name: 'Terminals', exact: true })
         .screenshot({ path: join(screenshots, `terminal-run-history-${width}.png`) });
     }
     await page.setViewportSize({ width: 1440, height: 1100 });
@@ -979,23 +979,19 @@ try {
     });
     await page.goto(`${origin}/#task/${debugTask.id}`);
     await page.getByRole('region', { name: 'Blocker decision', exact: true }).waitFor();
-    await page.getByRole('tab', { name: 'Activity thread', exact: true }).click();
+    await page.getByRole('tab', { name: 'Activity', exact: true }).click();
     assert.ok(page.url().endsWith(`/thread`));
     await page.reload();
-    await page.getByRole('tab', { name: 'Activity thread', exact: true }).waitFor();
+    await page.getByRole('tab', { name: 'Activity', exact: true }).waitFor();
     assert.equal(
-      await page
-        .getByRole('tab', { name: 'Activity thread', exact: true })
-        .getAttribute('aria-selected'),
+      await page.getByRole('tab', { name: 'Activity', exact: true }).getAttribute('aria-selected'),
       'true',
     );
     await page.getByRole('tab', { name: 'Overview', exact: true }).click();
     await page.goBack();
-    await page.getByRole('tab', { name: 'Activity thread', exact: true }).waitFor();
+    await page.getByRole('tab', { name: 'Activity', exact: true }).waitFor();
     assert.equal(
-      await page
-        .getByRole('tab', { name: 'Activity thread', exact: true })
-        .getAttribute('aria-selected'),
+      await page.getByRole('tab', { name: 'Activity', exact: true }).getAttribute('aria-selected'),
       'true',
     );
     await page.getByRole('button', { name: 'Open execution graph', exact: false }).click();
@@ -1010,7 +1006,7 @@ try {
     }
     await page.getByRole('button', { name: 'Close execution graph', exact: true }).click();
 
-    await page.getByRole('button', { name: 'Ask on the side', exact: false }).click();
+    await page.getByRole('button', { name: 'Ask Relay', exact: false }).click();
     assert.ok(page.url().endsWith('?chat=1'));
     await page.reload();
     await page.getByRole('region', { name: 'Side conversation', exact: true }).waitFor();
@@ -1022,7 +1018,7 @@ try {
     await page
       .getByRole('region', { name: 'Side conversation', exact: true })
       .waitFor({ state: 'hidden' });
-    await page.getByRole('button', { name: 'Ask on the side', exact: false }).click();
+    await page.getByRole('button', { name: 'Ask Relay', exact: false }).click();
     await page.locator('#side-question').fill('What is blocked?');
     await page.getByRole('button', { name: 'Ask without interrupting', exact: true }).click();
     await page.getByText('Side answer: What is blocked?', { exact: true }).waitFor();
@@ -1094,7 +1090,7 @@ try {
       });
     }
     await page.getByRole('button', { name: 'Revise approach', exact: true }).click();
-    await page.getByRole('heading', { name: 'Choose the way forward.', exact: true }).waitFor();
+    await page.getByRole('heading', { name: 'Choose an approach', exact: true }).waitFor();
     assert.equal(localApp.store.get(debugTask.id).chosenApproach, null);
     assert.equal(localApp.store.get(debugTask.id).approvals.length, 0);
   }

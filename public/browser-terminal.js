@@ -60,7 +60,7 @@ export function syncBrowserTerminal(task, token, restoreFocus = false) {
         connected = false;
         inputFailed = true;
         source.close();
-        update(`${error.message}. Reopen Live terminals to reconnect.`);
+        update(`${error.message}. Reopen Terminals to reconnect.`);
       });
   };
   const fit = () => {

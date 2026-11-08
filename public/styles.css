@@ -1457,19 +1457,6 @@ select.input {
   line-height: 1.8;
   margin-top: 8px;
 }
-.context-foot {
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  gap: 9px;
-  text-align: left;
-  color: #575d52;
-  font-size: 13px;
-  padding: 10px;
-}
-.context-foot > .icon {
-  width: 16px;
-}
 .demo-banner {
   display: flex;
   gap: 9px;
@@ -2545,9 +2532,6 @@ details.error-panel > p {
     display: grid;
     grid-template-columns: 1fr 1fr;
   }
-  .context-foot {
-    display: none;
-  }
   .task-center {
     order: 0;
   }
@@ -2918,7 +2902,6 @@ details.error-panel > p {
 .settings-panel > p,
 .form-footer > span,
 .message-box small,
-.context-foot,
 .repo-footer,
 .repo-tags,
 .repository-card > p,
