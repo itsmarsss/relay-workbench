@@ -81,7 +81,7 @@ test('side chat escapes questions and sanitizes answers', () => {
     true,
   );
   assert.doesNotMatch(html, /<script>/);
-  assert.match(html, /cannot steer/);
+  assert.match(html, /Won’t interrupt or change files/);
 });
 
 test('side context includes publication results without routine polls hiding useful activity', async (t) => {

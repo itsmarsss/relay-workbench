@@ -642,9 +642,9 @@ async function openTask(id, recordHistory = true, tab = 'overview') {
   state.terminalPreview = null;
   state.terminalFollow = true;
   shell();
+  if (recordHistory) history.pushState(null, '', taskRoute(id, state.tab));
   await refresh();
   if (state.selected !== id) return;
-  if (recordHistory) history.pushState(null, '', taskRoute(id, state.tab));
   if (state.tab === 'diff') await loadDiff();
 }
 async function navigate(view, recordHistory = true) {

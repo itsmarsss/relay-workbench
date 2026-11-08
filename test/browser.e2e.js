@@ -998,9 +998,26 @@ try {
     await page.getByText('Side answer: What is blocked?', { exact: true }).waitFor();
     assert.equal(localApp.store.get(debugTask.id).status, 'blocked');
     assert.equal(localApp.store.get(debugTask.id).messages.length, 0);
+    const conversationTask = localApp.store.get(debugTask.id);
+    conversationTask.sideQuestions.at(-1).answer =
+      '**The investigation is complete.** The current code produces the requested order.\n\n' +
+      Array.from(
+        { length: 8 },
+        (_, i) =>
+          `- Finding ${i + 1}: translated the exact query, checked the returned rows, and compared a negative control.`,
+      ).join('\n') +
+      '\n\nNext, review the proposed regression tests.';
+    localApp.store.save(conversationTask, { type: 'activity', summary: 'Side answer updated' });
+    await page.getByText('Next, review the proposed regression tests.', { exact: true }).waitFor();
     for (const width of [1440, 390]) {
       await page.setViewportSize({ width, height: 1100 });
       await assertReadableText(page);
+      const chatLayout = await page.locator('.side-chat-drawer').evaluate((panel) => {
+        const history = panel.querySelector('.side-chat-history').getBoundingClientRect();
+        const composer = panel.querySelector('form').getBoundingClientRect();
+        return history.height > panel.clientHeight / 2 && history.bottom <= composer.top + 1;
+      });
+      assert.ok(chatLayout, 'Long answers retain a scrollable reading area above the composer');
       await page.screenshot({
         path: join(screenshots, `side-chat-drawer-${width}.png`),
         fullPage: true,
