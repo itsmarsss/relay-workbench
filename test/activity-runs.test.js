@@ -216,15 +216,15 @@ test('passoff markers show historical transitions but never concurrent runs', ()
     at: '2026-01-01T10:02:00.004Z',
   };
   const html = activityPassoff(task, event);
-  assert.match(html, /Passed off/);
-  assert.match(html, /Investigation · Codex/);
+  assert.match(html, /Handoff/);
+  assert.match(html, /Investigation<\/strong><small>Codex/);
   assert.match(html, /Claude/);
   assert.match(html, /<time/);
   assert.equal(activityPassoff(task, { ...event, type: 'activity' }), '');
   assert.equal(activityPassoff(task, { ...event, attemptId: 'investigation' }), '');
   assert.match(
     activityPassoff(task, { ...event, attemptId: 'debug', at: '2026-01-01T10:04:00Z' }),
-    /Debugger · Codex/,
+    /Debugger<\/strong><small>Codex/,
   );
   task.attempts[0].finishedAt = '2026-01-01T10:02:01Z';
   assert.equal(activityPassoff(task, event), '');

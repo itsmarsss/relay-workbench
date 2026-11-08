@@ -1,7 +1,7 @@
 import { runState, runMetadata } from './run-presentation.js';
 import { taskRuns } from './task-runs.js';
 import { runLabel, isVerificationAgent } from './run-label.js';
-import { e, harnessBadge, ago } from './ui.js';
+import { e, harnessBadge, ago, icon } from './ui.js';
 import { concise } from './task-summary.js';
 
 export function activityRunSelection(task, events, selection = 'latest') {
@@ -101,7 +101,8 @@ export function activityPassoff(task, event) {
   // Concurrent repository runs are not a transfer of ownership.
   if (!previous.finishedAt || Date.parse(previous.finishedAt) > Date.parse(next.startedAt))
     return '';
-  const label = (run) =>
-    `${runLabel(run)}${run.harness ? ` · ${run.harness.charAt(0).toUpperCase() + run.harness.slice(1)}` : ''}`;
-  return `<div class="activity-passoff" aria-label="Work passed between runs"><strong>Passed off</strong><span>${e(label(previous))}</span><span aria-hidden="true">→</span><span>${e(label(next))}</span><time title="${e(event.at)}">${e(new Date(event.at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }))}</time></div>`;
+  const endpoint = (run) =>
+    `<span class="passoff-endpoint"><strong>${e(runLabel(run))}</strong>${run.harness ? `<small>${e(run.harness.charAt(0).toUpperCase() + run.harness.slice(1))}</small>` : ''}</span>`;
+  const at = new Date(event.at);
+  return `<div class="activity-passoff" aria-label="Work passed between runs"><div class="passoff-heading"><span>Handoff</span><time datetime="${e(event.at)}" title="${e(at.toLocaleString())}">${e(ago(event.at))}</time></div><div class="passoff-route">${endpoint(previous)}<span class="passoff-arrow" aria-label="to">${icon('arrow')}</span>${endpoint(next)}</div></div>`;
 }

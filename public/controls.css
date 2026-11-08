@@ -458,19 +458,65 @@ summary::before {
   height: 15px;
 }
 
+.passoff-event .timeline-avatar {
+  background: var(--tone-f2f5ef, #f2f5ef);
+}
 .activity-passoff {
+  padding-block: 2px 6px;
+  min-width: 0;
+}
+.passoff-heading {
   display: flex;
   align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-  margin: 0 0 10px;
-  padding: 8px 12px;
-  border-left: 3px solid var(--tone-254c3c, #254c3c);
-  background: var(--tone-f2f5ef, #f2f5ef);
-  border-radius: 0 6px 6px 0;
-  font-size: 13px;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+  color: var(--tone-58645d, #58645d);
+  font-size: 12px;
+  line-height: 1.4;
+}
+.passoff-heading > span {
+  font-weight: 500;
+}
+.passoff-heading time {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.passoff-route {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  min-width: 0;
+}
+.passoff-endpoint {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.passoff-endpoint strong {
+  font-size: 14px;
+  line-height: 1.4;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.passoff-endpoint small,
+.passoff-repository {
+  color: var(--tone-58645d, #58645d);
+  font-size: 12px;
   line-height: 1.5;
 }
-.activity-passoff strong {
-  font-weight: 600;
+.passoff-arrow {
+  display: flex;
+  color: var(--tone-58645d, #58645d);
+  flex-shrink: 0;
+}
+.passoff-arrow .icon {
+  width: 16px;
+  height: 16px;
+}
+@media (max-width: 600px) {
+  .passoff-route {
+    gap: 12px;
+  }
 }
