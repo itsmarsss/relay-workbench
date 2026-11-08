@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { demoHandoff } from '../server/harness.js';
 import { createApp } from '../server/app.js';
 const { chromium } = await import('playwright');
 const directory = await mkdtemp(join(tmpdir(), 'relay-live-dom-'));
@@ -16,6 +17,38 @@ try {
   const page = await browser.newPage({ viewport: { width: 1200, height: 700 } });
   await page.goto(`http://127.0.0.1:${app.server.address().port}`);
   await page.getByRole('heading', { name: /Let’s make progress/ }).waitFor();
+  // A stalled activity request must not hide a completed stage or approval gate.
+  const task = app.engine.create({ title: 'Live approval transition', demo: true });
+  await page.goto(`http://127.0.0.1:${app.server.address().port}/#task/${task.id}/overview`);
+  await page.getByRole('heading', { name: task.title, exact: true }).waitFor();
+  let releaseEvents;
+  const heldEvents = new Promise((resolve) => {
+    releaseEvents = resolve;
+  });
+  await page.route(`**/api/tasks/${task.id}/events?*`, async (route) => {
+    await heldEvents;
+    await route.continue().catch(() => {});
+  });
+  task.status = 'awaiting_plan';
+  task.stage = 'plan';
+  task.attempts.push({
+    id: 'completed-plan',
+    stage: 'plan',
+    status: 'complete',
+    handoff: demoHandoff(task, 'plan'),
+  });
+  app.store.save(task, { type: 'handoff', summary: 'Plan ready for approval' });
+  await page.getByRole('heading', { name: 'Choose the way forward.' }).waitFor({ timeout: 8000 });
+  releaseEvents();
+  await page.unroute(`**/api/tasks/${task.id}/events?*`);
+  // Polling also refreshes non-task pages when the event stream is unavailable.
+  await page.route('**/api/events', (route) => route.abort());
+  await page.goto(`http://127.0.0.1:${app.server.address().port}/#tasks`);
+  await page.getByRole('heading', { name: 'Tasks', exact: true }).waitFor();
+  const polled = app.engine.create({ title: 'Visible without event stream', demo: true });
+  await page
+    .locator(`[data-action="open-task"][data-id="${polled.id}"]`)
+    .waitFor({ timeout: 12000 });
   const result = await page.evaluate(async () => {
     const { updateLiveDOM } = await import('/live-dom.js');
     document.querySelector('#app').remove();

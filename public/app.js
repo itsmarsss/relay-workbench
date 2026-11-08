@@ -92,6 +92,8 @@ let refreshTimer, stream, modalReturnFocus;
 async function api(path, method = 'GET', data) {
   const response = await fetch(`/api${path}`, {
     method,
+    signal: method === 'GET' ? AbortSignal.timeout(10000) : undefined,
+    cache: 'no-store',
     headers: { 'Content-Type': 'application/json', 'X-Relay-Token': state.token },
     body: data === undefined ? undefined : JSON.stringify(data),
   });
@@ -589,6 +591,10 @@ async function refreshSnapshot() {
   if (state.selected) {
     const selected = state.selected;
     const task = await api(`/tasks/${selected}`);
+    if (state.selected !== selected) return;
+    state.task = pendingStatuses.apply(task);
+    // Status and approval gates must not wait for logs or terminal capture.
+    renderMain();
     let events = state.task?.id === selected ? state.events : [];
     const batch = await eventBatch(
       (after) => api(`/tasks/${selected}/events?after=${after}`),
@@ -1521,10 +1527,17 @@ function connect() {
     updateConnection();
   };
   stream.onmessage = () => {
-    clearTimeout(refreshTimer);
-    refreshTimer = setTimeout(() => refresh().catch((error) => toast(error.message, true)), 150);
+    if (refreshTimer) return;
+    refreshTimer = setTimeout(() => {
+      refreshTimer = null;
+      refresh().catch((error) => toast(error.message, true));
+    }, 150);
   };
 }
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden) refresh().catch(() => {});
+});
+window.addEventListener('focus', () => refresh().catch(() => {}));
 function updateConnection() {
   const el = document.querySelector('.connection');
   if (el)
@@ -1568,7 +1581,7 @@ async function boot() {
     connect();
     setInterval(() => updateTimers(), 1000);
     setInterval(() => {
-      if (state.view === 'task' && !state.busy) refresh().catch(() => {});
+      if (!document.hidden && !state.busy) refresh().catch(() => {});
     }, 5000);
   } catch (error) {
     app.innerHTML = `<div class="boot"><h1>Couldn’t connect to Relay.</h1><p>${e(error.message)}</p><p>Check the server terminal, then reload this page.</p></div>`;
