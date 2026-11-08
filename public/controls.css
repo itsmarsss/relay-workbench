@@ -653,3 +653,22 @@ summary::before {
 .feedback-summary p {
   margin: 6px 0;
 }
+
+.health-panel > summary > span:first-child {
+  justify-content: flex-start;
+}
+.health-panel .brief-evidence {
+  padding-left: 18px;
+}
+.health-panel .brief-evidence li {
+  margin: 8px 0;
+}
+.feedback-step-actions {
+  display: flex;
+  gap: 8px;
+}
+.completion-brief > details {
+  border-top: 1px solid var(--border);
+  padding-top: 10px;
+  margin-top: 10px;
+}

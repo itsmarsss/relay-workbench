@@ -62,16 +62,15 @@ export function workflowHealth(task) {
             : recovered
               ? 'Required workflow gates completed.'
               : 'No active recovery loop.',
-    strategy: task.loopGuard?.guidance ?? '',
-    evidence: failures
-      .slice(-3)
-      .map((r) => ({
-        id: r.id,
-        stage: r.stage,
-        role: r.role,
-        summary: r.handoff?.summary || r.error || 'Run failed',
-        evidence: r.handoff?.evidence ?? [],
-      })),
+    recovered,
+    strategy: recovered ? '' : (task.loopGuard?.guidance ?? ''),
+    evidence: failures.slice(-3).map((r) => ({
+      id: r.id,
+      stage: r.stage,
+      role: r.role,
+      summary: r.handoff?.summary || r.error || 'Run failed',
+      evidence: r.handoff?.evidence ?? [],
+    })),
   };
 }
 export function decisionBrief(task) {
@@ -109,9 +108,17 @@ export function decisionBrief(task) {
 export function completionBrief(task) {
   const runs = taskRuns(task);
   const cycle = task.followUpContext?.startedAt;
-  const current = runs.filter((r) => !cycle || r.startedAt >= cycle);
+  const current = runs.filter(
+    (r) =>
+      !r.auxiliary &&
+      !['publish', 'monitor', 'feedback'].includes(r.stage) &&
+      (!cycle || r.startedAt >= cycle),
+  );
   const review = current.findLast((r) => r.stage === 'review' && r.handoff);
-  const result = review?.handoff ?? current.findLast((r) => r.handoff)?.handoff;
+  const result =
+    current.findLast((r) => r.stage === 'implement' && r.handoff)?.handoff ??
+    review?.handoff ??
+    current.findLast((r) => r.handoff)?.handoff;
   const latestChecks = new Map();
   for (const run of current)
     if (run.stage === 'verify' && run.handoff?.checks)

@@ -28,7 +28,12 @@ import { statusQueue } from './pending-status.js';
 const pendingStatuses = statusQueue(localStorage);
 import { displayStatus, overrideStatuses } from './task-status.js';
 import { taskRuns } from './task-runs.js';
-import { publicationPanel, deliveryWorkflowStages, publicationDetails } from './publication.js';
+import {
+  publicationPanel,
+  deliveryWorkflowStages,
+  feedbackWorkflowStage,
+  publicationDetails,
+} from './publication.js';
 import { memoryPage, memoryForm, runMemories, memoryRunHistory } from './memory.js';
 import { prepareSearchSelects } from './search-select.js';
 import { updateLiveDOM } from './live-dom.js';
@@ -428,7 +433,7 @@ function taskView() {
     )
     .join(
       '',
-    )}</div><div class="detail-content" data-event-key="task-panel-${state.tab}">${state.tab === 'overview' ? completionPanel(t) + coordinationPanel(t) + (taskDetails(t) || empty('book', 'No description yet', 'Configure this task to add requirements.')) : state.tab === 'terminals' ? terminalView(t, state) : state.tab === 'thread' ? threadView(t) : state.tab === 'handoffs' ? handoffsView(t) : state.tab === 'diff' ? diffView(t) : transcriptView(t)}</div>${!['completed', 'cancelled'].includes(t.status) ? `<form id="message-form" class="message-box">${markdownEditor({ id: 'task-message', name: 'message', label: 'Add direction or context', rows: 3, max: 20000 })}<div><small>${t.canSteer ? 'Steer sends direction to the active session; Claude interrupts and resumes.' : 'Context stays pending until an agent receives it.'} ${t.messages.filter((m) => m.delivery === 'pending').length} pending.</small>${t.canSteer ? '<label><input id="steer-active" type="checkbox" name="steer" checked> Steer active agent</label>' : ''}<button class="btn secondary small" type="submit">Send direction ${icon('arrow')}</button></div></form>` : ''}${followUpComposer(t, state.config, state.followUpProviders?.[t.id], state.followUpSettings?.[t.id], state.modelCatalog)}</div><aside class="task-context">${sideChat(t, state.sideChatOpen)}${state.memoryAvailable ? runMemories(t) : ''}<section class="context-card"><div class="context-title">WORKFLOW <span class="live-label ${live ? 'is-live' : ''}">${live ? '● LIVE' : t.demo ? '6 STAGES' : '7 STAGES'}</span></div><ol class="stage-list">${workflowStages(t)}${deliveryWorkflowStages(t)}</ol><button class="btn secondary workflow-graph-button" data-action="open-execution-map" aria-label="Open execution graph">Execution graph ↗</button></section>${(t
+    )}</div><div class="detail-content" data-event-key="task-panel-${state.tab}">${state.tab === 'overview' ? completionPanel(t) + coordinationPanel(t) + (taskDetails(t) || empty('book', 'No description yet', 'Configure this task to add requirements.')) : state.tab === 'terminals' ? terminalView(t, state) : state.tab === 'thread' ? threadView(t) : state.tab === 'handoffs' ? handoffsView(t) : state.tab === 'diff' ? diffView(t) : transcriptView(t)}</div>${!['completed', 'cancelled'].includes(t.status) ? `<form id="message-form" class="message-box">${markdownEditor({ id: 'task-message', name: 'message', label: 'Add direction or context', rows: 3, max: 20000 })}<div><small>${t.canSteer ? 'Steer sends direction to the active session; Claude interrupts and resumes.' : 'Context stays pending until an agent receives it.'} ${t.messages.filter((m) => m.delivery === 'pending').length} pending.</small>${t.canSteer ? '<label><input id="steer-active" type="checkbox" name="steer" checked> Steer active agent</label>' : ''}<button class="btn secondary small" type="submit">Send direction ${icon('arrow')}</button></div></form>` : ''}${followUpComposer(t, state.config, state.followUpProviders?.[t.id], state.followUpSettings?.[t.id], state.modelCatalog)}</div><aside class="task-context">${sideChat(t, state.sideChatOpen)}${state.memoryAvailable ? runMemories(t) : ''}<section class="context-card"><div class="context-title">WORKFLOW <span class="live-label ${live ? 'is-live' : ''}">${live ? '● LIVE' : 'HISTORY'}</span></div><ol class="stage-list">${workflowStages(t)}${deliveryWorkflowStages(t)}${feedbackWorkflowStage(t)}</ol><button class="btn secondary workflow-graph-button" data-action="open-execution-map" aria-label="Open execution graph">Execution graph ↗</button></section>${(t
     .repositories?.length > 1
     ? t.repositories
     : [t]
@@ -508,10 +513,10 @@ function threadView(t) {
   const run = activityRunSelection(t, grouped, state.activitySelection);
   const followingCurrent =
     run.selected?.id === latestAttempt?.id && state.activitySelection !== 'all';
-  return `<div class="activity-browser">${activityRunNavigation(t, run.selected, state.activitySelection)}<div class="activity-run-content">${activityRunHeader(run.selected, state.events)}<div class="timeline">${run.events.map((ev) => (state.activitySelection === 'all' && activityPassoff(t, ev) ? `<article data-event-seq="${ev.seq}" class="timeline-item passoff-event"><div class="timeline-avatar">${icon('arrow')}</div><div class="timeline-body">${activityPassoff(t, ev)}${ev.repositoryId ? `<small class="passoff-repository">${e((t.repositories?.length > 1 ? t.repositories : [t]).find((r) => r.repository.id === ev.repositoryId)?.repository.name ?? ev.repositoryId)}</small>` : ''}</div></article>` : `<article data-event-seq="${ev.seq}" class="timeline-item ${ev.type === 'decision' ? 'decision-event' : ''}"><div class="timeline-avatar">${activityEventIdentity(ev).harness ? harnessBadge(activityEventIdentity(ev).harness) : icon(ev.type === 'approval' || ev.type === 'accepted' ? 'check' : ev.type === 'decision' ? 'eye' : ev.type === 'feedback' ? 'arrow' : 'layers')}</div><div class="timeline-body"><div class="event-meta">${activityEventMeta(ev, ev.stage ? (stageNames[ev.stage] ?? (ev.stage === 'publish' ? 'Publication' : 'PR status')) : null)}<time>${ago(ev.at)}</time>${ev.repositoryId ? `<span>${e((t.repositories?.length > 1 ? t.repositories : [t]).find((r) => r.repository.id === ev.repositoryId)?.repository.name ?? ev.repositoryId)}</span>` : ''}</div>${ev.toolEvents ? `<details class="event-details tool-activity" data-event-key="tools-${ev.seq}"><summary>${ev.toolEvents.length} ${ev.toolEvents.length === 1 ? 'activity' : 'activities'} · ${e(concise(ev.toolEvents.at(-1).summary, 120))}</summary>${ev.toolEvents.map((tool) => `<div class="tool-entry"><strong>${e(concise(tool.summary, 180))}</strong>${tool.details ? `<pre class="code-block">${e(tool.details)}</pre>` : ''}</div>`).join('')}</details>` : ev.type === 'activity' && ev.kind === 'message' ? `<div class="prose agent-message">${prose(concise(ev.details || ev.summary, 360))}</div>${(ev.details || ev.summary).length > 360 ? `<details class="event-details" data-event-key="message-${ev.seq}"><summary>Full message</summary><div class="prose">${prose(ev.details || ev.summary)}</div></details>` : ''}` : `<h3>${e(concise(ev.summary))}</h3>`}${ev.type === 'handoff' ? `<details class="report-section" data-event-key="handoff-report-${ev.seq}"><summary>Run details &amp; evidence</summary>${handoffBodyForThread(t, ev)}</details>` : ev.details && !ev.toolEvents && ev.type !== 'activity' ? `<details data-event-key="event-${ev.seq}" class="event-details"><summary>Details</summary><div class="prose">${prose(ev.details)}</div></details>` : ''}</div></article>`)).join('')}${followingCurrent && ['running', 'queued'].includes(t.status) ? `<article class="timeline-item working"><div class="timeline-avatar">${harnessBadge(latestAttempt?.harness ?? t.routing[t.stage])}</div><div class="timeline-body"><div class="event-meta"><strong>${e(stageNames[t.stage])}</strong><span class="typing-dots"><i></i><i></i><i></i></span></div><p>${e(concise(activity?.summary || 'Preparing the next handoff…'))}</p><small>Updates appear here as work progresses.</small></div></article>` : ''}</div></div></div>`;
+  return `<div class="activity-browser">${activityRunNavigation(t, run.selected, state.activitySelection)}<div class="activity-run-content">${activityRunHeader(run.selected, state.events)}<div class="timeline">${run.events.map((ev) => (state.activitySelection === 'all' && activityPassoff(t, ev) ? `<article data-event-seq="${ev.seq}" class="timeline-item passoff-event"><div class="timeline-avatar">${icon('arrow')}</div><div class="timeline-body">${activityPassoff(t, ev)}${ev.repositoryId ? `<small class="passoff-repository">${e((t.repositories?.length > 1 ? t.repositories : [t]).find((r) => r.repository.id === ev.repositoryId)?.repository.name ?? ev.repositoryId)}</small>` : ''}</div></article>` : `<article data-event-seq="${ev.seq}" class="timeline-item ${ev.type === 'decision' ? 'decision-event' : ''}"><div class="timeline-avatar">${activityEventIdentity(ev).harness ? harnessBadge(activityEventIdentity(ev).harness) : icon(ev.type === 'approval' || ev.type === 'accepted' ? 'check' : ev.type === 'decision' ? 'eye' : ev.type === 'feedback' ? 'arrow' : 'layers')}</div><div class="timeline-body"><div class="event-meta">${activityEventMeta(ev, ev.stage ? (stageNames[ev.stage] ?? (ev.stage === 'publish' ? 'Publication' : ev.stage === 'feedback' ? 'PR feedback' : 'PR status')) : null)}<time>${ago(ev.at)}</time>${ev.repositoryId ? `<span>${e((t.repositories?.length > 1 ? t.repositories : [t]).find((r) => r.repository.id === ev.repositoryId)?.repository.name ?? ev.repositoryId)}</span>` : ''}</div>${ev.toolEvents ? `<details class="event-details tool-activity" data-event-key="tools-${ev.seq}"><summary>${ev.toolEvents.length} ${ev.toolEvents.length === 1 ? 'activity' : 'activities'} · ${e(concise(ev.toolEvents.at(-1).summary, 120))}</summary>${ev.toolEvents.map((tool) => `<div class="tool-entry"><strong>${e(concise(tool.summary, 180))}</strong>${tool.details ? `<pre class="code-block">${e(tool.details)}</pre>` : ''}</div>`).join('')}</details>` : ev.type === 'activity' && ev.kind === 'message' ? `<div class="prose agent-message">${prose(concise(ev.details || ev.summary, 360))}</div>${(ev.details || ev.summary).length > 360 ? `<details class="event-details" data-event-key="message-${ev.seq}"><summary>Full message</summary><div class="prose">${prose(ev.details || ev.summary)}</div></details>` : ''}` : `<h3>${e(concise(ev.summary))}</h3>`}${ev.type === 'handoff' ? `<details class="report-section" data-event-key="handoff-report-${ev.seq}"><summary>Run details &amp; evidence</summary>${handoffBodyForThread(t, ev)}</details>` : ev.details && !ev.toolEvents && ev.type !== 'activity' ? `<details data-event-key="event-${ev.seq}" class="event-details"><summary>Details</summary><div class="prose">${prose(ev.details)}</div></details>` : ''}</div></article>`)).join('')}${followingCurrent && ['running', 'queued'].includes(t.status) ? `<article class="timeline-item working"><div class="timeline-avatar">${harnessBadge(latestAttempt?.harness ?? t.routing[t.stage])}</div><div class="timeline-body"><div class="event-meta"><strong>${e(stageNames[t.stage])}</strong><span class="typing-dots"><i></i><i></i><i></i></span></div><p>${e(concise(activity?.summary || 'Preparing the next handoff…'))}</p><small>Updates appear here as work progresses.</small></div></article>` : ''}</div></div></div>`;
 }
 function handoffBodyForThread(t, ev) {
-  return handoffBody(t.attempts.find((a) => a.id === ev.attemptId)?.handoff);
+  return handoffBody(taskRuns(t).find((a) => a.id === ev.attemptId)?.handoff);
 }
 function handoffsView(t) {
   return handoffList(t);
@@ -917,6 +922,7 @@ document.addEventListener('click', async (event) => {
           ['readMemory', 'Read approved memory'],
           ['createDrafts', 'Create draft tasks'],
           ['proposeSettings', 'Propose setting changes for your approval'],
+          ['proposeTasks', 'Propose task workflows and PR feedback'],
         ]
           .map(
             ([id, label]) =>
@@ -926,6 +932,26 @@ document.addEventListener('click', async (event) => {
             '',
           )}</fieldset><p class="form-help">Relay cannot approve its own changes, start workflows, or bypass implementation and final review.</p><div class="modal-footer"><button type="button" class="btn secondary" data-action="close-modal">Cancel</button><button class="btn primary" type="submit">Save Relay settings</button></div></form>`,
       );
+      return;
+    }
+    if (action === 'review-task-proposal') {
+      const proposal = state.workspaceInfo.taskProposals.find((p) => p.id === element.dataset.id);
+      if (!proposal || proposal.status !== 'pending') throw new Error('Refresh this request.');
+      state.modal = { proposalId: proposal.id };
+      showModal(
+        'Review task changes',
+        `<p>${e(proposal.reason)}</p><div class="workspace-setting-diff">${proposal.changes.map((c) => `<section><h3>${e(c.title)}</h3><strong>Current</strong><pre class="code-block">${e(JSON.stringify(c.before, null, 2))}</pre><strong>Proposed</strong><pre class="code-block">${e(JSON.stringify(c.operation === 'settings' ? c.settings : { feedback: c.enabled }, null, 2))}</pre></section>`).join('')}</div><div class="modal-footer"><button class="btn secondary" data-action="decide-task-proposal" data-decision="reject">Reject</button><button class="btn primary" data-action="decide-task-proposal" data-decision="approve">Approve changes</button></div>`,
+        true,
+      );
+      return;
+    }
+    if (action === 'decide-task-proposal') {
+      await api(`/workspace-agent/task-proposals/${state.modal.proposalId}`, 'POST', {
+        decision: element.dataset.decision,
+      });
+      closeModal();
+      await refresh();
+      await loadWorkspaceAgent();
       return;
     }
     if (action === 'review-workspace-change') {
@@ -1073,6 +1099,14 @@ document.addEventListener('click', async (event) => {
       });
       return;
     }
+    if (action === 'open-feedback-activity' || action === 'open-health-run') {
+      state.activityTaskId = state.selected;
+      state.activitySelection = element.dataset.run || 'all';
+      state.tab = 'thread';
+      history.pushState(null, '', taskRoute(state.selected, state.tab, state.sideChatOpen));
+      renderMain();
+      return;
+    }
     if (action === 'activity-run') {
       state.activitySelection = element.dataset.run;
       renderMain();
@@ -1160,21 +1194,12 @@ document.addEventListener('click', async (event) => {
         await refresh();
         return;
       }
-      state.modal = { feedbackRepository: element.dataset.repositoryId };
-      showModal(
-        'Automate PR feedback',
-        `<p class="modal-description">Relay will read unresolved reviews and failed CI, then prepare focused repair proposals. You approve implementation and accept the reviewed result. Relay then updates the PR through its publication agent.</p><p class="form-help">Questions and design decisions come to your inbox. Three repair cycles maximum. Relay never posts replies or merges.</p><div class="modal-footer"><button class="btn secondary" data-action="close-modal">Cancel</button><button class="btn primary" data-action="feedback-enable">Enable automation</button></div>`,
-      );
-      return;
-    }
-    if (action === 'feedback-enable') {
       await api(`/tasks/${state.selected}/feedback`, 'POST', {
-        repositoryId: state.modal.feedbackRepository,
+        repositoryId: element.dataset.repositoryId,
         enabled: true,
       });
-      closeModal();
       await refresh();
-      toast('PR feedback automation enabled.');
+      toast('PR feedback added to the workflow.');
       return;
     }
     if (action === 'feedback-dismiss') {
@@ -1844,10 +1869,9 @@ document.addEventListener('submit', async (event) => {
         model: values.model,
         effort: values.effort,
         permissions: Object.fromEntries(
-          ['readSettings', 'readMemory', 'createDrafts', 'proposeSettings'].map((permission) => [
-            permission,
-            data.has(permission),
-          ]),
+          ['readSettings', 'readMemory', 'createDrafts', 'proposeSettings', 'proposeTasks'].map(
+            (permission) => [permission, data.has(permission)],
+          ),
         ),
       });
       closeModal();

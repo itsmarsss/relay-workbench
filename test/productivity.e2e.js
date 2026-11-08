@@ -142,27 +142,31 @@ try {
   await page.locator('#dialog').waitFor({ state: 'hidden' });
   await page.goto(`${base}/#task/${result.id}/overview`);
   await page.locator('.completion-brief').waitFor();
-  assert.match(await page.locator('.completion-brief').innerText(), /Verification passed/);
+  assert.match(await page.locator('.completion-brief').innerText(), /Verified/);
   assert.match(await page.locator('.coordination-panel').innerText(), /Land after Example service/);
+  await page.route('**/api/tasks/*/feedback', async (route) => {
+    const request = route.request().postDataJSON();
+    const stored = app.store.get(result.id);
+    const entry = stored.repositories.find((e) => e.repository.id === request.repositoryId);
+    entry.feedbackAutopilot = { enabled: request.enabled };
+    app.store.save(stored);
+    await route.fulfill({ json: stored });
+  });
   await page.locator('[data-action="feedback-toggle"]').click();
-  await page.locator('#dialog').waitFor();
-  assert.match(await page.locator('#dialog').innerText(), /You approve implementation/);
-  await page.getByRole('button', { name: 'Close dialog', exact: true }).click();
-  await page.locator('#dialog').waitFor({ state: 'hidden' });
-  await page.locator('.completion-brief summary').click();
+  await page.getByText('Watching PR', { exact: true }).waitFor();
+  assert.equal(await page.locator('#dialog').isVisible(), false);
+  await page.locator('.completion-brief summary').first().click();
   await page.locator('.completion-brief ul').first().waitFor();
   assert.match(await page.locator('.completion-brief').innerText(), /Changed surface regression/);
   await mkdir('docs/screenshots', { recursive: true });
   await page.screenshot({ path: 'docs/screenshots/workflow-intelligence.png' });
   for (const width of [390, 768, 1440]) {
     await page.setViewportSize({ width, height: 1100 });
-    const bounds = await page
-      .locator('.coordination-panel')
-      .evaluate((el) => ({
-        right: el.getBoundingClientRect().right,
-        view: innerWidth,
-        overflow: el.scrollWidth > el.clientWidth,
-      }));
+    const bounds = await page.locator('.coordination-panel').evaluate((el) => ({
+      right: el.getBoundingClientRect().right,
+      view: innerWidth,
+      overflow: el.scrollWidth > el.clientWidth,
+    }));
     assert.ok(bounds.right <= bounds.view + 1 && !bounds.overflow, JSON.stringify(bounds));
   }
   await page.goto(`${base}/#task/${attention.id}/overview`);

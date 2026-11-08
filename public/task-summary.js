@@ -11,7 +11,7 @@ export function concise(text, max = 240) {
 }
 export function taskSummary(task, events = []) {
   const attempt = currentTaskRun(task);
-  const latest = taskRuns(task).findLast((run) => run.handoff)?.handoff;
+  const latest = (task.attempts ?? []).findLast((run) => run.handoff)?.handoff;
   const entries = task.repositories?.length > 1 ? task.repositories : [task];
   const publishing = entries.find(
     (entry) => entry.delivery?.status === 'running' || entry.submission?.status === 'running',

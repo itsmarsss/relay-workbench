@@ -23,7 +23,9 @@ export function activityRunSelection(task, events, selection = 'latest') {
         )
       : events.filter(
           (event) =>
-            event.stage !== 'monitor' || (event.type === 'publication' && event.observationChange),
+            event.stage !== 'monitor' ||
+            attempts.some((run) => run.stage === 'feedback' && run.id === event.attemptId) ||
+            (event.type === 'publication' && event.observationChange),
         ),
   };
 }

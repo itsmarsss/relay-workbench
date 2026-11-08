@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { chromium } from 'playwright';
 import { createApp } from '../server/app.js';
 import { proposeConfiguration, configurationProposals } from '../server/workspace-permissions.js';
+import { proposeTaskChanges } from '../server/task-proposals.js';
 import { mockDiscovery } from './discovery-fixtures.js';
 import { assertReadableText } from './browser-contrast.js';
 const directory = await mkdtemp(join(tmpdir(), 'relay-workspace-permission-ui-'));
@@ -75,6 +76,18 @@ try {
     configurationProposals(app.store).find((item) => item.id === proposal.id).status,
     'approved',
   );
+  const draft = app.engine.create({ title: 'Configure this draft', demo: true });
+  proposeTaskChanges(
+    app.store,
+    [{ taskId: draft.id, operation: 'settings', settings: { preset: 'small' } }],
+    'Use the focused workflow',
+  );
+  await page.getByRole('button', { name: 'Review 1 tasks' }).click();
+  await dialog.getByRole('heading', { name: 'Configure this draft' }).waitFor();
+  assert.notEqual(app.store.get(draft.id).preset, 'small');
+  await dialog.getByRole('button', { name: 'Approve changes' }).click();
+  await dialog.waitFor({ state: 'hidden' });
+  assert.equal(app.store.get(draft.id).preset, 'small');
   await page.reload();
   await page.getByRole('button', { name: 'Relay model and permissions' }).waitFor();
   assert.match(await page.locator('.relay-model-button').innerText(), /chosen-model/);
