@@ -127,7 +127,7 @@ test('side agent exposes only the fixed MCP tools and supports snapshot-only tas
     inspectionTools.map((tool) => `mcp__relay_source__${tool.name}`),
   );
   const absent = sideInvocation({}, { repositories: [{ id: 'draft', workspace: null }] });
-  assert.deepEqual(JSON.parse(absent[absent.indexOf('--mcp-config') + 1]), { mcpServers: {} });
+  assert.ok(JSON.parse(absent[absent.indexOf('--mcp-config') + 1]).mcpServers.relay_source);
   const calls = [
     { jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2024-11-05' } },
     { jsonrpc: '2.0', method: 'notifications/initialized' },

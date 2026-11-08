@@ -1,3 +1,4 @@
+import { githubReadTool, readGithub } from './side-provider.js';
 import { realpath, open } from 'node:fs/promises';
 import { constants } from 'node:fs';
 import { resolve, relative, isAbsolute, sep } from 'node:path';
@@ -13,6 +14,7 @@ const schema = (properties, required = []) => ({
 });
 const string = { type: 'string' };
 export const inspectionTools = [
+  githubReadTool,
   {
     name: 'read_file',
     description:
@@ -71,10 +73,10 @@ function count(value, fallback, max) {
   return value;
 }
 export function createInspector(repositories) {
-  const entries = new Map(repositories.filter((r) => r.workspace).map((r) => [r.id, r]));
+  const entries = new Map(repositories.map((r) => [r.id, r]));
   async function target(id, path = '.') {
     const entry = entries.get(id);
-    if (!entry) throw Error('No prepared worktree for this repository');
+    if (!entry?.workspace) throw Error('No prepared worktree for this repository');
     path = bounded(path);
     if (isAbsolute(path) || path.split(/[\\/]/).some((p) => p === '..' || p === '.git'))
       throw Error('Use a relative source path inside the task worktree');
@@ -124,6 +126,13 @@ export function createInspector(repositories) {
       Object.keys(args).some((k) => !Object.hasOwn(tool.inputSchema.properties, k))
     )
       throw Error('Unsupported inspection request');
+    if (name === 'github_read') {
+      const entry = entries.get(args.repositoryId);
+      if (!entry) throw Error('Unknown task repository');
+      if (!entry.workspace && !args.repository && !['api_get', 'graphql'].includes(args.operation))
+        throw Error('Specify OWNER/REPO before a task worktree exists');
+      return readGithub(args, entry.workspace ? await realpath(entry.workspace) : process.cwd());
+    }
     const t = await target(args.repositoryId, args.path);
     const headBefore = (await git(t.root, ['rev-parse', 'HEAD'])).trim();
     let result;
