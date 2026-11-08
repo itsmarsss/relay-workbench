@@ -53,6 +53,30 @@ try {
     return s.top - r.top;
   });
   assert.ok(padding <= 1.5, `disclosure top padding ${padding}`);
+  const disclosure = page.locator('.memory-card .report-section');
+  const collapsedHeight = await disclosure.evaluate((node) => node.getBoundingClientRect().height);
+  await disclosure.locator('summary').click();
+  await page.waitForTimeout(50);
+  const expanding = await disclosure.evaluate((node) => ({
+    height: node.getBoundingClientRect().height,
+    full: node.scrollHeight,
+    open: node.open,
+  }));
+  assert.equal(expanding.open, true);
+  assert.ok(
+    expanding.height > collapsedHeight && expanding.height < expanding.full,
+    'disclosure grows through intermediate heights',
+  );
+  await page.waitForFunction(
+    () => !document.querySelector('.memory-card .report-section').style.height,
+  );
+  await disclosure.locator('summary').click();
+  assert.equal(
+    await disclosure.evaluate((node) => node.open),
+    true,
+    'closing content stays visible during transition',
+  );
+  await page.waitForFunction(() => !document.querySelector('.memory-card .report-section').open);
   const newTask = page.getByRole('button', { name: 'New task', exact: true });
   assert.equal(await newTask.locator('kbd').textContent(), 'N');
   await page.goto(`${base}/#settings`);
@@ -73,9 +97,10 @@ try {
     'orchestrator uses Motion animation',
   );
   await dialog.getByRole('button', { name: 'Prioritize', exact: false }).click();
-  assert.match(await dialog.locator('#workspace-request').inputValue(), /attention/);
+  assert.match(await dialog.locator('#workspace-request').inputValue(), /prioritize/);
   await dialog.locator('#workspace-request').fill('Keep this draft while checking another task');
   await page.getByRole('button', { name: 'Close Relay orchestrator', exact: true }).click();
+  await dialog.waitFor({ state: 'hidden' });
   await page.keyboard.press('Control+k');
   await dialog.waitFor();
   assert.equal(
@@ -88,6 +113,25 @@ try {
   const drawer = page.locator('.side-chat-drawer');
   await drawer.waitFor();
   await page.waitForTimeout(300);
+  const composerAlignment = await page.evaluate(() => {
+    const box = document.querySelector('.side-chat-drawer textarea').getBoundingClientRect();
+    const ask = document.querySelector('.side-chat-compose-footer button').getBoundingClientRect();
+    const grip = document.querySelector('.chat-resize').getBoundingClientRect();
+    return { right: Math.abs(box.right - ask.right), gap: grip.top - ask.bottom };
+  });
+  assert.ok(composerAlignment.right < 1, 'Ask aligns with the input independently of the grip');
+  assert.ok(composerAlignment.gap >= 0, 'resize grip does not overlap Ask');
+  const drawerIdentity = await drawer.elementHandle();
+  const tabMotion = await page.evaluate(() => {
+    document.querySelector('[data-action="tab"][data-tab="thread"]').click();
+    return document.querySelector('.detail-content').getAnimations().length;
+  });
+  assert.ok(tabMotion > 0, 'task tab content transitions');
+  assert.ok(
+    await drawerIdentity.evaluate((node) => node === document.querySelector('.side-chat-drawer')),
+    'switching tabs preserves the chat window and its position',
+  );
+
   const start = await drawer.boundingBox();
   const grip = await page.locator('.chat-resize').boundingBox();
   await page.mouse.move(grip.x + 12, grip.y + 12);

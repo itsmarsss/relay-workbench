@@ -260,3 +260,20 @@ summary::before {
   color: #f3f7ee;
   border-color: #72948b;
 }
+
+.side-chat-drawer {
+  padding-bottom: 16px;
+}
+.side-chat-compose-footer {
+  padding-right: 0;
+}
+.chat-resize {
+  width: 24px;
+  height: 20px;
+  right: 2px;
+  bottom: 0;
+}
+.chat-resize svg {
+  width: 16px;
+  height: 16px;
+}

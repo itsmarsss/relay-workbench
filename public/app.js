@@ -10,7 +10,13 @@ import { modelPicker, modelCatalogHint } from './model-picker.js';
 import { repositoryDiscoveryPanel } from './repository-discovery.js';
 import { workspaceCard } from './workspace-card.js';
 import { followUpComposer } from './follow-up.js';
-import { lowMotion, setLowMotion, animateEntrances, animateSurface } from './motion-preferences.js';
+import {
+  lowMotion,
+  setLowMotion,
+  animateEntrances,
+  animateSurface,
+  animateExit,
+} from './motion-preferences.js';
 import './chat-window.js';
 import { readTaskFilters, writeTaskFilters } from './task-filters-route.js';
 import { planOptions } from './plan-options.js';
@@ -221,7 +227,8 @@ function renderMain() {
                     ? harnessesView()
                     : settingsView();
   if (state.view === 'tasks') writeTaskFilters(state);
-  updateLiveDOM(main, markup, `${state.view}:${state.selected ?? ''}:${state.tab}`);
+  main.dataset.motionScope = `${state.view}:${state.selected ?? ''}:${state.tab}`;
+  updateLiveDOM(main, markup, `${state.view}:${state.selected ?? ''}`);
   for (const draft of modelDrafts) {
     const select = document.getElementById(draft.id);
     if (!select || select.dataset.modelProvider !== draft.provider) continue;
@@ -400,7 +407,7 @@ function taskView() {
     )
     .join(
       '',
-    )}</div><div class="detail-content">${state.tab === 'overview' ? taskDetails(t) || empty('book', 'No description yet', 'Configure this task to add requirements.') : state.tab === 'terminals' ? terminalView(t, state) : state.tab === 'thread' ? threadView(t) : state.tab === 'handoffs' ? handoffsView(t) : state.tab === 'diff' ? diffView(t) : transcriptView(t)}</div>${!['completed', 'cancelled'].includes(t.status) ? `<form id="message-form" class="message-box">${markdownEditor({ id: 'task-message', name: 'message', label: 'Add direction or context', rows: 3, max: 20000 })}<div><small>${t.canSteer ? 'Steer sends direction to the active session; Claude interrupts and resumes.' : 'Context stays pending until an agent receives it.'} ${t.messages.filter((m) => m.delivery === 'pending').length} pending.</small>${t.canSteer ? '<label><input id="steer-active" type="checkbox" name="steer" checked> Steer active agent</label>' : ''}<button class="btn secondary small" type="submit">Send direction ${icon('arrow')}</button></div></form>` : ''}${followUpComposer(t, state.config, state.followUpProviders?.[t.id], state.followUpSettings?.[t.id], state.modelCatalog)}</div><aside class="task-context">${sideChat(t, state.sideChatOpen)}${state.memoryAvailable ? runMemories(t) : ''}<section class="context-card"><div class="context-title">WORKFLOW <span class="live-label ${live ? 'is-live' : ''}">${live ? '● LIVE' : t.demo ? '6 STAGES' : '7 STAGES'}</span></div><ol class="stage-list">${workflowStages(t)}${deliveryWorkflowStages(t)}</ol><button class="btn secondary workflow-graph-button" data-action="open-execution-map" aria-label="Open execution graph">Execution graph ↗</button></section>${(t
+    )}</div><div class="detail-content" data-event-key="task-panel-${state.tab}">${state.tab === 'overview' ? taskDetails(t) || empty('book', 'No description yet', 'Configure this task to add requirements.') : state.tab === 'terminals' ? terminalView(t, state) : state.tab === 'thread' ? threadView(t) : state.tab === 'handoffs' ? handoffsView(t) : state.tab === 'diff' ? diffView(t) : transcriptView(t)}</div>${!['completed', 'cancelled'].includes(t.status) ? `<form id="message-form" class="message-box">${markdownEditor({ id: 'task-message', name: 'message', label: 'Add direction or context', rows: 3, max: 20000 })}<div><small>${t.canSteer ? 'Steer sends direction to the active session; Claude interrupts and resumes.' : 'Context stays pending until an agent receives it.'} ${t.messages.filter((m) => m.delivery === 'pending').length} pending.</small>${t.canSteer ? '<label><input id="steer-active" type="checkbox" name="steer" checked> Steer active agent</label>' : ''}<button class="btn secondary small" type="submit">Send direction ${icon('arrow')}</button></div></form>` : ''}${followUpComposer(t, state.config, state.followUpProviders?.[t.id], state.followUpSettings?.[t.id], state.modelCatalog)}</div><aside class="task-context">${sideChat(t, state.sideChatOpen)}${state.memoryAvailable ? runMemories(t) : ''}<section class="context-card"><div class="context-title">WORKFLOW <span class="live-label ${live ? 'is-live' : ''}">${live ? '● LIVE' : t.demo ? '6 STAGES' : '7 STAGES'}</span></div><ol class="stage-list">${workflowStages(t)}${deliveryWorkflowStages(t)}</ol><button class="btn secondary workflow-graph-button" data-action="open-execution-map" aria-label="Open execution graph">Execution graph ↗</button></section>${(t
     .repositories?.length > 1
     ? t.repositories
     : [t]
@@ -570,6 +577,10 @@ function showModal(title, contents, wide = false) {
   prepareSearchSelects(dialog);
   dialog.showModal();
   animateSurface(dialog, 'dialog');
+  dialog.addEventListener('cancel', (event) => {
+    event.preventDefault();
+    animateExit(dialog, 'dialog', () => dialog.close());
+  });
   syncToastLayer();
   dialog.addEventListener('close', () => {
     if (state.modal?.restoreId) {
@@ -589,12 +600,13 @@ function showModal(title, contents, wide = false) {
         event.clientY < r.top ||
         event.clientY > r.bottom
       )
-        dialog.close();
+        animateExit(dialog, 'dialog', () => dialog.close());
     }
   });
 }
 function closeModal() {
-  document.querySelector('#dialog')?.close();
+  const dialog = document.querySelector('#dialog');
+  animateExit(dialog, 'dialog', () => dialog?.close());
 }
 function createTaskModal() {
   state.modal = {};
@@ -1207,10 +1219,18 @@ document.addEventListener('click', async (event) => {
       return;
     }
     if (['open-side-chat', 'close-side-chat'].includes(action)) {
-      state.sideChatOpen = action === 'open-side-chat';
-      history.pushState(null, '', taskRoute(state.selected, state.tab, state.sideChatOpen));
-      renderMain();
-      if (state.sideChatOpen) document.querySelector('#side-question')?.focus();
+      const open = action === 'open-side-chat';
+      const apply = () => {
+        state.sideChatOpen = open;
+        history.pushState(null, '', taskRoute(state.selected, state.tab, open));
+        renderMain();
+        if (open) document.querySelector('#side-question')?.focus();
+      };
+      if (!open) animateExit(document.querySelector('.side-chat-drawer'), 'drawer', apply);
+      else {
+        animateSurface(document.querySelector('.side-chat-drawer'), 'drawer');
+        apply();
+      }
       return;
     }
     if (['open-execution-map', 'close-execution-map'].includes(action)) {
@@ -1796,14 +1816,18 @@ document.addEventListener('keydown', (event) => {
   }
   if (
     event.key === 'Escape' &&
-    !state.orchestratorOpen &&
+    !document.querySelector('dialog[open]') &&
     (state.sideChatOpen || state.executionMapOpen)
   ) {
     const closeChat = state.sideChatOpen;
-    state.sideChatOpen = false;
-    state.executionMapOpen = false;
-    if (closeChat) history.pushState(null, '', taskRoute(state.selected, state.tab));
-    renderMain();
+    const complete = () => {
+      state.sideChatOpen = false;
+      state.executionMapOpen = false;
+      if (closeChat) history.pushState(null, '', taskRoute(state.selected, state.tab));
+      renderMain();
+    };
+    if (closeChat) animateExit(document.querySelector('.side-chat-drawer'), 'drawer', complete);
+    else complete();
   }
 });
 window.addEventListener('popstate', () => {
@@ -1948,8 +1972,11 @@ document.addEventListener('submit', async (event) => {
 });
 
 function closeOrchestrator() {
-  state.orchestratorOpen = false;
-  document.getElementById('relay-orchestrator')?.close();
+  const dialog = document.getElementById('relay-orchestrator');
+  animateExit(dialog, 'drawer', () => {
+    state.orchestratorOpen = false;
+    dialog?.close();
+  });
 }
 async function openOrchestrator() {
   if (state.view === 'assistant') {
@@ -1972,6 +1999,10 @@ function syncOrchestrator() {
     document.getElementById('orchestrator-root').innerHTML =
       `<dialog id="relay-orchestrator" class="orchestrator-dialog" aria-labelledby="orchestrator-dialog-title"><header>${icon('orchestrator')}<strong id="orchestrator-dialog-title">Relay orchestrator</strong><button class="icon-button" data-action="close-orchestrator" aria-label="Close Relay orchestrator">${icon('close')}</button></header><div class="orchestrator-dialog-body"></div></dialog>`;
     dialog = document.getElementById('relay-orchestrator');
+    dialog.addEventListener('cancel', (event) => {
+      event.preventDefault();
+      closeOrchestrator();
+    });
     dialog.addEventListener('close', () => {
       state.orchestratorDraft =
         dialog.querySelector('#workspace-request')?.value ?? state.orchestratorDraft;

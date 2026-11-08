@@ -96,7 +96,7 @@
   height: 14px;
 }
 .side-chat-compose-footer {
-  padding-right: 12px;
+  padding-right: 0;
 }
 :root[data-low-motion] *,
 :root[data-low-motion] *::before,
