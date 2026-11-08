@@ -126,6 +126,20 @@ try {
     heading: getComputedStyle(node.querySelector('h2')).marginTop,
   }));
   assert.deepEqual(descriptionStyle, { size: '14px', first: '0px', heading: '18px' });
+  const descriptionWidth = await page.locator('#task-description').evaluate((node) => ({
+    width: node.getBoundingClientRect().width,
+    available:
+      node.parentElement.clientWidth -
+      parseFloat(getComputedStyle(node.parentElement).paddingLeft) -
+      parseFloat(getComputedStyle(node.parentElement).paddingRight),
+    max: getComputedStyle(node).maxWidth,
+  }));
+  assert.equal(descriptionWidth.max, 'none');
+  assert.ok(
+    Math.abs(descriptionWidth.width - descriptionWidth.available) < 2,
+    JSON.stringify(descriptionWidth),
+  );
+
   const drawer = page.locator('.side-chat-drawer');
   await drawer.waitFor();
   await page.waitForTimeout(300);

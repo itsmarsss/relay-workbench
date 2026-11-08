@@ -6,6 +6,7 @@ import {
   activityRunHeader,
   activityEventIdentity,
   activityEventMeta,
+  activityPassoff,
 } from '../public/activity-runs.js';
 
 test('run selection follows new runs and keeps explicit historical selection', () => {
@@ -180,4 +181,53 @@ test('routine PR polls do not become workflow runs or take over current activity
   );
   assert.equal(terminalSelection(task).id, 'published');
   assert.equal(terminalSelection(task, 'poll').id, 'poll');
+});
+
+test('passoff markers show historical transitions but never concurrent runs', () => {
+  const task = {
+    attempts: [
+      {
+        id: 'investigation',
+        stage: 'investigate',
+        harness: 'codex',
+        startedAt: '2026-01-01T10:00:00Z',
+        finishedAt: '2026-01-01T10:01:00Z',
+      },
+      {
+        id: 'planning',
+        stage: 'plan',
+        harness: 'claude',
+        startedAt: '2026-01-01T10:02:00Z',
+        finishedAt: '2026-01-01T10:03:00Z',
+      },
+      {
+        id: 'debug',
+        stage: 'plan',
+        role: 'debug',
+        harness: 'codex',
+        startedAt: '2026-01-01T10:04:00Z',
+      },
+    ],
+  };
+  const event = {
+    type: 'stage_started',
+    stage: 'plan',
+    harness: 'claude',
+    at: '2026-01-01T10:02:00.004Z',
+  };
+  const html = activityPassoff(task, event);
+  assert.match(html, /Passed off/);
+  assert.match(html, /Investigation · Codex/);
+  assert.match(html, /Claude/);
+  assert.match(html, /<time/);
+  assert.equal(activityPassoff(task, { ...event, type: 'activity' }), '');
+  assert.equal(activityPassoff(task, { ...event, attemptId: 'investigation' }), '');
+  assert.match(
+    activityPassoff(task, { ...event, attemptId: 'debug', at: '2026-01-01T10:04:00Z' }),
+    /Debugger · Codex/,
+  );
+  task.attempts[0].finishedAt = '2026-01-01T10:02:01Z';
+  assert.equal(activityPassoff(task, event), '');
+  delete task.attempts[0].finishedAt;
+  assert.equal(activityPassoff(task, event), '');
 });

@@ -83,3 +83,25 @@ export function activityEventMeta(event, stageLabel) {
   const identity = activityEventIdentity(event);
   return `<strong>${e(identity.name)}</strong>${identity.context ? `<span>${e(identity.context)}</span>` : ''}<span>${e(stageLabel ?? event.type.replaceAll('_', ' '))}</span>`;
 }
+
+// Derive transitions from recorded run starts, including historical tasks.
+export function activityPassoff(task, event) {
+  if (event.type !== 'stage_started') return '';
+  const runs = taskRuns(task);
+  const index = runs.findLastIndex((run) =>
+    event.attemptId
+      ? run.id === event.attemptId
+      : run.stage === event.stage &&
+        (!event.harness || run.harness === event.harness) &&
+        Date.parse(run.startedAt) <= Date.parse(event.at),
+  );
+  if (index < 1) return '';
+  const previous = runs[index - 1];
+  const next = runs[index];
+  // Concurrent repository runs are not a transfer of ownership.
+  if (!previous.finishedAt || Date.parse(previous.finishedAt) > Date.parse(next.startedAt))
+    return '';
+  const label = (run) =>
+    `${runLabel(run)}${run.harness ? ` · ${run.harness.charAt(0).toUpperCase() + run.harness.slice(1)}` : ''}`;
+  return `<div class="activity-passoff" aria-label="Work passed between runs"><strong>Passed off</strong><span>${e(label(previous))}</span><span aria-hidden="true">→</span><span>${e(label(next))}</span><time title="${e(event.at)}">${e(new Date(event.at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }))}</time></div>`;
+}
