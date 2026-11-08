@@ -10,7 +10,12 @@ const directory = await mkdtemp(join(tmpdir(), 'relay-control-audit-'));
 const app = createApp({ directory, publicDirectory: resolve('public') });
 let browser;
 try {
-  const task = app.engine.create({ title: 'Audit task controls', demo: true });
+  const task = app.engine.create({
+    title: 'Audit task controls',
+    demo: true,
+    description:
+      'Source report.\n\n## Original report\n\nDetails with `code`.\n\n```text\nExample query\n```',
+  });
   createMemory(app.store, {
     scope: 'global',
     kind: 'preference',
@@ -110,6 +115,12 @@ try {
   await page.keyboard.press('Escape');
   await dialog.waitFor({ state: 'hidden' });
   await page.goto(`${base}/#task/${task.id}/overview?chat=1`);
+  const descriptionStyle = await page.locator('#task-description').evaluate((node) => ({
+    size: getComputedStyle(node).fontSize,
+    first: getComputedStyle(node.firstElementChild).marginTop,
+    heading: getComputedStyle(node.querySelector('h2')).marginTop,
+  }));
+  assert.deepEqual(descriptionStyle, { size: '14px', first: '0px', heading: '18px' });
   const drawer = page.locator('.side-chat-drawer');
   await drawer.waitFor();
   await page.waitForTimeout(300);
@@ -179,7 +190,21 @@ try {
   const deletion = page.locator('#dialog');
   await deletion.getByRole('button', { name: 'Keep task', exact: true }).click();
   assert.ok(app.store.get(task.id), 'cancelling deletion keeps the task');
-  await page.getByRole('button', { name: 'Delete task', exact: true }).click();
+  await page.goto(`${base}/#tasks`);
+  const card = page.locator(`[data-action="open-task"][data-id="${task.id}"]`).first();
+  await card.click({ button: 'right' });
+  const menu = page.getByRole('menu', { name: 'Task actions' });
+  await menu.waitFor();
+  await page.keyboard.press('End');
+  assert.equal(await page.evaluate(() => document.activeElement.textContent), 'Delete task');
+  await page.keyboard.press('Escape');
+  await menu.waitFor({ state: 'hidden' });
+  await card.focus();
+  await page.keyboard.press('Shift+F10');
+  await menu.waitFor();
+  const menuBox = await menu.boundingBox();
+  assert.ok(menuBox.x >= 0 && menuBox.x + menuBox.width <= 390);
+  await menu.getByRole('menuitem', { name: 'Delete task', exact: true }).click();
   await deletion.getByRole('button', { name: 'Delete task', exact: true }).click();
   await page.waitForURL('**/#tasks*');
   await page.waitForFunction(() => !document.querySelector('.task-heading'));

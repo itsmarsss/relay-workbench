@@ -277,3 +277,78 @@ summary::before {
   width: 16px;
   height: 16px;
 }
+
+/* Keep rendered issue context compact with predictable block spacing. */
+.task-details > .context-title {
+  margin-bottom: 12px;
+  font-size: 12px;
+  letter-spacing: 0.06em;
+}
+.task-description.prose {
+  font-size: 14px;
+  line-height: 1.6;
+  padding-right: 4px;
+}
+.task-description.prose > :first-child {
+  margin-top: 0;
+}
+.task-description.prose > :last-child {
+  margin-bottom: 0;
+}
+.task-description.prose :is(p, ul, ol, blockquote, pre, table) {
+  margin-block: 10px;
+}
+.task-description.prose :is(h1, h2, h3, h4, h5, h6) {
+  margin-block: 18px 8px;
+  line-height: 1.35;
+}
+.task-description.prose h1 {
+  font-size: 21px;
+}
+.task-description.prose h2 {
+  font-size: 18px;
+}
+.task-description.prose h3 {
+  font-size: 16px;
+}
+.task-description.prose pre {
+  padding: 12px 14px;
+  font-size: 13px;
+  line-height: 1.55;
+}
+.task-context-menu {
+  position: fixed;
+  inset: auto;
+  margin: 0;
+  padding: 5px;
+  min-width: 190px;
+  border: 1px solid #c9d5cc;
+  border-radius: 10px;
+  background: #fff;
+  color: #263d30;
+  box-shadow: 0 8px 28px #17342326;
+}
+.task-context-menu:popover-open {
+  display: grid;
+  gap: 2px;
+}
+.task-context-menu button {
+  border: 0;
+  background: none;
+  text-align: left;
+  padding: 9px 12px;
+  border-radius: 5px;
+  font: inherit;
+  font-size: 13px;
+  color: inherit;
+  cursor: pointer;
+}
+.task-context-menu button:is(:hover, :focus-visible) {
+  background: #eaf1eb;
+  outline: none;
+}
+.task-context-menu button.danger {
+  color: #a52d35;
+  border-top: 1px solid #e2e8e3;
+  margin-top: 3px;
+}

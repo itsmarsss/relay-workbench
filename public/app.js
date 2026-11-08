@@ -1,3 +1,4 @@
+import { installTaskContextMenu } from './task-context-menu.js';
 import { confirmation } from './confirmation.js';
 import { workspaceAgentView } from './workspace-agent.js';
 import { installRepositorySuggestions } from './repository-suggestions.js';
@@ -2098,4 +2099,18 @@ document.addEventListener('keydown', (event) => {
 document.addEventListener('relay-chat-settled', () => renderMain());
 document.addEventListener('click', (event) => {
   if (event.target.closest('#relay-orchestrator a[href^="#task/"]')) closeOrchestrator();
+});
+
+installTaskContextMenu({
+  onError: (error) => toast(error.message, true),
+  select: async (action, id) => {
+    if (action === 'copy') {
+      await navigator.clipboard.writeText(new URL(taskRoute(id, 'overview'), location.href).href);
+      toast('Task link copied.');
+      return;
+    }
+    await openTask(id);
+    if (action === 'duplicate') await configureTask(true);
+    if (action === 'delete') document.querySelector('[data-action="delete-task"]').click();
+  },
 });
