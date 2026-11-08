@@ -164,3 +164,28 @@ test('workspace HTTP capabilities cannot start tasks or bypass session auth', as
   assert.equal(app.engine.running.size, 0);
   assert.equal(app.store.all()[0].status, 'draft');
 });
+
+test('workspace chat history survives reopening the local database', async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), 'relay-chat-persistence-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  let store = new Store(directory);
+  const history = [
+    {
+      id: 'saved-message',
+      question: 'What is next?',
+      answer: 'Choose an approach.',
+      status: 'complete',
+    },
+  ];
+  store.db
+    .prepare('INSERT INTO meta(key,value) VALUES(?,?)')
+    .run('workspace-agent', JSON.stringify(history));
+  store.close();
+  store = new Store(directory);
+  try {
+    const agent = new WorkspaceAgent(store, new Engine(store));
+    assert.deepEqual(agent.history, history);
+  } finally {
+    store.close();
+  }
+});

@@ -243,6 +243,9 @@ try {
   assert.equal(await routing.locator('[data-action=apply-routing-advice]').count(), 0);
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.getByRole('button', { name: 'Collapse sidebar', exact: true }).click();
+  await page.waitForFunction(
+    () => Math.round(document.querySelector('.sidebar').getBoundingClientRect().width) === 64,
+  );
   assert.equal(
     await page.locator('.sidebar').evaluate((el) => Math.round(el.getBoundingClientRect().width)),
     64,

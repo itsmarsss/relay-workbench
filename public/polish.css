@@ -18,8 +18,8 @@
   cursor: pointer;
 }
 .approach-option:has(input:checked) {
-  border-color: #47775d;
-  box-shadow: 0 0 0 1px #47775d;
+  border-color: var(--tone-47775d, #47775d);
+  box-shadow: 0 0 0 1px var(--tone-47775d, #47775d);
 }
 .log-filters label {
   display: flex;
@@ -52,7 +52,7 @@
 .evidence-toolbar {
   padding: 9px 12px;
   border-bottom: 1px solid var(--line);
-  background: #f3f6f2;
+  background: var(--tone-f3f6f2, #f3f6f2);
   font-size: 12px;
   color: var(--muted);
 }
@@ -140,7 +140,7 @@ details[open] > summary::before {
   max-width: 900px;
   border: 1px solid var(--line);
   border-radius: 12px;
-  background: white;
+  background: var(--tone-ffffff, #fff);
   overflow: hidden;
 }
 .workspace-messages {
@@ -154,7 +154,7 @@ details[open] > summary::before {
 .workspace-conversation > form {
   padding: 20px;
   border-top: 1px solid var(--line);
-  background: #f8faf7;
+  background: var(--tone-f8faf7, #f8faf7);
 }
 .workspace-compose-footer {
   display: flex;

@@ -1,3 +1,4 @@
+import { animateSurface } from './motion-preferences.js';
 export function prepareSearchSelects(root) {
   for (const [index, select] of [...root.querySelectorAll('select')].entries()) {
     if (select.multiple || select.size > 1 || select.closest('relay-select')) continue;
@@ -178,6 +179,7 @@ if (typeof customElements !== 'undefined' && !customElements.get('relay-select')
         this.renderOptions();
         if (!this.enabled.some((item) => item.index === this.activeIndex)) this.move(direction);
         this.position();
+        animateSurface(this.panel, 'content');
         this.search.focus({ preventScroll: true });
       }
       close(focus = false) {

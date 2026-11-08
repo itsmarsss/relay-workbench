@@ -22,6 +22,7 @@ function apply() {
   }
   const toggle = document.getElementById('low-motion');
   if (toggle) toggle.checked = lowMotion();
+  document.dispatchEvent(new Event('relay-motion-change'));
 }
 export function setLowMotion(value) {
   preference = String(value);

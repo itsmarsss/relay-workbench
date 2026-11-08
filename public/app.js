@@ -69,6 +69,7 @@ import {
 } from './ui.js';
 
 const state = {
+  orchestratorDraft: readWorkspaceDraft(),
   modelCatalog: {},
   modelCatalogLoading: false,
   repositoryDiscovery: null,
@@ -151,7 +152,7 @@ function nav(view, label, name, extra = '') {
   return `<button class="nav-item ${state.view === view ? 'active' : ''}" ${state.view === view ? 'aria-current="page"' : ''} data-action="navigate" data-view="${view}" aria-label="${e(label)}" title="${e(label)}">${icon(name)}<span>${label}</span>${extra}</button>`;
 }
 function shell() {
-  app.innerHTML = `<aside class="sidebar" aria-label="Workspace sidebar"><div class="sidebar-heading"><a class="brand" href="#" data-action="navigate" data-view="overview" aria-label="Relay overview"><span class="brand-mark">${icon('relay')}</span><span class="brand-name">relay</span></a>${sidebarControls()}</div><div class="sidebar-section-label">Workspace</div><nav id="workspace-navigation" aria-label="Workspace">${nav('overview', 'Overview', 'grid')}${nav('assistant', 'Relay agent', 'spark')}${nav('tasks', 'All tasks', 'layers', `<span class="nav-count">${state.tasks.length}</span>`)}${nav('inbox', 'Approval inbox', 'eye')}${nav('repositories', 'Repositories', 'folder')}${nav('harnesses', 'Agents', 'bolt')}${nav('memory', 'Memory', 'book')}</nav><div class="sidebar-bottom">${nav('settings', 'Settings', 'settings')}<div class="connection"><span class="local-dot ${state.connected ? '' : 'offline'}"></span><span>${state.connected ? 'Connected locally' : 'Reconnecting…'}</span><small>v0.1</small></div></div></aside><div class="main-shell"><header class="topbar"><div class="breadcrumb">Workspace ${icon('chevron')} <span>${state.view === 'task' ? 'Task workspace' : ({ assistant: 'Relay agent', harnesses: 'Agents', inbox: 'Approval inbox' }[state.view] ?? state.view.charAt(0).toUpperCase() + state.view.slice(1))}</span></div><div class="top-actions"><button class="btn small orchestrator-trigger" data-action="open-orchestrator" aria-label="Open Relay orchestrator" aria-haspopup="dialog" aria-controls="relay-orchestrator" aria-expanded="false" title="Open Relay · Command/Ctrl K">${icon('orchestrator')}<span>Relay</span><kbd class="keyboard-hint">${/Mac|iPhone|iPad/.test(navigator.platform) ? '⌘K' : 'Ctrl K'}</kbd></button><button class="btn primary small new-task-button" data-action="new-task" aria-label="New task">${icon('plus')}<span>New task</span><kbd class="keyboard-hint" title="Keyboard shortcut: N">N</kbd></button></div></header><main id="main"></main></div>`;
+  app.innerHTML = `<aside class="sidebar" aria-label="Workspace sidebar"><div class="sidebar-heading"><a class="brand" href="#" data-action="navigate" data-view="overview" aria-label="Relay overview"><span class="brand-mark">${icon('relay')}</span><span class="brand-name">relay</span></a>${sidebarControls()}</div><div class="sidebar-section-label">Workspace</div><nav id="workspace-navigation" aria-label="Workspace">${nav('overview', 'Overview', 'grid')}${nav('assistant', 'Relay agent', 'relay')}${nav('tasks', 'All tasks', 'layers', `<span class="nav-count">${state.tasks.length}</span>`)}${nav('inbox', 'Approval inbox', 'eye')}${nav('repositories', 'Repositories', 'folder')}${nav('harnesses', 'Agents', 'bolt')}${nav('memory', 'Memory', 'book')}</nav><div class="sidebar-bottom">${nav('settings', 'Settings', 'settings')}<div class="connection"><span class="local-dot ${state.connected ? '' : 'offline'}"></span><span>${state.connected ? 'Connected locally' : 'Reconnecting…'}</span><small>v0.1</small></div></div></aside><div class="main-shell"><header class="topbar"><div class="breadcrumb">Workspace ${icon('chevron')} <span>${state.view === 'task' ? 'Task workspace' : ({ assistant: 'Relay agent', harnesses: 'Agents', inbox: 'Approval inbox' }[state.view] ?? state.view.charAt(0).toUpperCase() + state.view.slice(1))}</span></div><div class="top-actions"><button class="btn small orchestrator-trigger" data-action="open-orchestrator" aria-label="Open Relay orchestrator" aria-haspopup="dialog" aria-controls="relay-orchestrator" aria-expanded="false" title="Open Relay · Command/Ctrl K">${icon('relay')}<span>Relay</span><kbd class="keyboard-hint">${/Mac|iPhone|iPad/.test(navigator.platform) ? '⌘K' : 'Ctrl K'}</kbd></button><button class="btn primary small new-task-button" data-action="new-task" aria-label="New task">${icon('plus')}<span>New task</span><kbd class="keyboard-hint" title="Keyboard shortcut: N">N</kbd></button></div></header><main id="main"></main></div>`;
   syncSidebar();
   renderMain();
 }
@@ -168,16 +169,25 @@ function renderMain() {
     id: el.dataset.editor,
     preview: el.querySelector('[data-mode="preview"]')?.getAttribute('aria-selected') === 'true',
   }));
-  const panelScroll = ['.node-graph-scroll', '.graph-inspector', '.side-chat-history'].map(
-    (selector) => {
-      const node = main.querySelector(selector);
-      return { selector, top: node?.scrollTop, left: node?.scrollLeft };
-    },
-  );
+  const panelScroll = [
+    '.node-graph-scroll',
+    '.graph-inspector',
+    '.side-chat-history',
+    '.workspace-messages',
+    '.activity-run-content .timeline',
+    '.activity-run-list',
+  ].map((selector) => {
+    const node = main.querySelector(selector);
+    return { selector, top: node?.scrollTop, left: node?.scrollLeft };
+  });
   const sideHistory = main.querySelector('.side-chat-history');
   const followSide =
     !sideHistory ||
     sideHistory.scrollHeight - sideHistory.clientHeight - sideHistory.scrollTop < 48;
+  const workspaceHistory = main.querySelector('.workspace-messages');
+  const followWorkspace =
+    !workspaceHistory ||
+    workspaceHistory.scrollHeight - workspaceHistory.clientHeight - workspaceHistory.scrollTop < 48;
   const scroll = main.scrollTop;
   const terminalScroll = main.querySelector('.terminal-preview')?.scrollTop;
   const descriptionScroll = main.querySelector('.task-description')?.scrollTop;
@@ -230,6 +240,8 @@ function renderMain() {
   if (state.view === 'tasks') writeTaskFilters(state);
   main.dataset.motionScope = `${state.view}:${state.selected ?? ''}:${state.tab}`;
   updateLiveDOM(main, markup, `${state.view}:${state.selected ?? ''}`);
+  const composer = main.querySelector('#workspace-request');
+  if (composer) composer.value = state.orchestratorDraft ?? '';
   for (const draft of modelDrafts) {
     const select = document.getElementById(draft.id);
     if (!select || select.dataset.modelProvider !== draft.provider) continue;
@@ -284,6 +296,9 @@ function renderMain() {
   }
   const nextHistory = main.querySelector('.side-chat-history');
   if (followSide && nextHistory) nextHistory.scrollTop = nextHistory.scrollHeight;
+  const workspaceMessages = main.querySelector('.workspace-messages');
+  if (followWorkspace && workspaceMessages)
+    workspaceMessages.scrollTop = workspaceMessages.scrollHeight;
   main.scrollTop = scroll;
   syncOrchestrator();
   const board = main.querySelector('.workflow-board');
@@ -567,7 +582,7 @@ function harnessesView() {
     )}</div></section><div class="form-footer"><span>Uses your installed CLIs and their existing sign-in.</span><button class="btn primary" type="submit">Save agent settings ${icon('check')}</button></div></form>${outcomesView(state.outcomes, state.config, state.outcomesRepository)}`;
 }
 function settingsView() {
-  return `${pageHeading('MAKE IT YOURS', 'Settings', 'Local configuration, execution limits, and private integration profiles.')}<section class="settings-panel"><h2>Appearance</h2><label class="motion-preference"><input type="checkbox" id="low-motion" ${lowMotion() ? 'checked' : ''}> Low motion</label><p>Turn off animations and transitions. Saved in this browser.</p></section><form id="settings-form" class="settings-panel"><h2>Execution</h2><p>Control concurrency, retries, and run duration.</p><div class="settings-fields"><label>Concurrent tasks<input id="setting-concurrency" class="input" type="number" name="concurrency" min="1" max="8" value="${state.config.concurrency}" required><small>Work in different repositories concurrently.</small></label><label>Automatic repair rounds<input id="setting-rounds" class="input" type="number" name="maxRepairRounds" min="1" max="10" value="${state.config.maxRepairRounds}" required><small>Pause for your input after repeated failures.</small></label><label>Blocker recovery attempts<input id="setting-recovery" class="input" type="number" name="maxRecoveryAttempts" min="0" max="5" value="${state.config.maxRecoveryAttempts ?? 2}" required><small>Agents try to resolve blockers before asking you.</small></label><label>Stage budget (minutes)<input id="setting-timeout" class="input" type="number" name="timeoutMinutes" min="1" max="240" value="${state.config.timeoutMinutes}" required><small>Progress can extend each agent or check up to twice this budget.</small></label></div><button class="btn primary" type="submit">Save execution settings</button></form>${storageView(state.storage)}<section class="settings-panel"><h2>Private integration profiles</h2><p>Import repository profiles or a full configuration as JSON. Profiles stay on this machine.</p><div class="inline-actions">${button('import-profile', 'Import local profile', 'secondary', 'download')}${button('view-config', 'View configuration', 'text', 'code')}</div></section><details class="settings-panel local-execution-details"><summary>Local execution and privacy</summary><p>Relay listens on <code>127.0.0.1</code>. Task history, transcripts, and approvals are stored on this machine. Your harness CLIs handle authentication; Relay does not store API keys.</p><p>Harness and verification commands run with your user account. Use an isolated environment for untrusted code. Read the project README for execution and recovery details.</p></details>`;
+  return `${pageHeading('MAKE IT YOURS', 'Settings', 'Local configuration, execution limits, and private integration profiles.')}<section class="settings-panel"><h2>Appearance</h2><label class="field-label" for="theme-preference">Theme</label><select id="theme-preference" class="input">${['system', 'light', 'dark'].map((value) => `<option value="${value}" ${window.RelayTheme.preference() === value ? 'selected' : ''}>${value === 'system' ? 'System' : value === 'dark' ? 'Dark' : 'Light'}</option>`).join('')}</select><label class="motion-preference"><input type="checkbox" id="low-motion" ${lowMotion() ? 'checked' : ''}> Low motion</label><p>Turn off animations and transitions. Saved in this browser.</p></section><form id="settings-form" class="settings-panel"><h2>Execution</h2><p>Control concurrency, retries, and run duration.</p><div class="settings-fields"><label>Concurrent tasks<input id="setting-concurrency" class="input" type="number" name="concurrency" min="1" max="8" value="${state.config.concurrency}" required><small>Work in different repositories concurrently.</small></label><label>Automatic repair rounds<input id="setting-rounds" class="input" type="number" name="maxRepairRounds" min="1" max="10" value="${state.config.maxRepairRounds}" required><small>Pause for your input after repeated failures.</small></label><label>Blocker recovery attempts<input id="setting-recovery" class="input" type="number" name="maxRecoveryAttempts" min="0" max="5" value="${state.config.maxRecoveryAttempts ?? 2}" required><small>Agents try to resolve blockers before asking you.</small></label><label>Stage budget (minutes)<input id="setting-timeout" class="input" type="number" name="timeoutMinutes" min="1" max="240" value="${state.config.timeoutMinutes}" required><small>Progress can extend each agent or check up to twice this budget.</small></label></div><button class="btn primary" type="submit">Save execution settings</button></form>${storageView(state.storage)}<section class="settings-panel"><h2>Private integration profiles</h2><p>Import repository profiles or a full configuration as JSON. Profiles stay on this machine.</p><div class="inline-actions">${button('import-profile', 'Import local profile', 'secondary', 'download')}${button('view-config', 'View configuration', 'text', 'code')}</div></section><details class="settings-panel local-execution-details"><summary>Local execution and privacy</summary><p>Relay listens on <code>127.0.0.1</code>. Task history, transcripts, and approvals are stored on this machine. Your harness CLIs handle authentication; Relay does not store API keys.</p><p>Harness and verification commands run with your user account. Use an isolated environment for untrusted code. Read the project README for execution and recovery details.</p></details>`;
 }
 
 function showModal(title, contents, wide = false) {
@@ -690,12 +705,16 @@ async function refreshSnapshot() {
     state.outcomes = await api(
       `/outcomes?repositoryId=${encodeURIComponent(state.outcomesRepository)}`,
     );
-  if (state.selected && !state.tasks.some((task) => task.id === state.selected)) {
-    await navigate('tasks');
-  }
   if (state.selected) {
     const selected = state.selected;
-    const task = await api(`/tasks/${selected}`);
+    let task;
+    try {
+      task = await api(`/tasks/${selected}`);
+    } catch (error) {
+      if (error.status !== 404) throw error;
+      if (state.selected === selected) await navigate('tasks');
+      return;
+    }
     if (state.selected !== selected) return;
     const baseChanged = state.task?.id === task.id && state.task.baseCommit !== task.baseCommit;
     state.task = pendingStatuses.apply(task);
@@ -974,6 +993,7 @@ document.addEventListener('click', async (event) => {
     if (action === 'activity-run') {
       state.activitySelection = element.dataset.run;
       renderMain();
+      animateSurface(document.querySelector('.activity-run-content'), 'page');
       return;
     }
     if (action === 'refresh-storage') {
@@ -1087,6 +1107,11 @@ document.addEventListener('click', async (event) => {
     }
     if (['markdown-tab', 'markdown-format', 'markdown-image'].includes(action)) {
       handleMarkdownAction(element);
+      if (action === 'markdown-tab')
+        animateSurface(
+          element.closest('[data-editor]')?.querySelector('[role=tabpanel]:not([hidden])'),
+          'content',
+        );
       return;
     }
     if (action === 'view-image') {
@@ -1742,6 +1767,10 @@ document.addEventListener('submit', async (event) => {
   }
 });
 document.addEventListener('change', async (event) => {
+  if (event.target.id === 'theme-preference') {
+    window.RelayTheme.set(event.target.value);
+    return;
+  }
   if (event.target.id === 'low-motion') {
     setLowMotion(event.target.checked);
     return;
@@ -1993,6 +2022,9 @@ document.addEventListener('submit', async (event) => {
     await api('/workspace-agent', 'POST', { question: new FormData(form).get('question') });
     form.reset();
     state.orchestratorDraft = '';
+    try {
+      localStorage.removeItem('relay-workspace-draft');
+    } catch {}
     await refresh();
   } catch (error) {
     toast(error.message, true);
@@ -2026,7 +2058,7 @@ function syncOrchestrator() {
   const fresh = !dialog;
   if (!dialog) {
     document.getElementById('orchestrator-root').innerHTML =
-      `<dialog id="relay-orchestrator" class="orchestrator-dialog" aria-labelledby="orchestrator-dialog-title"><header>${icon('orchestrator')}<strong id="orchestrator-dialog-title">Relay orchestrator</strong><button class="icon-button" data-action="close-orchestrator" aria-label="Close Relay orchestrator">${icon('close')}</button></header><div class="orchestrator-dialog-body"></div></dialog>`;
+      `<dialog id="relay-orchestrator" class="orchestrator-dialog" aria-labelledby="orchestrator-dialog-title"><header>${icon('relay')}<strong id="orchestrator-dialog-title">Relay orchestrator</strong><button class="icon-button" data-action="close-orchestrator" aria-label="Close Relay orchestrator">${icon('close')}</button></header><div class="orchestrator-dialog-body"></div></dialog>`;
     dialog = document.getElementById('relay-orchestrator');
     dialog.addEventListener('cancel', (event) => {
       event.preventDefault();
@@ -2085,8 +2117,12 @@ function syncOrchestrator() {
   } else if (fresh) animateSurface(dialog, 'drawer');
 }
 document.addEventListener('input', (event) => {
-  if (event.target.id === 'workspace-request' && event.target.closest('#relay-orchestrator'))
+  if (event.target.id === 'workspace-request') {
     state.orchestratorDraft = event.target.value;
+    try {
+      localStorage.setItem('relay-workspace-draft', event.target.value);
+    } catch {}
+  }
 });
 document.addEventListener('keydown', (event) => {
   if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
@@ -2113,4 +2149,29 @@ installTaskContextMenu({
     if (action === 'duplicate') await configureTask(true);
     if (action === 'delete') document.querySelector('[data-action="delete-task"]').click();
   },
+});
+
+function readWorkspaceDraft() {
+  try {
+    return localStorage.getItem('relay-workspace-draft') || '';
+  } catch {
+    return '';
+  }
+}
+
+document.addEventListener('keydown', (event) => {
+  if (
+    event.key !== 'Enter' ||
+    event.shiftKey ||
+    event.isComposing ||
+    event.ctrlKey ||
+    event.metaKey ||
+    event.altKey ||
+    !event.target.matches('#workspace-request,#side-question')
+  )
+    return;
+  event.preventDefault();
+  const form = event.target.form;
+  const submit = form?.querySelector('[type=submit]');
+  if (submit && !submit.disabled) form.requestSubmit(submit);
 });

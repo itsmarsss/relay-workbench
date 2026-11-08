@@ -1,3 +1,4 @@
+import { lowMotion } from './motion-preferences.js';
 import { icon } from './ui.js';
 const key = 'relay-sidebar';
 let saved = {};
@@ -16,10 +17,47 @@ function persist() {
     localStorage.setItem(key, JSON.stringify({ width, collapsed }));
   } catch {}
 }
-function apply() {
+const layoutAnimations = new Map();
+let appliedWidth = width;
+function apply(animate = false) {
+  if (
+    !animate &&
+    layoutAnimations.size &&
+    width === appliedWidth &&
+    !document.documentElement.classList.contains('sidebar-resizing')
+  )
+    return;
+  const nodes = [...document.querySelectorAll('.sidebar,.main-shell')];
+  const before = nodes.map((node) => node.getBoundingClientRect());
+  for (const animation of layoutAnimations.values()) animation.cancel();
+  layoutAnimations.clear();
   const compact = narrow.matches ? !mobileExpanded : collapsed;
   document.documentElement.dataset.sidebar = compact ? 'collapsed' : 'expanded';
   style.textContent = `:root { --sidebar-width: ${width}px; }`;
+  appliedWidth = width;
+  if (animate && !lowMotion() && window.Motion && !narrow.matches) {
+    nodes.forEach((node, index) => {
+      const after = node.getBoundingClientRect();
+      const properties = node.matches('.sidebar')
+        ? { width: [before[index].width, after.width] }
+        : {
+            width: [before[index].width, after.width],
+            marginLeft: [before[index].left, after.left],
+          };
+      const animation = window.Motion.animate(node, properties, {
+        duration: 0.24,
+        ease: [0.22, 1, 0.36, 1],
+      });
+      layoutAnimations.set(node, animation);
+      animation.then(() => {
+        if (layoutAnimations.get(node) !== animation) return;
+        layoutAnimations.delete(node);
+        animation.cancel();
+        node.style.removeProperty('width');
+        node.style.removeProperty('margin-left');
+      });
+    });
+  }
   const toggle = document.querySelector('[data-sidebar-toggle]');
   if (toggle) {
     toggle.setAttribute('aria-expanded', String(!compact));
@@ -33,6 +71,16 @@ export function sidebarControls() {
   return `<button type="button" class="sidebar-toggle" data-sidebar-toggle aria-controls="workspace-navigation" aria-label="Collapse sidebar" aria-expanded="true">${icon('sidebar')}</button><div class="sidebar-resize" role="separator" tabindex="0" aria-label="Resize sidebar" aria-orientation="vertical" aria-valuemin="208" aria-valuemax="340" aria-valuenow="${width}" title="Drag to resize · arrow keys to adjust · double-click to reset"></div>`;
 }
 export const syncSidebar = apply;
+document.addEventListener('relay-motion-change', () => {
+  if (!lowMotion()) return;
+  for (const [node, animation] of layoutAnimations) {
+    animation.cancel();
+    node.style.removeProperty('width');
+    node.style.removeProperty('margin-left');
+  }
+  layoutAnimations.clear();
+  apply();
+});
 narrow.addEventListener('change', () => {
   mobileExpanded = false;
   apply();
@@ -42,7 +90,7 @@ document.addEventListener('click', (event) => {
     if (narrow.matches) mobileExpanded = !mobileExpanded;
     else collapsed = !collapsed;
     persist();
-    apply();
+    apply(true);
   } else if (
     mobileExpanded &&
     (event.target.closest('.main-shell') || event.target.closest('.nav-item'))

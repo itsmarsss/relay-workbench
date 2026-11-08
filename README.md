@@ -19,6 +19,12 @@ Collapse the sidebar with the panel button beside the Relay logo. Drag its right
 
 Repository profiles have **General**, **Workspace**, **Checks & setup**, **Integrations** and **Guidance** tabs. Optional command fields appear for the selected workspace and verification modes. The General tab detects metadata after you enter a checkout path. Suggestions include a project name, checkout root, package subdirectories, declared check scripts, dependency setup and guidance-file locations. Apply suggestions individually; commands are never executed during detection and existing command lists are preserved. All tabs save together; removing a profile asks for confirmation and preserves existing tasks and worktrees.
 
+## Chat and appearance
+
+Workspace Relay and task-side Ask Relay keep conversation history in the local database across restarts. A request interrupted by a restart must be sent again. Workspace chat also remembers an unsent draft in this browser. **Enter** sends a chat message; **Shift+Enter** adds a new line. Chat messages and task activity scroll inside their own panels.
+
+In **Settings → Appearance**, choose System, Light or Dark. The theme and Low motion preferences are saved in this browser. Low motion disables view, dropdown, disclosure and sidebar animations.
+
 ## Your first live run
 
 1. Open **Repositories** to discover checkouts in common development folders and alongside configured repositories, or scan a specific folder. Choose **Add** on a suggestion, then save its profile. You can also supply a checkout path manually. Agent verification is the default; a fixed command list is optional.

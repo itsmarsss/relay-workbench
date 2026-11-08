@@ -23,6 +23,15 @@ try {
   const task = app.engine.create({ title: 'Live approval transition', demo: true });
   await page.goto(`http://127.0.0.1:${app.server.address().port}/#task/${task.id}/overview`);
   await page.getByRole('heading', { name: task.title, exact: true }).waitFor();
+  // A stale list response must not dismiss a task created during that request.
+  await page.route('**/api/tasks', async (route) => {
+    if (route.request().method() === 'GET') await route.fulfill({ json: [] });
+    else await route.continue();
+  });
+  app.store.event(task.id, { type: 'feedback', summary: 'Refresh against a stale task list' });
+  await page.waitForTimeout(700);
+  assert.ok(await page.getByRole('heading', { name: task.title, exact: true }).isVisible());
+  await page.unroute('**/api/tasks');
   let releaseEvents;
   const heldEvents = new Promise((resolve) => {
     releaseEvents = resolve;

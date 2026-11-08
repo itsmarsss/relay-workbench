@@ -39,7 +39,13 @@ export async function assertReadableText(page) {
         parseFloat(style.fontSize) >= 24 ||
         (parseFloat(style.fontSize) >= 18.66 && parseInt(style.fontWeight) >= 700);
       if (ratio < (large ? 3 : 4.5))
-        failures.push({ element: element.tagName + '.' + element.className, ratio });
+        failures.push({
+          element: element.tagName + '.' + element.className,
+          text: element.textContent.trim().slice(0, 80),
+          color: style.color,
+          background,
+          ratio,
+        });
     }
     return failures;
   });

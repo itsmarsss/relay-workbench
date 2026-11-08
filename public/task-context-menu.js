@@ -1,3 +1,4 @@
+import { animateSurface } from './motion-preferences.js';
 import { escapeHTML as e } from './escape.js';
 
 export function installTaskContextMenu({ select, onError }) {
@@ -38,6 +39,7 @@ export function installTaskContextMenu({ select, onError }) {
         8,
         Math.min(keyboard ? box.bottom : event.clientY, innerHeight - menu.offsetHeight - 8),
       ) + 'px';
+    animateSurface(menu, 'content');
     menu.querySelector('button').focus();
   }
   document.addEventListener('contextmenu', show);

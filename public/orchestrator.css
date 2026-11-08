@@ -18,7 +18,7 @@
   letter-spacing: -0.5px;
 }
 .orchestrator-heading > span {
-  color: #596c60;
+  color: var(--tone-596c60, #596c60);
   font-size: 13px;
 }
 .orchestrator-status {
@@ -26,24 +26,24 @@
   align-items: center;
   flex-wrap: wrap;
   gap: 14px;
-  color: #536558;
+  color: var(--tone-536558, #536558);
   font-size: 12px;
 }
 .orchestrator-status > span:first-child {
   display: flex;
   align-items: center;
   gap: 7px;
-  color: #244f3d;
+  color: var(--tone-244f3d, #244f3d);
 }
 .orchestrator-status i {
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: #70967d;
+  background: var(--tone-70967d, #70967d);
 }
 .orchestrator-status i.is-live {
-  background: #2b8058;
-  box-shadow: 0 0 0 3px #e2efe4;
+  background: var(--tone-2b8058, #2b8058);
+  box-shadow: 0 0 0 3px var(--tone-e2efe4, #e2efe4);
 }
 .orchestrator-layout {
   max-width: 1000px;
@@ -81,14 +81,14 @@
 }
 .orchestrator-layout .workspace-conversation > form {
   padding: 14px;
-  border: 1px solid #bccfc0;
+  border: 1px solid var(--tone-bccfc0, #bccfc0);
   border-radius: 14px;
-  background: #fff;
+  background: var(--tone-ffffff, #fff);
   box-shadow: 0 2px 8px #16332608;
 }
 .orchestrator-layout .workspace-conversation > form:focus-within {
-  border-color: #5d8b72;
-  box-shadow: 0 0 0 2px #deeadf;
+  border-color: var(--tone-5d8b72, #5d8b72);
+  box-shadow: 0 0 0 2px var(--tone-deeadf, #deeadf);
 }
 .orchestrator-layout .workspace-conversation > form > label {
   position: absolute;
@@ -118,7 +118,7 @@
   margin: 8px 0 0;
 }
 .orchestrator-layout .workspace-compose-footer small {
-  color: #596c60;
+  color: var(--tone-596c60, #596c60);
   font-size: 12px;
   margin-right: auto;
 }
@@ -130,23 +130,23 @@
 }
 .orchestrator-prompt {
   padding: 7px 12px;
-  border: 1px solid #dae3d8;
+  border: 1px solid var(--tone-dae3d8, #dae3d8);
   border-radius: 18px;
-  background: #f6f9f3;
-  color: #3b5543;
+  background: var(--tone-f6f9f3, #f6f9f3);
+  color: var(--tone-3b5543, #3b5543);
   font-size: 12px;
   cursor: pointer;
 }
 .orchestrator-prompt:hover {
-  background: #eaf1e6;
-  border-color: #a5bca7;
+  background: var(--tone-eaf1e6, #eaf1e6);
+  border-color: var(--tone-a5bca7, #a5bca7);
 }
 .orchestrator-answer-heading {
   display: flex;
   align-items: center;
   gap: 8px;
   margin-bottom: 8px;
-  color: #254c3c;
+  color: var(--tone-254c3c, #254c3c);
 }
 .orchestrator-answer-heading .icon {
   width: 16px;
@@ -172,7 +172,7 @@
   margin: 0 0 10px;
 }
 .orchestrator-queue > h2 span {
-  color: #596c60;
+  color: var(--tone-596c60, #596c60);
   font-weight: 400;
 }
 .orchestrator-task {
@@ -199,9 +199,9 @@
   margin-top: 10px;
 }
 .orchestrator-trigger {
-  color: #244c3c;
-  border-color: #cedbcf;
-  background: #f2f6ef;
+  color: var(--tone-244c3c, #244c3c);
+  border-color: var(--tone-cedbcf, #cedbcf);
+  background: var(--tone-f2f6ef, #f2f6ef);
 }
 .orchestrator-trigger .keyboard-hint {
   margin-left: 8px;
@@ -215,11 +215,11 @@
   max-width: none;
   height: calc(100dvh - 32px);
   max-height: none;
-  border: 1px solid #cdd9cf;
+  border: 1px solid var(--tone-cdd9cf, #cdd9cf);
   border-radius: 16px;
   box-shadow: 0 18px 80px #142f2533;
-  background: #f8faf7;
-  color: #263c30;
+  background: var(--tone-f8faf7, #f8faf7);
+  color: var(--tone-263c30, #263c30);
   overflow: hidden;
 }
 .orchestrator-dialog[open] {
@@ -227,7 +227,7 @@
   flex-direction: column;
 }
 .orchestrator-dialog::backdrop {
-  background: #14251e38;
+  background: var(--tone-14251e38, #14251e38);
 }
 .orchestrator-dialog > header {
   display: flex;
@@ -236,7 +236,7 @@
   flex: none;
   padding: 14px 20px;
   border-bottom: 1px solid var(--line);
-  background: white;
+  background: var(--tone-ffffff, #fff);
 }
 .orchestrator-dialog > header > .icon {
   width: 20px;
@@ -337,4 +337,109 @@
   flex: 1;
   flex-basis: auto;
   min-width: 0;
+}
+
+/* Conversation scrolls inside the viewport; the composer never leaves it. */
+main[data-render-scope^='assistant:'] {
+  height: calc(100dvh - 74px);
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+main[data-render-scope^='assistant:'] > .orchestrator-intro {
+  width: 100%;
+  flex: none;
+}
+main[data-render-scope^='assistant:'] > .orchestrator-layout {
+  width: 100%;
+  flex: 1;
+  min-height: 0;
+}
+main[data-render-scope^='assistant:'] .workspace-conversation {
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.orchestrator-layout .workspace-messages {
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+main[data-render-scope^='assistant:'] .workspace-messages {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding-bottom: 16px;
+}
+.orchestrator-layout .workspace-conversation > form {
+  flex: none;
+  position: relative;
+  z-index: 1;
+}
+.orchestrator-dialog .orchestrator-dialog-body {
+  flex: 1;
+}
+.side-chat-history {
+  min-height: 0;
+  overscroll-behavior: contain;
+}
+.side-chat-drawer > form {
+  flex: none;
+}
+.activity-browser {
+  align-items: stretch;
+  height: min(720px, 70dvh);
+  min-height: 320px;
+  overflow: hidden;
+}
+.activity-browser .activity-runs {
+  position: static;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  max-height: 100%;
+}
+.activity-browser .activity-run-list {
+  overflow-y: auto;
+  min-height: 0;
+  overscroll-behavior: contain;
+}
+.activity-browser .activity-run-content {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+.activity-browser .activity-run-header {
+  flex: none;
+}
+.activity-browser .timeline {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+  overscroll-behavior: contain;
+  padding-right: 12px;
+  scrollbar-gutter: stable;
+}
+@media (max-width: 1050px) {
+  .activity-browser {
+    height: auto;
+    max-height: none;
+    overflow: visible;
+  }
+  .activity-browser .activity-runs {
+    max-height: 220px;
+  }
+  .activity-browser .activity-run-content {
+    height: min(640px, 65dvh);
+  }
+}
+@media (max-width: 700px) {
+  main[data-render-scope^='assistant:'] {
+    height: calc(100dvh - 64px);
+  }
+  main[data-render-scope^='assistant:'] .orchestrator-queue {
+    display: none;
+  }
 }
