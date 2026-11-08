@@ -24,10 +24,12 @@ function patch(node, next) {
   if (node.hasAttribute('data-browser-terminal')) return;
   for (const attribute of [...node.attributes]) {
     if (node.tagName === 'DETAILS' && attribute.name === 'open') continue;
+    if (attribute.name === 'style' && node.hasAttribute('data-tab-indicator')) continue;
     if (!next.hasAttribute(attribute.name)) node.removeAttribute(attribute.name);
   }
   for (const attribute of next.attributes) {
     if (node.tagName === 'DETAILS' && attribute.name === 'open') continue;
+    if (attribute.name === 'style' && node.hasAttribute('data-tab-indicator')) continue;
     if (node.getAttribute(attribute.name) !== attribute.value)
       node.setAttribute(attribute.name, attribute.value);
   }

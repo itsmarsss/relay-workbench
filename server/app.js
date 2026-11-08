@@ -226,8 +226,14 @@ export function createApp({ directory, publicDirectory, engineOptions = {} }) {
       }
       if (path === '/api/workspace-agent' && req.method === 'GET')
         return json(res, 200, workspaceAgent.history);
-      if (path === '/api/workspace-agent' && req.method === 'POST')
-        return json(res, 202, await workspaceAgent.ask((await body(req)).question, origin));
+      if (path === '/api/workspace-agent' && req.method === 'POST') {
+        const request = await body(req);
+        return json(
+          res,
+          202,
+          await workspaceAgent.ask(request.question, origin, request.revisionOf),
+        );
+      }
       if (path === '/api/workspace-agent/stop' && req.method === 'POST') {
         await workspaceAgent.stop();
         return json(res, 200, { stopped: true });
@@ -651,8 +657,10 @@ export function createApp({ directory, publicDirectory, engineOptions = {} }) {
         }
         if (operation === 'sync-base' && req.method === 'POST')
           return json(res, 200, await engine.action(id, 'sync-base', await body(req)));
-        if (operation === 'question' && req.method === 'POST')
-          return json(res, 202, sideQuestions.ask(id, (await body(req)).question));
+        if (operation === 'question' && req.method === 'POST') {
+          const request = await body(req);
+          return json(res, 202, sideQuestions.ask(id, request.question, request.revisionOf));
+        }
         if (!operation && req.method === 'GET')
           return json(res, 200, {
             ...task,

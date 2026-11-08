@@ -1,3 +1,4 @@
+import { syncTabMotion } from './tab-motion.js';
 import { installTaskContextMenu } from './task-context-menu.js';
 import { confirmation } from './confirmation.js';
 import { workspaceAgentView } from './workspace-agent.js';
@@ -57,6 +58,7 @@ import { terminalView, terminalSelection } from './terminals.js';
 import { syncBrowserTerminal } from './browser-terminal.js';
 import {
   e,
+  tabIndicator,
   icon,
   stageNames,
   statusNames,
@@ -251,6 +253,7 @@ function renderMain() {
     select.closest('relay-select')?.sync();
   }
   animateEntrances(main);
+  syncTabMotion(main);
   syncBrowserTerminal(state.task, state.token, terminalFocused);
   for (const i of inputs) {
     const element = document.getElementById(i.id);
@@ -409,7 +412,7 @@ function taskView() {
   }
   const live = ['running', 'queued'].includes(t.status);
   const last = t.attempts.findLast((a) => a.handoff)?.handoff;
-  return `<div class="task-heading"><button class="back-link" data-action="navigate" data-view="tasks">← All tasks</button><div class="task-title-row"><h1>${e(t.title)}</h1>${t.demo ? '<span class="demo-label large">SIMULATED DEMO</span>' : ''}</div><div class="task-subtitle"><button class="status-editor" data-action="edit-status" aria-label="Change task status" title="${t.statusOverride ? 'Manual status override' : 'Change task status'}">${badge(displayStatus(t))}${icon('chevron')}</button><span>${e((t.repositories?.length ? t.repositories.map((r) => r.repository.name) : [t.repository.name]).join(' + '))}</span><span>·</span><span>${t.id.slice(0, 8)}</span>${t.ticket ? `<span>·</span>${issueLink(t.ticket)}` : ''}<span>·</span><span>Created ${ago(t.createdAt).toLowerCase()}</span></div>${liveProgress(t, state.events)}<div class="task-controls">${!['completed', 'cancelled'].includes(t.status) ? button('configure-task', ['running', 'queued', 'manual'].includes(t.status) ? 'Pause & configure' : 'Configure task', 'secondary', 'settings') : ''}${button('duplicate-task', 'Duplicate task', 'text small', 'plus')}${button('delete-task', 'Delete task', 'text small danger', 'trash')}${t.status === 'draft' ? button('task-action', 'Start workflow', 'primary', 'bolt', 'data-operation="start"') : ''}${['blocked', 'interrupted', 'paused'].includes(t.status) && !(t.status === 'blocked' && t.blockerDecision) ? button('task-action', 'Resume workflow', 'primary', 'arrow', 'data-operation="resume"') : ''}${t.status === 'manual' ? button('task-action', 'Return to automation', 'primary', 'arrow', 'data-operation="return-control"') : ''}${live ? button('task-action', 'Pause', 'secondary small', 'pause', 'data-operation="pause"') : ''}${!['completed', 'cancelled'].includes(t.status) ? button('confirm-cancel', 'Cancel', 'text small') : ''}<a class="btn text small" href="/api/tasks/${t.id}/export" download>${icon('download')}Export</a></div></div>${t.demo ? '<div class="demo-banner">' + icon('spark') + 'Demo mode. Harness responses and checks are simulated; no repository files are changed.</div>' : ''}<div class="task-layout"><div class="task-center">${t.status === 'blocked' && t.blockerDecision ? '' : taskSummary(t, state.events)}${state.executionMapOpen ? executionMap(t, { selectedId: state.graphSelectedId, zoom: state.graphZoom }) : ''}${t.error && !(t.status === 'blocked' && t.blockerDecision) ? `<details class="error-panel" data-event-key="blocker"><summary>Blocker details</summary><p>${e(t.error)}</p></details>` : ''}${blockerDecisionView(t)}${t.status === 'awaiting_plan' ? planGate(t) : ''}${t.status === 'awaiting_final' ? `<div class="approval-panel final-panel"><div class="approval-icon">${icon('check')}</div><div><span class="eyebrow">YOUR FINAL LOOK</span><h2>The specialists are done. Over to you.</h2><p>Verification passed and independent review is complete. Inspect the handoffs and diff before accepting. Acceptance does not commit or publish; those steps follow below.</p><div class="approval-actions">${button('task-action', 'Accept result', 'primary', 'check', 'data-operation="accept"')}${button('request-changes', 'Request changes', 'secondary')}</div></div></div>` : ''}${publicationPanel(t)}<div class="detail-tabs" role="tablist">${[
+  return `<div class="task-heading"><button class="back-link" data-action="navigate" data-view="tasks">← All tasks</button><div class="task-title-row"><h1>${e(t.title)}</h1>${t.demo ? '<span class="demo-label large">SIMULATED DEMO</span>' : ''}</div><div class="task-subtitle"><button class="status-editor" data-action="edit-status" aria-label="Change task status" title="${t.statusOverride ? 'Manual status override' : 'Change task status'}">${badge(displayStatus(t))}${icon('chevron')}</button><span>${e((t.repositories?.length ? t.repositories.map((r) => r.repository.name) : [t.repository.name]).join(' + '))}</span><span>·</span><span>${t.id.slice(0, 8)}</span>${t.ticket ? `<span>·</span>${issueLink(t.ticket)}` : ''}<span>·</span><span>Created ${ago(t.createdAt).toLowerCase()}</span></div>${liveProgress(t, state.events)}<div class="task-controls">${!['completed', 'cancelled'].includes(t.status) ? button('configure-task', ['running', 'queued', 'manual'].includes(t.status) ? 'Pause & configure' : 'Configure task', 'secondary', 'settings') : ''}${button('duplicate-task', 'Duplicate task', 'text small', 'plus')}${button('delete-task', 'Delete task', 'text small danger', 'trash')}${t.status === 'draft' ? button('task-action', 'Start workflow', 'primary', 'bolt', 'data-operation="start"') : ''}${['blocked', 'interrupted', 'paused'].includes(t.status) && !(t.status === 'blocked' && t.blockerDecision) ? button('task-action', 'Resume workflow', 'primary', 'arrow', 'data-operation="resume"') : ''}${t.status === 'manual' ? button('task-action', 'Return to automation', 'primary', 'arrow', 'data-operation="return-control"') : ''}${live ? button('task-action', 'Pause', 'secondary small', 'pause', 'data-operation="pause"') : ''}${!['completed', 'cancelled'].includes(t.status) ? button('confirm-cancel', 'Cancel', 'text small') : ''}<a class="btn text small" href="/api/tasks/${t.id}/export" download>${icon('download')}Export</a></div></div>${t.demo ? '<div class="demo-banner">' + icon('spark') + 'Demo mode. Harness responses and checks are simulated; no repository files are changed.</div>' : ''}<div class="task-layout"><div class="task-center">${t.status === 'blocked' && t.blockerDecision ? '' : taskSummary(t, state.events)}${state.executionMapOpen ? executionMap(t, { selectedId: state.graphSelectedId, zoom: state.graphZoom }) : ''}${t.error && !(t.status === 'blocked' && t.blockerDecision) ? `<details class="error-panel" data-event-key="blocker"><summary>Blocker details</summary><p>${e(t.error)}</p></details>` : ''}${blockerDecisionView(t)}${t.status === 'awaiting_plan' ? planGate(t) : ''}${t.status === 'awaiting_final' ? `<div class="approval-panel final-panel"><div class="approval-icon">${icon('check')}</div><div><span class="eyebrow">YOUR FINAL LOOK</span><h2>The specialists are done. Over to you.</h2><p>Verification passed and independent review is complete. Inspect the handoffs and diff before accepting. Acceptance does not commit or publish; those steps follow below.</p><div class="approval-actions">${button('task-action', 'Accept result', 'primary', 'check', 'data-operation="accept"')}${button('request-changes', 'Request changes', 'secondary')}</div></div></div>` : ''}${publicationPanel(t)}<div class="detail-tabs relay-tabs" role="tablist">${tabIndicator}${[
     ['overview', 'Overview'],
     ['thread', 'Activity'],
     ['terminals', 'Terminals'],
@@ -863,6 +866,23 @@ document.addEventListener('click', async (event) => {
   if (state.busy) return;
   const action = element.dataset.action;
   try {
+    if (action === 'copy-chat-message' || action === 'edit-chat-message') {
+      const scope = element.dataset.scope;
+      const messages = scope === 'workspace' ? state.workspaceMessages : state.task?.sideQuestions;
+      const message = messages?.find((item) => item.id === element.dataset.message);
+      if (!message) throw new Error('Message is no longer available. Refresh the conversation.');
+      if (action === 'copy-chat-message') {
+        await navigator.clipboard.writeText(message[element.dataset.part] || '');
+        toast(element.dataset.part === 'answer' ? 'Reply copied.' : 'Prompt copied.');
+        return;
+      }
+      state.modal = { chatScope: scope, messageId: message.id, taskId: state.selected };
+      showModal(
+        'Edit message',
+        `<form id="chat-edit-form"><label class="field-label" for="chat-edit-question">Your message</label><textarea class="input" id="chat-edit-question" name="question" rows="6" maxlength="10000" required>${e(message.question)}</textarea><p class="form-help">Sends a revised message. Earlier replies and actions stay in history.</p><div class="modal-footer"><button type="button" class="btn secondary" data-action="close-modal">Cancel</button><button class="btn primary" type="submit">Send revision</button></div></form>`,
+      );
+      return;
+    }
     if (action === 'open-orchestrator') {
       await openOrchestrator();
       return;
@@ -1283,6 +1303,7 @@ document.addEventListener('click', async (event) => {
     if (action === 'filter') {
       state.filter = element.dataset.filter;
       renderMain();
+      animateSurface(document.querySelector('.workflow-board,.task-list,.empty-state'), 'page');
       focusBoard();
       return;
     }
@@ -1747,6 +1768,17 @@ document.addEventListener('submit', async (event) => {
       await loadWorkspaceAgent();
       renderMain();
       toast('Relay settings saved for the next message.');
+      return;
+    }
+    if (form.id === 'chat-edit-form') {
+      const { chatScope, messageId, taskId } = state.modal;
+      await api(
+        chatScope === 'workspace' ? '/workspace-agent' : `/tasks/${taskId}/question`,
+        'POST',
+        { question: values.question, revisionOf: messageId },
+      );
+      closeModal();
+      await refresh();
       return;
     }
     if (form.id === 'side-question-form') {
@@ -2246,7 +2278,7 @@ document.addEventListener('keydown', (event) => {
     event.ctrlKey ||
     event.metaKey ||
     event.altKey ||
-    !event.target.matches('#workspace-request,#side-question')
+    !event.target.matches('#workspace-request,#side-question,#chat-edit-question')
   )
     return;
   event.preventDefault();

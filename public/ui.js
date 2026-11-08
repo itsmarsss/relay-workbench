@@ -3,6 +3,8 @@ import { markdown } from './markdown.js';
 export { escapeHTML };
 export const e = escapeHTML;
 const icons = {
+  copy: '<rect x="8" y="8" width="12" height="13" rx="2"/><path d="M16 8V4a1 1 0 0 0-1-1H4a1 1 0 0 0-1 1v12a1 1 0 0 0 1 1h4"/>',
+  edit: '<path d="m15 4 5 5M4 20l5-1L21 7l-5-5L4 14v6Z"/>',
   trash: '<path d="M3 6h18M9 6V4h6v2M5 6l1 14h12l1-14M10 10v6M14 10v6"/>',
   resize: '<path d="m8 20 12-12M14 20l6-6M20 20h.01"/>',
   orchestrator:
@@ -95,3 +97,6 @@ export const prose = markdown;
 export function empty(iconName, title, description, action = '') {
   return `<div class="empty-state">${icon(iconName, 'empty-icon')}<h3>${e(title)}</h3><p>${e(description)}</p>${action}</div>`;
 }
+
+export const tabIndicator =
+  '<span class="tab-indicator" data-tab-indicator aria-hidden="true"></span>';

@@ -251,9 +251,15 @@ export class WorkspaceAgent {
       url: `#task/${task.id}/overview`,
     };
   }
-  async ask(question, origin) {
+  async ask(question, origin, revisionOf) {
     requireValue(!this.controller, 'A workspace request is already running', 409);
     question = text(question, 'Message', 10000);
+    if (revisionOf !== undefined)
+      requireValue(
+        typeof revisionOf === 'string' && this.history.some((message) => message.id === revisionOf),
+        'Original message not found',
+        404,
+      );
     const base = this.store.config.harnesses.claude;
     const settings = this.store.config.workspaceAgent ?? DEFAULT_CONFIG.workspaceAgent;
     const config = { ...base, model: settings.model || base?.model, effort: settings.effort };
@@ -265,6 +271,7 @@ export class WorkspaceAgent {
     this.created = 0;
     const record = {
       id: randomUUID(),
+      ...(revisionOf ? { revisionOf } : {}),
       question,
       status: 'running',
       createdAt: new Date().toISOString(),

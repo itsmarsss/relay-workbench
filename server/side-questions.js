@@ -140,22 +140,30 @@ export class SideQuestions {
       if (changed) store.save(task);
     }
   }
-  ask(id, question) {
+  ask(id, question, revisionOf) {
     const task = this.store.get(id);
     requireValue(task, 'Task not found', 404);
     requireValue(!this.running.has(id), 'A side question is already running', 409);
     question = text(question, 'Question', 10000);
+    if (revisionOf !== undefined)
+      requireValue(
+        typeof revisionOf === 'string' &&
+          task.sideQuestions?.some((message) => message.id === revisionOf),
+        'Original message not found',
+        404,
+      );
     requireValue(question.trim(), 'Enter a question');
     const context = questionContext(this.store, task);
     const record = {
       id: randomUUID(),
+      ...(revisionOf ? { revisionOf } : {}),
       question,
       status: 'running',
       createdAt: context.capturedAt,
       stage: task.stage,
       memorySnapshot: context.memorySnapshot,
     };
-    task.sideQuestions = [...(task.sideQuestions ?? []).slice(-49), record];
+    task.sideQuestions = [...(task.sideQuestions ?? []), record];
     this.store.save(task);
     const controller = new AbortController();
     const entry = { controller, done: null };

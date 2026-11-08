@@ -1,5 +1,5 @@
 import { displayStatus } from './task-status.js';
-import { e, badge, ago, empty, icon } from './ui.js';
+import { e, badge, ago, empty, icon, tabIndicator } from './ui.js';
 import { columns, workflowColumn, nextStep, workflowBoard } from './workflow.js';
 const needsInput = new Set([
   'awaiting_plan',
@@ -83,7 +83,7 @@ export function tasksPage(state) {
       state.tasks.filter((task) => displayStatus(task) === 'cancelled').length,
     ],
   ];
-  return `<div class="page-heading"><div><div class="eyebrow">YOUR WORK QUEUE</div><h1>Tasks</h1><p>Your work, from first investigation to final approval.</p></div></div><nav class="task-scopes" aria-label="Task status filters">${scopes
+  return `<div class="page-heading"><div><div class="eyebrow">YOUR WORK QUEUE</div><h1>Tasks</h1><p>Your work, from first investigation to final approval.</p></div></div><nav class="task-scopes relay-tabs" aria-label="Task status filters">${tabIndicator}${scopes
     .filter(([id, , count]) => id !== 'cancelled' || count)
     .map(
       ([id, label, count]) =>

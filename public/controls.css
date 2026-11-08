@@ -352,3 +352,106 @@ summary::before {
   border-top: 1px solid var(--tone-e2e8e3, #e2e8e3);
   margin-top: 3px;
 }
+
+/* A shared tab strip with one moving selection indicator. */
+.relay-tabs.task-scopes,
+.relay-tabs.detail-tabs {
+  position: relative;
+  display: flex;
+  gap: 4px;
+  padding: 0;
+  margin-bottom: 20px;
+  border-bottom: 1px solid var(--line);
+  overflow-x: auto;
+  scrollbar-width: none;
+  isolation: isolate;
+}
+.relay-tabs.task-scopes > button,
+.relay-tabs.detail-tabs > button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  gap: 8px;
+  min-height: 42px;
+  padding: 10px 12px;
+  margin: 0;
+  border: 0;
+  border-radius: 6px 6px 0 0;
+  font-size: 13px;
+  line-height: 1.5;
+  font-weight: 500;
+  color: var(--muted);
+  background: none;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.relay-tabs.task-scopes > button[aria-pressed='true'],
+.relay-tabs.detail-tabs > button.active {
+  border: 0;
+  background: none;
+  color: var(--green-dark);
+  font-weight: 600;
+}
+.relay-tabs > button:hover {
+  background: var(--mint);
+}
+.relay-tabs > button > span {
+  padding: 1px 5px;
+  border-radius: 5px;
+  background: var(--mint);
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+.relay-tabs > .tab-indicator {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  height: 2px;
+  padding: 0;
+  margin: 0;
+  border-radius: 2px;
+  background: var(--green);
+  pointer-events: none;
+}
+.chat-message-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.chat-message-actions {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  margin-top: 6px;
+}
+.chat-message-heading .chat-message-actions {
+  margin-top: 0;
+}
+.chat-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 5px;
+  border: 0;
+  border-radius: 5px;
+  color: var(--muted);
+  background: none;
+  cursor: pointer;
+}
+.chat-action:hover {
+  background: var(--mint);
+  color: var(--ink);
+}
+.chat-action:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.chat-action .icon {
+  width: 15px;
+  height: 15px;
+}

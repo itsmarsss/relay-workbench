@@ -21,13 +21,13 @@ Repository profiles have **General**, **Workspace**, **Checks & setup**, **Integ
 
 ## Chat and appearance
 
-Workspace Relay and task-side Ask Relay keep conversation history in the local database across restarts. A request interrupted by a restart must be sent again. Workspace chat also remembers an unsent draft in this browser. **Enter** sends a chat message; **Shift+Enter** adds a new line. Chat messages and task activity scroll inside their own panels.
+Workspace Relay and task-side Ask Relay keep conversation history in the local database across restarts. A request interrupted by a restart must be sent again. Workspace chat also remembers an unsent draft in this browser. **Enter** sends a chat message; **Shift+Enter** adds a new line. Chat messages and task activity scroll inside their own panels. Both chats offer **Copy prompt**, **Copy reply** (preserving Markdown), and **Edit and resend**. Editing creates a linked revision; earlier replies and actions stay attached to the original message.
 
 Click the model beside **Relay** to choose its Claude model and effort and manage permissions for reading settings, reading approved memory, creating drafts, and proposing settings changes. Relay reads current repository profiles and runtime facts instead of inferring behavior from old task failures. It can search retained conversation history and retrieve approved memory scoped to a task or project.
 
 Proposed settings changes appear in chat with a **Review changes** action. Review the exact current and proposed values, then approve or reject. Relay cannot approve its own proposals, and proposals do not change settings. Changed configuration invalidates an older proposal; active work must stop before applying it. These permissions do not bypass workflow approvals.
 
-In **Settings → Appearance**, choose System, Light or Dark. The theme and Low motion preferences are saved in this browser. Low motion disables view, dropdown, disclosure and sidebar animations.
+In **Settings → Appearance**, choose System, Light or Dark. The theme and Low motion preferences are saved in this browser. Task filters and task-detail tabs share a sliding selection indicator. Low motion disables tab, view, dropdown, disclosure and sidebar animations.
 
 ## Your first live run
 
