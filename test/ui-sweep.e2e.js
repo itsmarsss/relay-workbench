@@ -152,6 +152,7 @@ try {
     await page.getByRole('button', { name: 'Reset zoom', exact: true }).click();
     await page.locator('.graph-node').nth(4).click();
     await page.locator('.graph-inspector h3').filter({ hasText: 'Debugger' }).waitFor();
+    await check('graph-detail', width);
     await page.getByRole('button', { name: 'Close execution graph', exact: true }).click();
     await page.getByRole('button', { name: 'PR details for Example project', exact: true }).click();
     await page.locator('dialog .pr-detail-link').waitFor();

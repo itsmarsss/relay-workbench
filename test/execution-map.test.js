@@ -124,9 +124,29 @@ test('host verification has a distinct lane and generic command evidence', () =>
   };
   const graph = graphLayout(task);
   assert.equal(new Set(graph.nodes.map((n) => n.y)).size, 3);
-  assert.ok(graph.nodes.every((n, i) => !i || n.x > graph.nodes[i - 1].x));
+  assert.ok(graph.nodes.every((n, i) => !i || n.y > graph.nodes[i - 1].y));
   const html = executionMap(task);
   assert.match(html, /Configured checks/);
   assert.match(html, /Configured commands/);
   assert.match(html, /graph-open-activity/);
+});
+
+test('causal graph packs siblings and routes long links outside cards', () => {
+  const task = {
+    attempts: [
+      { id: 'a', stage: 'implement' },
+      { id: 'b', stage: 'implement', role: 'debug', parentAttemptId: 'a' },
+      { id: 'c', stage: 'verify', role: 'verifier', parentAttemptId: 'a' },
+      { id: 'd', stage: 'implement', parentAttemptId: 'b' },
+      { id: 'e', stage: 'review', parentAttemptId: 'a' },
+    ],
+  };
+  const graph = graphLayout(task);
+  assert.equal(graph.nodes[1].row, graph.nodes[2].row);
+  assert.equal(graph.nodes[3].x, graph.nodes[0].x);
+  for (const edge of graph.edges)
+    assert.ok(graph.nodes[edge.to - 1].y > graph.nodes[edge.from - 1].y);
+  assert.equal(new Set(graph.nodes.map((n) => `${n.x}:${n.y}`)).size, graph.nodes.length);
+  assert.ok(graph.width < 1000);
+  assert.match(executionMap(task, { selectedId: 'd' }), /graph-connection on-path/);
 });
