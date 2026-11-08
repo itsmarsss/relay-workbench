@@ -135,7 +135,13 @@ try {
   assert.equal(await stage.getAttribute('data-stage-state'), 'complete');
   await page.getByRole('combobox', { name: 'Agent', exact: true }).click();
   await page.getByRole('option', { name: 'Claude', exact: true }).click();
-  await page.locator('#follow-up-form [name=model]').fill('custom-followup-model');
+  await page.getByRole('combobox', { name: 'Model', exact: true }).click();
+  await page
+    .locator('#follow-up-form relay-select')
+    .filter({ has: page.locator('select[name=model]') })
+    .locator('input[type=search]')
+    .fill('custom-followup-model');
+  await page.getByRole('option', { name: 'Use “custom-followup-model”', exact: true }).click();
   await page.getByRole('combobox', { name: 'Effort', exact: true }).click();
   await page.getByRole('option', { name: 'Max', exact: true }).click();
   await page.locator('#follow-up-message').fill('Keep this draft while the page updates');

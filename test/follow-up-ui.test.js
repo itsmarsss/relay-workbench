@@ -76,7 +76,7 @@ test('follow-up offers model and provider-specific effort overrides', () => {
     'claude',
     { claude: { model: 'chosen-model', effort: 'max' } },
   );
-  assert.match(html, /name="model" value="chosen-model"/);
+  assert.match(html, /value="chosen-model" selected/);
   assert.match(html, /Default \(configured-model\)/);
   assert.match(html, /value="max" selected/);
   assert.doesNotMatch(html, /value="ultra"/);

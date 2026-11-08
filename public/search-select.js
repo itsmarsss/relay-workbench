@@ -193,6 +193,26 @@ if (typeof customElements !== 'undefined' && !customElements.get('relay-select')
           .filter(
             ({ option }) => !option.hidden && option.label.toLocaleLowerCase().includes(query),
           );
+        const custom = this.search.value.trim();
+        if (
+          this.select.hasAttribute('data-allow-custom') &&
+          custom &&
+          custom.length <= 200 &&
+          ![...this.select.options].some(
+            (option) => option.value.toLocaleLowerCase() === custom.toLocaleLowerCase(),
+          )
+        ) {
+          options.push({
+            option: {
+              label: `Use “${custom}”`,
+              value: custom,
+              selected: false,
+              disabled: false,
+              closest: () => null,
+            },
+            index: -1,
+          });
+        }
         this.enabled = options.filter(
           ({ option }) => !option.disabled && !option.closest('optgroup')?.disabled,
         );
@@ -234,6 +254,17 @@ if (typeof customElements !== 'undefined' && !customElements.get('relay-select')
           ?.scrollIntoView({ block: 'nearest' });
       }
       choose(index) {
+        if (
+          index === -1 &&
+          this.select.hasAttribute('data-allow-custom') &&
+          !this.select.matches(':disabled')
+        ) {
+          const value = this.search.value.trim();
+          if (!value || value.length > 200) return;
+          const option = new Option(value, value);
+          this.select.add(option);
+          index = option.index;
+        }
         const option = this.select.options[index];
         if (
           index === null ||
