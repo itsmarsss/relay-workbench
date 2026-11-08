@@ -14,7 +14,7 @@ const { chromium } = await import(process.env.RELAY_PLAYWRIGHT_MODULE || 'playwr
 const screenshots = process.env.RELAY_SCREENSHOTS || 'docs/screenshots';
 await mkdir(screenshots, { recursive: true });
 const fixture = await mkdtemp(join(tmpdir(), 'relay-browser-'));
-let localApp, browser;
+let localApp, browser, finishSideStream;
 try {
   let origin = process.env.RELAY_TEST_URL;
   if (!origin) {
@@ -23,7 +23,25 @@ try {
       publicDirectory: resolve('public'),
       engineOptions: {
         demoDelay: 30,
-        sideAnswer: async ({ question }) => `Side answer: ${question}`,
+        sideAnswer: async ({ question, onProgress, signal }) => {
+          if (question !== 'Show live inspection') return `Side answer: ${question}`;
+          const tool = {
+            id: 'streamed-read',
+            name: 'mcp__relay_source__read_file',
+            status: 'running',
+            input: { repositoryId: 'fixture', path: 'src/example.js' },
+          };
+          onProgress({ answer: 'I am reading the relevant source.', toolCalls: [tool] });
+          await new Promise((resolve) => {
+            finishSideStream = resolve;
+            signal.addEventListener('abort', resolve, { once: true });
+          });
+          onProgress({
+            answer: 'The source confirms the behavior.',
+            toolCalls: [{ ...tool, status: 'complete', output: 'Recorded source evidence' }],
+          });
+          return 'The source confirms the behavior.';
+        },
       },
     });
     await new Promise((resolve) => localApp.server.listen(0, '127.0.0.1', resolve));
@@ -998,6 +1016,16 @@ try {
     await page.getByText('Side answer: What is blocked?', { exact: true }).waitFor();
     assert.equal(localApp.store.get(debugTask.id).status, 'blocked');
     assert.equal(localApp.store.get(debugTask.id).messages.length, 0);
+    await page.locator('#side-question').fill('Show live inspection');
+    await page.getByRole('button', { name: 'Ask without interrupting', exact: true }).click();
+    await page.getByText('I am reading the relevant source.', { exact: true }).waitFor();
+    await page.getByText('fixture · src/example.js', { exact: true }).waitFor();
+    await page.getByText('Reading…', { exact: true }).waitFor();
+    assert.equal(localApp.store.get(debugTask.id).sideQuestions.at(-1).status, 'running');
+    await page.locator('#side-question').fill('Unsent follow-up');
+    finishSideStream();
+    await page.getByText('The source confirms the behavior.', { exact: true }).waitFor();
+    assert.equal(await page.locator('#side-question').inputValue(), 'Unsent follow-up');
     const conversationTask = localApp.store.get(debugTask.id);
     conversationTask.sideQuestions.at(-1).answer =
       '**The investigation is complete.** The current code produces the requested order.\n\n' +

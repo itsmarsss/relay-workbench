@@ -116,3 +116,53 @@ test('side context includes publication results without routine polls hiding use
   assert.ok(context.recentActivity.some((e) => e.summary === 'Checks passing'));
   assert.ok(!context.recentActivity.some((e) => e.summary === 'Polling'));
 });
+
+test('side progress is visible before completion without overwriting worker state or adding history rows', async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), 'relay-side-stream-'));
+  const store = new Store(directory);
+  let release;
+  const pending = new Promise((resolve) => {
+    release = resolve;
+  });
+  const side = new SideQuestions(store, {
+    answer: async ({ onProgress }) => {
+      onProgress({
+        answer: 'Reading the relevant file',
+        toolCalls: [{ id: 'read', name: 'mcp__relay_source__read_file', status: 'running' }],
+      });
+      await pending;
+      return 'Completed answer';
+    },
+  });
+  t.after(async () => {
+    release();
+    await side.stop();
+    store.close();
+    await rm(directory, { recursive: true, force: true });
+  });
+  const task = newTask({ title: 'Streaming context', demo: true }, DEFAULT_CONFIG);
+  task.status = 'running';
+  task.stage = 'implement';
+  store.save(task);
+  const notified = new Promise((resolve) =>
+    store.listeners.add((event) => {
+      if (event.type === 'side_question') resolve();
+    }),
+  );
+  side.ask(task.id, 'What are you reading?');
+  const worker = store.get(task.id);
+  worker.stage = 'verify';
+  store.save(worker);
+  await notified;
+  const current = store.get(task.id);
+  assert.equal(current.stage, 'verify');
+  assert.equal(current.sideQuestions[0].status, 'running');
+  assert.equal(current.sideQuestions[0].answer, 'Reading the relevant file');
+  assert.equal(current.sideQuestions[0].toolCalls[0].status, 'running');
+  assert.equal(store.events(task.id, 0).length, 0);
+  release();
+  await side.running.get(task.id).done;
+  const done = store.get(task.id).sideQuestions[0];
+  assert.equal(done.answer, 'Completed answer');
+  assert.equal(done.toolCalls[0].status, 'interrupted');
+});

@@ -4459,6 +4459,70 @@ textarea::placeholder,
   max-width: 100%;
   overflow: auto;
 }
+.side-chat-tools {
+  margin: 0 0 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fafbf9;
+}
+.side-chat-tools > summary {
+  padding: 8px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.side-chat-tools > summary > span {
+  color: var(--muted);
+  margin-left: 6px;
+}
+.side-chat-tools ol {
+  list-style: none;
+  margin: 0;
+  padding: 0 10px 6px;
+  max-height: 240px;
+  overflow: auto;
+}
+.side-chat-tools li + li {
+  border-top: 1px solid var(--line);
+}
+.side-chat-tools li summary {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 7px 0;
+  cursor: pointer;
+}
+.side-tool-name {
+  font-size: 12px;
+  font-weight: 500;
+  min-width: 0;
+}
+.side-tool-name small {
+  display: block;
+  font-size: 11px;
+  color: var(--muted);
+  font-weight: 400;
+  overflow-wrap: anywhere;
+}
+.side-tool-status {
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.side-tool-status.running {
+  color: #275f50;
+}
+.side-tool-status.failed {
+  color: #a33232;
+}
+.side-chat-tools pre {
+  font-size: 11px;
+  max-height: 180px;
+  overflow: auto;
+  white-space: pre-wrap;
+  margin: 4px 0 8px;
+}
 .side-chat-thinking {
   color: var(--muted);
   font-size: 13px;

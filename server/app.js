@@ -388,7 +388,12 @@ export function createApp({ directory, publicDirectory, engineOptions = {} }) {
         const listener = (event) => {
           if (event.type === 'transcript') return;
           const data = JSON.stringify({ seq: event.seq, taskId: event.taskId, type: event.type });
-          if (!res.write(`id: ${event.seq}\ndata: ${data}\n\n`)) res.end();
+          if (
+            !res.write(
+              `${Number.isSafeInteger(event.seq) ? `id: ${event.seq}\n` : ''}data: ${data}\n\n`,
+            )
+          )
+            res.end();
         };
         store.listeners.add(listener);
         const heartbeat = setInterval(() => res.write(': heartbeat\n\n'), 15000);

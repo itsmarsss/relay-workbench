@@ -146,6 +146,10 @@ function renderMain() {
       return { selector, top: node?.scrollTop, left: node?.scrollLeft };
     },
   );
+  const sideHistory = main.querySelector('.side-chat-history');
+  const followSide =
+    !sideHistory ||
+    sideHistory.scrollHeight - sideHistory.clientHeight - sideHistory.scrollTop < 48;
   const scroll = main.scrollTop;
   const terminalScroll = main.querySelector('.terminal-preview')?.scrollTop;
   const descriptionScroll = main.querySelector('.task-description')?.scrollTop;
@@ -231,6 +235,8 @@ function renderMain() {
       node.scrollLeft = saved.left;
     }
   }
+  const nextHistory = main.querySelector('.side-chat-history');
+  if (followSide && nextHistory) nextHistory.scrollTop = nextHistory.scrollHeight;
   main.scrollTop = scroll;
   const board = main.querySelector('.workflow-board');
   if (board) {
