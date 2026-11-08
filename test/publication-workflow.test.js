@@ -207,7 +207,8 @@ test('compact memory summary opens exact snapshots without nested disclosures', 
   };
   const compact = runMemories(task);
   assert.match(compact, /A preference/);
-  assert.doesNotMatch(compact, /<details|Exact previous version/);
+  assert.doesNotMatch(compact, /<details/);
+  assert.match(compact, /Exact previous version/);
   const history = memoryRunHistory(task, 'a');
   assert.match(history, /Exact previous version/);
   assert.match(history, /v2/);

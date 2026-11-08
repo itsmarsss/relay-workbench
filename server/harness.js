@@ -527,22 +527,22 @@ export function demoHandoff(task, stage) {
       'The simulated investigation traces the request parser and a background consumer. A shared normalization boundary would prevent the two paths from drifting.';
   }
   if (stage === 'plan') {
-    h.summary = 'Normalize once at the shared boundary.';
+    h.summary = 'Choose how both request paths should handle defaults.';
     h.details =
       'Move default handling into the shared parser and add regression cases for both callers. Keep the public interface stable and document the boundary behavior.';
     h.options = [
       {
         id: 'shared-boundary',
-        title: 'Normalize at the shared boundary',
+        title: 'Share default handling (recommended)',
         description:
-          'Centralize default handling and test both callers, including absent and explicit values.',
+          'Use one parser for the request and background paths. Cover missing values, explicit values, and invalid input. Both callers retain their public interface. This demo illustrates a plan approval; it does not inspect or edit files.',
         tradeoffs: 'Small shared-code change; prevents future drift and avoids duplicated policy.',
       },
       {
         id: 'patch-callers',
-        title: 'Update each caller',
+        title: 'Keep separate parsers',
         description:
-          'Apply the same default in both request paths and add separate regression tests.',
+          'Update each parser independently and test each request path. Useful if the callers will intentionally diverge; otherwise future default changes require two edits.',
         tradeoffs:
           'Smaller immediate change, but duplicates policy and leaves future maintenance debt.',
       },

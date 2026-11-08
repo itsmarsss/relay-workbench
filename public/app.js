@@ -1,3 +1,5 @@
+import { confirmation } from './confirmation.js';
+import { workspaceAgentView } from './workspace-agent.js';
 import { installRepositorySuggestions } from './repository-suggestions.js';
 import { notify, syncToastLayer } from './notifications.js';
 import { installBoardDrag } from './board-drag.js';
@@ -8,6 +10,9 @@ import { modelPicker, modelCatalogHint } from './model-picker.js';
 import { repositoryDiscoveryPanel } from './repository-discovery.js';
 import { workspaceCard } from './workspace-card.js';
 import { followUpComposer } from './follow-up.js';
+import { lowMotion, setLowMotion, animateEntrances } from './motion-preferences.js';
+import './chat-window.js';
+import { readTaskFilters, writeTaskFilters } from './task-filters-route.js';
 import { planOptions } from './plan-options.js';
 import { refreshQueue, latestLoader, eventBatch } from './async-state.js';
 import { statusQueue } from './pending-status.js';
@@ -139,7 +144,7 @@ function nav(view, label, name, extra = '') {
   return `<button class="nav-item ${state.view === view ? 'active' : ''}" ${state.view === view ? 'aria-current="page"' : ''} data-action="navigate" data-view="${view}" aria-label="${e(label)}" title="${e(label)}">${icon(name)}<span>${label}</span>${extra}</button>`;
 }
 function shell() {
-  app.innerHTML = `<aside class="sidebar" aria-label="Workspace sidebar"><div class="sidebar-heading"><a class="brand" href="#" data-action="navigate" data-view="overview" aria-label="Relay overview"><span class="brand-mark">${icon('relay')}</span><span class="brand-name">relay</span></a>${sidebarControls()}</div><div class="sidebar-section-label">Workspace</div><nav id="workspace-navigation" aria-label="Workspace">${nav('overview', 'Overview', 'grid')}${nav('tasks', 'All tasks', 'layers', `<span class="nav-count">${state.tasks.length}</span>`)}${nav('inbox', 'Approval inbox', 'eye')}${nav('repositories', 'Repositories', 'folder')}${nav('harnesses', 'Agents', 'bolt')}${nav('memory', 'Memory', 'book')}</nav><div class="sidebar-bottom">${nav('settings', 'Settings', 'settings')}<div class="connection"><span class="local-dot ${state.connected ? '' : 'offline'}"></span><span>${state.connected ? 'Connected locally' : 'Reconnecting…'}</span><small>v0.1</small></div></div></aside><div class="main-shell"><header class="topbar"><div class="breadcrumb">Workspace ${icon('chevron')} <span>${state.view === 'task' ? 'Task workspace' : ({ harnesses: 'Agents', inbox: 'Approval inbox' }[state.view] ?? state.view.charAt(0).toUpperCase() + state.view.slice(1))}</span></div><div class="top-actions"><span class="keyboard-hint">N <span>new task</span></span>${button('new-task', 'New task', 'primary small', 'plus')}</div></header><main id="main"></main></div>`;
+  app.innerHTML = `<aside class="sidebar" aria-label="Workspace sidebar"><div class="sidebar-heading"><a class="brand" href="#" data-action="navigate" data-view="overview" aria-label="Relay overview"><span class="brand-mark">${icon('relay')}</span><span class="brand-name">relay</span></a>${sidebarControls()}</div><div class="sidebar-section-label">Workspace</div><nav id="workspace-navigation" aria-label="Workspace">${nav('overview', 'Overview', 'grid')}${nav('assistant', 'Relay agent', 'spark')}${nav('tasks', 'All tasks', 'layers', `<span class="nav-count">${state.tasks.length}</span>`)}${nav('inbox', 'Approval inbox', 'eye')}${nav('repositories', 'Repositories', 'folder')}${nav('harnesses', 'Agents', 'bolt')}${nav('memory', 'Memory', 'book')}</nav><div class="sidebar-bottom">${nav('settings', 'Settings', 'settings')}<div class="connection"><span class="local-dot ${state.connected ? '' : 'offline'}"></span><span>${state.connected ? 'Connected locally' : 'Reconnecting…'}</span><small>v0.1</small></div></div></aside><div class="main-shell"><header class="topbar"><div class="breadcrumb">Workspace ${icon('chevron')} <span>${state.view === 'task' ? 'Task workspace' : ({ assistant: 'Relay agent', harnesses: 'Agents', inbox: 'Approval inbox' }[state.view] ?? state.view.charAt(0).toUpperCase() + state.view.slice(1))}</span></div><div class="top-actions"><kbd class="keyboard-hint" title="Keyboard shortcut: N">N</kbd>${button('new-task', 'New task', 'primary small', 'plus')}</div></header><main id="main"></main></div>`;
   syncSidebar();
   renderMain();
 }
@@ -192,26 +197,29 @@ function renderMain() {
   );
   const selectedApproach = main.querySelector('input[name="optionId"]:checked')?.value;
   const markup =
-    state.view === 'memory'
-      ? state.memoryAvailable
-        ? memoryPage(state.memories, state.config, state.tasks, {
-            query: state.memoryQuery,
-            filter: state.memoryFilter,
-          })
-        : '<section class="settings-panel"><h1>Memory</h1><p>The memory backend update is waiting for active work to finish. Your pipeline keeps running. Reload after Relay restarts to use memory.</p></section>'
-      : state.view === 'inbox'
-        ? inboxPage(state.inbox)
-        : state.view === 'overview'
-          ? overview()
-          : state.view === 'tasks'
-            ? tasksView()
-            : state.view === 'task'
-              ? taskView()
-              : state.view === 'repositories'
-                ? repositoriesView()
-                : state.view === 'harnesses'
-                  ? harnessesView()
-                  : settingsView();
+    state.view === 'assistant'
+      ? workspaceAgentView(state.workspaceMessages)
+      : state.view === 'memory'
+        ? state.memoryAvailable
+          ? memoryPage(state.memories, state.config, state.tasks, {
+              query: state.memoryQuery,
+              filter: state.memoryFilter,
+            })
+          : '<section class="settings-panel"><h1>Memory</h1><p>The memory backend update is waiting for active work to finish. Your pipeline keeps running. Reload after Relay restarts to use memory.</p></section>'
+        : state.view === 'inbox'
+          ? inboxPage(state.inbox)
+          : state.view === 'overview'
+            ? overview()
+            : state.view === 'tasks'
+              ? tasksView()
+              : state.view === 'task'
+                ? taskView()
+                : state.view === 'repositories'
+                  ? repositoriesView()
+                  : state.view === 'harnesses'
+                    ? harnessesView()
+                    : settingsView();
+  if (state.view === 'tasks') writeTaskFilters(state);
   updateLiveDOM(main, markup, `${state.view}:${state.selected ?? ''}:${state.tab}`);
   for (const draft of modelDrafts) {
     const select = document.getElementById(draft.id);
@@ -221,6 +229,7 @@ function renderMain() {
     select.value = draft.value;
     select.closest('relay-select')?.sync();
   }
+  animateEntrances(main);
   syncBrowserTerminal(state.task, state.token, terminalFocused);
   for (const i of inputs) {
     const element = document.getElementById(i.id);
@@ -548,7 +557,7 @@ function harnessesView() {
     )}</div></section><div class="form-footer"><span>Uses your installed CLIs and their existing sign-in.</span><button class="btn primary" type="submit">Save agent settings ${icon('check')}</button></div></form>${outcomesView(state.outcomes, state.config, state.outcomesRepository)}`;
 }
 function settingsView() {
-  return `${pageHeading('MAKE IT YOURS', 'Settings', 'Local configuration, execution limits, and private integration profiles.')}<form id="settings-form" class="settings-panel"><h2>Execution</h2><p>Control concurrency, retries, and run duration.</p><div class="settings-fields"><label>Concurrent tasks<input id="setting-concurrency" class="input" type="number" name="concurrency" min="1" max="8" value="${state.config.concurrency}" required><small>Work in different repositories concurrently.</small></label><label>Automatic repair rounds<input id="setting-rounds" class="input" type="number" name="maxRepairRounds" min="1" max="10" value="${state.config.maxRepairRounds}" required><small>Pause for your input after repeated failures.</small></label><label>Blocker recovery attempts<input id="setting-recovery" class="input" type="number" name="maxRecoveryAttempts" min="0" max="5" value="${state.config.maxRecoveryAttempts ?? 2}" required><small>Agents try to resolve blockers before asking you.</small></label><label>Stage budget (minutes)<input id="setting-timeout" class="input" type="number" name="timeoutMinutes" min="1" max="240" value="${state.config.timeoutMinutes}" required><small>Progress can extend each agent or check up to twice this budget.</small></label></div><button class="btn primary" type="submit">Save execution settings</button></form>${storageView(state.storage)}<section class="settings-panel"><h2>Private integration profiles</h2><p>Import repository profiles or a full configuration as JSON. Profiles stay on this machine.</p><div class="inline-actions">${button('import-profile', 'Import local profile', 'secondary', 'download')}${button('view-config', 'View configuration', 'text', 'code')}</div></section><details class="settings-panel local-execution-details"><summary>Local execution and privacy</summary><p>Relay listens on <code>127.0.0.1</code>. Task history, transcripts, and approvals are stored on this machine. Your harness CLIs handle authentication; Relay does not store API keys.</p><p>Harness and verification commands run with your user account. Use an isolated environment for untrusted code. Read the project README for execution and recovery details.</p></details>`;
+  return `${pageHeading('MAKE IT YOURS', 'Settings', 'Local configuration, execution limits, and private integration profiles.')}<section class="settings-panel"><h2>Appearance</h2><label class="motion-preference"><input type="checkbox" id="low-motion" ${lowMotion() ? 'checked' : ''}> Low motion</label><p>Turn off animations and transitions. Saved in this browser.</p></section><form id="settings-form" class="settings-panel"><h2>Execution</h2><p>Control concurrency, retries, and run duration.</p><div class="settings-fields"><label>Concurrent tasks<input id="setting-concurrency" class="input" type="number" name="concurrency" min="1" max="8" value="${state.config.concurrency}" required><small>Work in different repositories concurrently.</small></label><label>Automatic repair rounds<input id="setting-rounds" class="input" type="number" name="maxRepairRounds" min="1" max="10" value="${state.config.maxRepairRounds}" required><small>Pause for your input after repeated failures.</small></label><label>Blocker recovery attempts<input id="setting-recovery" class="input" type="number" name="maxRecoveryAttempts" min="0" max="5" value="${state.config.maxRecoveryAttempts ?? 2}" required><small>Agents try to resolve blockers before asking you.</small></label><label>Stage budget (minutes)<input id="setting-timeout" class="input" type="number" name="timeoutMinutes" min="1" max="240" value="${state.config.timeoutMinutes}" required><small>Progress can extend each agent or check up to twice this budget.</small></label></div><button class="btn primary" type="submit">Save execution settings</button></form>${storageView(state.storage)}<section class="settings-panel"><h2>Private integration profiles</h2><p>Import repository profiles or a full configuration as JSON. Profiles stay on this machine.</p><div class="inline-actions">${button('import-profile', 'Import local profile', 'secondary', 'download')}${button('view-config', 'View configuration', 'text', 'code')}</div></section><details class="settings-panel local-execution-details"><summary>Local execution and privacy</summary><p>Relay listens on <code>127.0.0.1</code>. Task history, transcripts, and approvals are stored on this machine. Your harness CLIs handle authentication; Relay does not store API keys.</p><p>Harness and verification commands run with your user account. Use an isolated environment for untrusted code. Read the project README for execution and recovery details.</p></details>`;
 }
 
 function showModal(title, contents, wide = false) {
@@ -659,6 +668,7 @@ async function refreshSnapshot() {
   ]);
   state.tasks = state.tasks.map((task) => pendingStatuses.apply(task));
   notifyInbox(state.inbox);
+  if (state.view === 'assistant') state.workspaceMessages = await api('/workspace-agent');
   if (state.view === 'harnesses')
     state.outcomes = await api(
       `/outcomes?repositoryId=${encodeURIComponent(state.outcomesRepository)}`,
@@ -755,10 +765,12 @@ async function loadRepositoryDiscovery(root) {
 }
 async function navigate(view, recordHistory = true) {
   state.view = view;
+  if (view === 'assistant') state.workspaceMessages = await api('/workspace-agent');
   state.selected = null;
   state.task = null;
   shell();
   if (recordHistory) history.pushState(null, '', `#${view}`);
+  if (view === 'tasks') writeTaskFilters(state);
   if (view === 'repositories' && !state.repositoryDiscovery) loadRepositoryDiscovery();
   if (view === 'harnesses') {
     loadModelCatalog();
@@ -802,6 +814,11 @@ document.addEventListener('click', async (event) => {
   if (state.busy) return;
   const action = element.dataset.action;
   try {
+    if (action === 'stop-workspace-agent') {
+      await api('/workspace-agent/stop', 'POST', {});
+      await refresh();
+      return;
+    }
     if (action === 'move-board-task') {
       chooseBoardMove(element.dataset.id);
       return;
@@ -892,7 +909,14 @@ document.addEventListener('click', async (event) => {
       state.modal = { memory };
       showModal(
         'Delete memory?',
-        `<p>${e(memory.title)}</p><p>Future runs will no longer use this memory. Historical run snapshots remain in task history.</p><div class="modal-footer"><button class="btn secondary" data-action="close-modal">Keep memory</button><button class="btn primary" data-action="confirm-delete-memory">Delete memory</button></div>`,
+        confirmation({
+          subject: memory.title,
+          description:
+            'Future runs will no longer use this memory. Historical run snapshots remain in task history.',
+          cancel: 'Keep memory',
+          confirm: 'Delete memory',
+          action: 'confirm-delete-memory',
+        }),
       );
       return;
     }
@@ -927,7 +951,14 @@ document.addEventListener('click', async (event) => {
       state.modal = { cleanup: entry };
       showModal(
         'Remove this finished worktree?',
-        `<p>${e(entry.title)} · ${e(entry.repository)}</p><p class="wrap mono">${e(entry.path)}</p><p>${bytes(entry.bytes)}. Relay will recheck cleanliness and commit preservation. The Git branch, task, approvals and artifacts are retained.</p><div class="modal-footer"><button class="btn secondary" data-action="close-modal">Keep worktree</button><button class="btn primary" data-action="confirm-cleanup">Remove clean worktree</button></div>`,
+        confirmation({
+          subject: `${entry.title} · ${entry.repository}`,
+          description: `Remove ${bytes(entry.bytes)} of workspace files. Relay rechecks cleanliness and commit preservation. The branch, task, approvals and artifacts are retained.`,
+          details: `<p class="wrap mono">${e(entry.path)}</p>`,
+          cancel: 'Keep worktree',
+          confirm: 'Remove clean worktree',
+          action: 'confirm-cleanup',
+        }),
       );
       return;
     }
@@ -1279,7 +1310,15 @@ document.addEventListener('click', async (event) => {
     if (action === 'confirm-cancel')
       return showModal(
         'Cancel this task?',
-        `<p class="modal-description">Execution will stop. The branch, workspace, and existing changes will be kept for you to inspect.</p><div class="modal-footer">${button('close-modal', 'Keep working', 'text')}${button('task-action', 'Cancel task', 'danger', 'stop', 'data-operation="cancel"')}</div>`,
+        confirmation({
+          subject: state.task.title,
+          description:
+            'Execution will stop. The branch, workspace, and existing changes will be kept for you to inspect.',
+          cancel: 'Keep working',
+          confirm: 'Cancel task',
+          action: 'task-action',
+          attributes: 'data-operation="cancel"',
+        }),
       );
     if (action === 'confirm-submit') {
       const repositoryId = element.dataset.repositoryId;
@@ -1382,6 +1421,7 @@ document.addEventListener('click', async (event) => {
 document.addEventListener('submit', async (event) => {
   event.preventDefault();
   const form = event.target;
+  if (form.id === 'workspace-agent-form') return;
   if (form.querySelector('[data-uploading]')) {
     toast('Wait for the image uploads to finish before saving.', true);
     return;
@@ -1459,7 +1499,14 @@ document.addEventListener('submit', async (event) => {
       state.modal = { restoreId: preview.id };
       showModal(
         'Review this restore',
-        `<p>${preview.tasks} tasks · ${preview.events} events · ${preview.files} files</p><p>${e(preview.external)}</p><p>This replaces current Relay history, profiles and assets. A safety archive is created first. Existing repository checkouts stay in place; unfinished workflows require inspection and explicit resume.</p><details><summary>Repository paths and configured commands</summary><pre class="code-block">${e(JSON.stringify(preview.repositories, null, 2))}</pre></details><div class="modal-footer"><button class="btn secondary" data-action="close-modal">Cancel</button><button class="btn primary" data-action="confirm-restore">Restore this backup</button></div>`,
+        confirmation({
+          subject: `${preview.tasks} tasks · ${preview.events} events · ${preview.files} files`,
+          description:
+            'This replaces current Relay history, profiles and assets. A safety archive is created first. Existing checkouts stay in place; unfinished workflows need explicit resume.',
+          details: `<p>${e(preview.external)}</p><details><summary>Repository paths and configured commands</summary><pre class="code-block">${e(JSON.stringify(preview.repositories, null, 2))}</pre></details>`,
+          confirm: 'Restore this backup',
+          action: 'confirm-restore',
+        }),
         true,
       );
     }
@@ -1626,6 +1673,10 @@ document.addEventListener('submit', async (event) => {
   }
 });
 document.addEventListener('change', async (event) => {
+  if (event.target.id === 'low-motion') {
+    setLowMotion(event.target.checked);
+    return;
+  }
   if (event.target.id === 'memory-filter') {
     state.memoryFilter = event.target.value;
     renderMain();
@@ -1732,8 +1783,9 @@ document.addEventListener('keydown', (event) => {
   }
 });
 window.addEventListener('popstate', () => {
-  const hash = location.hash.slice(1);
-  const route = parseTaskRoute(hash);
+  const hash = location.hash.slice(1).split('?')[0];
+  if (hash === 'tasks') Object.assign(state, readTaskFilters(location.hash));
+  const route = parseTaskRoute(location.hash);
   if (route && state.view === 'task' && state.selected === route.id && state.task) {
     state.tab = route.tab;
     state.sideChatOpen = route.sideChatOpen === true;
@@ -1744,7 +1796,9 @@ window.addEventListener('popstate', () => {
   const operation = route
     ? openTask(route.id, false, route.tab, route.sideChatOpen === true)
     : navigate(
-        ['tasks', 'inbox', 'repositories', 'harnesses', 'settings', 'memory'].includes(hash)
+        ['tasks', 'inbox', 'repositories', 'harnesses', 'settings', 'memory', 'assistant'].includes(
+          hash,
+        )
           ? hash
           : 'overview',
         false,
@@ -1789,16 +1843,18 @@ async function boot() {
       api('/harnesses'),
       loadMemories(),
     ]);
-    const hash = location.hash.slice(1);
+    const hash = location.hash.slice(1).split('?')[0];
+    if (hash === 'tasks') Object.assign(state, readTaskFilters(location.hash));
     if (hash.startsWith('task/'))
       await openTask(
-        parseTaskRoute(hash)?.id ?? hash.slice(5),
+        parseTaskRoute(location.hash)?.id ?? hash.slice(5),
         false,
-        parseTaskRoute(hash)?.tab,
-        parseTaskRoute(hash)?.sideChatOpen === true,
+        parseTaskRoute(location.hash)?.tab,
+        parseTaskRoute(location.hash)?.sideChatOpen === true,
       );
     else {
       state.view = [
+        'assistant',
         'overview',
         'tasks',
         'inbox',
@@ -1809,6 +1865,7 @@ async function boot() {
       ].includes(hash)
         ? hash
         : 'overview';
+      if (state.view === 'assistant') state.workspaceMessages = await api('/workspace-agent');
       shell();
     }
     loadModelCatalog();
@@ -1848,3 +1905,19 @@ document.addEventListener(
 );
 document.addEventListener('relay-images-updated', () => renderMain());
 boot();
+
+document.addEventListener('submit', async (event) => {
+  if (event.target.id !== 'workspace-agent-form') return;
+  event.preventDefault();
+  const form = event.target,
+    button = form.querySelector('[type=submit]');
+  button.disabled = true;
+  try {
+    await api('/workspace-agent', 'POST', { question: new FormData(form).get('question') });
+    form.reset();
+    await refresh();
+  } catch (error) {
+    toast(error.message, true);
+    button.disabled = false;
+  }
+});

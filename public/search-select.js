@@ -28,7 +28,7 @@ if (typeof customElements !== 'undefined' && !customElements.get('relay-select')
         super();
         this.attachShadow({ mode: 'open' });
         this.uid = `search-select-${++sequence}`;
-        this.shadowRoot.innerHTML = `<link rel="stylesheet" href="/search-select.css"><button type="button" class="select-trigger" role="combobox" aria-haspopup="listbox" aria-expanded="false"><span class="select-value"></span><span class="select-chevron" aria-hidden="true">⌄</span></button><div class="select-popover" popover="manual"><div class="select-search"><input type="search" autocomplete="off" placeholder="Search options…" role="combobox" aria-autocomplete="list" aria-expanded="true"></div><div class="select-options" role="listbox"></div><div class="select-status" role="status" aria-live="polite"></div></div>`;
+        this.shadowRoot.innerHTML = `<link rel="stylesheet" href="/search-select.css"><button type="button" class="select-trigger" role="combobox" aria-haspopup="listbox" aria-expanded="false"><span class="select-value"></span><svg class="select-chevron" aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m6 9 6 6 6-6"/></svg></button><div class="select-popover" popover="manual"><div class="select-search"><input type="search" autocomplete="off" placeholder="Search options…" role="combobox" aria-autocomplete="list" aria-expanded="true"></div><div class="select-options" role="listbox"></div><div class="select-status" role="status" aria-live="polite"></div></div>`;
         this.trigger = this.shadowRoot.querySelector('button');
         this.panel = this.shadowRoot.querySelector('.select-popover');
         this.search = this.shadowRoot.querySelector('input');

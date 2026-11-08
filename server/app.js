@@ -1,3 +1,4 @@
+import { WorkspaceAgent } from './workspace-agent.js';
 import { repositorySuggestions } from './repository-suggestions.js';
 import { ModelCatalog } from './model-catalog.js';
 import { discoverRepositories } from './repository-discovery.js';
@@ -96,6 +97,9 @@ export function createApp({ directory, publicDirectory, engineOptions = {} }) {
   const followUpAgent = new FollowUpAgent(store, engine, publicationMonitor, {
     run: engineOptions.followUpRun ?? engineOptions.harness,
   });
+  const workspaceAgent = new WorkspaceAgent(store, engine, {
+    run: engineOptions.workspaceAgentRun,
+  });
   const modelCatalog = new ModelCatalog({ run: engineOptions.modelDiscoveryRun });
   const token = randomBytes(32).toString('hex');
   const streams = new Set();
@@ -112,6 +116,7 @@ export function createApp({ directory, publicDirectory, engineOptions = {} }) {
         publicationMonitor.running.size === 0 &&
         publicationWorkflow.running.size === 0 &&
         sideQuestions.running.size === 0 &&
+        !workspaceAgent.controller &&
         followUpAgent.running.size === 0 &&
         !store.all().some((t) => ['running', 'queued', 'manual'].includes(t.status)),
       'Pause active workflows and submissions before maintenance',
@@ -156,6 +161,19 @@ export function createApp({ directory, publicDirectory, engineOptions = {} }) {
       );
       const url = new URL(req.url, origin);
       const path = url.pathname;
+      if (path === '/api/workspace-agent/tool' && req.method === 'POST') {
+        requireValue(!maintenance, 'Maintenance in progress', 409);
+        const supplied = req.headers['x-relay-workspace'];
+        requireValue(
+          typeof supplied === 'string' &&
+            /^[a-f0-9]{64}$/.test(supplied) &&
+            timingSafeEqual(Buffer.from(supplied), Buffer.from(workspaceAgent.capability)),
+          'Workspace capability required',
+          403,
+        );
+        const request = await body(req);
+        return json(res, 200, await workspaceAgent.tool(request.name, request.args));
+      }
       if (!['GET', 'HEAD'].includes(req.method)) {
         requireValue(!maintenance, 'Maintenance in progress; retry shortly', 409);
         mutations++;
@@ -177,6 +195,14 @@ export function createApp({ directory, publicDirectory, engineOptions = {} }) {
           'JSON content type required',
           415,
         );
+      }
+      if (path === '/api/workspace-agent' && req.method === 'GET')
+        return json(res, 200, workspaceAgent.history);
+      if (path === '/api/workspace-agent' && req.method === 'POST')
+        return json(res, 202, await workspaceAgent.ask((await body(req)).question, origin));
+      if (path === '/api/workspace-agent/stop' && req.method === 'POST') {
+        await workspaceAgent.stop();
+        return json(res, 200, { stopped: true });
       }
       if (path === '/api/storage' && req.method === 'GET')
         return json(res, 200, await lifecycleReport(store));
@@ -329,7 +355,8 @@ export function createApp({ directory, publicDirectory, engineOptions = {} }) {
             followUpAgent.running.size +
             engine.running.size +
             publicationMonitor.running.size +
-            publicationWorkflow.running.size,
+            publicationWorkflow.running.size +
+            (workspaceAgent.controller ? 1 : 0),
           monitoring: publicationMonitor.running.size,
           version: '0.1.0',
         });
@@ -989,6 +1016,7 @@ export function createApp({ directory, publicDirectory, engineOptions = {} }) {
     await followUpAgent.stop();
     await publicationWorkflow.stop();
     await publicationMonitor.stop();
+    await workspaceAgent.stop();
     await sideQuestions.stop();
     await engine.stop();
     while (external.size) await new Promise((resolve) => setTimeout(resolve, 20));

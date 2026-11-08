@@ -221,3 +221,11 @@ PR monitoring backs off unchanged snapshots from five to ten to fifteen minutes 
 Current-run status, timers, handoffs and execution logs include publication work. Task lists carry a compact current-run snapshot instead of entire polling histories. Side questions include publication status and recent meaningful activity, so routine polls cannot hide developer direction.
 
 Check resource waits have a separate bounded budget and durable waiting/interruption records. Waiting does not count as passing a check or as test execution failure. Cancellation leaves another active check's lock intact. UI refreshes coalesce event bursts in bounded batches, and delayed diff responses cannot replace another task's view. Queued status updates for removed tasks are discarded after confirming the task is absent; per-task conflicts do not prevent other queued edits from syncing.
+
+### Workspace assistant and display preferences
+
+Open **Relay agent** in the sidebar to inspect task status, read GitHub issue boards using the local CLI authentication, and prepare draft tasks across configured repositories. It uses the configured Claude model and streams tool activity. It can create up to 20 drafts per request and reuses existing ticket URLs. Drafts do not start automatically; implementation and final acceptance keep their approval gates. Other providers require a compatible reader; the assistant cannot invent access or replace the configured publication workflow.
+
+**Settings → Low motion** disables animations and transitions in this browser. The system reduced-motion preference is also respected. Relay vendors Motion locally and uses its JavaScript API; no CDN or React runtime is required.
+
+Drag the Ask Relay header to move its window, or use its bottom-right grip to resize it. Double-click the header to reset. The resize grip supports arrow keys and Home. Geometry is saved in this browser and bounded to the viewport; mobile uses the full-width layout. Task search, project/stage filters, sorting and layout are retained in the URL.

@@ -36,7 +36,7 @@ try {
   await card.dragTo(discovery, { targetPosition: { x: 140, y: 110 } });
   await discovery.locator(`.board-card[data-id="${first.id}"]`).waitFor();
   assert.equal(app.store.get(first.id).statusOverride.lane, 'discovery');
-  assert.ok(page.url().endsWith('#tasks'), 'drop does not open a task');
+  assert.equal(new URL(page.url()).hash.split('?')[0], '#tasks', 'drop does not open a task');
   await page.reload();
   await discovery.locator(`.board-card[data-id="${first.id}"]`).waitFor();
   // Keyboard and touch share an explicit Move control with every board column.

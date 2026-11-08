@@ -1,4 +1,13 @@
 import { e, prose } from './ui.js';
+if (typeof document !== 'undefined')
+  document.addEventListener('click', (event) => {
+    const card = event.target.closest('.approach-option');
+    if (!card || event.target.closest('a,button,input,label') || window.getSelection()?.toString())
+      return;
+    const radio = card.querySelector('input[type=radio]');
+    radio.checked = true;
+    radio.dispatchEvent(new Event('change', { bubbles: true }));
+  });
 export function planOptions(options = []) {
   return options
     .map(

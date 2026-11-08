@@ -61,6 +61,7 @@ try {
   for (const width of [1440, 390]) {
     await page.setViewportSize({ width, height: 1000 });
     for (const view of [
+      'assistant',
       'overview',
       'tasks',
       'inbox',
@@ -80,10 +81,8 @@ try {
       await assertReadableText(page);
       assert.equal(await page.locator('.nav-item[aria-current=page]').count(), 1);
       if (view === 'settings') {
-        assert.equal(
-          await page.locator('#main .settings-panel').first().getAttribute('id'),
-          'settings-form',
-        );
+        assert.equal(await page.locator('#settings-form').isVisible(), true);
+        assert.equal(await page.locator('#low-motion').isVisible(), true);
         await page.locator('.settings-disclosure').first().locator('summary').click();
         await assertReadableText(page);
         await page.locator('.settings-disclosure').first().locator('summary').click();
@@ -104,7 +103,8 @@ try {
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.goto(`${base}/#overview`);
   await page.locator('[data-action=overview-filter][data-filter=active]').click();
-  assert.ok(page.url().endsWith('#tasks'));
+  assert.equal(new URL(page.url()).hash.split('?')[0], '#tasks');
+  assert.equal(new URLSearchParams(new URL(page.url()).hash.split('?')[1]).get('scope'), 'active');
   await page.getByText('Follow-up agent running', { exact: true }).waitFor();
   assert.equal(await page.locator('[data-filter=active]').getAttribute('aria-pressed'), 'true');
   await page.getByRole('button', { name: 'Memory', exact: true }).click();

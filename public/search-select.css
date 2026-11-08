@@ -138,3 +138,17 @@ relay-select > select {
   color: #526851;
   flex: none;
 }
+
+.select-trigger {
+  min-height: var(--select-height, 38px);
+}
+.select-chevron {
+  width: 16px;
+  height: 16px;
+  margin-left: auto;
+}
+:host-context([data-low-motion]) * {
+  animation: none !important;
+  transition: none !important;
+  scroll-behavior: auto !important;
+}

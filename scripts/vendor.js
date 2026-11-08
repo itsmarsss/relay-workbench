@@ -6,6 +6,8 @@ for (const [source, target] of [
   ['@xterm/xterm/LICENSE', 'xterm-LICENSE'],
   ['@xterm/addon-fit/lib/addon-fit.mjs', 'addon-fit.mjs'],
   ['@xterm/addon-fit/LICENSE', 'addon-fit-LICENSE'],
+  ['motion/dist/motion.js', 'motion.js'],
+  ['motion/LICENSE.md', 'motion-LICENSE'],
   ['marked/lib/marked.esm.js', 'marked.js'],
   ['marked/LICENSE', 'marked-LICENSE'],
   ['dompurify/dist/purify.es.mjs', 'purify.js'],
