@@ -1142,3 +1142,37 @@ test('working follow-up authenticates and uses the requested harness', async (t)
   assert.equal(current.status, 'completed');
   assert.equal(current.sideQuestions?.length ?? 0, 0);
 });
+
+test('discovery endpoints authenticate and validate metadata requests', async (t) => {
+  const f = await fixture(t, {
+    modelDiscoveryRun: async () => ({
+      code: 0,
+      stdout: JSON.stringify({ models: [{ model: 'example-fast' }] }),
+    }),
+  });
+  assert.equal(
+    (await f.request('/api/models/discover', 'POST', {}, { 'X-Relay-Token': '' })).status,
+    403,
+  );
+  assert.equal(
+    (await f.request('/api/repositories/discover', 'POST', {}, { 'X-Relay-Token': '' })).status,
+    403,
+  );
+  assert.equal(
+    (await f.request('/api/models/discover', 'POST', { provider: 'unknown' })).status,
+    400,
+  );
+  assert.equal(
+    (await f.request('/api/repositories/discover', 'POST', { root: 'relative' })).status,
+    400,
+  );
+  const models = await f.request('/api/models/discover', 'POST', { provider: 'codex' });
+  assert.equal(models.status, 200);
+  assert.equal(models.data.codex.models[0].id, 'example-fast');
+  assert.equal(models.data.claude, undefined);
+  const root = join(f.directory, 'checkouts');
+  await mkdir(join(root, 'service/.git'), { recursive: true });
+  const repos = await f.request('/api/repositories/discover', 'POST', { root });
+  assert.equal(repos.data.repositories[0].name, 'service');
+  assert.equal(f.app.store.config.repositories.length, 0);
+});

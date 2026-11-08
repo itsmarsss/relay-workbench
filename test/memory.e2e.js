@@ -1,3 +1,4 @@
+import { mockDiscovery } from './discovery-fixtures.js';
 import assert from 'node:assert/strict';
 import { mkdtemp, rm, mkdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -37,6 +38,7 @@ try {
     viewport: { width: 1440, height: 1100 },
     reducedMotion: 'reduce',
   });
+  await mockDiscovery(page);
   const errors = [];
   page.on('pageerror', (error) => errors.push(error.message));
   await page.goto(`http://127.0.0.1:${app.server.address().port}/#memory`);

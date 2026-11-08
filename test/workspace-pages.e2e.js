@@ -1,3 +1,4 @@
+import { mockDiscovery } from './discovery-fixtures.js';
 import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -54,6 +55,7 @@ try {
     ...(process.env.RELAY_CHROME ? { executablePath: process.env.RELAY_CHROME } : {}),
   });
   const page = await browser.newPage();
+  await mockDiscovery(page);
   const errors = [];
   page.on('pageerror', (error) => errors.push(error.message));
   for (const width of [1440, 390]) {
@@ -113,6 +115,20 @@ try {
   await page.getByRole('heading', { name: 'Prefer focused checks', exact: true }).waitFor();
   await page.getByRole('button', { name: 'Agents', exact: true }).click();
   await page.getByRole('heading', { name: 'Routing evidence', exact: true }).waitFor();
+  await page.locator('#codex-model option[value="example-fast"]').waitFor({ state: 'attached' });
+  const modelControl = page.locator('relay-select').filter({ has: page.locator('#codex-model') });
+  await modelControl.getByRole('combobox').first().click();
+  await modelControl
+    .getByRole('searchbox')
+    .fill('Deep')
+    .catch(async () => {
+      await modelControl.locator('input[type=search]').fill('Deep');
+    });
+  await modelControl.getByRole('option', { name: /Example Deep/ }).click();
+  assert.equal(await page.locator('#codex-model').inputValue(), 'example-deep');
+  await page.getByRole('button', { name: 'Refresh models', exact: true }).click();
+  await page.waitForTimeout(300);
+  assert.equal(await page.locator('#codex-model').inputValue(), 'example-deep');
   await page.locator('#codex-command').fill('custom-codex');
   await page.locator('#pi-enabled').uncheck();
   await page.locator('#route-implement').selectOption('claude', { force: true });
@@ -121,6 +137,27 @@ try {
   assert.equal(await page.locator('#codex-command').inputValue(), 'custom-codex');
   assert.equal(await page.locator('#pi-enabled').isChecked(), false);
   assert.equal(await page.locator('#route-implement').inputValue(), 'claude');
+  await page.route('**/api/repositories/discover', (route) =>
+    route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({
+        repositories: [
+          { name: 'Detected service', path: '/example/checkouts/service', configured: false },
+        ],
+        roots: ['/example/checkouts'],
+        directories: 2,
+        truncated: false,
+        warnings: [],
+      }),
+    }),
+  );
+  await page.getByRole('button', { name: 'Repositories', exact: true }).click();
+  await page.getByRole('button', { name: 'Scan common folders', exact: true }).click();
+  await page.locator('[data-action=add-discovered-repository]').click();
+  assert.equal(await page.locator('#repo-path').inputValue(), '/example/checkouts/service');
+  assert.equal(await page.locator('#repository-form [name=name]').inputValue(), 'Detected service');
+  assert.equal(app.store.config.repositories.length, 1);
+  await page.getByRole('button', { name: 'Cancel', exact: true }).click();
   await page.getByRole('button', { name: 'Settings', exact: true }).click();
   await page.locator('#setting-recovery').fill('4');
   app.store.event(waiting.id, { type: 'activity', summary: 'Another background update' });

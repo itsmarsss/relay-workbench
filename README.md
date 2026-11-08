@@ -15,8 +15,8 @@ Click **Try a demo** to exercise the entire workflow with clearly labeled simula
 
 ## Your first live run
 
-1. Add a repository in **Repositories**. Supply its absolute checkout path, optional working subdirectory and workspace strategy. Agent verification is the default; a fixed command list is optional.
-2. Check harness executables and model overrides in **Harnesses**. Blank model values use each CLI's own default. Route each stage independently; Pi can optionally triage and recommend routing.
+1. Open **Repositories** to discover checkouts in common development folders and alongside configured repositories, or scan a specific folder. Choose **Add** on a suggestion, then save its profile. You can also supply a checkout path manually. Agent verification is the default; a fixed command list is optional.
+2. Check executables and model overrides in **Agents**. Search model lists reported by your installed CLIs, or enter a custom model ID. Blank values use the CLI default. Lists are cached for five minutes; **Refresh models** reloads them. Route each stage independently; Pi can optionally triage and recommend routing.
 3. Create a task from a title/description or import an issue through your configured issue command.
 4. Start the task. Review investigation and approach options, select an approach, then approve implementation.
 5. Relay implements, verifies through an elevated agent, asks an independent harness to review, and loops over requested fixes. Approve the final diff when ready.

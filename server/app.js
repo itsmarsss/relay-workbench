@@ -1,3 +1,5 @@
+import { ModelCatalog } from './model-catalog.js';
+import { discoverRepositories } from './repository-discovery.js';
 import { FollowUpAgent } from './follow-up-agent.js';
 import { currentTaskRun } from '../public/task-runs.js';
 import { PublicationWorkflow } from './publication-workflow.js';
@@ -93,6 +95,7 @@ export function createApp({ directory, publicDirectory, engineOptions = {} }) {
   const followUpAgent = new FollowUpAgent(store, engine, publicationMonitor, {
     run: engineOptions.followUpRun ?? engineOptions.harness,
   });
+  const modelCatalog = new ModelCatalog({ run: engineOptions.modelDiscoveryRun });
   const token = randomBytes(32).toString('hex');
   const streams = new Set();
   const terminalStreams = new Map();
@@ -329,6 +332,28 @@ export function createApp({ directory, publicDirectory, engineOptions = {} }) {
           monitoring: publicationMonitor.running.size,
           version: '0.1.0',
         });
+      if (path === '/api/models/discover' && req.method === 'POST') {
+        const raw = await body(req);
+        requireValue(
+          raw.provider === undefined || ['codex', 'claude', 'pi'].includes(raw.provider),
+          'Choose a supported provider',
+        );
+        const harnesses = raw.provider
+          ? { [raw.provider]: store.config.harnesses[raw.provider] }
+          : store.config.harnesses;
+        return json(res, 200, await modelCatalog.discover(harnesses, raw.refresh === true));
+      }
+      if (path === '/api/repositories/discover' && req.method === 'POST') {
+        const raw = await body(req);
+        return json(
+          res,
+          200,
+          await (engineOptions.repositoryDiscovery ?? discoverRepositories)(
+            store.config.repositories,
+            { root: raw.root === '' ? undefined : raw.root },
+          ),
+        );
+      }
       if (path === '/api/harnesses' && req.method === 'GET') {
         const harnesses = await Promise.all(
           Object.entries(store.config.harnesses).map(async ([id, config]) => ({
@@ -915,6 +940,7 @@ export function createApp({ directory, publicDirectory, engineOptions = {} }) {
     restorePreviews.clear();
     for (const stream of streams) stream.end();
     for (const controller of external.values()) controller.abort();
+    await modelCatalog.stop();
     await followUpAgent.stop();
     await publicationWorkflow.stop();
     await publicationMonitor.stop();

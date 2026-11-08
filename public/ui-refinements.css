@@ -1135,3 +1135,83 @@
     gap: 6px;
   }
 }
+.model-picker-hint {
+  margin: 7px 0 0;
+  font-size: 11px;
+  color: #58645d;
+  line-height: 1.5;
+}
+.repository-discovery {
+  margin-bottom: 24px;
+}
+.repository-discovery .panel-heading-row p {
+  margin: 5px 0 0;
+}
+#repository-discovery-form {
+  margin: 18px 0;
+}
+#repository-discovery-form > label {
+  font-size: 12px;
+  color: #58645d;
+}
+.repository-scan-controls {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  margin-top: 6px;
+}
+.repository-scan-controls input {
+  min-width: 0;
+  flex: 1;
+}
+.repository-scan-controls button {
+  flex-shrink: 0;
+}
+.detected-repositories {
+  list-style: none;
+  margin: 18px 0 0;
+  padding: 0;
+}
+.detected-repositories li {
+  border-top: 1px solid var(--line);
+  padding: 14px 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.detected-repositories li > div {
+  min-width: 0;
+}
+.detected-repositories strong {
+  display: block;
+  font-size: 14px;
+}
+.detected-repositories code {
+  display: block;
+  overflow-wrap: anywhere;
+  font-size: 11px;
+  color: #58645d;
+  margin-top: 4px;
+  background: none;
+}
+.discovery-added {
+  font-size: 12px;
+  color: #48624f;
+}
+.discovery-scope {
+  margin-top: 12px;
+  color: #58645d;
+  font-size: 12px;
+}
+.discovery-scope code {
+  overflow-wrap: anywhere;
+}
+@media (max-width: 600px) {
+  .repository-scan-controls {
+    flex-wrap: wrap;
+  }
+  .repository-scan-controls input {
+    flex-basis: 100%;
+  }
+}

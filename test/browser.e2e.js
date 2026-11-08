@@ -1,3 +1,4 @@
+import { mockDiscovery } from './discovery-fixtures.js';
 import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, rm, writeFile, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -55,6 +56,7 @@ try {
     viewport: { width: 1440, height: 1100 },
     reducedMotion: 'reduce',
   });
+  await mockDiscovery(page);
   const errors = [];
   page.on('pageerror', (error) => errors.push(error.message));
   page.on('console', (message) => {

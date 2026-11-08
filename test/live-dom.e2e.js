@@ -1,3 +1,4 @@
+import { mockDiscovery } from './discovery-fixtures.js';
 import assert from 'node:assert/strict';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -15,6 +16,7 @@ try {
     ...(process.env.RELAY_CHROME ? { executablePath: process.env.RELAY_CHROME } : {}),
   });
   const page = await browser.newPage({ viewport: { width: 1200, height: 700 } });
+  await mockDiscovery(page);
   await page.goto(`http://127.0.0.1:${app.server.address().port}`);
   await page.getByRole('heading', { name: /Let’s make progress/ }).waitFor();
   // A stalled activity request must not hide a completed stage or approval gate.

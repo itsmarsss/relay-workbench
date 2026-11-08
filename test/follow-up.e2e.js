@@ -1,3 +1,4 @@
+import { mockDiscovery } from './discovery-fixtures.js';
 import assert from 'node:assert/strict';
 import { mkdtemp, rm, writeFile, mkdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -127,6 +128,7 @@ try {
     ...(process.env.RELAY_CHROME ? { executablePath: process.env.RELAY_CHROME } : {}),
   });
   const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
+  await mockDiscovery(page);
   const errors = [];
   page.on('pageerror', (error) => errors.push(error.message));
   await page.goto(`http://127.0.0.1:${app.server.address().port}/#task/${task.id}/overview`);

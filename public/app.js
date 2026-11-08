@@ -1,3 +1,5 @@
+import { modelPicker, modelCatalogHint } from './model-picker.js';
+import { repositoryDiscoveryPanel } from './repository-discovery.js';
 import { workspaceCard } from './workspace-card.js';
 import { followUpComposer } from './follow-up.js';
 import { planOptions } from './plan-options.js';
@@ -49,6 +51,9 @@ import {
 } from './ui.js';
 
 const state = {
+  modelCatalog: {},
+  modelCatalogLoading: false,
+  repositoryDiscovery: null,
   memories: [],
   memoryAvailable: false,
   memoryQuery: '',
@@ -169,6 +174,12 @@ function renderMain() {
       end: i.selectionEnd,
       checked: i.checked,
     }));
+  const modelDrafts = [...main.querySelectorAll('select[data-model-provider]')].map((select) => ({
+    id: select.id,
+    provider: select.dataset.modelProvider,
+    value: select.value,
+    label: select.selectedOptions[0]?.textContent,
+  }));
   const expanded = new Map(
     [...main.querySelectorAll('details[data-event-key]')].map((d) => [d.dataset.eventKey, d.open]),
   );
@@ -195,6 +206,14 @@ function renderMain() {
                   ? harnessesView()
                   : settingsView();
   updateLiveDOM(main, markup, `${state.view}:${state.selected ?? ''}:${state.tab}`);
+  for (const draft of modelDrafts) {
+    const select = document.getElementById(draft.id);
+    if (!select || select.dataset.modelProvider !== draft.provider) continue;
+    if (![...select.options].some((option) => option.value === draft.value))
+      select.add(new Option(draft.label || draft.value, draft.value));
+    select.value = draft.value;
+    select.closest('relay-select')?.sync();
+  }
   syncBrowserTerminal(state.task, state.token, terminalFocused);
   for (const i of inputs) {
     const element = document.getElementById(i.id);
@@ -319,7 +338,7 @@ function taskView() {
     )
     .join(
       '',
-    )}</div><div class="detail-content">${state.tab === 'overview' ? taskDetails(t) || empty('book', 'No description yet', 'Configure this task to add requirements.') : state.tab === 'terminals' ? terminalView(t, state) : state.tab === 'thread' ? threadView(t) : state.tab === 'handoffs' ? handoffsView(t) : state.tab === 'diff' ? diffView(t) : transcriptView(t)}</div>${!['completed', 'cancelled'].includes(t.status) ? `<form id="message-form" class="message-box">${markdownEditor({ id: 'task-message', name: 'message', label: 'Add direction or context', rows: 3, max: 20000 })}<div><small>${t.canSteer ? 'Steer sends direction to the active session; Claude interrupts and resumes.' : 'Context stays pending until an agent receives it.'} ${t.messages.filter((m) => m.delivery === 'pending').length} pending.</small>${t.canSteer ? '<label><input id="steer-active" type="checkbox" name="steer" checked> Steer active agent</label>' : ''}<button class="btn secondary small" type="submit">Send direction ${icon('arrow')}</button></div></form>` : ''}${followUpComposer(t, state.config, state.followUpProviders?.[t.id], state.followUpSettings?.[t.id])}</div><aside class="task-context">${sideChat(t, state.sideChatOpen)}${state.memoryAvailable ? runMemories(t) : ''}<section class="context-card"><div class="context-title">WORKFLOW <span class="live-label ${live ? 'is-live' : ''}">${live ? '● LIVE' : t.demo ? '6 STAGES' : '7 STAGES'}</span></div><ol class="stage-list">${workflowStages(t)}${deliveryWorkflowStages(t)}</ol><button class="btn secondary workflow-graph-button" data-action="open-execution-map" aria-label="Open execution graph">Execution graph ↗</button></section>${(t
+    )}</div><div class="detail-content">${state.tab === 'overview' ? taskDetails(t) || empty('book', 'No description yet', 'Configure this task to add requirements.') : state.tab === 'terminals' ? terminalView(t, state) : state.tab === 'thread' ? threadView(t) : state.tab === 'handoffs' ? handoffsView(t) : state.tab === 'diff' ? diffView(t) : transcriptView(t)}</div>${!['completed', 'cancelled'].includes(t.status) ? `<form id="message-form" class="message-box">${markdownEditor({ id: 'task-message', name: 'message', label: 'Add direction or context', rows: 3, max: 20000 })}<div><small>${t.canSteer ? 'Steer sends direction to the active session; Claude interrupts and resumes.' : 'Context stays pending until an agent receives it.'} ${t.messages.filter((m) => m.delivery === 'pending').length} pending.</small>${t.canSteer ? '<label><input id="steer-active" type="checkbox" name="steer" checked> Steer active agent</label>' : ''}<button class="btn secondary small" type="submit">Send direction ${icon('arrow')}</button></div></form>` : ''}${followUpComposer(t, state.config, state.followUpProviders?.[t.id], state.followUpSettings?.[t.id], state.modelCatalog)}</div><aside class="task-context">${sideChat(t, state.sideChatOpen)}${state.memoryAvailable ? runMemories(t) : ''}<section class="context-card"><div class="context-title">WORKFLOW <span class="live-label ${live ? 'is-live' : ''}">${live ? '● LIVE' : t.demo ? '6 STAGES' : '7 STAGES'}</span></div><ol class="stage-list">${workflowStages(t)}${deliveryWorkflowStages(t)}</ol><button class="btn secondary workflow-graph-button" data-action="open-execution-map" aria-label="Open execution graph">Execution graph ↗</button></section>${(t
     .repositories?.length > 1
     ? t.repositories
     : [t]
@@ -451,10 +470,10 @@ function transcriptView(t) {
   });
 }
 function repositoriesView() {
-  return `${pageHeading('WORKSPACE', 'Repositories', 'Repository profiles and task workspaces.', button('add-repository', 'Add repository', 'primary', 'plus'))}<div class="repository-grid">${state.config.repositories.map((r) => `<article class="repository-card"><div class="repo-card-heading"><span class="repo-icon">${icon('folder')}</span><h2>${e(r.name)}</h2>${button('edit-repository', 'Edit profile', 'text small', '', `data-id="${e(r.id)}" aria-label="Edit ${e(r.name)} profile"`)}</div><p class="repo-path mono">${e(r.path)}</p><dl class="repository-facts"><div><dt>Workspace</dt><dd>${r.strategy === 'attach' ? 'Existing checkout' : r.strategy === 'managed' ? 'Managed task worktree' : 'New worktree per task'}</dd></div><div><dt>Verification</dt><dd>${r.verificationMode !== 'commands' ? 'Agent discovers checks' : `${r.checks.length} configured ${r.checks.length === 1 ? 'command' : 'commands'}`}</dd></div><div><dt>Working directory</dt><dd class="mono">${e(r.cwd || '.')}</dd></div></dl></article>`).join('')}${!state.config.repositories.length ? empty('folder', 'Connect your first repository', 'Choose a local checkout to start real work.', button('add-repository', 'Add repository', 'primary', 'plus')) : ''}</div><div class="info-panel">${icon('git')}<div><strong>One shared workspace per task</strong><p>Agents share the same files. Finished worktrees and changes are kept until you clean them up.</p></div></div>`;
+  return `${pageHeading('WORKSPACE', 'Repositories', 'Repository profiles and task workspaces.', button('add-repository', 'Add repository', 'primary', 'plus'))}${repositoryDiscoveryPanel(state.repositoryDiscovery)}<div class="repository-grid">${state.config.repositories.map((r) => `<article class="repository-card"><div class="repo-card-heading"><span class="repo-icon">${icon('folder')}</span><h2>${e(r.name)}</h2>${button('edit-repository', 'Edit profile', 'text small', '', `data-id="${e(r.id)}" aria-label="Edit ${e(r.name)} profile"`)}</div><p class="repo-path mono">${e(r.path)}</p><dl class="repository-facts"><div><dt>Workspace</dt><dd>${r.strategy === 'attach' ? 'Existing checkout' : r.strategy === 'managed' ? 'Managed task worktree' : 'New worktree per task'}</dd></div><div><dt>Verification</dt><dd>${r.verificationMode !== 'commands' ? 'Agent discovers checks' : `${r.checks.length} configured ${r.checks.length === 1 ? 'command' : 'commands'}`}</dd></div><div><dt>Working directory</dt><dd class="mono">${e(r.cwd || '.')}</dd></div></dl></article>`).join('')}${!state.config.repositories.length ? empty('folder', 'Connect your first repository', 'Choose a local checkout to start real work.', button('add-repository', 'Add repository', 'primary', 'plus')) : ''}</div><div class="info-panel">${icon('git')}<div><strong>One shared workspace per task</strong><p>Agents share the same files. Finished worktrees and changes are kept until you clean them up.</p></div></div>`;
 }
 function harnessesView() {
-  return `${pageHeading('WORKSPACE', 'Agents', 'Configure providers and defaults for new tasks.')}<form id="harness-form"><div class="harness-grid">${[
+  return `${pageHeading('WORKSPACE', 'Agents', 'Configure providers and defaults for new tasks.', button('refresh-models', 'Refresh models', 'secondary small'))}<form id="harness-form"><div class="harness-grid">${[
     'codex',
     'claude',
     'pi',
@@ -462,7 +481,7 @@ function harnessesView() {
     .map((id) => {
       const h = state.config.harnesses[id];
       const available = state.harnesses.find((v) => v.id === id)?.available;
-      return `<article class="harness-card"><div class="harness-card-heading">${harnessBadge(id)}<div><h2>${id === 'pi' ? 'Pi' : id === 'codex' ? 'Codex' : 'Claude Code'}</h2><small>${h.enabled ? 'Enabled' : 'Disabled'}</small></div></div><div class="availability ${available ? 'available' : ''}"><span class="status-dot"></span>${available ? 'CLI found' : 'CLI not found'}<small>Sign-in checked when a run starts</small></div><label class="field-label" for="${id}-command">Executable</label><input class="input mono" id="${id}-command" name="${id}-command" value="${e(h.command)}" required><label class="field-label" for="${id}-model">Model override <span>Optional</span></label><input class="input" id="${id}-model" name="${id}-model" placeholder="Use harness default" value="${e(h.model)}"><label class="toggle-label"><input id="${id}-enabled" type="checkbox" name="${id}-enabled" ${h.enabled ? 'checked' : ''}> Enabled for routing</label></article>`;
+      return `<article class="harness-card"><div class="harness-card-heading">${harnessBadge(id)}<div><h2>${id === 'pi' ? 'Pi' : id === 'codex' ? 'Codex' : 'Claude Code'}</h2><small>${h.enabled ? 'Enabled' : 'Disabled'}</small></div></div><div class="availability ${available ? 'available' : ''}"><span class="status-dot"></span>${available ? 'CLI found' : 'CLI not found'}<small>Sign-in checked when a run starts</small></div><label class="field-label" for="${id}-command">Executable</label><input class="input mono" id="${id}-command" name="${id}-command" value="${e(h.command)}" required><label class="field-label" for="${id}-model">Model override <span>Optional</span></label>${modelPicker({ id: `${id}-model`, name: `${id}-model`, provider: id, value: h.model, catalog: state.modelCatalog })}<p class="model-picker-hint">${e(modelCatalogHint(state.modelCatalog, id))}</p><label class="toggle-label"><input id="${id}-enabled" type="checkbox" name="${id}-enabled" ${h.enabled ? 'checked' : ''}> Enabled for routing</label></article>`;
     })
     .join(
       '',
@@ -557,7 +576,7 @@ function parseCommands(value) {
       return { command: parsed[0], args: parsed.slice(1) };
     });
 }
-function repositoryModal(id) {
+function repositoryModal(id, preset = {}) {
   const r = state.config.repositories.find((r) => r.id === id) || {
     name: '',
     path: '',
@@ -566,6 +585,7 @@ function repositoryModal(id) {
     checks: [],
     setup: [],
     instructions: '',
+    ...preset,
   };
   state.modal = { repositoryId: id };
   showModal(
@@ -652,13 +672,41 @@ async function openTask(id, recordHistory = true, tab = 'overview', sideChatOpen
   if (state.selected !== id) return;
   if (state.tab === 'diff') await loadDiff();
 }
+async function loadModelCatalog(refresh = false) {
+  if (state.modelCatalogLoading) return;
+  state.modelCatalogLoading = true;
+  try {
+    state.modelCatalog = await api('/models/discover', 'POST', { refresh }, { timeoutMs: 30000 });
+  } catch (error) {
+    for (const id of ['codex', 'claude', 'pi'])
+      state.modelCatalog[id] ??= { status: 'unavailable', models: [], error: error.message };
+  } finally {
+    state.modelCatalogLoading = false;
+    renderMain();
+  }
+}
+async function loadRepositoryDiscovery(root) {
+  if (state.repositoryDiscovery?.loading) return;
+  state.repositoryDiscovery = { loading: true };
+  renderMain();
+  try {
+    state.repositoryDiscovery = await api('/repositories/discover', 'POST', root ? { root } : {}, {
+      timeoutMs: 15000,
+    });
+  } catch (error) {
+    state.repositoryDiscovery = { error: error.message };
+  }
+  renderMain();
+}
 async function navigate(view, recordHistory = true) {
   state.view = view;
   state.selected = null;
   state.task = null;
   shell();
   if (recordHistory) history.pushState(null, '', `#${view}`);
+  if (view === 'repositories' && !state.repositoryDiscovery) loadRepositoryDiscovery();
   if (view === 'harnesses') {
+    loadModelCatalog();
     [state.harnesses, state.outcomes] = await Promise.all([
       api('/harnesses'),
       api(`/outcomes?repositoryId=${encodeURIComponent(state.outcomesRepository)}`),
@@ -980,6 +1028,18 @@ document.addEventListener('click', async (event) => {
       }
     }
     if (action === 'close-modal') return closeModal();
+    if (action === 'refresh-models') {
+      await loadModelCatalog(true);
+      return;
+    }
+    if (action === 'discover-repositories') {
+      await loadRepositoryDiscovery();
+      return;
+    }
+    if (action === 'add-discovered-repository') {
+      repositoryModal(null, { name: element.dataset.name, path: element.dataset.path });
+      return;
+    }
     if (action === 'overview-filter') {
       state.filter = element.dataset.filter;
       state.search = '';
@@ -1442,7 +1502,13 @@ document.addEventListener('submit', async (event) => {
       await saveConfig(config);
       closeModal();
       renderMain();
+      state.repositoryDiscovery = null;
+      loadRepositoryDiscovery();
       toast('Repository profile saved.');
+    }
+    if (form.id === 'repository-discovery-form') {
+      await loadRepositoryDiscovery(data.get('root'));
+      return;
     }
     if (form.id === 'harness-form') {
       const config = structuredClone(state.config);
@@ -1679,6 +1745,8 @@ async function boot() {
         : 'overview';
       shell();
     }
+    loadModelCatalog();
+    if (state.view === 'repositories') loadRepositoryDiscovery();
     state.inbox = await api('/inbox');
     if (state.view === 'harnesses') {
       state.outcomes = await api('/outcomes');
