@@ -3,6 +3,9 @@ import { markdown } from './markdown.js';
 export { escapeHTML };
 export const e = escapeHTML;
 const icons = {
+  resize: '<path d="m8 20 12-12M14 20l6-6M20 20h.01"/>',
+  orchestrator:
+    '<rect x="8" y="3" width="8" height="6" rx="2"/><rect x="2" y="16" width="7" height="5" rx="1.5"/><rect x="15" y="16" width="7" height="5" rx="1.5"/><path d="M12 9v4H5.5v3M12 13h6.5v3"/>',
   move: '<circle cx="9" cy="6" r="1"/><circle cx="15" cy="6" r="1"/><circle cx="9" cy="12" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="9" cy="18" r="1"/><circle cx="15" cy="18" r="1"/>',
   sidebar: '<rect x="3" y="4" width="18" height="16" rx="3"/><path d="M9 4v16"/>',
   relay: '<path d="M4 4h10a5 5 0 0 1 0 10H9l-5 5V4Z"/><path d="M9 9v5m4-5h2"/>',

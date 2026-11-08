@@ -1,0 +1,324 @@
+.orchestrator-intro {
+  margin: 0 0 24px;
+  max-width: 1180px;
+}
+.orchestrator-heading {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+}
+.orchestrator-mark {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 48px;
+  height: 48px;
+  border-radius: 14px;
+  color: #193b35;
+  background: #e6eee6;
+  border: 1px solid #cfdfd1;
+}
+.orchestrator-mark .icon {
+  width: 26px;
+  height: 26px;
+}
+.orchestrator-eyebrow {
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  color: #536958;
+  font-weight: 650;
+}
+.orchestrator-heading h1,
+.orchestrator-heading h2 {
+  font-size: 26px;
+  line-height: 1.25;
+  margin: 5px 0 8px;
+  letter-spacing: -0.6px;
+}
+.orchestrator-heading p {
+  margin: 0;
+  color: #56665b;
+  font-size: 14px;
+  line-height: 1.6;
+}
+.orchestrator-status {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 20px;
+  margin: 20px 0 0;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--line);
+  font-size: 12px;
+  color: #536558;
+}
+.orchestrator-status > span:first-child {
+  margin-right: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #244f3d;
+}
+.orchestrator-status i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #70967d;
+}
+.orchestrator-status i.is-live {
+  background: #2b8058;
+  box-shadow: 0 0 0 3px #e2efe4;
+}
+.orchestrator-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 260px;
+  align-items: start;
+  gap: 24px;
+  max-width: 1180px;
+}
+.orchestrator-layout .workspace-conversation {
+  max-width: none;
+  min-width: 0;
+}
+.orchestrator-welcome {
+  padding: 18px 4px 12px;
+}
+.orchestrator-welcome h3 {
+  margin: 0 0 8px;
+  font-size: 18px;
+  font-weight: 600;
+}
+.orchestrator-welcome > p {
+  margin: 0 0 22px;
+  font-size: 14px;
+  color: #56665b;
+}
+.orchestrator-prompts {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+.orchestrator-prompt {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  text-align: left;
+  padding: 14px 12px;
+  border: 1px solid #dce5db;
+  border-radius: 8px;
+  background: #f8faf7;
+  color: #304b3b;
+  cursor: pointer;
+}
+.orchestrator-prompt strong {
+  font-size: 13px;
+  font-weight: 550;
+}
+.orchestrator-prompt .icon {
+  width: 15px;
+  height: 15px;
+  flex: none;
+}
+.orchestrator-prompt:hover {
+  background: #edf3ea;
+  border-color: #a2b8a4;
+}
+.orchestrator-answer-heading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  color: #254c3c;
+}
+.orchestrator-answer-heading .icon {
+  width: 16px;
+  height: 16px;
+}
+.orchestrator-queue {
+  padding: 4px 0;
+  min-width: 0;
+}
+.orchestrator-queue-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.orchestrator-queue-title h2 {
+  font-size: 13px;
+  margin: 0;
+  font-weight: 600;
+}
+.orchestrator-queue-title > span {
+  font-size: 12px;
+  color: #56665b;
+}
+.orchestrator-queue > p {
+  font-size: 13px;
+  line-height: 1.6;
+  color: #56665b;
+}
+.orchestrator-task {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  text-align: left;
+  width: 100%;
+  padding: 14px 0;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  background: none;
+  cursor: pointer;
+}
+.orchestrator-task strong {
+  font-size: 13px;
+  font-weight: 550;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.orchestrator-queue > .btn {
+  margin-top: 14px;
+  padding-left: 0;
+}
+.orchestrator-trigger {
+  color: #244c3c;
+  border-color: #cedbcf;
+  background: #f2f6ef;
+}
+.orchestrator-trigger .keyboard-hint {
+  margin-left: 8px;
+}
+.orchestrator-dialog {
+  position: fixed;
+  inset: 16px 16px 16px auto;
+  margin: 0;
+  padding: 0;
+  width: min(680px, calc(100vw - 32px));
+  max-width: none;
+  height: calc(100dvh - 32px);
+  max-height: none;
+  border: 1px solid #cdd9cf;
+  border-radius: 16px;
+  box-shadow: 0 18px 80px #142f2533;
+  background: #f8faf7;
+  color: #263c30;
+  overflow: hidden;
+}
+.orchestrator-dialog[open] {
+  display: flex;
+  flex-direction: column;
+}
+.orchestrator-dialog::backdrop {
+  background: #14251e38;
+}
+.orchestrator-dialog > header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: none;
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--line);
+  background: white;
+}
+.orchestrator-dialog > header > .icon {
+  width: 20px;
+  height: 20px;
+}
+.orchestrator-dialog > header > strong {
+  font-size: 14px;
+  font-weight: 600;
+}
+.orchestrator-dialog > header > button {
+  margin-left: auto;
+}
+.orchestrator-dialog-body {
+  padding: 24px;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+.orchestrator-dialog .orchestrator-layout {
+  display: block;
+}
+.orchestrator-dialog .orchestrator-heading h2 {
+  font-size: 22px;
+}
+.orchestrator-dialog .orchestrator-mark {
+  display: none;
+}
+.orchestrator-dialog .workspace-messages {
+  max-height: 45dvh;
+  overflow: auto;
+}
+@media (max-width: 1050px) {
+  .orchestrator-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .orchestrator-queue {
+    border-top: 1px solid var(--line);
+    padding-top: 20px;
+  }
+}
+@media (max-width: 700px) {
+  .orchestrator-heading {
+    gap: 12px;
+  }
+  .orchestrator-mark {
+    display: none;
+  }
+  .orchestrator-heading h1 {
+    font-size: 24px;
+  }
+  .orchestrator-prompts {
+    grid-template-columns: 1fr;
+  }
+  .orchestrator-prompt {
+    padding: 12px;
+  }
+  .orchestrator-dialog {
+    inset: 8px;
+    width: calc(100vw - 16px);
+    height: calc(100dvh - 16px);
+    border-radius: 12px;
+  }
+  .orchestrator-dialog-body {
+    padding: 18px;
+  }
+  .orchestrator-status {
+    gap: 10px 14px;
+  }
+}
+
+.orchestrator-dialog-body {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.orchestrator-dialog .orchestrator-intro {
+  flex: none;
+  margin-bottom: 16px;
+}
+.orchestrator-dialog .orchestrator-layout {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+.orchestrator-dialog .workspace-conversation {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+.orchestrator-dialog .workspace-messages {
+  flex: 1;
+  min-height: 0;
+  max-height: none;
+  overflow: auto;
+}
+.orchestrator-dialog .workspace-conversation > form {
+  flex: none;
+  padding: 16px;
+}

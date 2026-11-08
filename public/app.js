@@ -10,7 +10,7 @@ import { modelPicker, modelCatalogHint } from './model-picker.js';
 import { repositoryDiscoveryPanel } from './repository-discovery.js';
 import { workspaceCard } from './workspace-card.js';
 import { followUpComposer } from './follow-up.js';
-import { lowMotion, setLowMotion, animateEntrances } from './motion-preferences.js';
+import { lowMotion, setLowMotion, animateEntrances, animateSurface } from './motion-preferences.js';
 import './chat-window.js';
 import { readTaskFilters, writeTaskFilters } from './task-filters-route.js';
 import { planOptions } from './plan-options.js';
@@ -144,7 +144,7 @@ function nav(view, label, name, extra = '') {
   return `<button class="nav-item ${state.view === view ? 'active' : ''}" ${state.view === view ? 'aria-current="page"' : ''} data-action="navigate" data-view="${view}" aria-label="${e(label)}" title="${e(label)}">${icon(name)}<span>${label}</span>${extra}</button>`;
 }
 function shell() {
-  app.innerHTML = `<aside class="sidebar" aria-label="Workspace sidebar"><div class="sidebar-heading"><a class="brand" href="#" data-action="navigate" data-view="overview" aria-label="Relay overview"><span class="brand-mark">${icon('relay')}</span><span class="brand-name">relay</span></a>${sidebarControls()}</div><div class="sidebar-section-label">Workspace</div><nav id="workspace-navigation" aria-label="Workspace">${nav('overview', 'Overview', 'grid')}${nav('assistant', 'Relay agent', 'spark')}${nav('tasks', 'All tasks', 'layers', `<span class="nav-count">${state.tasks.length}</span>`)}${nav('inbox', 'Approval inbox', 'eye')}${nav('repositories', 'Repositories', 'folder')}${nav('harnesses', 'Agents', 'bolt')}${nav('memory', 'Memory', 'book')}</nav><div class="sidebar-bottom">${nav('settings', 'Settings', 'settings')}<div class="connection"><span class="local-dot ${state.connected ? '' : 'offline'}"></span><span>${state.connected ? 'Connected locally' : 'Reconnecting…'}</span><small>v0.1</small></div></div></aside><div class="main-shell"><header class="topbar"><div class="breadcrumb">Workspace ${icon('chevron')} <span>${state.view === 'task' ? 'Task workspace' : ({ assistant: 'Relay agent', harnesses: 'Agents', inbox: 'Approval inbox' }[state.view] ?? state.view.charAt(0).toUpperCase() + state.view.slice(1))}</span></div><div class="top-actions"><kbd class="keyboard-hint" title="Keyboard shortcut: N">N</kbd>${button('new-task', 'New task', 'primary small', 'plus')}</div></header><main id="main"></main></div>`;
+  app.innerHTML = `<aside class="sidebar" aria-label="Workspace sidebar"><div class="sidebar-heading"><a class="brand" href="#" data-action="navigate" data-view="overview" aria-label="Relay overview"><span class="brand-mark">${icon('relay')}</span><span class="brand-name">relay</span></a>${sidebarControls()}</div><div class="sidebar-section-label">Workspace</div><nav id="workspace-navigation" aria-label="Workspace">${nav('overview', 'Overview', 'grid')}${nav('assistant', 'Relay agent', 'spark')}${nav('tasks', 'All tasks', 'layers', `<span class="nav-count">${state.tasks.length}</span>`)}${nav('inbox', 'Approval inbox', 'eye')}${nav('repositories', 'Repositories', 'folder')}${nav('harnesses', 'Agents', 'bolt')}${nav('memory', 'Memory', 'book')}</nav><div class="sidebar-bottom">${nav('settings', 'Settings', 'settings')}<div class="connection"><span class="local-dot ${state.connected ? '' : 'offline'}"></span><span>${state.connected ? 'Connected locally' : 'Reconnecting…'}</span><small>v0.1</small></div></div></aside><div class="main-shell"><header class="topbar"><div class="breadcrumb">Workspace ${icon('chevron')} <span>${state.view === 'task' ? 'Task workspace' : ({ assistant: 'Relay agent', harnesses: 'Agents', inbox: 'Approval inbox' }[state.view] ?? state.view.charAt(0).toUpperCase() + state.view.slice(1))}</span></div><div class="top-actions"><button class="btn small orchestrator-trigger" data-action="open-orchestrator" aria-label="Open Relay orchestrator" aria-haspopup="dialog" aria-controls="relay-orchestrator" aria-expanded="false" title="Open Relay · Command/Ctrl K">${icon('orchestrator')}<span>Relay</span><kbd class="keyboard-hint">${/Mac|iPhone|iPad/.test(navigator.platform) ? '⌘K' : 'Ctrl K'}</kbd></button><button class="btn primary small new-task-button" data-action="new-task" aria-label="New task">${icon('plus')}<span>New task</span><kbd class="keyboard-hint" title="Keyboard shortcut: N">N</kbd></button></div></header><main id="main"></main></div>`;
   syncSidebar();
   renderMain();
 }
@@ -152,6 +152,7 @@ function renderMain() {
   const main = document.querySelector('#main');
   if (
     !main ||
+    document.documentElement.hasAttribute('data-chat-interacting') ||
     main.querySelector('[data-uploading]') ||
     (state.view === 'tasks' && (state.boardDragging || state.boardMoving))
   )
@@ -198,7 +199,7 @@ function renderMain() {
   const selectedApproach = main.querySelector('input[name="optionId"]:checked')?.value;
   const markup =
     state.view === 'assistant'
-      ? workspaceAgentView(state.workspaceMessages)
+      ? workspaceAgentView(state.workspaceMessages, state.tasks)
       : state.view === 'memory'
         ? state.memoryAvailable
           ? memoryPage(state.memories, state.config, state.tasks, {
@@ -276,6 +277,7 @@ function renderMain() {
   const nextHistory = main.querySelector('.side-chat-history');
   if (followSide && nextHistory) nextHistory.scrollTop = nextHistory.scrollHeight;
   main.scrollTop = scroll;
+  syncOrchestrator();
   const board = main.querySelector('.workflow-board');
   if (board) {
     if (boardScroll !== undefined) board.scrollLeft = boardScroll;
@@ -567,6 +569,7 @@ function showModal(title, contents, wide = false) {
   const dialog = document.querySelector('#dialog');
   prepareSearchSelects(dialog);
   dialog.showModal();
+  animateSurface(dialog, 'dialog');
   syncToastLayer();
   dialog.addEventListener('close', () => {
     if (state.modal?.restoreId) {
@@ -668,7 +671,8 @@ async function refreshSnapshot() {
   ]);
   state.tasks = state.tasks.map((task) => pendingStatuses.apply(task));
   notifyInbox(state.inbox);
-  if (state.view === 'assistant') state.workspaceMessages = await api('/workspace-agent');
+  if (state.view === 'assistant' || state.orchestratorOpen)
+    state.workspaceMessages = await api('/workspace-agent');
   if (state.view === 'harnesses')
     state.outcomes = await api(
       `/outcomes?repositoryId=${encodeURIComponent(state.outcomesRepository)}`,
@@ -814,6 +818,22 @@ document.addEventListener('click', async (event) => {
   if (state.busy) return;
   const action = element.dataset.action;
   try {
+    if (action === 'open-orchestrator') {
+      await openOrchestrator();
+      return;
+    }
+    if (action === 'close-orchestrator') {
+      closeOrchestrator();
+      return;
+    }
+    if (action === 'orchestrator-prompt') {
+      const input = document.querySelector('#workspace-request');
+      input.value = element.dataset.prompt;
+      input.focus();
+      return;
+    }
+    if (element.closest('#relay-orchestrator') && ['open-task', 'navigate'].includes(action))
+      closeOrchestrator();
     if (action === 'stop-workspace-agent') {
       await api('/workspace-agent/stop', 'POST', {});
       await refresh();
@@ -1774,7 +1794,11 @@ document.addEventListener('keydown', (event) => {
     event.preventDefault();
     event.target.dispatchEvent(new MouseEvent('click', { bubbles: true }));
   }
-  if (event.key === 'Escape' && (state.sideChatOpen || state.executionMapOpen)) {
+  if (
+    event.key === 'Escape' &&
+    !state.orchestratorOpen &&
+    (state.sideChatOpen || state.executionMapOpen)
+  ) {
     const closeChat = state.sideChatOpen;
     state.sideChatOpen = false;
     state.executionMapOpen = false;
@@ -1915,9 +1939,104 @@ document.addEventListener('submit', async (event) => {
   try {
     await api('/workspace-agent', 'POST', { question: new FormData(form).get('question') });
     form.reset();
+    state.orchestratorDraft = '';
     await refresh();
   } catch (error) {
     toast(error.message, true);
     button.disabled = false;
   }
+});
+
+function closeOrchestrator() {
+  state.orchestratorOpen = false;
+  document.getElementById('relay-orchestrator')?.close();
+}
+async function openOrchestrator() {
+  if (state.view === 'assistant') {
+    document.getElementById('workspace-request')?.focus();
+    return;
+  }
+  state.workspaceMessages = await api('/workspace-agent');
+  state.orchestratorOpen = true;
+  document
+    .querySelector('[data-action="open-orchestrator"]')
+    ?.setAttribute('aria-expanded', 'true');
+  syncOrchestrator();
+  document.getElementById('workspace-request')?.focus();
+}
+function syncOrchestrator() {
+  if (!state.orchestratorOpen) return;
+  let dialog = document.getElementById('relay-orchestrator');
+  const fresh = !dialog;
+  if (!dialog) {
+    document.getElementById('orchestrator-root').innerHTML =
+      `<dialog id="relay-orchestrator" class="orchestrator-dialog" aria-labelledby="orchestrator-dialog-title"><header>${icon('orchestrator')}<strong id="orchestrator-dialog-title">Relay orchestrator</strong><button class="icon-button" data-action="close-orchestrator" aria-label="Close Relay orchestrator">${icon('close')}</button></header><div class="orchestrator-dialog-body"></div></dialog>`;
+    dialog = document.getElementById('relay-orchestrator');
+    dialog.addEventListener('close', () => {
+      state.orchestratorDraft =
+        dialog.querySelector('#workspace-request')?.value ?? state.orchestratorDraft;
+      state.orchestratorOpen = false;
+      dialog.remove();
+      document
+        .querySelector('[data-action="open-orchestrator"]')
+        ?.setAttribute('aria-expanded', 'false');
+      syncToastLayer();
+    });
+    dialog.addEventListener('click', (event) => {
+      if (event.target === dialog) {
+        const r = dialog.getBoundingClientRect();
+        if (
+          event.clientX < r.left ||
+          event.clientX > r.right ||
+          event.clientY < r.top ||
+          event.clientY > r.bottom
+        )
+          closeOrchestrator();
+      }
+    });
+  }
+  const body = dialog.querySelector('.orchestrator-dialog-body');
+  const input = body.querySelector('#workspace-request');
+  const draft = input?.value ?? state.orchestratorDraft ?? '';
+  const focused = document.activeElement === input,
+    start = input?.selectionStart,
+    end = input?.selectionEnd;
+  const messages = body.querySelector('.workspace-messages');
+  const top = messages?.scrollTop;
+  const follow =
+    !messages || messages.scrollHeight - messages.clientHeight - messages.scrollTop < 48;
+  updateLiveDOM(
+    body,
+    workspaceAgentView(state.workspaceMessages, state.tasks, { compact: true }),
+    'orchestrator',
+  );
+  const next = body.querySelector('#workspace-request');
+  next.value = draft;
+  if (focused) {
+    next.focus({ preventScroll: true });
+    next.setSelectionRange(start, end);
+  }
+  const nextMessages = body.querySelector('.workspace-messages');
+  if (nextMessages) nextMessages.scrollTop = follow ? nextMessages.scrollHeight : (top ?? 0);
+  if (!dialog.open) {
+    dialog.showModal();
+    animateSurface(dialog, 'drawer');
+    syncToastLayer();
+  } else if (fresh) animateSurface(dialog, 'drawer');
+}
+document.addEventListener('input', (event) => {
+  if (event.target.id === 'workspace-request' && event.target.closest('#relay-orchestrator'))
+    state.orchestratorDraft = event.target.value;
+});
+document.addEventListener('keydown', (event) => {
+  if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
+    event.preventDefault();
+    if (state.orchestratorOpen) closeOrchestrator();
+    else if (!document.querySelector('#dialog[open]'))
+      openOrchestrator().catch((error) => toast(error.message, true));
+  }
+});
+document.addEventListener('relay-chat-settled', () => renderMain());
+document.addEventListener('click', (event) => {
+  if (event.target.closest('#relay-orchestrator a[href^="#task/"]')) closeOrchestrator();
 });

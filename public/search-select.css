@@ -152,3 +152,10 @@ relay-select > select {
   transition: none !important;
   scroll-behavior: auto !important;
 }
+
+.select-trigger {
+  height: var(--select-height, 40px);
+  min-height: var(--select-height, 40px);
+  padding: 0 12px;
+  line-height: 1.4;
+}

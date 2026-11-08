@@ -1,3 +1,4 @@
+import { fitWindow, resizeWindow } from './window-geometry.js';
 const key = 'relay-chat-window';
 let geometry;
 try {
@@ -8,32 +9,28 @@ if (geometry && !['x', 'y', 'width', 'height'].every((key) => Number.isFinite(ge
 const style = document.createElement('style');
 style.nonce = document.querySelector('meta[name=relay-style-nonce]')?.content || '';
 document.head.append(style);
+const viewport = () => ({ width: innerWidth, height: innerHeight });
 function apply() {
-  if (!geometry || innerWidth < 700) {
+  if (!geometry || innerWidth <= 700) {
     style.textContent = '';
     return;
   }
-  const width = Math.max(340, Math.min(innerWidth - 24, geometry.width));
-  const height = Math.max(300, Math.min(innerHeight - 24, geometry.height));
-  geometry = {
-    width,
-    height,
-    x: Math.max(12, Math.min(innerWidth - width - 12, geometry.x)),
-    y: Math.max(12, Math.min(innerHeight - height - 12, geometry.y)),
-  };
-  style.textContent = `.side-chat-drawer { left:${geometry.x}px; top:${geometry.y}px; width:${width}px; height:${height}px; right:auto; bottom:auto; }`;
+  geometry = fitWindow(geometry, viewport());
+  style.textContent = `.side-chat-drawer {left:${geometry.x}px;top:${geometry.y}px;width:${geometry.width}px;height:${geometry.height}px;right:auto;bottom:auto;}`;
 }
 function save() {
   try {
     localStorage.setItem(key, JSON.stringify(geometry));
   } catch {}
 }
-window.addEventListener('resize', apply);
-document.addEventListener('dblclick', (event) => {
-  if (!event.target.closest('[data-chat-drag]') || event.target.closest('button')) return;
+function reset() {
   geometry = null;
   apply();
   save();
+}
+window.addEventListener('resize', apply);
+document.addEventListener('dblclick', (event) => {
+  if (event.target.closest('[data-chat-drag]') && !event.target.closest('button')) reset();
 });
 document.addEventListener('keydown', (event) => {
   if (
@@ -43,43 +40,47 @@ document.addEventListener('keydown', (event) => {
     return;
   event.preventDefault();
   if (event.key === 'Home') {
-    geometry = null;
-    apply();
-    save();
+    reset();
     return;
   }
   const r = event.target.closest('.side-chat-drawer').getBoundingClientRect();
-  geometry = {
-    x: r.x,
-    y: r.y,
-    width: r.width + (event.key === 'ArrowLeft' ? -20 : event.key === 'ArrowRight' ? 20 : 0),
-    height: r.height + (event.key === 'ArrowUp' ? -20 : event.key === 'ArrowDown' ? 20 : 0),
-  };
+  geometry = resizeWindow(
+    { x: r.x, y: r.y, width: r.width, height: r.height },
+    event.key === 'ArrowLeft' ? -20 : event.key === 'ArrowRight' ? 20 : 0,
+    event.key === 'ArrowUp' ? -20 : event.key === 'ArrowDown' ? 20 : 0,
+    'se',
+    viewport(),
+  );
   apply();
   save();
 });
 document.addEventListener('pointerdown', (event) => {
-  const handle = event.target.closest('.chat-resize, [data-chat-drag]');
-  if (!handle || event.button !== 0 || innerWidth < 700 || event.target.closest('[data-action]'))
+  const handle = event.target.closest('[data-chat-resize],[data-chat-drag]');
+  if (!handle || event.button !== 0 || innerWidth <= 700 || event.target.closest('[data-action]'))
     return;
   event.preventDefault();
-  const r = handle.closest('.side-chat-drawer').getBoundingClientRect();
-  const start = { x: r.x, y: r.y, width: r.width, height: r.height };
+  const surface = handle.closest('.side-chat-drawer');
+  for (const animation of surface.getAnimations()) animation.finish();
+  const r = surface.getBoundingClientRect();
+  const start = fitWindow({ x: r.x, y: r.y, width: r.width, height: r.height }, viewport());
   const x = event.clientX,
     y = event.clientY,
-    resize = handle.matches('.chat-resize');
+    edge = handle.dataset.chatResize;
   handle.setPointerCapture(event.pointerId);
+  document.documentElement.setAttribute('data-chat-interacting', edge || 'move');
   const move = (e) => {
-    geometry = resize
-      ? { ...start, width: start.width + e.clientX - x, height: start.height + e.clientY - y }
-      : { ...start, x: start.x + e.clientX - x, y: start.y + e.clientY - y };
+    geometry = edge
+      ? resizeWindow(start, e.clientX - x, e.clientY - y, edge, viewport())
+      : fitWindow({ ...start, x: start.x + e.clientX - x, y: start.y + e.clientY - y }, viewport());
     apply();
   };
   const finish = () => {
     handle.removeEventListener('pointermove', move);
     for (const type of ['pointerup', 'pointercancel', 'lostpointercapture'])
       handle.removeEventListener(type, finish);
+    document.documentElement.removeAttribute('data-chat-interacting');
     save();
+    document.dispatchEvent(new CustomEvent('relay-chat-settled'));
   };
   handle.addEventListener('pointermove', move);
   for (const type of ['pointerup', 'pointercancel', 'lostpointercapture'])
