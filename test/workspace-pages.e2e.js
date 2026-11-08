@@ -241,6 +241,107 @@ try {
   assert.equal(app.store.config.routing.implement, 'claude');
   assert.equal(JSON.stringify(app.store.config.harnesses), previousModels);
   assert.equal(await routing.locator('[data-action=apply-routing-advice]').count(), 0);
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.getByRole('button', { name: 'Collapse sidebar', exact: true }).click();
+  assert.equal(
+    await page.locator('.sidebar').evaluate((el) => Math.round(el.getBoundingClientRect().width)),
+    64,
+  );
+  await page.reload();
+  await page.getByRole('button', { name: 'Expand sidebar', exact: true }).waitFor();
+  await page.getByRole('button', { name: 'Expand sidebar', exact: true }).click();
+  const resize = page.getByRole('separator', { name: 'Resize sidebar', exact: true });
+  await resize.focus();
+  await page.keyboard.press('End');
+  assert.equal(await resize.getAttribute('aria-valuenow'), '340');
+  await page.reload();
+  await page.getByRole('separator', { name: 'Resize sidebar', exact: true }).waitFor();
+  assert.equal(
+    await page.locator('.sidebar').evaluate((el) => Math.round(el.getBoundingClientRect().width)),
+    340,
+  );
+  const handle = await page.locator('.sidebar-resize').boundingBox();
+  await page.mouse.move(handle.x + handle.width / 2, handle.y + 150);
+  await page.mouse.down();
+  await page.mouse.move(handle.x - 80, handle.y + 150, { steps: 5 });
+  await page.mouse.up();
+  const resized = await page.locator('.sidebar').evaluate((el) => el.getBoundingClientRect().width);
+  assert.ok(resized >= 250 && resized <= 265);
+  await page.getByRole('button', { name: 'Repositories', exact: true }).click();
+  await page.getByRole('button', { name: 'Edit Example service profile', exact: true }).click();
+  const profileForm = page.locator('#repository-form');
+  await page.locator('#repo-name').fill('');
+  await page.getByRole('tab', { name: 'Workspace', exact: true }).click();
+  await profileForm.getByRole('button', { name: 'Save repository', exact: true }).click();
+  assert.equal(
+    await page.getByRole('tab', { name: 'General', exact: true }).getAttribute('aria-selected'),
+    'true',
+  );
+  await page.locator('#repo-name').fill('Example service');
+
+  await page.getByRole('tab', { name: 'Workspace', exact: true }).click();
+  await page.locator('#repo-strategy').selectOption('managed', { force: true });
+  await page.locator('#repo-workspace-command').fill('["example-workspace", "create"]');
+  await page.locator('#repo-workspace-path').fill('/example/trees/{workspaceName}');
+  await page.getByRole('tab', { name: 'Checks & setup', exact: true }).click();
+  assert.equal(await page.locator('#repo-checks').isVisible(), false);
+  await page.locator('#repo-verification').selectOption('commands', { force: true });
+  await page.locator('#repo-checks').fill('["example-check"]');
+  await page.getByRole('tab', { name: 'Guidance', exact: true }).click();
+  await page.locator('#repo-instructions').fill('Use **focused checks**.');
+  await page
+    .locator('[data-editor=repo-instructions]')
+    .getByRole('tab', { name: 'Preview', exact: true })
+    .click();
+  await page.locator('#repo-instructions-preview strong').getByText('focused checks').waitFor();
+  await page.getByRole('tab', { name: 'General', exact: true }).click();
+  await page.locator('#repo-name').fill('Updated service');
+  // Opening removal confirmation must preserve all draft fields.
+  await profileForm.locator('[data-profile-remove]').click();
+  await profileForm.getByRole('button', { name: 'Keep profile', exact: true }).click();
+  await page.getByRole('tab', { name: 'Workspace', exact: true }).click();
+  assert.equal(
+    await page.locator('#repo-workspace-command').inputValue(),
+    '["example-workspace", "create"]',
+  );
+  for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 1000 });
+    await assertReadableText(page);
+    assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
+    if (process.env.RELAY_VISUAL_DIR)
+      await page
+        .locator('#dialog')
+        .screenshot({ path: join(process.env.RELAY_VISUAL_DIR, `repository-editor-${width}.png`) });
+  }
+  await page.route('**/api/repositories/inspect', (route) =>
+    route.fulfill({ contentType: 'application/json', body: '{}' }),
+  );
+  await profileForm.getByRole('button', { name: 'Save repository', exact: true }).click();
+  await page.getByRole('heading', { name: 'Updated service', exact: true }).waitFor();
+  assert.equal(app.store.config.repositories[0].verificationMode, 'commands');
+  assert.deepEqual(app.store.config.repositories[0].checks, [
+    { command: 'example-check', args: [] },
+  ]);
+  assert.equal(app.store.config.repositories[0].instructions, 'Use **focused checks**.');
+  await page.getByRole('button', { name: 'Expand sidebar', exact: true }).click();
+  assert.equal(
+    await page.locator('.main-shell').evaluate((el) => Math.round(el.getBoundingClientRect().left)),
+    56,
+  );
+  await page.getByRole('button', { name: 'All tasks', exact: true }).click();
+  await page.getByRole('button', { name: 'Expand sidebar', exact: true }).waitFor();
+  await page.getByRole('button', { name: 'Board', exact: true }).click();
+  await page.locator('.workflow-board').waitFor();
+  for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 1000 });
+    await assertReadableText(page);
+    assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
+    if (process.env.RELAY_VISUAL_DIR)
+      await page.screenshot({
+        path: join(process.env.RELAY_VISUAL_DIR, `task-board-${width}.png`),
+        fullPage: true,
+      });
+  }
   assert.deepEqual(errors, []);
   console.log(
     'Workspace pages passed: responsive navigation, contrast, live follow-up filters, memory reset, repository mode, settings hierarchy, and draft preservation.',

@@ -272,6 +272,8 @@ try {
   spawnSync('git', ['init', '-b', 'feature/e2e', repo]);
   await page.getByRole('textbox', { name: 'Name', exact: true }).fill('Browser fixture');
   await page.getByRole('textbox', { name: 'Absolute checkout path' }).fill(repo);
+  await page.getByRole('tab', { name: 'Checks & setup', exact: true }).click();
+  await page.locator('#repo-verification').selectOption('commands', { force: true });
   await page
     .locator('#repo-checks')
     .fill(JSON.stringify([process.execPath, '-e', 'process.exit(0)']));
