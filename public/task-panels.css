@@ -759,3 +759,33 @@
     grid-row: 4;
   }
 }
+
+.error-panel.diff-load-error {
+  display: block;
+  padding: 16px;
+}
+.diff-load-error > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.diff-load-error h2 {
+  margin: 0;
+  font-size: 16px;
+}
+.diff-load-error details {
+  margin-top: 12px;
+}
+.diff-load-error summary {
+  font-size: 13px;
+}
+.diff-load-error pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 240px;
+  overflow: auto;
+  font-size: 12px;
+  line-height: 1.6;
+}

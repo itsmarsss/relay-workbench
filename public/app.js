@@ -564,12 +564,19 @@ function diffView(t, suppliedDiff) {
         .join('')
     );
   if (d.error)
-    return `<div class="error-panel"><h2>Couldn’t load changes</h2><p>${e(d.error)}</p>${button('refresh-diff', 'Retry loading changes', 'secondary small')}</div>`;
+    return `<section class="error-panel diff-load-error" aria-label="Changes unavailable"><div><h2>Couldn’t load changes</h2>${button('refresh-diff', 'Retry loading changes', 'secondary')}</div><details><summary>Error details</summary><pre>${e(d.error)}</pre></details></section>`;
   if (d.omitted)
     return `<div class="error-panel"><h2>Changes exceed the preview limit</h2><p>${e(d.reason)} The full diff is available in the task’s worktree.</p></div>`;
   const repositoryId = d.repositoryId ?? t.repository.id;
   const comments = (t.reviewComments || []).filter((c) => c.repositoryId === repositoryId);
   const files = diffFileGroups(d);
+  if (!files.length && !comments.length && !d.text && !d.untracked.length)
+    return empty(
+      'check',
+      'No changes yet',
+      'Changes appear here as the workspace changes.',
+      button('refresh-diff', 'Refresh', 'secondary small'),
+    );
   return `<div class="panel-heading"><div><h2>Changes</h2><p>${files.length} ${files.length === 1 ? 'file' : 'files'} · compared with <code>${e(t.baseCommit?.slice(0, 10))}</code></p></div>${button('refresh-diff', 'Refresh', 'secondary small')}</div>${canComment ? '<div class="review-callout"><strong>Ready for your review</strong><p>Open a file and use + beside a line to leave feedback. Send open comments for a focused repair.</p></div>' : ''}<div class="diff-file-toolbar"><span>Browse files</span><button class="btn text small" data-action="expand-diff">Expand all</button><button class="btn text small" data-action="collapse-diff">Collapse all</button></div>${files.map((file, fileIndex) => `<details class="diff-file" data-event-key="diff-${e(repositoryId)}-${e(file.name)}" ${fileIndex === 0 ? 'open' : ''}><summary><span class="diff-file-name"><strong>${e(file.name.split('/').at(-1))}</strong><small>${e(file.name)}</small></span><span class="diff-count"><b>+${file.additions}</b><span>−${file.deletions}</span></span></summary><pre class="diff-code">${file.lines.map((line) => `<span class="diff-line ${line.kind} ${line.anchor ? 'has-anchor' : ''}">${canComment && line.anchor ? `<button class="diff-comment-button" data-action="comment-line" data-repository-id="${e(repositoryId)}" data-line="${line.index}" aria-label="Comment on ${e(line.anchor.path)} line ${line.anchor.line}">+</button>` : ''}${line.anchor ? `<small class="diff-line-number">${line.anchor.side === 'old' ? 'old' : 'new'} ${line.anchor.line}</small>` : ''}${e(line.text)}</span>`).join('\n')}</pre></details>`).join('')}${d.stat ? `<details class="report-section"><summary>Change statistics</summary><pre class="diff-stat">${e(d.stat)}</pre></details>` : ''}${comments.length ? `<section class="context-card"><h3>Inline feedback</h3>${comments.map((c) => `<article class="review-comment"><strong>${e(c.anchor.path)}:${c.anchor.line} · ${e(c.status)}${c.fingerprint !== d.fingerprint ? ' · Earlier workspace' : ''}</strong><div class="prose">${prose(c.text)}</div>${canComment && c.status !== 'resolved' ? button('resolve-comment', 'Mark resolved', 'text small', '', `data-comment-id="${e(c.id)}"`) : ''}</article>`).join('')}${canComment && comments.some((c) => c.status === 'open') ? button('focused-repair', 'Send all open comments for repair', 'primary small') : ''}</section>` : ''}${!d.text && !d.untracked.length ? empty('check', 'No changes yet', 'Changes appear here as the workspace changes.') : ''}`;
 }
 function transcriptView(t) {
@@ -1524,6 +1531,7 @@ document.addEventListener('click', async (event) => {
     if (action === 'graph-fit') {
       const canvas = document.querySelector('.node-graph-scroll');
       const layout = graphLayout(state.task);
+      canvas.scrollTo({ left: 0, top: 0, behavior: 'instant' });
       state.graphZoom = Math.max(
         0.15,
         Math.min(

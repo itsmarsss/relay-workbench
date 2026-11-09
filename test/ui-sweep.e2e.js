@@ -155,6 +155,19 @@ try {
         .evaluate((el) => el.getBoundingClientRect().height < (innerWidth > 1100 ? 160 : 260)),
       'Task header stays compact',
     );
+    assert.ok(
+      await page.locator('.follow-up-footer').evaluate((row) => {
+        const submit = row.querySelector('button[type=submit]').getBoundingClientRect();
+        const controls = [...row.querySelectorAll('relay-select')].map((host) =>
+          host.shadowRoot.querySelector('.select-trigger').getBoundingClientRect(),
+        );
+        return (
+          controls.every((box) => Math.abs(box.height - submit.height) < 1) &&
+          (innerWidth < 650 || controls.every((box) => Math.abs(box.bottom - submit.bottom) < 1))
+        );
+      }),
+      'Run agent matches adjacent control heights and desktop alignment',
+    );
     await check('workspace', width);
     await page.getByRole('button', { name: /View run history/ }).click();
     await page.getByRole('heading', { name: 'Memory used', exact: true }).waitFor();
@@ -214,11 +227,40 @@ try {
     assert.equal(await page.locator('.graph-lane-title').count(), 3);
     await page.getByRole('button', { name: 'Fit view', exact: true }).click();
     await check('graph', width);
+    await page.evaluate(() => {
+      window.graphScrollBehaviors = [];
+      const viewport = document.querySelector('.node-graph-scroll');
+      const scrollTo = viewport.scrollTo.bind(viewport);
+      viewport.scrollTo = (options) => {
+        window.graphScrollBehaviors.push(options.behavior);
+        scrollTo(options);
+      };
+    });
     await page.getByRole('button', { name: 'Readable view', exact: true }).click();
     assert.equal(
       await page.getByRole('button', { name: 'Reset zoom', exact: true }).innerText(),
       '100%',
     );
+    await page.waitForFunction(() => {
+      const node = document.querySelector('.graph-node.selected');
+      const box = node.getBoundingClientRect();
+      const viewport = node.closest('.node-graph-scroll').getBoundingClientRect();
+      return (
+        box.left >= viewport.left &&
+        box.right <= viewport.right &&
+        box.top >= viewport.top &&
+        box.bottom <= viewport.bottom
+      );
+    });
+    assert.equal(await page.evaluate(() => window.graphScrollBehaviors.at(-1)), 'smooth');
+    await page.evaluate(async () => (await import('/motion-preferences.js')).setLowMotion(true));
+    await page.getByRole('button', { name: 'Latest run', exact: true }).click();
+    assert.equal(
+      await page.evaluate(() => window.graphScrollBehaviors.at(-1)),
+      'instant',
+      'Low motion focuses immediately',
+    );
+    await page.evaluate(async () => (await import('/motion-preferences.js')).setLowMotion(false));
     assert.ok(
       await page.locator('.graph-node.selected').evaluate((node) => {
         const box = node.getBoundingClientRect();
@@ -335,6 +377,33 @@ try {
       0,
     );
     assert.equal(await page.locator('.sidebar').evaluate((el) => el.inert), false);
+  }
+  let diffState = 'error';
+  await page.route(`**/api/tasks/${task.id}/diff`, (route) =>
+    route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify(
+        diffState === 'error'
+          ? { error: 'Workspace preview failed. ' + 'Detailed diagnostic output. '.repeat(60) }
+          : { text: '', untracked: [], stat: '', fingerprint: 'empty' },
+      ),
+    }),
+  );
+  for (const width of [1440, 390]) {
+    diffState = 'error';
+    await page.setViewportSize({ width, height: 1000 });
+    await page.goto(`${base}/#task/${task.id}/diff`);
+    await page.getByRole('heading', { name: 'Couldn’t load changes', exact: true }).waitFor();
+    assert.equal(await page.locator('.diff-load-error details').getAttribute('open'), null);
+    await page.getByText('Error details', { exact: true }).click();
+    await check('changes-error', width);
+    diffState = 'empty';
+    await page.getByRole('button', { name: 'Retry loading changes', exact: true }).click();
+    await page.getByRole('heading', { name: 'No changes yet', exact: true }).waitFor();
+    assert.equal(await page.locator('.diff-file-toolbar').count(), 0);
+    await page.getByRole('button', { name: 'Refresh', exact: true }).click();
+    await page.getByRole('heading', { name: 'No changes yet', exact: true }).waitFor();
+    await check('changes-empty', width);
   }
   assert.deepEqual(errors, []);
   console.log(

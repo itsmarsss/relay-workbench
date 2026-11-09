@@ -96,7 +96,9 @@ export function focusGraphNode(root = document) {
   viewport.scrollTo({
     left: viewport.scrollLeft + box.left - view.left - (viewport.clientWidth - box.width) / 2,
     top: viewport.scrollTop + box.top - view.top - (viewport.clientHeight - box.height) / 2,
-    behavior: 'instant',
+    behavior: viewport.ownerDocument.documentElement.hasAttribute('data-low-motion')
+      ? 'instant'
+      : 'smooth',
   });
 }
 export function executionMap(task, { selectedId, zoom = 1 } = {}) {
