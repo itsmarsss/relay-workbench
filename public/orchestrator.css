@@ -962,3 +962,35 @@ main[data-render-scope^='assistant:'] {
 .change-context {
   background: var(--surface);
 }
+
+/* Approval dialogs have one scroll owner between a fixed heading and actions. */
+.modal.approval-dialog[open] {
+  display: flex;
+  flex-direction: column;
+  height: auto;
+  min-height: 0;
+  max-height: calc(100dvh - 48px);
+  overflow: hidden;
+}
+.approval-dialog > .modal-heading,
+.approval-dialog > .modal-footer {
+  flex: 0 0 auto;
+}
+.approval-dialog-body {
+  position: relative;
+  flex: 0 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+.approval-dialog .workspace-setting-diff,
+.approval-dialog .paragraph-diff {
+  max-height: none;
+  overflow: visible;
+}
+@media (max-width: 700px) {
+  .modal.approval-dialog[open] {
+    max-height: calc(100dvh - 24px);
+  }
+}
