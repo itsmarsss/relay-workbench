@@ -10,7 +10,7 @@ For an isolated local preview, build the experimental React frontend, then run:
 go run ./cmd/relay-go --data-dir /path/to/new/empty-directory --web-dir /path/to/relay/web/dist --port 4311
 ```
 
-The state directory must be empty on first use. A marker prevents opening an unmarked existing directory, and the exclusive `server.lock` prevents two servers from writing concurrently. Copying or importing live state is not implemented. The listener binds to IPv4 loopback; configuration, draft creation and workflow controls require the session token. Setup interrupted during execution is preserved and cannot be resumed automatically. Attached checkouts and simulated workflow execution are not supported. No migration, workflow, security, terminal, or performance parity is claimed.
+The state directory must be empty on first use. A marker prevents opening an unmarked existing directory, and the exclusive `server.lock` prevents two servers from writing concurrently. On macOS and Linux, a guarded recovery step removes a lock only when its owner is confirmed gone; ambiguous or live owners require inspection. Copying or importing live state is not implemented. The listener binds to IPv4 loopback; configuration, draft creation and workflow controls require the session token. Setup interrupted during execution is preserved and cannot be resumed automatically. Attached checkouts and simulated workflow execution are not supported. No migration, workflow, security, terminal, or performance parity is claimed.
 
 ## Storage safeguards
 

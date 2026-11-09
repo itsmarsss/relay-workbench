@@ -89,25 +89,9 @@ func Open(dir string) (*Store, error) {
 		return nil, errors.New("invalid state marker")
 	}
 	lock := filepath.Join(dir, "server.lock")
-	f, err := os.OpenFile(lock, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
+	lockIdentity, owner, err := acquireStateLock(dir)
 	if err != nil {
 		return nil, fmt.Errorf("state is already locked or unavailable: %w", err)
-	}
-	lockIdentity, err := f.Stat()
-	if err != nil {
-		_ = f.Close()
-		_ = os.Remove(lock)
-		return nil, err
-	}
-	owner := strconv.Itoa(os.Getpid())
-	if _, err = f.WriteString(owner); err != nil {
-		_ = f.Close()
-		_ = os.Remove(lock)
-		return nil, err
-	}
-	if err = f.Close(); err != nil {
-		_ = os.Remove(lock)
-		return nil, err
 	}
 	s := &Store{lock: lock, lockOwner: owner, lockIdentity: lockIdentity, directoryIdentity: info, markerIdentity: markerInfo, listeners: make(map[chan struct{}]struct{})}
 	if err = os.Chmod(dir, 0700); err != nil {
