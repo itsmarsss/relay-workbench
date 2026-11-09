@@ -6,8 +6,9 @@ export function completedPlan(task) {
       attempt.status === 'complete' &&
       attempt.role !== 'debug' &&
       (!task.followUpContext?.id ||
-        attempt.followUpId === task.followUpContext.id ||
-        Date.parse(attempt.startedAt) >= Date.parse(task.followUpContext.startedAt)) &&
+        (attempt.followUpId
+          ? attempt.followUpId === task.followUpContext.id
+          : Date.parse(attempt.startedAt) >= Date.parse(task.followUpContext.startedAt))) &&
       attempt.handoff?.verdict === 'complete',
   )?.handoff;
 }

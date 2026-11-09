@@ -15,7 +15,7 @@ import {
 } from '../server/workflow-checkpoints.js';
 import { WorkflowAutomation, automationState } from '../server/workflow-automation.js';
 import { workflowHealth } from '../server/workflow-health.js';
-import { demoHandoff } from '../server/harness.js';
+import { demoHandoff, buildPrompt } from '../server/harness.js';
 import { inbox } from '../server/inbox.js';
 import { blockerDecision } from '../server/recovery.js';
 import { applyLoopGuard } from '../server/loop-guard.js';
@@ -543,7 +543,10 @@ test('explicit replanning survives completed snapshots and interrupted restores 
   const engine = new Engine(store);
   assert.equal(store.get(fork.id).checkpointRestore.status, 'failed');
   assert.equal(store.get(fork.id).status, 'blocked');
-  await assert.rejects(engine.action(fork.id, 'resume'), /Finish restoring/);
+  for (const action of ['resume', 'debug', 'verify-blocker', 'resolve-blocker', 'takeover'])
+    await assert.rejects(engine.action(fork.id, action), /Finish restoring/);
+  await engine.action(fork.id, 'cancel');
+  assert.equal(store.get(fork.id).status, 'cancelled');
   await engine.stop();
 });
 
@@ -631,4 +634,44 @@ test('recommendation displays and selectors exclude diagnostic plans', async () 
   assert.equal(planOptions(plan.options).includes('<em>Recommended</em>'), false);
   task.followUpContext = { id: 'next-cycle', startedAt: new Date().toISOString() };
   assert.equal(completedPlan(task), undefined);
+});
+
+test('checkpoint continuations preserve follow-up scope and current proposal', async (t) => {
+  const { store } = await fixture(t);
+  const { completedPlan } = await import('../public/workflow-plan.js');
+  const source = newTask({ title: 'Original accepted ticket', demo: true }, DEFAULT_CONFIG);
+  const startedAt = '2026-01-01T00:00:00.000Z';
+  source.followUpContext = { id: 'follow-up', startedAt, request: 'Adjust the new behavior only.' };
+  source.followUps = [source.followUpContext];
+  source.status = 'awaiting_plan';
+  source.stage = 'plan';
+  const handoff = demoHandoff(source, 'plan');
+  source.attempts = [
+    {
+      id: 'current-plan',
+      followUpId: 'follow-up',
+      stage: 'plan',
+      status: 'complete',
+      startedAt,
+      handoff,
+    },
+  ];
+  store.save(source);
+  const saved = await captureCheckpoint(store, source, source.attempts[0]);
+  const fork = await forkCheckpoint(store, source.id, saved.id, { stage: 'approach' });
+  assert.deepEqual(fork.followUpContext, source.followUpContext);
+  assert.deepEqual(fork.followUps, source.followUps);
+  assert.equal(fork.attempts[0].followUpId, 'follow-up');
+  assert.deepEqual(completedPlan(fork), handoff);
+  assert.match(buildPrompt(fork, 'implement'), /FOLLOW-UP WORK/);
+  assert.ok(buildPrompt(fork, 'implement').includes(source.followUpContext.request));
+  fork.attempts.push({
+    id: 'wrong-cycle',
+    followUpId: 'unrelated-cycle',
+    stage: 'plan',
+    status: 'complete',
+    startedAt: '2026-01-02T00:00:00.000Z',
+    handoff: { ...handoff, summary: 'Wrong proposal' },
+  });
+  assert.deepEqual(completedPlan(fork), handoff);
 });
