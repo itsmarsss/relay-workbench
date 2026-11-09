@@ -46,6 +46,10 @@ try {
   await page.goto(base + '/#assistant');
   let input = page.locator('#workspace-request');
   await input.waitFor();
+  assert.ok(
+    (await page.locator('#workspace-agent-form').boundingBox()).height <= 50,
+    'empty composer is a single compact row',
+  );
   await input.fill('Compare @Repair');
   await page.getByRole('listbox', { name: 'Tasks' }).waitFor();
   assert.equal(await page.getByRole('option').count(), 2);
@@ -136,6 +140,10 @@ try {
   await page.screenshot({ path: 'docs/screenshots/task-mentions-mobile.png' });
   await page.getByRole('button', { name: 'Remove task Validation boundary', exact: true }).click();
   assert.equal(await page.locator('#relay-orchestrator .composer-task-chip').count(), 0);
+  assert.ok(
+    (await page.locator('#relay-orchestrator #workspace-agent-form').boundingBox()).height <= 50,
+    'mobile empty composer is compact',
+  );
   assert.equal(prompts.length, 2);
   assert.deepEqual(errors, []);
   console.log(

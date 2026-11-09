@@ -878,6 +878,20 @@ async function loadDiff() {
   await fetchDiff(id);
 }
 
+function requestTaskDeletion(task) {
+  state.modal = { taskId: task.id };
+  return showModal(
+    'Delete this task?',
+    confirmation({
+      subject: task.title,
+      description:
+        'Permanently removes this task and its activity history from Relay. Branches, worktrees, files, and pull requests are kept. Pause any active agents first.',
+      cancel: 'Keep task',
+      confirm: 'Delete task',
+      action: 'confirm-delete-task',
+    }),
+  );
+}
 document.addEventListener('click', async (event) => {
   const element = event.target.closest('[data-action]');
   if (!element) return;
@@ -1588,27 +1602,18 @@ document.addEventListener('click', async (event) => {
         'Give the team direction',
         `<form id="changes-form">${markdownEditor({ id: 'change-note', name: 'note', label: 'What should change?', rows: 5, max: 20000 })}<p class="form-help">The team will receive your feedback and return with an updated result.</p><div class="modal-footer">${button('close-modal', 'Cancel', 'text')}<button class="btn primary" type="submit">Send feedback & continue ${icon('arrow')}</button></div></form>`,
       );
-    if (action === 'delete-task') {
-      state.modal = { taskId: state.task.id };
-      return showModal(
-        'Delete this task?',
-        confirmation({
-          subject: state.task.title,
-          description:
-            'Permanently removes this task and its activity history from Relay. Branches, worktrees, files, and pull requests are kept. Pause any active agents first.',
-          cancel: 'Keep task',
-          confirm: 'Delete task',
-          action: 'confirm-delete-task',
-        }),
-      );
-    }
+    if (action === 'delete-task') return requestTaskDeletion(state.task);
     if (action === 'confirm-delete-task') {
       state.busy = true;
-      await api(`/tasks/${state.modal.taskId}`, 'DELETE');
-      state.selected = null;
-      state.task = null;
+      const id = state.modal.taskId;
+      const viewingDeleted = state.view === 'task' && state.selected === id;
+      await api(`/tasks/${id}`, 'DELETE');
+      if (state.selected === id) {
+        state.selected = null;
+        state.task = null;
+      }
       closeModal();
-      await navigate('tasks');
+      if (viewingDeleted) await navigate('tasks');
       await refresh();
       toast('Task deleted.');
       return;
@@ -2426,9 +2431,12 @@ installTaskContextMenu({
       toast('Task link copied.');
       return;
     }
+    if (action === 'delete')
+      return requestTaskDeletion(
+        state.tasks.find((t) => t.id === id) ?? (await api(`/tasks/${id}`)),
+      );
     await openTask(id);
     if (action === 'duplicate') await configureTask(true);
-    if (action === 'delete') document.querySelector('[data-action="delete-task"]').click();
   },
 });
 

@@ -223,7 +223,16 @@ try {
   await menu.waitFor();
   const menuBox = await menu.boundingBox();
   assert.ok(menuBox.x >= 0 && menuBox.x + menuBox.width <= 390);
+  const boardUrl = page.url();
+  let detailReads = 0;
+  page.on('request', (request) => {
+    if (request.method() === 'GET' && new URL(request.url()).pathname === `/api/tasks/${task.id}`)
+      detailReads++;
+  });
   await menu.getByRole('menuitem', { name: 'Delete task', exact: true }).click();
+  await deletion.waitFor();
+  assert.equal(page.url(), boardUrl, 'delete confirmation stays on the board');
+  assert.equal(detailReads, 0, 'context deletion does not load the task');
   await deletion.getByRole('button', { name: 'Delete task', exact: true }).click();
   await page.waitForURL('**/#tasks*');
   await page.waitForFunction(() => !document.querySelector('.task-heading'));

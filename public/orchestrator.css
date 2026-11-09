@@ -582,3 +582,40 @@ main[data-render-scope^='assistant:'] {
     max-width: 180px;
   }
 }
+
+.orchestrator-layout .workspace-conversation > #workspace-agent-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px 8px;
+  align-items: end;
+  padding: 8px 10px;
+  border-radius: 12px;
+}
+#workspace-agent-form > .composer-task-chips {
+  grid-column: 1 / -1;
+  margin: 0;
+}
+#workspace-agent-form > #workspace-request {
+  grid-column: 1;
+  margin: 0;
+  padding: 3px 0;
+  line-height: 22px;
+}
+#workspace-agent-form > .workspace-compose-footer {
+  grid-column: 2;
+  margin: 0;
+  gap: 6px;
+  align-self: end;
+}
+#workspace-agent-form .composer-send {
+  min-width: 30px;
+  width: 30px;
+  height: 30px;
+  min-height: 30px;
+  padding: 6px;
+  border-radius: 8px;
+}
+#workspace-agent-form .composer-send svg {
+  width: 16px;
+  height: 16px;
+}
