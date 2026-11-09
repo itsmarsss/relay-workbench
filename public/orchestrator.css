@@ -708,8 +708,7 @@ main[data-render-scope^='assistant:'] {
 }
 .relay-chat-item.is-active {
   background: var(--mint);
-  border-color: var(--line);
-  box-shadow: inset 3px 0 var(--green);
+  box-shadow: none;
 }
 .relay-chat-item-title {
   display: flex;
