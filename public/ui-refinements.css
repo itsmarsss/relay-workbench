@@ -1540,3 +1540,18 @@
 .graph-run-navigation button:disabled {
   opacity: 0.4;
 }
+
+/* SVG nodes use the card border for selection and keyboard focus. */
+.graph-node:focus,
+.graph-node:focus-visible {
+  outline: none;
+}
+.graph-node.selected > .graph-card {
+  stroke: var(--tone-285b46, #285b46);
+  stroke-width: 2.5;
+}
+.graph-node:focus-visible > .graph-card {
+  stroke: var(--tone-285b46, #285b46);
+  stroke-width: 3;
+  stroke-dasharray: 5 3;
+}

@@ -296,6 +296,23 @@ try {
     );
     await page.getByRole('button', { name: 'Reset zoom', exact: true }).click();
     await page.locator('.graph-node').nth(4).click();
+    const selectedNode = page.locator('.graph-node').nth(4);
+    assert.equal(
+      await selectedNode.evaluate((el) => getComputedStyle(el).outlineStyle),
+      'none',
+      'SVG node does not acquire a native blue outline',
+    );
+    await page.keyboard.press('Tab');
+    await page.keyboard.press('Shift+Tab');
+    assert.equal(await selectedNode.evaluate((el) => el.matches(':focus-visible')), true);
+    assert.notEqual(
+      await selectedNode
+        .locator(':scope > .graph-card')
+        .evaluate((el) => getComputedStyle(el).strokeDasharray),
+      'none',
+      'Keyboard focus is visible on the card border',
+    );
+
     await page.locator('.graph-inspector h3').filter({ hasText: 'Debugger' }).waitFor();
     await check('graph-detail', width);
     await page.getByRole('button', { name: 'Close execution graph', exact: true }).click();
@@ -395,6 +412,23 @@ try {
     await check('dense-task', width);
     await page.getByRole('button', { name: 'Open execution graph', exact: true }).click();
     await page.locator('.graph-node').nth(4).click();
+    const selectedNode = page.locator('.graph-node').nth(4);
+    assert.equal(
+      await selectedNode.evaluate((el) => getComputedStyle(el).outlineStyle),
+      'none',
+      'SVG node does not acquire a native blue outline',
+    );
+    await page.keyboard.press('Tab');
+    await page.keyboard.press('Shift+Tab');
+    assert.equal(await selectedNode.evaluate((el) => el.matches(':focus-visible')), true);
+    assert.notEqual(
+      await selectedNode
+        .locator(':scope > .graph-card')
+        .evaluate((el) => getComputedStyle(el).strokeDasharray),
+      'none',
+      'Keyboard focus is visible on the card border',
+    );
+
     await page.locator('.graph-inspector .detail-disclosure').first().locator('summary').click();
     await check('dense-graph', width);
     await page.keyboard.press('Escape');
