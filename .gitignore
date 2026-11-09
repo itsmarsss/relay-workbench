@@ -8,3 +8,6 @@ playwright-report/
 *.log
 .env
 .env.*
+
+# React migration build output
+web/dist/

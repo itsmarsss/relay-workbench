@@ -1,0 +1,60 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { ApiError, createTask, fetchBootstrap, fetchTasks, saveConfig } from './api.ts';
+const token = 'a'.repeat(64),
+  revision = 'b'.repeat(64);
+test('bootstrap and draft creation validate responses and send session token', async () => {
+  const original = globalThis.fetch;
+  const calls: { url: string; init?: RequestInit }[] = [];
+  globalThis.fetch = async (input, init) => {
+    calls.push({ url: String(input), init });
+    return new Response(
+      JSON.stringify(
+        String(input) === '/api/bootstrap'
+          ? { token, configRevision: revision, config: { repositories: [] } }
+          : { id: '550e8400-e29b-41d4-a716-446655440000', title: 'Test', status: 'draft' },
+      ),
+      { status: 200, headers: { 'Content-Type': 'application/json' } },
+    );
+  };
+  try {
+    const boot = await fetchBootstrap();
+    assert.equal(boot.token, token);
+    const task = await createTask(boot.token, { title: 'Test', demo: true });
+    assert.equal(task.status, 'draft');
+    assert.equal((calls[1]!.init!.headers as Record<string, string>)['X-Relay-Token'], token);
+    assert.equal(calls[1]!.init!.method, 'POST');
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+test('configuration saves carry the inspected revision and surface conflicts', async () => {
+  const original = globalThis.fetch;
+  let sent: RequestInit | undefined;
+  globalThis.fetch = async (_input, init) => {
+    sent = init;
+    return new Response(JSON.stringify({ error: 'Configuration changed; refresh before saving' }), {
+      status: 409,
+    });
+  };
+  try {
+    await assert.rejects(
+      saveConfig(token, revision, { repositories: [] }),
+      (error) => error instanceof ApiError && error.status === 409,
+    );
+    assert.equal((sent!.headers as Record<string, string>)['If-Match'], revision);
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+test('malformed task or bootstrap responses fail rather than inventing state', async () => {
+  const original = globalThis.fetch;
+  globalThis.fetch = async () =>
+    new Response(JSON.stringify([{ id: 'bad', title: 'x', status: 'draft' }]), { status: 200 });
+  try {
+    await assert.rejects(fetchTasks(), /invalid/);
+    await assert.rejects(fetchBootstrap(), /invalid/);
+  } finally {
+    globalThis.fetch = original;
+  }
+});

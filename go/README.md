@@ -1,0 +1,13 @@
+# Experimental Go backend
+
+This is an isolated migration preview, not a replacement for Relay. It can edit configuration and create draft tasks, but does not run agents, advance workflows, process approvals, publish, monitor PRs, or control terminals. Do not use it with real Relay state.
+
+It requires Go 1.22 or newer, a C toolchain, `pkg-config`, and SQLite development headers and libraries. To build and test, run `go test -race ./...` and `go vet ./...` inside this directory. The existing JavaScript backend and its tests remain authoritative during migration.
+
+For an isolated local preview, build the experimental React frontend, then run:
+
+```sh
+go run ./cmd/relay-go --data-dir /path/to/new/empty-directory --web-dir /path/to/relay/web/dist --port 4311
+```
+
+The state directory must be empty on first use. A marker prevents opening an unmarked existing directory, and the exclusive `server.lock` prevents two servers from writing concurrently. Copying or importing live state is not implemented. The listener binds to IPv4 loopback; configuration and draft creation require the session token, while workflow mutations are rejected. No migration, workflow, security, terminal, browser, or performance parity is claimed.

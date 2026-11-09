@@ -1,0 +1,37 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { newDeck, panes, parseDeck, removeNode, splitNode, updateNode } from './deck.ts';
+
+test('layouts retain existing panes across nested splits, updates, and close', () => {
+  const deck = newDeck(),
+    root = deck.tabs[0]!.root,
+    first = root.id;
+  const split = splitNode(root, first, 'horizontal');
+  assert.equal(panes(split).length, 2);
+  const second = panes(split)[1]!;
+  const nested = splitNode(split, second.id, 'vertical');
+  const third = panes(nested)[2]!;
+  const edited = updateNode(nested, first, (pane) =>
+    pane.type === 'pane' ? { ...pane, taskId: 'a5f083b8-b291-4eb4-b5b1-16679076c777' } : pane,
+  );
+  const reduced = removeNode(edited, second.id);
+  assert.deepEqual(
+    panes(reduced).map((pane) => pane.id),
+    [first, third.id],
+  );
+  assert.equal(panes(reduced)[0]!.taskId, 'a5f083b8-b291-4eb4-b5b1-16679076c777');
+});
+test('saved layouts validate shape, clamp dimensions, and reject hostile data', () => {
+  const deck = newDeck();
+  deck.tabs[0]!.root = splitNode(deck.tabs[0]!.root, deck.tabs[0]!.root.id, 'vertical');
+  if (deck.tabs[0]!.root.type === 'split') deck.tabs[0]!.root.ratio = 10000;
+  const result = parseDeck(JSON.stringify(deck));
+  assert.equal(result.tabs[0]!.root.type === 'split' && result.tabs[0]!.root.ratio, 80);
+  assert.notEqual(parseDeck('{bad').active, '');
+  assert.equal(parseDeck(JSON.stringify({ tabs: Array(11).fill({}) })).tabs.length, 1);
+});
+test('splitting stops at eight panes', () => {
+  let root = newDeck().tabs[0]!.root;
+  while (panes(root).length < 8) root = splitNode(root, panes(root).at(-1)!.id, 'horizontal');
+  assert.equal(splitNode(root, panes(root)[0]!.id, 'vertical'), root);
+});
