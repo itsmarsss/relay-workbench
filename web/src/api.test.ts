@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { ApiError, createTask, fetchBootstrap, fetchTasks, saveConfig } from './api.ts';
+import { ApiError, createTask, fetchBootstrap, fetchTasks, saveConfig, taskAction } from './api.ts';
 const token = 'a'.repeat(64),
   revision = 'b'.repeat(64);
 test('bootstrap and draft creation validate responses and send session token', async () => {
@@ -24,6 +24,33 @@ test('bootstrap and draft creation validate responses and send session token', a
     assert.equal(task.status, 'draft');
     assert.equal((calls[1]!.init!.headers as Record<string, string>)['X-Relay-Token'], token);
     assert.equal(calls[1]!.init!.method, 'POST');
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+test('workflow actions use the local session token and surface failures', async () => {
+  const original = globalThis.fetch;
+  let request: { url: string; init?: RequestInit } | undefined;
+  globalThis.fetch = async (url, init) => {
+    request = { url: String(url), init };
+    return new Response(
+      JSON.stringify({
+        id: '550e8400-e29b-41d4-a716-446655440000',
+        title: 'Task',
+        status: 'queued',
+      }),
+      { status: 202 },
+    );
+  };
+  try {
+    const result = await taskAction(token, '550e8400-e29b-41d4-a716-446655440000', 'start');
+    assert.equal(result.status, 'queued');
+    assert.match(request!.url, /\/start$/);
+    assert.equal((request!.init!.headers as Record<string, string>)['X-Relay-Token'], token);
+    assert.equal(request!.init!.body, '{}');
+    globalThis.fetch = async () =>
+      new Response(JSON.stringify({ error: 'Workspace is busy' }), { status: 409 });
+    await assert.rejects(taskAction(token, result.id, 'resume'), /Workspace is busy/);
   } finally {
     globalThis.fetch = original;
   }

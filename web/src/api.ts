@@ -46,7 +46,27 @@ export async function fetchBootstrap(signal?: AbortSignal): Promise<Bootstrap> {
     !isConfig(result.config)
   )
     throw new Error('Relay configuration is invalid.');
-  return { token: result.token, config: result.config, configRevision: result.configRevision };
+  return {
+    token: result.token,
+    config: result.config,
+    configRevision: result.configRevision,
+    workflowPreview: 'workflowPreview' in result && result.workflowPreview === true,
+  };
+}
+export async function taskAction(
+  token: string,
+  id: string,
+  action: 'start' | 'resume' | 'pause',
+): Promise<Task> {
+  const result = await json(
+    await fetch(`/api/tasks/${encodeURIComponent(id)}/${action}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Relay-Token': token },
+      body: '{}',
+    }),
+  );
+  if (!isTask(result)) throw new Error('Updated task data is invalid.');
+  return result;
 }
 export async function createTask(token: string, request: Record<string, unknown>): Promise<Task> {
   const result = await json(

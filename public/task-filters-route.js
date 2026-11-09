@@ -22,7 +22,11 @@ export function readTaskFilters(hash) {
     if (query.has(key))
       result[field] = field === 'showEmptyStages' ? query.get(key) === '1' : query.get(key);
   }
-  if (!['all', 'attention', 'active', 'backlog', 'completed', 'cancelled'].includes(result.filter))
+  if (
+    !['all', 'attention', 'active', 'backlog', 'completed', 'finished', 'cancelled'].includes(
+      result.filter,
+    )
+  )
     result.filter = 'all';
   if (result.taskLayout && !['board', 'list'].includes(result.taskLayout)) delete result.taskLayout;
   if (!['priority', 'recent', 'created', 'title'].includes(result.taskSort))

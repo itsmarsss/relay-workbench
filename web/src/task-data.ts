@@ -46,6 +46,64 @@ export function latestHandoffs(value: unknown): { title: string; text: string; k
       };
     });
 }
+export type PlanPreview = {
+  summary: string;
+  details: string;
+  recommendedId: string;
+  reason: string;
+  options: { id: string; title: string; description: string; tradeoffs: string }[];
+};
+export function latestPlan(value: unknown): PlanPreview | null {
+  const task = asObject(value);
+  if (!task || !Array.isArray(task.attempts)) return null;
+  const followUp = asObject(task.followUpContext);
+  const attempt = task.attempts.findLast((item) => {
+    const run = asObject(item),
+      handoff = asObject(run?.handoff);
+    if (
+      run?.stage !== 'plan' ||
+      run.status !== 'complete' ||
+      run.role === 'debug' ||
+      handoff?.verdict !== 'complete'
+    )
+      return false;
+    if (typeof followUp?.id === 'string' && followUp.id) {
+      if (typeof run.followUpId === 'string' && run.followUpId)
+        return run.followUpId === followUp.id;
+      if (typeof run.startedAt !== 'string' || typeof followUp.startedAt !== 'string') return false;
+      const started = Date.parse(run.startedAt),
+        after = Date.parse(followUp.startedAt);
+      return Number.isFinite(started) && Number.isFinite(after) && started >= after;
+    }
+    return true;
+  });
+  const handoff = asObject(asObject(attempt)?.handoff);
+  if (!handoff || !Array.isArray(handoff.options)) return null;
+  const options = handoff.options.map((item) => {
+    const option = asObject(item);
+    return {
+      id: asText(option?.id, 200),
+      title: asText(option?.title, 1000),
+      description: asText(option?.description, 20000),
+      tradeoffs: asText(option?.tradeoffs, 20000),
+    };
+  });
+  if (
+    !options.length ||
+    options.some(
+      (option) => !option.id || !option.title || !option.description || !option.tradeoffs,
+    )
+  )
+    return null;
+  const recommendedId = asText(handoff.recommendedOptionId, 200);
+  return {
+    summary: asText(handoff.summary, 20000),
+    details: asText(handoff.details, 50000),
+    recommendedId: options.some((option) => option.id === recommendedId) ? recommendedId : '',
+    reason: asText(handoff.recommendationReason, 20000),
+    options,
+  };
+}
 export function liveTerminal(value: unknown): { id: string; label: string } | null {
   const task = asObject(value);
   if (!task) throw new Error('Invalid task response.');

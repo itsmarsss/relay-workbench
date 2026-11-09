@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"bytes"
 	"context"
 	"encoding/hex"
 	"encoding/json"
@@ -16,6 +17,69 @@ import (
 	"relay.local/relay/internal/storage"
 	"relay.local/relay/internal/store"
 )
+
+type fakeCoordinator struct{ starts, resumes, pauses int }
+
+func (c *fakeCoordinator) Start(id string) (map[string]any, error) {
+	c.starts++
+	return map[string]any{"id": id, "title": "Task", "status": "queued"}, nil
+}
+func (c *fakeCoordinator) Resume(id string) (map[string]any, error) {
+	c.resumes++
+	return map[string]any{"id": id, "title": "Task", "status": "queued"}, nil
+}
+func (c *fakeCoordinator) Pause(string) error { c.pauses++; return nil }
+func (c *fakeCoordinator) Running() int       { return c.starts - c.pauses }
+
+func TestWorkflowActionsRequireAuthenticationAndRejectExtraFields(t *testing.T) {
+	app, db := setup(t)
+	if err := db.Save(json.RawMessage(`{"id":"`+id+`","title":"Task","status":"queued"}`), nil); err != nil {
+		t.Fatal(err)
+	}
+	coordinator := &fakeCoordinator{}
+	app.SetCoordinator(coordinator)
+	requestAction := func(path, token, origin, body string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest("POST", "http://127.0.0.1:4311"+path, bytes.NewBufferString(body))
+		req.Host = "127.0.0.1:4311"
+		req.Header.Set("Content-Type", "application/json")
+		if token != "" {
+			req.Header.Set("X-Relay-Token", token)
+		}
+		if origin != "" {
+			req.Header.Set("Origin", origin)
+		}
+		out := httptest.NewRecorder()
+		app.ServeHTTP(out, req)
+		return out
+	}
+	path := "/api/tasks/" + id + "/start"
+	token := hex.EncodeToString(app.token[:])
+	for _, entry := range []struct {
+		token, origin, body string
+		want                int
+	}{
+		{"", "", `{}`, 403},
+		{token, "https://other.example", `{}`, 403},
+		{token, "", `{"command":"bad"}`, 400},
+	} {
+		result := requestAction(path, entry.token, entry.origin, entry.body)
+		if result.Code != entry.want || coordinator.starts != 0 {
+			t.Fatalf("unauthorized action: %d, starts %d", result.Code, coordinator.starts)
+		}
+	}
+	if result := requestAction(path, token, "http://127.0.0.1:4311", `{}`); result.Code != 202 || coordinator.starts != 1 {
+		t.Fatalf("valid start: %d %s", result.Code, result.Body.String())
+	}
+	if result := request(app, "GET", "/api/health", "127.0.0.1:4311", "", ""); !strings.Contains(result.Body.String(), `"running":1`) {
+		t.Fatalf("health missing active workflow: %s", result.Body.String())
+	}
+	if result := requestAction("/api/tasks/"+id+"/pause", token, "", `{}`); result.Code != 200 || coordinator.pauses != 1 {
+		t.Fatalf("valid pause: %d %s", result.Code, result.Body.String())
+	}
+	if result := requestAction("/api/tasks/"+id+"/resume", token, "", `{}`); result.Code != 202 || coordinator.resumes != 1 {
+		t.Fatalf("valid resume: %d %s", result.Code, result.Body.String())
+	}
+}
 
 const id = "550e8400-e29b-41d4-a716-446655440000"
 

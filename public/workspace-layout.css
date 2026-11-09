@@ -438,7 +438,8 @@
 .lane-dot-attention {
   background: var(--tone-b86b55, #b86b55);
 }
-.lane-dot-done {
+.lane-dot-done,
+.lane-dot-finished {
   background: var(--tone-4b8d67, #4b8d67);
 }
 .lane-count {

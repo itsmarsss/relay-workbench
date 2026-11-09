@@ -27,12 +27,17 @@ export function TaskPanel({ task, view }: { task: Task; view: TaskView }) {
     if (view === 'overview' || view === 'diff') return;
     let alive = true,
       running = false,
-      controller: AbortController | null = null;
+      controller: AbortController | null = null,
+      pending = false,
+      refreshTimer: number | undefined;
     const base = `/api/tasks/${encodeURIComponent(task.id)}`;
     let cursor = 0,
       retained: NonNullable<Data['entries']> = [];
     async function refresh() {
-      if (running) return;
+      if (running) {
+        pending = true;
+        return;
+      }
       running = true;
       controller = new AbortController();
       try {
@@ -78,9 +83,21 @@ export function TaskPanel({ task, view }: { task: Task; view: TaskView }) {
           setError(failure instanceof Error ? failure.message : 'Could not load this view.');
       } finally {
         running = false;
+        if (alive && pending) {
+          pending = false;
+          void refresh();
+        }
       }
     }
+    function onData() {
+      if (refreshTimer !== undefined) return;
+      refreshTimer = window.setTimeout(() => {
+        refreshTimer = undefined;
+        void refresh();
+      }, 200);
+    }
     void refresh();
+    window.addEventListener('relay-data-change', onData);
     const interval = window.setInterval(() => {
       if (!document.hidden) void refresh();
     }, 5000);
@@ -88,6 +105,8 @@ export function TaskPanel({ task, view }: { task: Task; view: TaskView }) {
       alive = false;
       controller?.abort();
       window.clearInterval(interval);
+      window.clearTimeout(refreshTimer);
+      window.removeEventListener('relay-data-change', onData);
     };
   }, [task.id, view]);
   if (view === 'overview')

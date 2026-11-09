@@ -12,11 +12,13 @@ const presets = [
 ];
 export function DraftComposer({
   config,
+  workflowPreview,
   onCreate,
   onClose,
   onCreated,
 }: {
   config: RelayConfig;
+  workflowPreview: boolean;
   onCreate: (request: Record<string, unknown>) => Promise<Task>;
   onClose: () => void;
   onCreated: (task: Task) => void;
@@ -73,7 +75,11 @@ export function DraftComposer({
       }}
       footer={
         <>
-          <span className="form-note">Creates a draft. Agent execution is still being ported.</span>
+          <span className="form-note">
+            {workflowPreview
+              ? 'Creates a draft. Investigation and planning are available in preview.'
+              : 'Creates a draft. Agent execution is still being ported.'}
+          </span>
           <button type="button" onClick={onClose} disabled={busy}>
             Cancel
           </button>

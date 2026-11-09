@@ -17,6 +17,7 @@ import (
 	"relay.local/relay/internal/httpapi"
 	"relay.local/relay/internal/process"
 	"relay.local/relay/internal/store"
+	"relay.local/relay/internal/workflow"
 )
 
 func run(args []string) (result error) {
@@ -46,6 +47,17 @@ func run(args []string) (result error) {
 	if err != nil {
 		return err
 	}
+	defer listener.Close()
+	worker, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	coordinator, err := workflow.NewCoordinator(db, worker, []string{"--internal-worker"}, nil)
+	if err != nil {
+		return err
+	}
+	defer coordinator.Close()
+	handler.SetCoordinator(coordinator)
 	server := &http.Server{Handler: handler, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 16384}
 	signals := make(chan os.Signal, 1)
 	signal.Notify(signals, os.Interrupt, syscall.SIGTERM)
