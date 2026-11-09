@@ -34,12 +34,27 @@ export function handoffBody(h) {
       : ''
   }${handoffFiles(h)}<div class="report-supporting">${verificationReport(h.verification)}${h.details ? `<details class="report-section"><summary>Explanation</summary><div class="prose report-prose">${prose(h.details)}</div></details>` : ''}${h.evidence?.length ? `<details class="report-section"><summary>Verification & evidence <span>${h.evidence.length}</span></summary><ul class="evidence-list">${h.evidence.map((v) => `<li>${e(v)}</li>`).join('')}</ul></details>` : ''}</div></div>`;
 }
+function handoffStatus(run) {
+  const delegated = {
+    repair_requested: 'Repair delegated',
+    verification_requested: 'Verification requested',
+  }[run.handoff?.verdict];
+  const state = runState(run);
+  const tone = delegated
+    ? 'pending'
+    : state.key === 'complete'
+      ? 'pass'
+      : ['failed', 'blocked', 'changes'].includes(state.key)
+        ? 'fail'
+        : 'pending';
+  return `<span class="verdict ${tone}">${e(delegated || state.label)}</span>`;
+}
 export function handoffList(task) {
   const attempts = taskRuns(task)
     .map((a, i) => ({ ...a, number: i + 1 }))
     .filter((a) => a.handoff || a.error)
     .reverse();
-  return `<div class="panel-heading"><div><h2>Handoffs</h2><p>Latest outcome first. Open a run for the reasoning and evidence.</p></div><span class="panel-count">${attempts.length} runs</span></div>${attempts.length ? attempts.map((a, i) => `<details class="handoff-card report-card" data-event-key="handoff-${e(a.id)}" ${i === 0 ? 'open' : ''}><summary><div class="report-heading">${harnessBadge(a.harness)}<div><strong>${e(runLabel(a))}</strong><small>Run ${a.number} · ${e(a.harness)}${a.finishedAt ? ` · ${duration(new Date(a.finishedAt) - new Date(a.startedAt))}` : ''}</small></div><span class="verdict ${a.handoff?.verdict === 'complete' ? 'pass' : ['repair_requested', 'verification_requested'].includes(a.handoff?.verdict) ? 'pending' : 'fail'}">${e(a.handoff?.verdict === 'blocked' ? 'Blocked' : a.handoff?.verdict === 'complete' ? 'Complete' : a.handoff?.verdict === 'changes_requested' ? 'Changes requested' : a.handoff?.verdict === 'repair_requested' ? 'Repair delegated' : a.handoff?.verdict === 'verification_requested' ? 'Verification requested' : 'Failed')}</span></div><p class="report-takeaway">${e(concise(a.handoff?.summary || a.error, i === 0 ? 500 : 180))}</p></summary><div class="report-body">${(a.handoff?.summary || a.error || '').length > (i === 0 ? 500 : 180) ? `<p class="report-full-summary">${e(a.handoff?.summary || a.error)}</p>` : ''}${handoffBody(a.handoff)}</div></details>`).join('') : '<p class="panel-empty">Agent outcomes will appear here after the first run.</p>'}`;
+  return `<div class="panel-heading"><div><h2>Handoffs</h2><p>Latest outcome first. Open a run for the reasoning and evidence.</p></div><span class="panel-count">${attempts.length} runs</span></div>${attempts.length ? attempts.map((a, i) => `<details class="handoff-card report-card" data-event-key="handoff-${e(a.id)}" ${i === 0 ? 'open' : ''}><summary><div class="report-heading">${harnessBadge(a.harness)}<div><strong>${e(runLabel(a))}</strong><small>Run ${a.number} · ${e(a.harness)}${a.finishedAt ? ` · ${duration(new Date(a.finishedAt) - new Date(a.startedAt))}` : ''}</small></div>${handoffStatus(a)}</div><p class="report-takeaway">${e(concise(a.handoff?.summary || a.error, i === 0 ? 500 : 180))}</p></summary><div class="report-body">${(a.handoff?.summary || a.error || '').length > (i === 0 ? 500 : 180) ? `<p class="report-full-summary">${e(a.handoff?.summary || a.error)}</p>` : ''}${handoffBody(a.handoff)}</div></details>`).join('') : '<p class="panel-empty">Agent outcomes will appear here after the first run.</p>'}`;
 }
 export function workflowStages(task) {
   const cycleStart = task.followUpContext?.startedAt;

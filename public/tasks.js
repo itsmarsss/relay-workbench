@@ -1,4 +1,4 @@
-import { displayStatus } from './task-status.js';
+import { displayStatus, overrideStatuses } from './task-status.js';
 import { e, badge, ago, empty, icon, tabIndicator } from './ui.js';
 import { columns, workflowColumn, nextStep, workflowBoard } from './workflow.js';
 const needsInput = new Set([
@@ -53,7 +53,7 @@ export function filterTasks(tasks, state) {
   );
 }
 export function taskList(tasks) {
-  return `<div class="task-list" role="list" aria-label="Tasks">${tasks.map((task) => `<article class="task-list-row" role="listitem"><button class="task-list-open" data-action="open-task" data-id="${e(task.id)}"><div class="task-list-copy"><strong>${e(task.title)}${task.demo ? ' <span class="demo-label">DEMO</span>' : ''}</strong><small>${e((task.repositories?.length ? task.repositories : [task]).map((entry) => entry.repository.name).join(' + '))} · ${e(columns.find(([id]) => id === workflowColumn(task))?.[1] ?? '')}${task.ticket ? ` · ${e(task.ticket.match(/\/issues\/(\d+)/)?.[1] ? '#' + task.ticket.match(/\/issues\/(\d+)/)[1] : task.ticket)}` : ''}</small>${task.error || task.latestSummary ? `<p>${e((task.error || task.latestSummary).slice(0, 220))}</p>` : ''}</div><div class="task-list-state">${badge(displayStatus(task))}<strong>${e(nextStep(task))}</strong><time>${ago(task.updatedAt)}</time></div>${icon('chevron')}</button></article>`).join('')}</div>`;
+  return `<div class="task-list" role="list" aria-label="Tasks">${tasks.map((task) => `<article class="task-list-row" role="listitem"><button class="task-list-open" data-action="open-task" data-id="${e(task.id)}"><div class="task-list-copy"><strong>${e(task.title)}${task.demo ? ' <span class="demo-label">DEMO</span>' : ''}</strong><small>${e((task.repositories?.length ? task.repositories : [task]).map((entry) => entry.repository.name).join(' + '))}${task.ticket ? ` · ${e(task.ticket.match(/\/issues\/(\d+)/)?.[1] ? '#' + task.ticket.match(/\/issues\/(\d+)/)[1] : task.ticket)}` : ''}</small>${task.error || task.latestSummary ? `<p>${e((task.error || task.latestSummary).slice(0, 220))}</p>` : ''}</div><div class="task-list-state">${badge(displayStatus(task))}${nextStep(task) !== overrideStatuses[displayStatus(task)] ? `<strong>${e(nextStep(task))}</strong>` : ''}<time>${ago(task.updatedAt)}</time></div>${icon('chevron')}</button></article>`).join('')}</div>`;
 }
 export function tasksPage(state) {
   const filtered = filterTasks(state.tasks, state);

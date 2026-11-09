@@ -86,3 +86,42 @@ test('file grouping preserves original diff indices for review anchors', () => {
   for (const group of files)
     for (const line of group.lines) assert.deepEqual(line.anchor, original[line.index].anchor);
 });
+
+test('handoffs show actual delivery outcomes without requiring an agent verdict', () => {
+  for (const [status, label] of [
+    ['complete', 'Complete'],
+    ['failed', 'Failed'],
+    ['running', 'Running'],
+    ['interrupted', 'Paused'],
+  ]) {
+    const html = handoffList({
+      attempts: [],
+      deliveryRuns: [
+        { id: 'delivery', stage: 'publish', status, handoff: { summary: 'Publication outcome' } },
+      ],
+    });
+    assert.match(html, new RegExp('class="verdict [^"]+">' + label + '</span>'));
+  }
+  const delegated = handoffList({
+    attempts: [
+      {
+        id: 'repair',
+        status: 'complete',
+        stage: 'implement',
+        handoff: { verdict: 'repair_requested', summary: 'Delegate repair' },
+      },
+    ],
+  });
+  assert.match(delegated, /Repair delegated/);
+  const blocked = handoffList({
+    attempts: [
+      {
+        id: 'blocked',
+        status: 'complete',
+        stage: 'implement',
+        handoff: { verdict: 'blocked', summary: 'Needs a choice' },
+      },
+    ],
+  });
+  assert.match(blocked, /class="verdict fail">Blocked/);
+});

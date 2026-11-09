@@ -146,6 +146,19 @@ try {
     await check('memory-history', width);
     await page.getByRole('button', { name: 'Close dialog', exact: true }).click();
 
+    for (const tab of ['thread', 'terminals', 'handoffs', 'diff', 'transcript', 'overview']) {
+      const target = page.locator(`[role=tab][data-action=tab][data-tab=${tab}]`);
+      if (!(await target.count())) continue;
+      await target.click();
+      if (tab === 'handoffs') {
+        assert.equal(await target.locator('span').innerText(), '9');
+        assert.equal(
+          await page.locator('.handoff-card').first().locator('.verdict').innerText(),
+          'Complete',
+        );
+      }
+      await check(`task-${tab}`, width);
+    }
     await page.getByRole('button', { name: 'Open execution graph', exact: true }).click();
     await page.getByRole('region', { name: 'Execution graph', exact: true }).waitFor();
     assert.equal(await page.locator('.graph-lane-title').count(), 3);

@@ -1,8 +1,25 @@
 import assert from 'node:assert/strict';
 
+// Wait for finite transitions so audits inspect settled UI, including Motion entrances.
+export async function settleUI(page) {
+  // Motion animates disclosure heights in JavaScript rather than through WAAPI.
+  await page.waitForFunction(
+    () => ![...document.querySelectorAll('details')].some((el) => el.style.overflow === 'hidden'),
+  );
+  await page.evaluate(async () => {
+    await Promise.all(
+      document
+        .getAnimations()
+        .filter((animation) => animation.effect?.getComputedTiming().iterations !== Infinity)
+        .map((animation) => animation.finished.catch(() => {})),
+    );
+  });
+}
+
 // Check rendered text against its composed background, including nested pale cards.
 // This complements visual inspection; it does not claim a full accessibility audit.
 export async function assertReadableText(page) {
+  await settleUI(page);
   const failures = await page.evaluate(() => {
     const rgb = (value) => (value.match(/[\d.]+/g) || []).map(Number);
     const blend = (front, back) =>

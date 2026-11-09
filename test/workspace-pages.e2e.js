@@ -6,7 +6,7 @@ import { join, resolve } from 'node:path';
 import { chromium } from 'playwright';
 import { createApp } from '../server/app.js';
 import { createMemory } from '../server/memory.js';
-import { assertReadableText } from './browser-contrast.js';
+import { assertReadableText, settleUI } from './browser-contrast.js';
 const directory = await mkdtemp(join(tmpdir(), 'relay-pages-'));
 const app = createApp({ directory: join(directory, 'state'), publicDirectory: resolve('public') });
 let browser;
@@ -58,7 +58,12 @@ try {
   await mockDiscovery(page);
   const errors = [];
   page.on('pageerror', (error) => errors.push(error.message));
-  for (const width of [1440, 390]) {
+  for (const [width, theme] of [
+    [1440, 'light'],
+    [390, 'light'],
+    [1440, 'dark'],
+    [390, 'dark'],
+  ]) {
     await page.setViewportSize({ width, height: 1000 });
     for (const view of [
       'assistant',
@@ -71,6 +76,8 @@ try {
       'settings',
     ]) {
       await page.goto(`${base}/#${view}`);
+      await page.evaluate((theme) => window.RelayTheme.set(theme), theme);
+      assert.equal(await page.locator('html').getAttribute('data-theme'), theme);
       await page.locator('#main h1').waitFor();
       if (view === 'harnesses')
         await page.getByRole('heading', { name: 'Routing evidence', exact: true }).waitFor();
@@ -80,6 +87,48 @@ try {
       );
       await assertReadableText(page);
       assert.equal(await page.locator('.nav-item[aria-current=page]').count(), 1);
+      assert.ok(
+        await page.evaluate(() => {
+          const crumb = document.querySelector('.breadcrumb').getBoundingClientRect();
+          const actions = document.querySelector('.top-actions').getBoundingClientRect();
+          return crumb.right + 8 <= actions.left;
+        }),
+        `${view} header actions do not overlap the breadcrumb`,
+      );
+      if (view === 'assistant') {
+        assert.ok(
+          await page
+            .locator('.workspace-conversation')
+            .evaluate(
+              (el) =>
+                el.getBoundingClientRect().width >=
+                el.parentElement.getBoundingClientRect().width * (innerWidth > 1000 ? 0.65 : 0.95),
+            ),
+          'Relay uses its available conversation width',
+        );
+        assert.ok(
+          await page
+            .locator('#workspace-agent-form')
+            .evaluate((el) => el.getBoundingClientRect().height < 50),
+        );
+      }
+      if (view === 'tasks') {
+        const waitingRow = page
+          .locator('.task-list-row')
+          .filter({ hasText: 'Choose a query validation approach' });
+        assert.equal((await waitingRow.innerText()).split('Choose an approach').length - 1, 1);
+        const toolbar = page.locator('.task-results-toolbar');
+        assert.ok(
+          await toolbar.evaluate((el) => el.getBoundingClientRect().height < 60),
+          'List controls stay on one compact row',
+        );
+      }
+      if (view === 'overview')
+        await page
+          .locator('.task-row')
+          .filter({ hasText: 'Update the accepted change' })
+          .getByText('Follow-up agent running', { exact: false })
+          .waitFor();
       if (view === 'settings') {
         assert.equal(await page.locator('#settings-form').isVisible(), true);
         assert.equal(await page.locator('#low-motion').isVisible(), true);
@@ -93,8 +142,9 @@ try {
       }
       if (process.env.RELAY_VISUAL_DIR) {
         await mkdir(process.env.RELAY_VISUAL_DIR, { recursive: true });
+        await settleUI(page);
         await page.screenshot({
-          path: join(process.env.RELAY_VISUAL_DIR, `${view}-${width}.png`),
+          path: join(process.env.RELAY_VISUAL_DIR, `${view}-${width}-${theme}.png`),
           fullPage: true,
         });
       }

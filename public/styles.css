@@ -289,6 +289,7 @@ code {
   min-width: 0;
 }
 .topbar {
+  gap: 16px;
   height: 74px;
   border-bottom: 1px solid var(--line);
   display: flex;
@@ -298,6 +299,7 @@ code {
   background: var(--tone-fafbf9, #fafbf9);
 }
 .breadcrumb {
+  min-width: 0;
   display: flex;
   align-items: center;
   gap: 12px;
@@ -307,10 +309,14 @@ code {
 .breadcrumb .icon {
   width: 12px;
 }
-.breadcrumb span {
+.breadcrumb > span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   color: var(--tone-4e5d52, #4e5d52);
 }
 .top-actions {
+  flex-shrink: 0;
   display: flex;
   gap: 23px;
   align-items: center;
@@ -2699,6 +2705,10 @@ details.error-panel > p {
   .topbar {
     padding: 0 14px;
   }
+  .breadcrumb-root,
+  .breadcrumb > .icon {
+    display: none;
+  }
   .breadcrumb {
     font-size: 13px;
     gap: 6px;
@@ -3630,7 +3640,7 @@ textarea::placeholder,
   width: 100%;
   border: 0;
   background: transparent;
-  padding: 19px 22px;
+  padding: 16px 18px;
   text-align: left;
 }
 .task-list-copy {
@@ -3930,8 +3940,8 @@ textarea::placeholder,
     font-size: 16px;
   }
   .task-results-toolbar {
-    align-items: flex-start;
-    flex-direction: column;
+    flex-wrap: wrap;
+    gap: 8px;
   }
   .stage-editor-grid,
   .task-editor-section .form-columns {

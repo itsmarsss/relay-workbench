@@ -31,7 +31,7 @@ export function healthPanel(task) {
       : health.state === 'attention'
         ? 'Needs you'
         : 'History';
-  return `<details class="productivity-panel health-panel" data-event-key="workflow-health"><summary><span class="history-heading"><span class="result-chevron">${icon('chevron')}</span><strong>${label}</strong><span class="history-count">${health.failures} failed runs · ${health.debugging} debug runs</span></span><span class="result-state ${health.recovered ? 'is-positive' : ''}">${e(status)}</span></summary><div class="history-body">${!health.recovered ? `<p class="history-explanation">${e(health.summary)}</p>` : ''}${health.strategy ? `<p class="history-explanation">${e(concise(health.strategy))}</p>` : ''}<div class="history-list-label">Recent failures</div><ul class="history-runs">${[
+  return `<details class="productivity-panel health-panel" data-event-key="workflow-health"><summary><span class="history-heading"><span class="result-chevron">${icon('chevron')}</span><strong>${label}</strong><span class="history-count">${health.failures} failed ${health.failures === 1 ? 'run' : 'runs'} · ${health.debugging} debug ${health.debugging === 1 ? 'run' : 'runs'}</span></span><span class="result-state ${health.recovered ? 'is-positive' : ''}">${e(status)}</span></summary><div class="history-body">${!health.recovered ? `<p class="history-explanation">${e(health.summary)}</p>` : ''}${health.strategy ? `<p class="history-explanation">${e(concise(health.strategy))}</p>` : ''}<div class="history-list-label">Recent failures</div><ul class="history-runs">${[
     ...grouped.values(),
   ]
     .slice(-3)
