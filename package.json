@@ -15,7 +15,8 @@
     "test:browser": "node test/live-dom.e2e.js && node test/search-select.e2e.js && node test/memory.e2e.js && node test/browser.e2e.js && node test/follow-up.e2e.js && node test/ui-sweep.e2e.js && node test/workspace-pages.e2e.js && node test/board-drag.e2e.js && node test/profile-suggestions.e2e.js && node test/polish.e2e.js && node test/control-audit.e2e.js && node test/theme-scroll.e2e.js && node test/workspace-permissions.e2e.js && node test/chat-tabs.e2e.js && node test/productivity.e2e.js && node test/task-mentions.e2e.js",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "vendor": "node scripts/vendor.js"
+    "vendor": "node scripts/vendor.js",
+    "test:reliability": "node scripts/reliability.js"
   },
   "devDependencies": {
     "@xterm/addon-fit": "0.11.0",

@@ -251,3 +251,17 @@ Open **Relay** in the top bar or press **Cmd/Ctrl+K** to coordinate work without
 **Settings → Low motion** disables animations and transitions in this browser. The system reduced-motion preference is also respected. Relay vendors Motion locally and uses its JavaScript API; no CDN or React runtime is required.
 
 Drag the Ask Relay header to move its window, or drag an edge or corner to resize it. Resizing preserves the opposite edge and stays within the viewport. Double-click the header to reset. The resize grip supports arrow keys and Home. Geometry is saved in this browser and bounded to the viewport; mobile uses the full-width layout. Task search, project/stage filters, sorting and layout are retained in the URL.
+
+## Workflow reliability tests
+
+Run `npm run test:reliability` to exercise isolated workflows through the production engine, database, process runner and Git workspaces. The suite injects malformed provider output, process exits, stalled providers, cancellation, hard crashes during implementation and publication, and restarts at both human approval gates. It checks preserved edits and sessions, bounded retries, orphan-provider cleanup, explicit resume, and publication retry without duplicate commits.
+
+```sh
+npm run test:reliability -- --list
+npm run test:reliability -- --scenario crash-during-implementation
+npm run test:reliability -- --repeat 3 --report docs/dev/reliability.json
+```
+
+The scenarios also run in `npm test`. They use temporary repositories and scripted providers; they never call installed AI harnesses, touch configured projects, or publish a real PR. The scenario driver explicitly exercises approval actions as a test actor. Application approval gates stay intact.
+
+Successful temporary fixtures are removed. A failed scenario exits nonzero and prints the retained fixture directory containing `failure.json`, SQLite state and Git workspace. Optional JSON reports contain checkpoint traces, task/event snapshots, durations and failure details. These are controlled orchestration tests; external provider behavior and model quality require separate validation.
