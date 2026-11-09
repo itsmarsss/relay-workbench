@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { automationState } from './workflow-automation.js';
 import { readWorkflowHealth } from './workflow-health.js';
 import { decisionBrief } from '../public/workflow-insights.js';
@@ -42,6 +43,26 @@ export function inbox(store) {
           "SELECT seq FROM events WHERE task_id=? AND json_extract(body, '$.type') IN ('decision','blocked','interrupted','manual','approval','stage_completed') ORDER BY seq DESC LIMIT 1",
         )
         .get(task.id);
+      // A late checkpoint/decision notification is not a new proposal. Only actual
+      // decision context may invalidate a human's approval receipt.
+      const gateAttempt = ['awaiting_plan', 'awaiting_final'].includes(task.status)
+        ? task.attempts.at(-1)?.id
+        : null;
+      const gateRevision = gateAttempt
+        ? createHash('sha256')
+            .update(
+              JSON.stringify({
+                attemptId: gateAttempt,
+                configuration: task.configRevision ?? 0,
+                pendingDirection: (task.messages ?? []).filter(
+                  (message) => message.delivery === 'pending',
+                ),
+                reviewComments: task.reviewComments ?? [],
+              }),
+            )
+            .digest('hex')
+            .slice(0, 24)
+        : (event?.seq ?? 0);
       const key = auto.error
         ? `${task.id}:auto:${auto.authorizationId}`
         : health.quiet
@@ -50,7 +71,7 @@ export function inbox(store) {
             ? `${task.id}:feedback:${feedback.feedbackAutopilot.current.id}`
             : publishing
               ? `${task.id}:publishing:${publishing.delivery.id}:${publishing.delivery.status}`
-              : `${task.id}:${task.status}:${event?.seq ?? 0}:${task.attempts.at(-1)?.id ?? 'none'}`;
+              : `${task.id}:${task.status}:${gateRevision}:${task.attempts.at(-1)?.id ?? 'none'}`;
       const seen = !!store.db.prepare('SELECT value FROM meta WHERE key=?').get(`seen:${key}`);
       return {
         key,
