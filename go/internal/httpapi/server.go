@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"mime"
 	"net/http"
 	"os"
@@ -19,6 +20,7 @@ import (
 	"strings"
 	"time"
 
+	"relay.local/relay/internal/storage"
 	"relay.local/relay/internal/store"
 	"relay.local/relay/internal/task"
 	"relay.local/relay/internal/tasksummary"
@@ -67,13 +69,12 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	path := r.URL.Path
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
-		if (path != "/api/tasks" || r.Method != http.MethodPost) && (path != "/api/config" || r.Method != http.MethodPut) {
+		if (path != "/api/tasks" || r.Method != http.MethodPost) && (path != "/api/config" || r.Method != http.MethodPut) && (path != "/api/storage/policy" || r.Method != http.MethodPut) {
 			w.Header().Set("Allow", "GET, HEAD")
 			respond(w, http.StatusMethodNotAllowed, map[string]string{"error": "Workflow actions are not ported yet"})
 			return
 		}
-		supplied, err := hex.DecodeString(r.Header.Get("X-Relay-Token"))
-		if err != nil || len(supplied) != len(s.token) || subtle.ConstantTimeCompare(supplied, s.token[:]) != 1 {
+		if !s.authorized(r) {
 			respond(w, 403, map[string]string{"error": "Session token required"})
 			return
 		}
@@ -87,6 +88,46 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		respond(w, 200, map[string]any{"token": hex.EncodeToString(s.token[:]), "config": config.Value, "configRevision": config.Revision, "version": "experimental-go"})
+		return
+	}
+	if path == "/api/storage/scan" {
+		if r.Method != http.MethodGet {
+			w.Header().Set("Allow", "GET")
+			respond(w, 405, map[string]string{"error": "Use GET to inspect storage"})
+			return
+		}
+		if !s.authorized(r) {
+			respond(w, 403, map[string]string{"error": "Session token required"})
+			return
+		}
+		s.scanStorage(w, r)
+		return
+	}
+	if path == "/api/storage/pressure" {
+		policy, err := (storage.PolicyService{Store: s.store}).Read()
+		if err != nil {
+			respond(w, 500, map[string]string{"error": "Could not read storage policy"})
+			return
+		}
+		var space storage.Space
+		err = s.store.WithOwnership(func(root string, verify func() error) error {
+			var probeErr error
+			space, probeErr = storage.ProbeWithTimeout(r.Context(), root, 2*time.Second, storage.Filesystem)
+			if probeErr != nil {
+				return probeErr
+			}
+			return verify()
+		})
+		if err != nil {
+			respond(w, 500, map[string]string{"error": "Could not inspect the Relay data volume"})
+			return
+		}
+		pressure, err := storage.Evaluate(policy.Policy, space)
+		if err != nil {
+			respond(w, 500, map[string]string{"error": "Could not evaluate storage pressure"})
+			return
+		}
+		respond(w, 200, map[string]any{"pressure": pressure, "policy": policy.Policy, "revision": policy.Revision, "scope": "Relay data volume", "admissionEnforced": false, "automaticCleanup": false})
 		return
 	}
 	if path == "/api/health" {
@@ -162,6 +203,63 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	s.asset(w, r)
 }
+func (s *Server) authorized(r *http.Request) bool {
+	supplied, err := hex.DecodeString(r.Header.Get("X-Relay-Token"))
+	return err == nil && len(supplied) == len(s.token) && subtle.ConstantTimeCompare(supplied, s.token[:]) == 1
+}
+func (s *Server) scanStorage(w http.ResponseWriter, r *http.Request) {
+	policy, err := (storage.PolicyService{Store: s.store}).Read()
+	if err != nil {
+		respond(w, 500, map[string]string{"error": "Could not read storage policy"})
+		return
+	}
+	if r.URL.Query().Get("revision") != policy.Revision {
+		respond(w, 409, map[string]string{"error": "Storage policy changed; refresh before scanning"})
+		return
+	}
+	index, err := strconv.Atoi(r.URL.Query().Get("index"))
+	if err != nil || index < 0 || index >= len(policy.Policy.MonitoredPaths) {
+		respond(w, 400, map[string]string{"error": "Choose a monitored path"})
+		return
+	}
+	path := policy.Policy.MonitoredPaths[index]
+	result, err := storage.ScanWithTimeout(r.Context(), path, 100000, 5*time.Second, nil)
+	if err != nil {
+		respond(w, 503, map[string]string{"error": "Could not complete the storage scan"})
+		return
+	}
+	current, err := (storage.PolicyService{Store: s.store}).Read()
+	if err != nil {
+		respond(w, 500, map[string]string{"error": "Could not read storage policy"})
+		return
+	}
+	if current.Revision != policy.Revision {
+		respond(w, 409, map[string]string{"error": "Storage policy changed; refresh before scanning"})
+		return
+	}
+	response := map[string]any{"path": path, "revision": policy.Revision, "scan": result}
+	space, err := storage.ProbeWithTimeout(r.Context(), path, 2*time.Second, storage.Filesystem)
+	if err == nil {
+		if pressure, evaluateErr := storage.Evaluate(policy.Policy, space); evaluateErr == nil {
+			response["pressure"] = pressure
+		} else {
+			response["spaceError"] = "Could not evaluate available space"
+		}
+	} else {
+		response["spaceError"] = "Could not inspect available space"
+	}
+	current, err = (storage.PolicyService{Store: s.store}).Read()
+	if err != nil {
+		respond(w, 500, map[string]string{"error": "Could not read storage policy"})
+		return
+	}
+	if current.Revision != policy.Revision {
+		respond(w, 409, map[string]string{"error": "Storage policy changed; refresh before scanning"})
+		return
+	}
+	respond(w, 200, response)
+}
+
 func requestObject(w http.ResponseWriter, r *http.Request) (map[string]any, error) {
 	media, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
 	if err != nil || media != "application/json" {
@@ -183,6 +281,62 @@ func (s *Server) mutate(w http.ResponseWriter, r *http.Request) {
 	raw, err := requestObject(w, r)
 	if err != nil {
 		respond(w, 400, map[string]string{"error": err.Error()})
+		return
+	}
+	if r.URL.Path == "/api/storage/policy" {
+		required := []string{"enabled", "warningPercent", "criticalPercent", "warningBytes", "criticalBytes", "monitoredPaths"}
+		if len(raw) != len(required) {
+			respond(w, 400, map[string]string{"error": "Provide every storage threshold"})
+			return
+		}
+		for _, key := range required {
+			if _, ok := raw[key]; !ok {
+				respond(w, 400, map[string]string{"error": "Provide every storage threshold"})
+				return
+			}
+		}
+		paths, ok := raw["monitoredPaths"].([]any)
+		if !ok {
+			respond(w, 400, map[string]string{"error": "Invalid monitored paths"})
+			return
+		}
+		for _, value := range paths {
+			if _, ok := value.(string); !ok {
+				respond(w, 400, map[string]string{"error": "Invalid monitored paths"})
+				return
+			}
+		}
+		if _, ok := raw["enabled"].(bool); !ok {
+			respond(w, 400, map[string]string{"error": "Invalid storage policy"})
+			return
+		}
+		for _, key := range []string{"warningPercent", "criticalPercent", "warningBytes", "criticalBytes"} {
+			value, ok := raw[key].(float64)
+			if !ok || math.IsNaN(value) || math.IsInf(value, 0) || value < 0 || value > float64((1<<53)-1) || math.Trunc(value) != value {
+				respond(w, 400, map[string]string{"error": "Invalid storage policy"})
+				return
+			}
+		}
+		data, err := json.Marshal(raw)
+		if err != nil {
+			respond(w, 400, map[string]string{"error": "Invalid storage policy"})
+			return
+		}
+		var policy storage.Policy
+		if json.Unmarshal(data, &policy) != nil {
+			respond(w, 400, map[string]string{"error": "Invalid storage policy"})
+			return
+		}
+		result, err := (storage.PolicyService{Store: s.store}).Replace(r.Header.Get("If-Match"), policy)
+		if errors.Is(err, storage.ErrPolicyChanged) {
+			respond(w, 409, map[string]string{"error": "Storage policy changed; refresh before saving"})
+			return
+		}
+		if err != nil {
+			respond(w, 400, map[string]string{"error": err.Error()})
+			return
+		}
+		respond(w, 200, result)
 		return
 	}
 	config := task.ConfigurationService{Store: s.store}

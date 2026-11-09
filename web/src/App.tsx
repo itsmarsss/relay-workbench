@@ -28,6 +28,8 @@ import { RepositoryEditor } from './RepositoryEditor';
 import { RepositoriesPage } from './RepositoriesPage';
 import { TasksPage } from './TasksPage';
 import { TaskPage } from './TaskPage';
+import { StoragePage } from './StoragePage';
+import { useStorage } from './useStorage';
 import { parseRoute } from './route';
 
 const storageKey = 'relay-react-deck-v1';
@@ -262,6 +264,7 @@ export default function App() {
       revision: string;
       profile?: RepositoryProfile;
     } | null>(null);
+  const storage = useStorage();
   const dialog = useRef<HTMLDialogElement>(null);
   const canvas = useRef<HTMLDivElement>(null);
   const active = deck.tabs.find((tab) => tab.id === deck.active) || deck.tabs[0]!;
@@ -347,10 +350,26 @@ export default function App() {
           >
             Repositories
           </button>
+          <button
+            aria-current={route.kind === 'storage' ? 'page' : undefined}
+            onClick={() => navigate('#storage')}
+          >
+            Storage
+          </button>
         </nav>
+        {storage.report && ['warning', 'critical'].includes(storage.report.pressure.state) && (
+          <button className="storage-alert" onClick={() => navigate('#storage')}>
+            Low disk space
+          </button>
+        )}
         <div className="connection">● {connected ? 'Connected' : 'Reconnecting'}</div>
       </aside>
       <main className={route.kind === 'deck' ? 'deck-main' : 'page-main'}>
+        {storage.report && ['warning', 'critical'].includes(storage.report.pressure.state) && (
+          <button className="mobile-storage-alert" onClick={() => navigate('#storage')}>
+            Low disk space · Review storage
+          </button>
+        )}
         {route.kind === 'deck' ? (
           <>
             <header>
@@ -461,6 +480,17 @@ export default function App() {
             />
           ) : (
             <p role="status">{error || 'Loading repository profiles…'}</p>
+          )
+        ) : route.kind === 'storage' ? (
+          bootstrap ? (
+            <StoragePage
+              token={bootstrap.token}
+              report={storage.report}
+              loadError={storage.error}
+              refresh={storage.refresh}
+            />
+          ) : (
+            <p role="status">{error || 'Loading storage…'}</p>
           )
         ) : (
           <TaskPage

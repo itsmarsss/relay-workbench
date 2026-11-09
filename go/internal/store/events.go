@@ -19,6 +19,15 @@ func (s *Store) notify() {
 		}
 	}
 }
+
+// NotifyChange wakes subscribers after non-task state changes.
+func (s *Store) NotifyChange() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.db != nil {
+		s.notify()
+	}
+}
 func (s *Store) Event(id string, raw json.RawMessage) (json.RawMessage, error) {
 	var object map[string]json.RawMessage
 	if json.Unmarshal(raw, &object) != nil || object == nil {

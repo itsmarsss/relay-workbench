@@ -51,6 +51,7 @@ export function useRelay() {
     };
     source.onmessage = () => {
       void refresh();
+      window.dispatchEvent(new Event('relay-data-change'));
     };
     source.onerror = () => {
       if (alive) setConnected(false);

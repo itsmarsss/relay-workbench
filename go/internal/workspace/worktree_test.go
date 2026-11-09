@@ -12,6 +12,7 @@ import (
 	"strings"
 	"testing"
 
+	"relay.local/relay/internal/storage"
 	"relay.local/relay/internal/store"
 )
 
@@ -51,7 +52,7 @@ func TestCreateWorktreePreservesSourceAndRecordsDraft(t *testing.T) {
 	db, area := experimentalArea(t)
 	r := runner(t)
 	var recorded WorktreeDraft
-	draft, err := r.CreateWorktree(context.Background(), area, Profile{Path: root, Cwd: "sub"}, sampleTask, "repo/one", "", func(d WorktreeDraft) error {
+	draft, err := r.CreateWorktree(context.Background(), area, Profile{Path: root, Cwd: "sub"}, sampleTask, "repo/one", "", allowSpace, func(d WorktreeDraft) error {
 		recorded = d
 		raw, _ := json.Marshal(d)
 		return db.SetMeta("draft", string(raw))
@@ -74,12 +75,12 @@ func TestCreateWorktreeFailurePreservesExistingWork(t *testing.T) {
 	root := fixture(t)
 	_, area := experimentalArea(t)
 	r := runner(t)
-	first, err := r.CreateWorktree(context.Background(), area, Profile{Path: root, Cwd: "."}, sampleTask, "one", "", func(WorktreeDraft) error { return nil })
+	first, err := r.CreateWorktree(context.Background(), area, Profile{Path: root, Cwd: "."}, sampleTask, "one", "", allowSpace, func(WorktreeDraft) error { return nil })
 	if err != nil {
 		t.Fatal(err)
 	}
 	var recorded WorktreeDraft
-	second, err := r.CreateWorktree(context.Background(), area, Profile{Path: root, Cwd: "."}, sampleTask, "two", "", func(d WorktreeDraft) error { recorded = d; return nil })
+	second, err := r.CreateWorktree(context.Background(), area, Profile{Path: root, Cwd: "."}, sampleTask, "two", "", allowSpace, func(d WorktreeDraft) error { recorded = d; return nil })
 	var partial *WorktreeError
 	if !errors.As(err, &partial) || recorded.Root != second.Root || second.Root == first.Root {
 		t.Fatalf("expected recoverable branch conflict: %#v %v", second, err)
@@ -93,11 +94,11 @@ func TestCreateWorktreeRequiresOwnedStateAndCheckpoint(t *testing.T) {
 	db, area := experimentalArea(t)
 	r := runner(t)
 	called := false
-	if _, err := r.CreateWorktree(context.Background(), area, Profile{Path: root}, "../bad", "repo", "", func(WorktreeDraft) error { called = true; return nil }); err == nil || called {
+	if _, err := r.CreateWorktree(context.Background(), area, Profile{Path: root}, "../bad", "repo", "", allowSpace, func(WorktreeDraft) error { called = true; return nil }); err == nil || called {
 		t.Fatal("invalid task accepted")
 	}
 	sentinel := errors.New("checkpoint unavailable")
-	draft, err := r.CreateWorktree(context.Background(), area, Profile{Path: root, Cwd: "."}, sampleTask, "repo", "", func(WorktreeDraft) error { return sentinel })
+	draft, err := r.CreateWorktree(context.Background(), area, Profile{Path: root, Cwd: "."}, sampleTask, "repo", "", allowSpace, func(WorktreeDraft) error { return sentinel })
 	if !errors.Is(err, sentinel) {
 		t.Fatal(err)
 	}
@@ -107,7 +108,7 @@ func TestCreateWorktreeRequiresOwnedStateAndCheckpoint(t *testing.T) {
 	if err = db.Close(); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = r.CreateWorktree(context.Background(), area, Profile{Path: root}, sampleTask, "repo", "", func(WorktreeDraft) error { return nil }); err == nil {
+	if _, err = r.CreateWorktree(context.Background(), area, Profile{Path: root}, sampleTask, "repo", "", allowSpace, func(WorktreeDraft) error { return nil }); err == nil {
 		t.Fatal("closed state accepted")
 	}
 }
@@ -116,7 +117,7 @@ func TestCreateWorktreeRejectsReplacedOwnershipBeforeGit(t *testing.T) {
 	db, area := experimentalArea(t)
 	r := runner(t)
 	var recorded WorktreeDraft
-	draft, err := r.CreateWorktree(context.Background(), area, Profile{Path: root, Cwd: "."}, sampleTask, "repo", "", func(d WorktreeDraft) error {
+	draft, err := r.CreateWorktree(context.Background(), area, Profile{Path: root, Cwd: "."}, sampleTask, "repo", "", allowSpace, func(d WorktreeDraft) error {
 		recorded = d
 		lock := filepath.Join(area.root, "server.lock")
 		if err := os.Rename(lock, lock+".old"); err != nil {
@@ -141,7 +142,7 @@ func TestCreateSeparateWorktreesForMultipleRepositories(t *testing.T) {
 	r := runner(t)
 	drafts := []WorktreeDraft{}
 	for _, item := range []struct{ root, id string }{{firstRoot, "one"}, {secondRoot, "two"}} {
-		draft, err := r.CreateWorktree(context.Background(), area, Profile{Path: item.root, Cwd: "."}, sampleTask, item.id, "", func(d WorktreeDraft) error { drafts = append(drafts, d); return nil })
+		draft, err := r.CreateWorktree(context.Background(), area, Profile{Path: item.root, Cwd: "."}, sampleTask, item.id, "", allowSpace, func(d WorktreeDraft) error { drafts = append(drafts, d); return nil })
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -165,7 +166,7 @@ func TestCreateWorktreeRejectsReplacedParentBeforeGit(t *testing.T) {
 	outside := t.TempDir()
 	r := runner(t)
 	var recorded WorktreeDraft
-	draft, err := r.CreateWorktree(context.Background(), area, Profile{Path: root, Cwd: "."}, sampleTask, "repo", "", func(d WorktreeDraft) error {
+	draft, err := r.CreateWorktree(context.Background(), area, Profile{Path: root, Cwd: "."}, sampleTask, "repo", "", allowSpace, func(d WorktreeDraft) error {
 		recorded = d
 		parent := filepath.Dir(d.Root)
 		if err := os.Rename(parent, parent+"-old"); err != nil {
@@ -179,5 +180,41 @@ func TestCreateWorktreeRejectsReplacedParentBeforeGit(t *testing.T) {
 	entries, err := os.ReadDir(outside)
 	if err != nil || len(entries) != 0 {
 		t.Fatal("Git wrote into replacement directory")
+	}
+}
+
+func TestCreateWorktreeStopsOnLowSpaceBeforeMutation(t *testing.T) {
+	root := fixture(t)
+	_, area := experimentalArea(t)
+	r := runner(t)
+	called := false
+	admission := admissionFunc(func(context.Context, []string) error { return storage.ErrLowSpace })
+	_, err := r.CreateWorktree(context.Background(), area, Profile{Path: root}, sampleTask, "repo", "", admission, func(WorktreeDraft) error { called = true; return nil })
+	if !errors.Is(err, storage.ErrLowSpace) || called {
+		t.Fatalf("low space: %v checkpoint %v", err, called)
+	}
+	if _, err = os.Stat(filepath.Join(area.root, "worktrees")); !os.IsNotExist(err) {
+		t.Fatal("worktree directory created on low space")
+	}
+}
+func TestCreateWorktreeRechecksSpaceAfterCheckpoint(t *testing.T) {
+	root := fixture(t)
+	_, area := experimentalArea(t)
+	r := runner(t)
+	checks := 0
+	admission := admissionFunc(func(context.Context, []string) error {
+		checks++
+		if checks == 2 {
+			return storage.ErrLowSpace
+		}
+		return nil
+	})
+	var recorded WorktreeDraft
+	draft, err := r.CreateWorktree(context.Background(), area, Profile{Path: root}, sampleTask, "repo", "", admission, func(value WorktreeDraft) error { recorded = value; return nil })
+	if !errors.Is(err, storage.ErrLowSpace) || checks != 2 || draft.Root != recorded.Root {
+		t.Fatalf("second check: %#v %v", draft, err)
+	}
+	if _, err = os.Stat(draft.Root); !os.IsNotExist(err) {
+		t.Fatal("worktree created after disk became critical")
 	}
 }

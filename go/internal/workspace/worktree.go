@@ -48,8 +48,8 @@ func NewWorktreeArea(state *store.Store) (*WorktreeArea, error) {
 
 // CreateWorktree records the draft before any Git mutation. Failures preserve
 // partial files and return the draft for recovery; it never deletes work.
-func (r Runner) CreateWorktree(ctx context.Context, area *WorktreeArea, profile Profile, taskID, repositoryID, baseCommit string, checkpoint func(WorktreeDraft) error) (WorktreeDraft, error) {
-	if ctx == nil || area == nil || area.state == nil || checkpoint == nil {
+func (r Runner) CreateWorktree(ctx context.Context, area *WorktreeArea, profile Profile, taskID, repositoryID, baseCommit string, admission Admission, checkpoint func(WorktreeDraft) error) (WorktreeDraft, error) {
+	if nilDependency(ctx) || area == nil || area.state == nil || nilDependency(admission) || checkpoint == nil {
 		return WorktreeDraft{}, errors.New("worktree area and checkpoint are required")
 	}
 	var result WorktreeDraft
@@ -58,16 +58,19 @@ func (r Runner) CreateWorktree(ctx context.Context, area *WorktreeArea, profile 
 			return errors.New("state directory changed")
 		}
 		var err error
-		result, err = r.createOwned(ctx, area, profile, taskID, repositoryID, baseCommit, checkpoint, verify)
+		result, err = r.createOwned(ctx, area, profile, taskID, repositoryID, baseCommit, admission, checkpoint, verify)
 		return err
 	})
 	return result, err
 }
-func (r Runner) createOwned(ctx context.Context, area *WorktreeArea, profile Profile, taskID, repositoryID, baseCommit string, checkpoint func(WorktreeDraft) error, verify func() error) (WorktreeDraft, error) {
+func (r Runner) createOwned(ctx context.Context, area *WorktreeArea, profile Profile, taskID, repositoryID, baseCommit string, admission Admission, checkpoint func(WorktreeDraft) error, verify func() error) (WorktreeDraft, error) {
 	if !taskIDPattern.MatchString(taskID) || !utf8.ValidString(repositoryID) || strings.TrimSpace(repositoryID) == "" || strings.ContainsRune(repositoryID, '\x00') || len(utf16.Encode([]rune(repositoryID))) > 100 {
 		return WorktreeDraft{}, errors.New("invalid task or repository identity")
 	}
 
+	if err := admission.Check(ctx, []string{area.root, profile.Path}); err != nil {
+		return WorktreeDraft{}, err
+	}
 	info, err := r.Inspect(ctx, profile)
 	if err != nil {
 		return WorktreeDraft{}, err
@@ -117,6 +120,9 @@ func (r Runner) createOwned(ctx context.Context, area *WorktreeArea, profile Pro
 		return draft, err
 	}
 	if err = verifyParent(); err != nil {
+		return draft, err
+	}
+	if err = admission.Check(ctx, []string{area.root, info.Root}); err != nil {
 		return draft, err
 	}
 	if _, err = r.git(ctx, info.Root, "worktree", "add", "-b", draft.Branch, draft.Root, draft.BaseCommit); err != nil {

@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"relay.local/relay/internal/storage"
 	"relay.local/relay/internal/store"
 )
 
@@ -288,5 +289,102 @@ func TestConcurrentConfigurationMutationsRejectStaleRevision(t *testing.T) {
 	}
 	if success != 1 || stale != 9 {
 		t.Fatalf("success %d stale %d", success, stale)
+	}
+}
+
+func TestStoragePressureAndAuthenticatedPolicyUpdates(t *testing.T) {
+	app, _ := setup(t)
+	pressure := request(app, "GET", "/api/storage/pressure", "127.0.0.1:4311", "", "")
+	if pressure.Code != 200 {
+		t.Fatalf("pressure %d %s", pressure.Code, pressure.Body.String())
+	}
+	var report struct {
+		Revision  string `json:"revision"`
+		Admission bool   `json:"admissionEnforced"`
+		Cleanup   bool   `json:"automaticCleanup"`
+		Pressure  struct {
+			Space struct {
+				Total uint64 `json:"totalBytes,string"`
+			} `json:"space"`
+		} `json:"pressure"`
+	}
+	if err := json.Unmarshal(pressure.Body.Bytes(), &report); err != nil || report.Revision == "" || report.Pressure.Space.Total == 0 || report.Admission || report.Cleanup {
+		t.Fatalf("report %s %v", pressure.Body.String(), err)
+	}
+	token := hex.EncodeToString(app.token[:])
+	body := `{"enabled":true,"warningPercent":12,"criticalPercent":3,"warningBytes":10737418240,"criticalBytes":2147483648,"monitoredPaths":[]}`
+	if w := requestBody(app, "PUT", "/api/storage/policy", "", report.Revision, "", "application/json", body); w.Code != 403 {
+		t.Fatalf("unauthenticated update: %d", w.Code)
+	}
+	for _, invalid := range []string{`{"enabled":true,"warningPercent":12,"criticalPercent":3,"warningBytes":10,"criticalBytes":2,"monitoredPaths":null}`, `{"enabled":null,"warningPercent":12,"criticalPercent":3,"warningBytes":10,"criticalBytes":2,"monitoredPaths":[]}`, `{"enabled":true,"warningPercent":12,"criticalPercent":3,"warningBytes":null,"criticalBytes":2,"monitoredPaths":[]}`, `{"enabled":true,"warningPercent":12.5,"criticalPercent":3,"warningBytes":10,"criticalBytes":2,"monitoredPaths":[]}`, `{"enabled":true,"warningPercent":12,"criticalPercent":3,"warningBytes":10,"criticalBytes":2,"monitoredPaths":[],"extra":1}`} {
+		if w := requestBody(app, "PUT", "/api/storage/policy", token, report.Revision, "", "application/json", invalid); w.Code != 400 {
+			t.Fatalf("invalid policy accepted: %d %s", w.Code, w.Body.String())
+		}
+	}
+	updated := requestBody(app, "PUT", "/api/storage/policy", token, report.Revision, "", "application/json", body)
+	if updated.Code != 200 {
+		t.Fatalf("update %d %s", updated.Code, updated.Body.String())
+	}
+	stale := requestBody(app, "PUT", "/api/storage/policy", token, report.Revision, "", "application/json", body)
+	if stale.Code != 409 {
+		t.Fatalf("stale policy accepted: %d", stale.Code)
+	}
+}
+
+func TestStorageScanOnlyInspectsConfiguredPath(t *testing.T) {
+	app, _ := setup(t)
+	token := hex.EncodeToString(app.token[:])
+	pressure := request(app, "GET", "/api/storage/pressure", "127.0.0.1:4311", "", "")
+	var initial struct {
+		Revision string `json:"revision"`
+	}
+	if err := json.Unmarshal(pressure.Body.Bytes(), &initial); err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "cache.bin"), []byte("fixture"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	body, err := json.Marshal(map[string]any{"enabled": true, "warningPercent": 10, "criticalPercent": 3, "warningBytes": 10 * storage.GiB, "criticalBytes": 2 * storage.GiB, "monitoredPaths": []string{root}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	updated := requestBody(app, "PUT", "/api/storage/policy", token, initial.Revision, "", "application/json", string(body))
+	if updated.Code != 200 {
+		t.Fatalf("policy: %d %s", updated.Code, updated.Body.String())
+	}
+	var policy struct {
+		Revision string `json:"revision"`
+	}
+	if err = json.Unmarshal(updated.Body.Bytes(), &policy); err != nil {
+		t.Fatal(err)
+	}
+	path := "/api/storage/scan?index=0&revision=" + policy.Revision
+	if w := request(app, "GET", path, "127.0.0.1:4311", "", ""); w.Code != 403 {
+		t.Fatal("unauthenticated scan accepted")
+	}
+	if w := requestBody(app, "HEAD", path, token, "", "", "", ""); w.Code != 405 {
+		t.Fatal("HEAD unexpectedly ran a scan")
+	}
+
+	w := requestBody(app, "GET", path, token, "", "", "", "")
+	if w.Code != 200 {
+		t.Fatalf("scan %d %s", w.Code, w.Body.String())
+	}
+	var result struct {
+		Path string             `json:"path"`
+		Scan storage.ScanResult `json:"scan"`
+	}
+	if err = json.Unmarshal(w.Body.Bytes(), &result); err != nil || result.Path != root || result.Scan.Files != 1 || result.Scan.LogicalBytes != 7 {
+		t.Fatalf("scan result %s %v", w.Body.String(), err)
+	}
+	if w = requestBody(app, "GET", "/api/storage/scan?index=1&revision="+policy.Revision, token, "", "", "", ""); w.Code != 400 {
+		t.Fatal("unconfigured path accepted")
+	}
+	if w = requestBody(app, "GET", "/api/storage/scan?index=0&revision="+initial.Revision, token, "", "", "", ""); w.Code != 409 {
+		t.Fatal("stale path scan accepted")
+	}
+	if _, err = os.Stat(filepath.Join(root, "cache.bin")); err != nil {
+		t.Fatal("scan modified file")
 	}
 }

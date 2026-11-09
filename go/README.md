@@ -11,3 +11,7 @@ go run ./cmd/relay-go --data-dir /path/to/new/empty-directory --web-dir /path/to
 ```
 
 The state directory must be empty on first use. A marker prevents opening an unmarked existing directory, and the exclusive `server.lock` prevents two servers from writing concurrently. Copying or importing live state is not implemented. The listener binds to IPv4 loopback; configuration and draft creation require the session token, while workflow mutations are rejected. No migration, workflow, security, terminal, browser, or performance parity is claimed.
+
+## Storage safeguards
+
+The experimental Storage page reports free space on the Relay data volume, supports additional explicitly selected paths, and performs bounded read-only directory scans. Warning and critical thresholds are configurable. The ported worktree and guarded-run helpers check free space before new work, returning a distinct storage-pressure error; they never stop an already running process or send disk pressure to a debugger. The scheduler is not yet connected, so this is not comprehensive enforcement. Automatic cleanup is not implemented, and external paths are never deleted by these helpers.

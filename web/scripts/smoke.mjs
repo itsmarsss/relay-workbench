@@ -17,6 +17,7 @@ await build({
     'src/DraftComposer.tsx',
     'src/RepositoryEditor.tsx',
     'src/Markdown.tsx',
+    'src/StoragePage.tsx',
   ],
   bundle: true,
   packages: 'external',
@@ -40,6 +41,7 @@ const { RepositoryEditor } = await import(
   pathToFileURL(resolve('dist/ssr-smoke/RepositoryEditor.js')).href
 );
 const { Markdown } = await import(pathToFileURL(resolve('dist/ssr-smoke/Markdown.js')).href);
+const { StoragePage } = await import(pathToFileURL(resolve('dist/ssr-smoke/StoragePage.js')).href);
 const shell = renderToStaticMarkup(React.createElement(App));
 assert.match(shell, /Task deck/);
 assert.match(shell, /Migration in progress/);
@@ -129,4 +131,36 @@ const markup = renderToStaticMarkup(
   React.createElement(Markdown, { text: '<script>alert(1)</script>' }),
 );
 assert.ok(!markup.includes('<script>'));
+const storageReport = {
+  policy: {
+    enabled: true,
+    warningPercent: 10,
+    criticalPercent: 3,
+    warningBytes: 10737418240,
+    criticalBytes: 2147483648,
+    monitoredPaths: [],
+  },
+  revision: 'a'.repeat(64),
+  scope: 'Relay data volume',
+  admissionEnforced: false,
+  automaticCleanup: false,
+  pressure: {
+    state: 'warning',
+    message: 'Free space is low.',
+    warningThreshold: '100',
+    criticalThreshold: '20',
+    space: { totalBytes: '1000', availableBytes: '50' },
+  },
+};
+const storage = renderToStaticMarkup(
+  React.createElement(StoragePage, {
+    token: 'x',
+    report: storageReport,
+    loadError: '',
+    refresh: async () => {},
+  }),
+);
+assert.match(storage, /Low space/);
+assert.match(storage, /Automatic cleanup/);
+assert.match(storage, /not connected/);
 console.log('React server-render smoke test passed.');

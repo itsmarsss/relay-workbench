@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 )
 
 var ErrReadOnlyChanged = errors.New("read-only stage modified a workspace")
@@ -17,10 +18,25 @@ const (
 	WriteOne GuardMode = "write-one"
 )
 
+type Admission interface {
+	Check(context.Context, []string) error
+}
 type Inspector interface {
 	Snapshot(context.Context, []Workspace) (FingerprintSnapshot, error)
 }
 type GuardResult struct{ Before, After FingerprintSnapshot }
+
+func nilDependency(value any) bool {
+	if value == nil {
+		return true
+	}
+	v := reflect.ValueOf(value)
+	switch v.Kind() {
+	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Pointer, reflect.Slice:
+		return v.IsNil()
+	}
+	return false
+}
 
 func validSnapshot(snapshot FingerprintSnapshot, entries []Workspace) bool {
 	if snapshot.Combined == "" || len(snapshot.Repositories) != len(entries) {
@@ -37,8 +53,8 @@ func validSnapshot(snapshot FingerprintSnapshot, entries []Workspace) bool {
 // GuardedRun verifies before and after an operation under the same lease. It
 // detects unauthorized writes; it does not sandbox processes or authorize them.
 // Cross-process workspace ownership must be provided by the future scheduler.
-func GuardedRun(ctx context.Context, lease *Lease, owner string, entries []Workspace, mode GuardMode, activeID string, inspector Inspector, run func(context.Context) error) (GuardResult, error) {
-	if ctx == nil || inspector == nil || run == nil || owner == "" || len(entries) == 0 {
+func GuardedRun(ctx context.Context, lease *Lease, owner string, entries []Workspace, mode GuardMode, activeID string, admission Admission, inspector Inspector, run func(context.Context) error) (GuardResult, error) {
+	if nilDependency(ctx) || nilDependency(admission) || nilDependency(inspector) || run == nil || owner == "" || len(entries) == 0 {
 		return GuardResult{}, errors.New("incomplete guarded run")
 	}
 	if mode != ReadOnly && mode != WriteOne {
@@ -58,6 +74,9 @@ func GuardedRun(ctx context.Context, lease *Lease, owner string, entries []Works
 	}
 	result := GuardResult{}
 	err := lease.Protect(owner, roots, func(revalidate func() error) error {
+		if err := admission.Check(ctx, roots); err != nil {
+			return err
+		}
 		before, err := inspector.Snapshot(ctx, entries)
 		if err != nil {
 			return err
@@ -67,6 +86,9 @@ func GuardedRun(ctx context.Context, lease *Lease, owner string, entries []Works
 		}
 		result.Before = before
 		if err = ctx.Err(); err != nil {
+			return err
+		}
+		if err = admission.Check(ctx, roots); err != nil {
 			return err
 		}
 		runErr := run(ctx)

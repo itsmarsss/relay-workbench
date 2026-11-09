@@ -3,6 +3,7 @@ export type Route =
   | { kind: 'deck' }
   | { kind: 'tasks' }
   | { kind: 'repositories' }
+  | { kind: 'storage' }
   | { kind: 'task'; id: string; tab: TaskView };
 export function parseRoute(hash: string): Route {
   const path = hash.replace(/^#/, '').split('?')[0] || 'deck';
@@ -13,6 +14,6 @@ export function parseRoute(hash: string): Route {
       id: match[1]!,
       tab: taskViews.some((view) => view.id === match[2]) ? (match[2] as TaskView) : 'overview',
     };
-  if (path === 'tasks' || path === 'repositories') return { kind: path };
+  if (path === 'tasks' || path === 'repositories' || path === 'storage') return { kind: path };
   return { kind: 'deck' };
 }
