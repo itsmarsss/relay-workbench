@@ -1,3 +1,4 @@
+import { completedPlan } from './workflow-plan.js';
 import {
   automationControl,
   checkpointControl,
@@ -472,12 +473,18 @@ function taskView() {
     )}${t.chosenApproach ? `<section class="context-card approved-card"><div class="context-title">APPROVED APPROACH ${icon('check')}</div><strong>${e(t.chosenApproach.title)}</strong><p>${e(t.chosenApproach.description)}</p></section>` : ''}</aside></div>`;
 }
 function planGate(t) {
-  const plan = t.attempts.findLast((a) => a.stage === 'plan' && a.handoff)?.handoff;
-  return `<div class="approval-panel"><div class="gate-heading"><div class="approval-icon">${icon('git')}</div><div><h2>Choose an approach</h2></div></div><form id="approve-form"><div class="approach-options">${planOptions(plan?.options)}</div><label class="field-label" for="approval-note">Notes <span>(optional)</span></label><input id="approval-note" class="input" placeholder="Constraints, preferences, things to keep in mind…" maxlength="10000"><div class="approval-actions"><button class="btn primary" type="submit">Approve & implement ${icon('arrow')}</button>${button('request-changes', 'Revise the proposal', 'text')}</div></form></div>`;
+  const plan = completedPlan(t);
+  return `<div class="approval-panel"><div class="gate-heading"><div class="approval-icon">${icon('git')}</div><div><h2>Choose an approach</h2></div></div><form id="approve-form"><div class="approach-options">${planOptions(plan?.options, plan?.recommendedOptionId)}</div><label class="field-label" for="approval-note">Notes <span>(optional)</span></label><input id="approval-note" class="input" placeholder="Constraints, preferences, things to keep in mind…" maxlength="10000"><div class="approval-actions"><button class="btn primary" type="submit">Approve & implement ${icon('arrow')}</button>${button('request-changes', 'Revise the proposal', 'text')}</div></form></div>`;
 }
 function threadView(t) {
   const meaningful = new Set([
     'health',
+    'automation',
+    'auto_decision',
+    'checkpoint',
+    'checkpoint_failed',
+    'fork',
+    'quiet',
     'created',
     'configuration',
     'queued',

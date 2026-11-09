@@ -1,3 +1,4 @@
+import { completedPlan } from '../public/workflow-plan.js';
 import { randomUUID } from 'node:crypto';
 import { requireValue } from './domain.js';
 import { workspaces } from './task-repositories.js';
@@ -6,6 +7,28 @@ import { readWorkflowHealth } from './workflow-health.js';
 export function automationState(store, id) {
   const row = store.db.prepare('SELECT value FROM meta WHERE key=?').get(`automation:${id}`);
   return row ? JSON.parse(row.value) : { enabled: false, scope: 'reviewed' };
+}
+export function requireAutomationAuthorization(store, id, authorization, scope) {
+  if (!authorization) return;
+  const current = automationState(store, id);
+  requireValue(
+    current.enabled &&
+      !current.error &&
+      current.authorizationId === authorization.authorizationId &&
+      (!scope || current.scope === scope),
+    'Auto delegation changed; the automatic action was stopped',
+    409,
+  );
+}
+function taskContext(task) {
+  return JSON.stringify([
+    task.status,
+    task.stage,
+    task.attempts.length,
+    task.attempts.at(-1)?.id,
+    task.followUpContext?.id,
+    workspaces(task).map((e) => [e.delivery?.id, e.delivery?.status]),
+  ]);
 }
 function save(store, id, state) {
   store.db
@@ -48,6 +71,7 @@ export class WorkflowAutomation {
       authorizationId: randomUUID(),
       authorizedAt: new Date().toISOString(),
       error: null,
+      errorContext: null,
     };
     save(this.store, id, state);
     this.store.event(id, {
@@ -74,7 +98,9 @@ export class WorkflowAutomation {
     if (this.busy || this.stopped || this.suspended()) return;
     this.busy = true;
     try {
-      for (const task of this.store.all()) {
+      for (const listed of this.store.all()) {
+        const task = this.store.get(listed.id);
+        if (!task) continue;
         if (this.stopped || this.suspended()) break;
         const health = readWorkflowHealth(this.store, task);
         if (health.quiet) {
@@ -94,6 +120,16 @@ export class WorkflowAutomation {
         }
         const state = automationState(this.store, task.id);
         if (
+          state.enabled &&
+          state.error &&
+          state.errorContext &&
+          state.errorContext !== taskContext(task)
+        ) {
+          state.error = null;
+          state.errorContext = null;
+          save(this.store, task.id, state);
+        }
+        if (
           !state.enabled ||
           state.error ||
           this.engine.running.has(task.id) ||
@@ -105,9 +141,7 @@ export class WorkflowAutomation {
         try {
           const parent = task.attempts.at(-1)?.id;
           if (task.status === 'awaiting_plan') {
-            const plan = task.attempts.findLast(
-              (a) => a.stage === 'plan' && a.status === 'complete',
-            )?.handoff;
+            const plan = completedPlan(task);
             requireValue(
               plan?.recommendationReason?.trim() &&
                 plan.options.some((o) => o.id === plan.recommendedOptionId),
@@ -157,7 +191,9 @@ export class WorkflowAutomation {
           ) {
             state.budgetContinued = true;
             save(this.store, task.id, state);
-            await this.engine.action(task.id, 'resume');
+            await this.engine.action(task.id, 'resume', {
+              automation: { authorizationId: state.authorizationId, scope: state.scope },
+            });
             this.receipt(
               task.id,
               state,
@@ -165,12 +201,44 @@ export class WorkflowAutomation {
               parent,
             );
           } else if (task.status === 'completed' && state.scope === 'draft_pr' && !task.demo) {
-            const entry = workspaces(task).find((e) => !state.published?.includes(e.repository.id));
+            const cycle = task.followUpContext?.id ?? 'initial';
+            const receiptKey = (entry) => `${cycle}:${entry.repository.id}`;
+            const entry = workspaces(task).find(
+              (e) =>
+                !state.publicationReceipts?.includes(receiptKey(e)) &&
+                !(cycle === 'initial' && state.published?.includes(e.repository.id)),
+            );
             if (entry) {
-              // Record before starting: uncertain remote outcomes require inspection, never blind retries.
-              state.published = [...(state.published ?? []), entry.repository.id];
-              save(this.store, task.id, state);
-              await this.publication.start(task.id, entry.repository.id);
+              const acceptedAt = task.approvals.findLast(
+                (approval) => approval.type === 'final',
+              )?.at;
+              const sameCycle =
+                entry.delivery?.automation?.cycle === cycle ||
+                (acceptedAt && Date.parse(entry.delivery?.startedAt) >= Date.parse(acceptedAt));
+              if (sameCycle && entry.delivery?.status === 'complete') {
+                state.publicationReceipts = [
+                  ...(state.publicationReceipts ?? []),
+                  receiptKey(entry),
+                ];
+                save(this.store, task.id, state);
+                continue;
+              }
+              requireValue(
+                !sameCycle ||
+                  !['blocked', 'interrupted', 'running'].includes(entry.delivery?.status),
+                'Inspect the existing publication attempt before retrying. Auto will not repeat an uncertain remote action.',
+              );
+              await this.publication.start(task.id, entry.repository.id, {
+                automation: { authorizationId: state.authorizationId, scope: state.scope, cycle },
+              });
+              // Preflight failures do not consume the receipt. Started/uncertain runs are guarded above.
+              if (automationState(this.store, task.id).authorizationId === state.authorizationId) {
+                state.publicationReceipts = [
+                  ...(state.publicationReceipts ?? []),
+                  receiptKey(entry),
+                ];
+                save(this.store, task.id, state);
+              }
               this.receipt(
                 task.id,
                 state,
@@ -182,6 +250,7 @@ export class WorkflowAutomation {
         } catch (error) {
           if (automationState(this.store, task.id).authorizationId === state.authorizationId) {
             state.error = error.message;
+            state.errorContext = taskContext(this.store.get(task.id));
             save(this.store, task.id, state);
           }
           this.store.event(task.id, {

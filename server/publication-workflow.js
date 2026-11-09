@@ -1,3 +1,4 @@
+import { requireAutomationAuthorization } from './workflow-automation.js';
 import { requirePublicationPrerequisites } from './publication-prerequisites.js';
 import { publicationEvidence, PUBLICATION_CHECK_SCOPE } from './publication-evidence.js';
 import { memoryContext } from './memory.js';
@@ -107,7 +108,7 @@ export class PublicationWorkflow {
     );
     return task;
   }
-  async start(id, repositoryId, { request } = {}) {
+  async start(id, repositoryId, { request, automation } = {}) {
     requireValue(!this.engine.actionLocks?.has(id), 'Another workflow action is in progress', 409);
     let followUpRequest =
       request === undefined ? undefined : text(request, 'PR update request', 20000);
@@ -189,6 +190,7 @@ export class PublicationWorkflow {
       'Workspace became busy',
       409,
     );
+    requireAutomationAuthorization(this.store, id, automation, 'draft_pr');
     this.monitor.configure(id, repositoryId, false);
     const roots = [...new Set(workspaces(task).map((e) => e.workspaceRoot))];
     requireValue(
@@ -208,6 +210,7 @@ export class PublicationWorkflow {
         e.delivery = {
           id: randomUUID(),
           status: 'running',
+          automation,
           phase: 'publishing',
           harness: task.routing.implement,
           startedAt: new Date().toISOString(),

@@ -197,7 +197,11 @@ test('preset validation, decision recommendation and completion evidence remain 
   task.attempts = [
     {
       stage: 'plan',
+      status: 'complete',
       handoff: {
+        verdict: 'complete',
+        recommendedOptionId: 'a',
+        recommendationReason: 'Smallest repair for the affected surface.',
         summary: 'Choose a repair',
         options: [{ id: 'a', title: 'Focused fix' }],
         evidence: ['reproduction'],

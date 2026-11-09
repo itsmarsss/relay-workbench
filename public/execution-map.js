@@ -45,7 +45,9 @@ export function executionNodes(task) {
       finishedAt: fork.at,
       relation: 'Alternate continuation',
       targetTaskId: fork.taskId,
-      handoff: { summary: `Separate continuation at ${fork.stage}. Original work preserved.` },
+      handoff: {
+        summary: `Separate continuation${fork.mode === 'approach' ? ' to choose another approach' : fork.mode === 'decision' ? ' to revisit a debugger decision' : ` at ${fork.stage}`}. Original work preserved.`,
+      },
     });
   if (task.fork)
     extras.push({
@@ -61,7 +63,11 @@ export function executionNodes(task) {
       targetTaskId: task.fork.sourceTaskId,
       handoff: {
         summary:
-          'Continued from a saved checkpoint in new worktrees. Verification and acceptance reset.',
+          task.fork.mode === 'approach'
+            ? 'Saved plan reopened for another implementation choice. Earlier investigation preserved.'
+            : task.fork.mode === 'decision'
+              ? 'Saved debugger decision reopened. Earlier work and diagnosis preserved.'
+              : 'Continued from a saved checkpoint in new worktrees. Verification and acceptance reset.',
       },
     });
   const attempts = [...taskRuns(task), ...extras].sort(

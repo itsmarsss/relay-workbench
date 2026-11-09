@@ -1,3 +1,4 @@
+import { completedPlan, recommendedOption } from './workflow-plan.js';
 import { taskRuns } from './task-runs.js';
 export const workflowPresets = [
   {
@@ -77,14 +78,14 @@ export function decisionBrief(task) {
   const runs = taskRuns(task);
   const last = runs.findLast((r) => r.handoff)?.handoff;
   const decision = task.blockerDecision;
-  const plan = runs.findLast((r) => r.stage === 'plan' && r.handoff)?.handoff;
+  const plan = completedPlan(task);
   const options =
     task.status === 'awaiting_plan' ? (plan?.options ?? []) : (decision?.options ?? []);
   return {
     summary: decision?.summary || task.error || last?.summary || 'Review the recorded result.',
     recommendation:
-      task.status === 'awaiting_plan' && options[0]
-        ? options[0].title
+      task.status === 'awaiting_plan'
+        ? (recommendedOption(plan)?.title ?? 'Choose an approach; no recommendation was recorded.')
         : task.status === 'awaiting_final'
           ? 'Inspect the diff and verification evidence, then accept or request changes.'
           : decision?.kind === 'runtime_budget'

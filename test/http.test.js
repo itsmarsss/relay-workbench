@@ -1265,3 +1265,74 @@ test('HTTP deletes idle tasks and history, protects active work and authenticati
   assert.equal((await f.request(`/api/tasks/${id}`, 'DELETE')).status, 404);
   assert.ok(!(await f.request('/api/tasks')).data.some((task) => task.id === id));
 });
+
+test('checkpoint choices require authorization and preserve saved plans', async (t) => {
+  const f = await fixture(t);
+  const task = f.app.engine.create({ title: 'Checkpoint HTTP decisions', demo: true });
+  await f.app.engine.action(task.id, 'start');
+  await waitFor(f.app, task.id, 'awaiting_plan');
+  for (let i = 0; i < 500 && f.app.engine.running.has(task.id); i++)
+    await new Promise((r) => setTimeout(r, 10));
+  const detail = await f.request(`/api/tasks/${task.id}`);
+  const point = detail.data.history.checkpoints.find((p) => p.stage === 'plan');
+  assert.equal(point.approaches.length, 2);
+  assert.equal(
+    (
+      await f.request(
+        `/api/tasks/${task.id}/fork`,
+        'POST',
+        { checkpointId: point.id, stage: 'approach' },
+        { 'X-Relay-Token': '' },
+      )
+    ).status,
+    403,
+  );
+  const count = f.app.store.all().length;
+  assert.equal(
+    (
+      await f.request(`/api/tasks/${task.id}/fork`, 'POST', {
+        checkpointId: point.id,
+        stage: 'unknown',
+      })
+    ).status,
+    400,
+  );
+  assert.equal(
+    (
+      await f.request(`/api/tasks/${task.id}/fork`, 'POST', {
+        checkpointId: point.id,
+        stage: 'verify',
+      })
+    ).status,
+    400,
+  );
+  assert.equal(
+    (
+      await f.request(`/api/tasks/${task.id}/fork`, 'POST', {
+        checkpointId: point.id,
+        stage: 'decision',
+      })
+    ).status,
+    400,
+  );
+  assert.equal(f.app.store.all().length, count);
+  const fork = await f.request(`/api/tasks/${task.id}/fork`, 'POST', {
+    checkpointId: point.id,
+    stage: 'approach',
+  });
+  assert.equal(fork.status, 201);
+  assert.equal(fork.data.status, 'awaiting_plan');
+  assert.ok(fork.data.attempts.every((attempt) => attempt.inherited));
+  assert.equal(fork.data.chosenApproach, null);
+  const chosen = await f.request(`/api/tasks/${fork.data.id}/approve-plan`, 'POST', {
+    optionId: 'patch-callers',
+  });
+  assert.equal(chosen.status, 200);
+  await waitFor(f.app, fork.data.id, 'awaiting_final');
+  const continuation = f.app.store.get(fork.data.id);
+  assert.ok(
+    !continuation.attempts.some((a) => !a.inherited && ['plan', 'investigate'].includes(a.stage)),
+  );
+  assert.equal(f.app.store.get(task.id).status, 'awaiting_plan');
+  assert.equal((await f.request(`/api/tasks/${task.id}/automation`, 'POST', null)).status, 400);
+});

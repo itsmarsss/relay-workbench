@@ -1,9 +1,11 @@
+import { completedPlan } from '../public/workflow-plan.js';
 import { randomUUID } from 'node:crypto';
 import { mkdir, copyFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { git, fingerprint, prepareWorkspace } from './workspace.js';
 import { workspaces, workspaceView, syncPrimary } from './task-repositories.js';
 import { newTask, requireValue } from './domain.js';
+import { blockerDecision } from './recovery.js';
 
 function records(store, key) {
   const row = store.db.prepare('SELECT value FROM meta WHERE key=?').get(key);
@@ -15,7 +17,14 @@ function put(store, key, value) {
     .run(key, JSON.stringify(value));
 }
 export function checkpoints(store, id) {
-  return records(store, `checkpoints:${id}`).map(({ snapshot, ...record }) => record);
+  return records(store, `checkpoints:${id}`).map(({ snapshot, ...record }) => ({
+    ...record,
+    approaches: record.approaches ?? completedPlan(snapshot)?.options ?? [],
+    canChooseDebug:
+      record.canChooseDebug ??
+      (record.role === 'debug' || !!snapshot.blockerDecision || !!snapshot.recovery?.active),
+    investigationOnly: snapshot.preset === 'investigate',
+  }));
 }
 export function workflowHistory(store, id) {
   return {
@@ -96,6 +105,11 @@ export async function captureCheckpoint(store, task, attempt, { expectedFingerpr
       attemptId: attempt.id,
       stage: attempt.stage,
       nextStage: task.stage,
+      role: attempt.role,
+      verdict: attempt.handoff.verdict,
+      approaches: completedPlan(task)?.options ?? [],
+      canChooseDebug: attempt.role === 'debug' || !!task.blockerDecision || !!task.recovery?.active,
+      selectedApproachId: task.chosenApproach?.id ?? null,
       hasApproach: !!task.chosenApproach,
       at: new Date().toISOString(),
       summary: attempt.handoff.summary,
@@ -128,16 +142,30 @@ export async function forkCheckpoint(
   { stage = 'saved', note = '' } = {},
 ) {
   requireValue(
-    ['saved', 'plan', 'implement', 'verify'].includes(stage),
+    ['saved', 'approach', 'decision', 'plan', 'implement', 'verify'].includes(stage),
     'Choose a valid continuation stage',
   );
   requireValue(typeof note === 'string' && note.length <= 20000, 'Continuation note is too long');
   const record = records(store, `checkpoints:${sourceId}`).find((c) => c.id === checkpointId);
   requireValue(record, 'Checkpoint not found', 404);
   const source = record.snapshot;
+  const plan = completedPlan(source);
   requireValue(
-    stage !== 'implement' || source.chosenApproach,
-    'Choose an approach before restarting implementation',
+    stage !== 'approach' || plan?.options?.length,
+    'This checkpoint has no saved implementation choices',
+  );
+  requireValue(
+    stage !== 'decision' || record.canChooseDebug || source.recovery || source.blockerDecision,
+    'This checkpoint has no debugger decision',
+  );
+
+  requireValue(
+    !['implement', 'verify'].includes(stage) || source.chosenApproach,
+    'Choose an approach before implementation or verification',
+  );
+  requireValue(
+    source.preset !== 'investigate' || ['saved', 'decision'].includes(stage),
+    'Change the investigation-only preset before planning implementation',
   );
   const config = { ...store.config, repositories: workspaces(source).map((e) => e.repository) };
   const task = newTask(
@@ -184,6 +212,7 @@ export async function forkCheckpoint(
       inherited: true,
     };
   });
+  task.loopGuardAcknowledgedAt = task.attempts.length;
   task.chosenApproach = source.chosenApproach;
   task.approvals = source.approvals
     .filter((a) => a.type === 'approach')
@@ -194,7 +223,7 @@ export async function forkCheckpoint(
     {
       role: 'user',
       at: now,
-      text: `Continue from the saved ${record.stage} checkpoint. Earlier workspace paths and command results are historical context; inspect the current workspace and rerun verification.${note ? `\n\nDirection: ${note}` : ''}`,
+      text: `Continue from the saved ${record.stage} checkpoint. Earlier workspace paths and command results are historical context; inspect the current workspace and rerun verification.${stage === 'approach' ? ' Reopen the saved proposal for a new choice. Revise any earlier implementation to the newly approved approach while preserving unrelated work.' : stage === 'decision' ? ' Reconsider the saved diagnosis using the new debugger choice; earlier choices are historical context, not instructions to repeat them.' : ''}${note ? `\n\nDirection: ${note}` : ''}`,
     },
   ];
   task.fork = {
@@ -203,15 +232,45 @@ export async function forkCheckpoint(
     sourceAttemptId: record.attemptId,
     nodeId: `fork-${task.id}`,
     at: now,
+    mode: stage,
   };
-  task.stage = stage === 'saved' ? source.stage : stage;
-  task.repositoryCursor = stage === 'saved' ? (source.repositoryCursor ?? 0) : 0;
-  if (task.stage === 'review' || (source.status === 'awaiting_final' && stage === 'saved'))
-    task.stage = 'verify';
+  const restoringFlow = ['saved', 'decision'].includes(stage);
+  task.stage = restoringFlow ? source.stage : stage === 'approach' ? 'plan' : stage;
+  task.repositoryCursor = restoringFlow ? (source.repositoryCursor ?? 0) : 0;
   task.status = source.status === 'awaiting_plan' && stage === 'saved' ? 'awaiting_plan' : 'paused';
-  // Completed investigations can be explored from planning; accepted results must be reverified.
-  if (source.status === 'completed')
+  if (restoringFlow) task.recovery = structuredClone(source.recovery ?? null);
+  if (stage === 'saved' && source.status === 'blocked') {
+    task.status = 'blocked';
+    task.blockerDecision = structuredClone(source.blockerDecision ?? null);
+    task.error = source.error;
+  }
+  if (stage === 'approach') {
+    task.status = 'awaiting_plan';
+    task.chosenApproach = null;
+    task.recovery = null;
+  } else if (stage === 'plan') task.chosenApproach = null;
+  if (stage === 'decision') {
+    task.status = 'blocked';
+    task.blockerDecision = structuredClone(
+      source.blockerDecision ?? blockerDecision(source, source.attempts.at(-1).handoff),
+    );
+    task.blockerDecision.id = randomUUID();
+    task.blockerDecision.resolved = false;
+    delete task.blockerDecision.resolution;
+    task.error = task.blockerDecision.summary;
+  }
+  // A fresh worktree must collect its own verification evidence, even at a review checkpoint.
+  if (task.stage === 'review' || (stage === 'saved' && source.status === 'awaiting_final')) {
+    task.stage = 'verify';
+    task.repositoryCursor = 0;
+    task.recovery = null;
+    if (task.blockerDecision) task.blockerDecision.stage = 'verify';
+  }
+  if (stage === 'saved' && source.status === 'completed') {
     task.stage = source.preset === 'investigate' ? 'investigate' : 'verify';
+    task.repositoryCursor = 0;
+    task.recovery = null;
+  }
   task.checkpointRestore = { status: 'preparing' };
   store.save(task);
   try {
@@ -225,14 +284,14 @@ export async function forkCheckpoint(
       view.id = workspaces(task).length > 1 ? `${task.id}-${i}` : task.id;
       view.baseCommit = saved.head;
       await prepareWorkspace(view, store.directory, store.all());
-      await git(view.workspaceRoot, ['read-tree', '--reset', '-u', saved.workingTree]);
-      await git(view.workspaceRoot, ['read-tree', saved.indexTree]);
       for (const key of ['workspace', 'workspaceRoot', 'branch']) entry[key] = view[key];
       entry.baseCommit =
         workspaces(source).find((e) => e.repository.id === entry.repository.id).baseCommit ??
         saved.head;
       syncPrimary(task);
       store.save(task);
+      await git(view.workspaceRoot, ['read-tree', '--reset', '-u', saved.workingTree]);
+      await git(view.workspaceRoot, ['read-tree', saved.indexTree]);
     }
     requireValue(
       task.demo || record.fingerprint === (await fingerprint(task)),
@@ -250,13 +309,20 @@ export async function forkCheckpoint(
   task.verifiedFingerprint = null;
   store.save(task, {
     type: 'fork',
-    summary: `Continued from ${record.stage} checkpoint. Verification and final acceptance will run again.`,
+    summary: `Continued from ${record.role === 'debug' ? 'debugger' : record.stage} checkpoint${stage === 'approach' ? ' to choose another approach' : stage === 'decision' ? ' to revisit a debugger decision' : ''}. Earlier investigation is preserved; verification and final acceptance run again.`,
     sourceTaskId: sourceId,
     checkpointId,
   });
   put(store, `forks:${sourceId}`, [
     ...records(store, `forks:${sourceId}`),
-    { taskId: task.id, checkpointId, attemptId: record.attemptId, at: now, stage: task.stage },
+    {
+      taskId: task.id,
+      checkpointId,
+      attemptId: record.attemptId,
+      at: now,
+      stage: task.stage,
+      mode: stage,
+    },
   ]);
   store.event(sourceId, {
     type: 'fork',
