@@ -143,6 +143,12 @@ export class Engine {
         409,
       );
       requireValue(task, 'Task not found', 404);
+      requireValue(
+        task.checkpointRestore?.status !== 'failed' ||
+          ['pause', 'cancel', 'message', 'steer'].includes(action),
+        'Finish restoring the checkpoint before running this continuation; create a new continuation from the original checkpoint',
+        409,
+      );
       const status = task.status;
       if (action === 'follow-up') {
         requireValue(

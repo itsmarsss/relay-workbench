@@ -188,6 +188,7 @@ export async function forkCheckpoint(
       role,
       round,
       repositoryId,
+      followUpId,
       parentAttemptId,
       relation,
       startedAt,
@@ -203,6 +204,7 @@ export async function forkCheckpoint(
       role,
       round,
       repositoryId,
+      followUpId,
       parentAttemptId,
       relation,
       startedAt,
@@ -213,6 +215,8 @@ export async function forkCheckpoint(
       originTaskId: a.originTaskId ?? sourceId,
     };
   });
+  task.followUpContext = structuredClone(source.followUpContext ?? null);
+  task.followUps = structuredClone(source.followUps ?? []);
   task.loopGuardAcknowledgedAt = task.attempts.length;
   task.chosenApproach = source.chosenApproach;
   task.approvals = source.approvals
