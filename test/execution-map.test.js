@@ -150,3 +150,34 @@ test('causal graph packs siblings and routes long links outside cards', () => {
   assert.ok(graph.width < 1000);
   assert.match(executionMap(task, { selectedId: 'd' }), /graph-connection on-path/);
 });
+
+test('Publish inspector shows feedback for its repository only', () => {
+  const task = {
+    status: 'completed',
+    attempts: [],
+    deliveryRuns: [
+      {
+        id: 'publish-a',
+        stage: 'publish',
+        repositoryId: 'a',
+        harness: 'codex',
+        status: 'complete',
+      },
+    ],
+    repositories: [
+      {
+        repository: { id: 'a', name: 'Alpha' },
+        publication: { state: 'open' },
+        feedbackAutopilot: { enabled: true },
+      },
+      {
+        repository: { id: 'b', name: 'Beta' },
+        publication: { state: 'open' },
+        feedbackAutopilot: { enabled: false },
+      },
+    ],
+  };
+  const html = executionMap(task, { selectedId: 'publish-a' });
+  assert.match(html, /Watching for PR feedback/);
+  assert.doesNotMatch(html, />Paused</);
+});

@@ -637,7 +637,7 @@ function showModal(title, contents, wide = false) {
       api('/backups/discard', 'POST', { previewId }).catch(() => {});
     }
     document.querySelector('#modal-root').innerHTML = '';
-    modalReturnFocus?.focus();
+    modalReturnFocus?.focus({ preventScroll: true });
   });
   dialog.addEventListener('click', (event) => {
     if (event.target === dialog) {

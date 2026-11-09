@@ -207,6 +207,14 @@ try {
     await page.getByRole('dialog', { name: 'Execution graph', exact: true }).waitFor();
     const dialog = page.getByRole('dialog', { name: 'Execution graph', exact: true });
     assert.equal(await dialog.getAttribute('aria-modal'), 'true');
+    assert.equal(
+      await page.evaluate(() => getComputedStyle(document.documentElement).overflowY),
+      'hidden',
+    );
+    await page.mouse.move(2, 2);
+    await page.mouse.wheel(0, 500);
+    await page.waitForTimeout(250);
+    assert.equal(await page.evaluate(() => scrollY), pageScroll, 'Graph blocks document scrolling');
     assert.ok(await page.locator('.sidebar').evaluate((el) => el.inert));
     const insideGraph = () =>
       page.evaluate(() => !!document.activeElement.closest('.graph-dialog'));
@@ -296,8 +304,26 @@ try {
       'Closing restores focus to the opener',
     );
     assert.equal(await page.locator('.sidebar').evaluate((el) => el.inert), false);
+    assert.notEqual(
+      await page.evaluate(() => getComputedStyle(document.documentElement).overflowY),
+      'hidden',
+    );
     await page.getByRole('button', { name: 'PR details for Example project', exact: true }).click();
     await page.locator('dialog .pr-detail-link').waitFor();
+    assert.equal(
+      await page.evaluate(() => getComputedStyle(document.documentElement).overflowY),
+      'hidden',
+    );
+    const modalScroll = await page.evaluate(() => scrollY);
+    await page.mouse.move(2, 2);
+    await page.mouse.wheel(0, 500);
+    await page.waitForTimeout(250);
+    assert.equal(
+      await page.evaluate(() => scrollY),
+      modalScroll,
+      'Modal blocks document scrolling',
+    );
+    await page.locator('dialog .feedback-status').waitFor();
     await check('pr-details', width);
     await page.getByText('Branch & commit', { exact: true }).click();
     await page.locator('dialog .detail-path').first().waitFor();
@@ -377,6 +403,10 @@ try {
       0,
     );
     assert.equal(await page.locator('.sidebar').evaluate((el) => el.inert), false);
+    assert.notEqual(
+      await page.evaluate(() => getComputedStyle(document.documentElement).overflowY),
+      'hidden',
+    );
   }
   let diffState = 'error';
   await page.route(`**/api/tasks/${task.id}/diff`, (route) =>

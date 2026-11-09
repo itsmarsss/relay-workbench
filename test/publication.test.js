@@ -318,3 +318,45 @@ test('PR scheduler chooses the oldest due observation rather than store order', 
   assert.ok(f.monitor.running.has('task:repo'));
   await f.settle();
 });
+
+test('publication retains feedback status across waiting and settled states', () => {
+  const task = {
+    status: 'completed',
+    repository: { id: 'repo', name: 'Example' },
+    publication: snapshot,
+  };
+  assert.match(publicationPanel(task), /PR feedback/);
+  assert.match(publicationPanel(task), /Not enabled/);
+  for (const [state, label] of [
+    [undefined, 'Watching for PR feedback'],
+    ['complete', 'Repairs published'],
+    ['dismissed', 'Feedback reviewed'],
+  ]) {
+    task.feedbackAutopilot = { enabled: true, current: state ? { state } : undefined };
+    assert.match(publicationPanel(task), new RegExp(label));
+    assert.match(publicationDetails(task, 'repo'), new RegExp(label));
+  }
+  task.feedbackAutopilot.enabled = false;
+  assert.match(publicationPanel(task), /Paused/);
+});
+
+test('feedback is scoped to each published repository', () => {
+  const task = {
+    status: 'completed',
+    repositories: [
+      {
+        repository: { id: 'a', name: 'Alpha' },
+        publication: snapshot,
+        feedbackAutopilot: { enabled: true },
+      },
+      {
+        repository: { id: 'b', name: 'Beta' },
+        publication: snapshot,
+        feedbackAutopilot: { enabled: false },
+      },
+    ],
+  };
+  assert.match(publicationDetails(task, 'a'), /Watching for PR feedback/);
+  assert.doesNotMatch(publicationDetails(task, 'a'), />Paused</);
+  assert.match(publicationDetails(task, 'b'), />Paused</);
+});

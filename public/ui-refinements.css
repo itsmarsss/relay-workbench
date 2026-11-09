@@ -916,7 +916,7 @@
   justify-content: space-between;
   border: 1px solid var(--tone-d8e1db, #d8e1db);
   border-left: 3px solid var(--tone-8b9c6f, #8b9c6f);
-  border-radius: 10px;
+  border-radius: 0;
   background: var(--tone-ffffff, #fff);
   padding: 20px 22px;
 }

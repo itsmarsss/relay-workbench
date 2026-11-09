@@ -5531,3 +5531,30 @@ textarea::placeholder,
     gap: 4px;
   }
 }
+
+/* Lock the document while keeping each dialog's own scroll area usable. */
+html {
+  scrollbar-gutter: stable;
+}
+html:has(dialog[open]),
+html:has(.graph-dialog) {
+  overflow: hidden;
+}
+dialog,
+.graph-dialog {
+  overscroll-behavior: contain;
+}
+.feedback-status {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+}
+.feedback-status span {
+  color: var(--muted);
+}
+.pr-tracker-row > .feedback-status,
+.pr-tracker-row > .feedback-summary {
+  flex-basis: 100%;
+  width: 100%;
+}
