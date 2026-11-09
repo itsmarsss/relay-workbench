@@ -10,21 +10,49 @@ const safeLink = (value) => {
 };
 const concise = (value, max = 220) =>
   value.length > max ? value.slice(0, max).trimEnd() + '…' : value;
+const disclosure = (label, count, content, key, hint = '') =>
+  `<details class="result-disclosure" data-event-key="${key}"><summary><span class="result-row-label">${label}<span class="result-count">${count}</span></span>${hint ? `<span class="result-row-hint">${e(hint)}</span>` : ''}<span class="result-chevron">${icon('chevron')}</span></summary><div class="result-disclosure-body">${content}</div></details>`;
 export function healthPanel(task) {
   const health = workflowHealth(task);
   if (!health.failures && !task.recovery?.active && !task.loopGuard) return '';
   const grouped = new Map();
   for (const run of health.evidence) {
     const item = grouped.get(run.summary);
-    if (item) item.count++;
-    else grouped.set(run.summary, { ...run, count: 1 });
+    if (item) {
+      item.count++;
+      item.id = run.id;
+    } else grouped.set(run.summary, { ...run, count: 1 });
   }
-  return `<details class="productivity-panel health-panel" data-event-key="workflow-health"><summary><span>${icon(health.recovered ? 'check' : 'clock')}${health.recovered ? 'Run history' : 'Workflow health'}</span><span class="detail-muted">${health.recovered ? 'Recovered' : health.state === 'recovering' ? 'Recovering' : health.state === 'attention' ? 'Needs you' : 'View history'}</span></summary><p>${e(health.summary)}</p><small class="detail-muted">${health.failures} past failures · ${health.debugging} debug runs</small>${health.strategy ? `<p>${e(concise(health.strategy))}</p>` : ''}<ul class="brief-evidence">${[...grouped.values()].map((r) => `<li><span>${e(concise(r.summary, 180))}${r.count > 1 ? ` ×${r.count}` : ''}</span><button class="btn text small" data-action="open-health-run" data-run="${e(r.id)}">View run</button></li>`).join('')}</ul><button class="btn text small" data-action="tab" data-tab="thread">All activity</button></details>`;
+  const label = health.recovered ? 'Run history' : 'Workflow health';
+  const status = health.recovered
+    ? 'Recovered'
+    : health.state === 'recovering'
+      ? 'Recovering'
+      : health.state === 'attention'
+        ? 'Needs you'
+        : 'History';
+  return `<details class="productivity-panel health-panel" data-event-key="workflow-health"><summary><span class="history-heading"><span class="result-chevron">${icon('chevron')}</span><strong>${label}</strong><span class="history-count">${health.failures} failed runs · ${health.debugging} debug runs</span></span><span class="result-state ${health.recovered ? 'is-positive' : ''}">${e(status)}</span></summary><div class="history-body">${!health.recovered ? `<p class="history-explanation">${e(health.summary)}</p>` : ''}${health.strategy ? `<p class="history-explanation">${e(concise(health.strategy))}</p>` : ''}<div class="history-list-label">Recent failures</div><ul class="history-runs">${[
+    ...grouped.values(),
+  ]
+    .slice(-3)
+    .map(
+      (r) =>
+        `<li><button type="button" class="history-run" data-action="open-health-run" data-run="${e(r.id)}"><span class="history-run-copy">${e(concise(r.summary, 160))}</span>${r.count > 1 ? `<span class="result-count">×${r.count}</span>` : ''}<span class="history-run-open">View run ${icon('arrow')}</span></button></li>`,
+    )
+    .join(
+      '',
+    )}</ul><div class="history-footer"><button class="btn text small" data-action="tab" data-tab="thread">All activity ${icon('arrow')}</button></div></div></details>`;
 }
 export function completionPanel(task) {
   if (!['awaiting_final', 'completed'].includes(task.status)) return '';
   const result = completionBrief(task);
-  return `<section class="productivity-panel completion-brief" aria-label="Completion brief"><header><h2>${result.investigationOnly ? 'Findings' : 'Result'}</h2><span class="detail-muted">${task.status === 'completed' ? 'Accepted' : 'Ready for review'}</span></header><p>${e(concise(result.summary, 260))}</p>${!result.investigationOnly ? `<div class="brief-signals"><span>${icon(result.verified ? 'check' : 'clock')}${result.verified ? 'Verified' : 'Verification not recorded'}</span><span>${icon(result.reviewed ? 'check' : 'clock')}${result.reviewed ? 'Reviewed' : 'Review not recorded'}</span></div>` : ''}${result.checks.length ? `<details data-event-key="completion-checks"><summary>${result.checks.length} recorded checks</summary><ul>${result.checks.map((c) => `<li><strong>${e(c.name || c.summary || [c.command, ...(c.args ?? [])].filter(Boolean).join(' ') || 'Check')}</strong> · ${c.code === 0 ? 'Passed' : c.code === undefined ? 'See report' : 'Failed'}</li>`).join('')}</ul></details>` : ''}${result.risks.length ? `<details data-event-key="completion-risks"><summary>${result.risks.length} reported notes</summary><ul>${result.risks.map((r) => `<li>${e(concise(r, 240))}</li>`).join('')}</ul></details>` : ''}<div class="inline-actions"><button class="btn text small" data-action="tab" data-tab="diff">Changes</button><button class="btn text small" data-action="tab" data-tab="handoffs">Full reports</button></div></section>`;
+  const checks = result.checks
+    .map(
+      (c) =>
+        `<li class="result-check"><span>${e(c.name || c.summary || [c.command, ...(c.args ?? [])].filter(Boolean).join(' ') || 'Check')}</span><span class="check-outcome ${c.code === 0 ? 'is-positive' : ''}">${c.code === 0 ? 'Passed' : c.code === undefined ? 'See report' : 'Failed'}</span></li>`,
+    )
+    .join('');
+  return `<section class="productivity-panel completion-brief" aria-label="Completion brief"><header class="result-header"><div class="result-heading"><span class="result-mark">${icon('check')}</span><h2>${result.investigationOnly ? 'Findings' : 'Result'}</h2></div><span class="result-state ${task.status === 'completed' ? 'is-positive' : ''}">${task.status === 'completed' ? 'Accepted' : 'Ready for review'}</span></header><p class="result-summary">${e(concise(result.summary, 260))}</p>${!result.investigationOnly ? `<div class="result-gates"><span>${icon(result.verified ? 'check' : 'clock')}${result.verified ? 'Verified' : 'Verification pending'}</span><span>${icon(result.reviewed ? 'check' : 'clock')}${result.reviewed ? 'Reviewed' : 'Review pending'}</span></div>` : ''}<div class="result-evidence">${result.checks.length ? disclosure('Checks', result.checks.length, `<ul class="result-checks">${checks}</ul>`, 'completion-checks', result.checks.every((c) => c.code === 0) ? 'All passed' : 'View outcomes') : ''}${result.risks.length ? disclosure('Notes', result.risks.length, `<ul class="result-notes">${result.risks.map((r) => `<li>${e(r)}</li>`).join('')}</ul>`, 'completion-risks') : ''}</div><footer class="result-footer"><button class="btn secondary small" data-action="tab" data-tab="diff">${icon('code')}View changes</button><button class="btn text small" data-action="tab" data-tab="handoffs">Full reports ${icon('arrow')}</button></footer></section>`;
 }
 export function coordinationPanel(task) {
   const rows = repositoryCoordination(task);

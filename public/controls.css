@@ -529,9 +529,7 @@ summary::before {
   background: var(--tone-ffffff, #fff);
   min-width: 0;
 }
-.productivity-panel header,
-.health-panel > summary,
-.health-panel > summary > span:first-child {
+.productivity-panel header {
   display: flex;
   gap: 10px;
   align-items: center;
@@ -621,8 +619,7 @@ summary::before {
   margin-top: 12px;
 }
 @media (max-width: 600px) {
-  .productivity-panel header,
-  .health-panel > summary {
+  .productivity-panel header {
     align-items: flex-start;
     flex-direction: column;
   }
@@ -654,25 +651,10 @@ summary::before {
   margin: 6px 0;
 }
 
-.health-panel > summary > span:first-child {
-  justify-content: flex-start;
-}
-.health-panel .brief-evidence {
-  padding-left: 18px;
-}
-.health-panel .brief-evidence li {
-  margin: 8px 0;
-}
 .feedback-step-actions {
   display: flex;
   gap: 8px;
 }
-.completion-brief > details {
-  border-top: 1px solid var(--border);
-  padding-top: 10px;
-  margin-top: 10px;
-}
-
 .task-mention {
   color: var(--green);
   background: var(--mint);

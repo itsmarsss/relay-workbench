@@ -64,7 +64,7 @@ export function workflowHealth(task) {
               : 'No active recovery loop.',
     recovered,
     strategy: recovered ? '' : (task.loopGuard?.guidance ?? ''),
-    evidence: failures.slice(-3).map((r) => ({
+    evidence: failures.map((r) => ({
       id: r.id,
       stage: r.stage,
       role: r.role,
@@ -123,6 +123,16 @@ export function completionBrief(task) {
   for (const run of current)
     if (run.stage === 'verify' && run.handoff?.checks)
       latestChecks.set(run.repositoryId ?? 'all', run);
+  const latestNotes = new Map();
+  for (const run of current)
+    if (
+      ['implement', 'review'].includes(run.stage) &&
+      run.handoff &&
+      run.handoff.verdict !== 'blocked' &&
+      run.handoff.verdict !== 'changes_requested' &&
+      run.status !== 'failed'
+    )
+      latestNotes.set(run.stage + ':' + (run.repositoryId ?? 'all'), run);
   const checks = [...latestChecks.values()].flatMap((r) =>
     (r.handoff?.checks ?? []).map((c) => ({ ...c, runId: r.id, repositoryId: r.repositoryId })),
   );
@@ -131,11 +141,7 @@ export function completionBrief(task) {
     checks,
     risks: [
       ...new Set(
-        [
-          ...latestChecks.values(),
-          ...(review ? [review] : []),
-          ...current.filter((r) => r.stage === 'implement' && r.handoff?.verdict === 'complete'),
-        ].flatMap((r) => r.handoff?.risks ?? []),
+        [...latestChecks.values(), ...latestNotes.values()].flatMap((r) => r.handoff?.risks ?? []),
       ),
     ],
     evidence: result?.evidence ?? [],

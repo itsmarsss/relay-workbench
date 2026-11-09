@@ -522,3 +522,35 @@ test('actionable feedback promotes its real observer run and links the repair', 
   assert.equal(f.calls[0][2].sourceFeedbackId, 'real-observer');
   assert.equal(observed.feedbackAutopilot.current.runId, 'real-observer');
 });
+
+test('completion notes use the latest reports per repository, not resolved earlier attempts', () => {
+  const task = {
+    attempts: [
+      {
+        id: 'a',
+        stage: 'implement',
+        repositoryId: 'one',
+        handoff: { verdict: 'complete', risks: ['Old resolved concern'] },
+      },
+      {
+        id: 'b',
+        stage: 'implement',
+        repositoryId: 'one',
+        handoff: { verdict: 'complete', risks: ['Current rollout note'] },
+      },
+      {
+        id: 'c',
+        stage: 'implement',
+        repositoryId: 'two',
+        handoff: { verdict: 'complete', risks: ['Second repository note'] },
+      },
+      {
+        id: 'd',
+        stage: 'review',
+        handoff: { verdict: 'changes_requested', risks: ['Resolved review finding'] },
+      },
+      { id: 'e', stage: 'review', handoff: { verdict: 'complete', risks: [] } },
+    ],
+  };
+  assert.deepEqual(completionBrief(task).risks, ['Current rollout note', 'Second repository note']);
+});

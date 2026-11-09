@@ -100,6 +100,14 @@ try {
       },
     },
   ];
+  result.attempts.unshift(
+    ...[1, 2, 3].map((n) => ({
+      id: 'recovered-' + n,
+      stage: 'implement',
+      status: 'failed',
+      handoff: { verdict: 'blocked', summary: 'A repeated check needed recovery', risks: [] },
+    })),
+  );
   app.store.save(result);
   const attention = app.engine.create({ title: 'Inspect repeated diagnostic failure', demo: true });
   attention.status = 'blocked';
@@ -133,6 +141,9 @@ try {
   const errors = [];
   page.on('pageerror', (e) => errors.push(e.message));
   await page.goto(base + '/#inbox');
+  await page.evaluate(async () => {
+    (await import('/motion-preferences.js')).setLowMotion(true);
+  });
   await page.locator('.inbox-options').waitFor();
   assert.match(await page.locator('.inbox-options').innerText(), /Focused repair/);
   await page.locator('[data-action="inbox-decide"][data-operation="approve-plan"]').click();
@@ -158,7 +169,24 @@ try {
   await page.locator('.completion-brief summary').first().click();
   await page.locator('.completion-brief ul').first().waitFor();
   assert.match(await page.locator('.completion-brief').innerText(), /Changed surface regression/);
+  await page.locator('.health-panel > summary').click();
+  const heading = await page.locator('.health-panel .history-heading strong').boundingBox();
+  const historyBox = await page.locator('.health-panel').boundingBox();
+  assert.ok(heading.x - historyBox.x < 60, 'history heading stays beside its chevron');
+  assert.equal(
+    await page
+      .locator('.health-panel > summary')
+      .evaluate((el) => getComputedStyle(el, '::before').display),
+    'none',
+  );
+  assert.match(await page.locator('.history-runs').innerText(), /×3/);
   await mkdir('docs/screenshots', { recursive: true });
+  await page
+    .locator('.health-panel')
+    .screenshot({ path: 'docs/screenshots/history-card-light.png' });
+  await page
+    .locator('.completion-brief')
+    .screenshot({ path: 'docs/screenshots/result-card-light.png' });
   await page.screenshot({ path: 'docs/screenshots/workflow-intelligence.png' });
   for (const width of [390, 768, 1440]) {
     await page.setViewportSize({ width, height: 1100 });
@@ -169,6 +197,17 @@ try {
     }));
     assert.ok(bounds.right <= bounds.view + 1 && !bounds.overflow, JSON.stringify(bounds));
   }
+  await page.setViewportSize({ width: 390, height: 1100 });
+  await page.evaluate(() => window.RelayTheme.set('dark'));
+  const mobileSummary = await page.locator('.health-panel > summary').boundingBox();
+  assert.ok(mobileSummary.width <= 390);
+  await page
+    .locator('.health-panel')
+    .screenshot({ path: 'docs/screenshots/history-card-mobile-dark.png' });
+  await page
+    .locator('.completion-brief')
+    .screenshot({ path: 'docs/screenshots/result-card-mobile-dark.png' });
+  await page.evaluate(() => window.RelayTheme.set('light'));
   const pending = app.store.get(result.id);
   pending.repositories[0].feedbackAutopilot = {
     enabled: true,
