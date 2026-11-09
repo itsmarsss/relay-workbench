@@ -79,6 +79,14 @@ export class FeedbackAutopilot {
       409,
     );
     requireValue(typeof enabled === 'boolean', 'Choose whether feedback automation is enabled');
+    requireValue(
+      !enabled ||
+        !workspaces(task).some(
+          (e) => e.submission?.status === 'running' || e.delivery?.status === 'running',
+        ),
+      'Wait for publication before enabling feedback',
+      409,
+    );
     entry.feedbackAutopilot = { ...entry.feedbackAutopilot, enabled };
     this.store.save(task, {
       type: 'publication',
@@ -231,7 +239,11 @@ export class FeedbackAutopilot {
     const task = this.store.get(id);
     if (task.status !== 'completed') return;
     const entry = workspaces(task).find(
-      (e) => e.feedbackAutopilot?.enabled && e.feedbackAutopilot.current?.state === 'proposed',
+      (e) =>
+        e.feedbackAutopilot?.enabled &&
+        e.feedbackAutopilot.current?.state === 'proposed' &&
+        (!e.feedbackAutopilot.current.followUpId ||
+          e.feedbackAutopilot.current.followUpId === task.followUpContext?.id),
     );
     if (!entry) return;
     const policy = entry.feedbackAutopilot;

@@ -110,7 +110,7 @@ export function publicationDetails(task, repositoryId) {
 export function feedbackSummary(entry) {
   const current = entry.feedbackAutopilot?.current;
   if (!current || ['complete', 'dismissed'].includes(current.state)) return '';
-  return `<details class="feedback-summary" data-event-key="feedback-${e(current.id)}"><summary>${current.state === 'needs_decision' ? 'Feedback needs your direction' : current.state === 'publishing' ? 'Publishing accepted feedback repairs' : 'Feedback repair workflow'} · ${current.items.length} items</summary><p>${e(current.reason)}</p><ul>${current.items.map((item) => `<li><strong>${e(item.summary)}</strong><p>${e(item.details)}</p>${safeURL(item.url) ? `<a href="${e(safeURL(item.url))}" target="_blank" rel="noopener noreferrer">Source feedback ↗</a>` : ''}</li>`).join('')}</ul>${current.state === 'needs_decision' ? `<p class="detail-muted">Use Continue work below to give direction, or mark this feedback reviewed.</p><button class="btn secondary small" data-action="feedback-dismiss" data-repository-id="${e(entry.repository.id)}" data-feedback-id="${e(current.id)}">Mark reviewed</button>` : ''}</details>`;
+  return `<details class="feedback-summary" ${current.state === 'needs_decision' ? 'open' : ''} data-event-key="feedback-${e(current.id)}"><summary>${current.state === 'needs_decision' ? 'Feedback needs your direction' : current.state === 'publishing' ? 'Publishing accepted feedback repairs' : 'Feedback repair workflow'} · ${current.items.length} items</summary><p>${e(current.reason)}</p><ul>${current.items.map((item) => `<li><strong>${e(item.summary)}</strong><p>${e(item.details)}</p>${safeURL(item.url) ? `<a href="${e(safeURL(item.url))}" target="_blank" rel="noopener noreferrer">Source feedback ↗</a>` : ''}</li>`).join('')}</ul>${current.state === 'needs_decision' ? `<p class="detail-muted">Respond to plan a repair, or mark this feedback reviewed.</p><button class="btn primary small" data-action="feedback-respond" ${!entry.feedbackAutopilot.enabled || entry.publication?.state !== 'open' ? 'disabled' : ''} data-repository-id="${e(entry.repository.id)}" data-feedback-id="${e(current.id)}">Respond to feedback</button><button class="btn secondary small" data-action="feedback-dismiss" data-repository-id="${e(entry.repository.id)}" data-feedback-id="${e(current.id)}">Mark reviewed</button>` : ''}</details>`;
 }
 
 export function feedbackWorkflowStage(task) {
@@ -131,33 +131,40 @@ export function feedbackWorkflowStage(task) {
   const run = (task.deliveryRuns ?? []).findLast(
     (r) => r.stage === 'feedback' && r.repositoryId === entry.repository.id,
   );
-  const phase = !policy.enabled
-    ? 'Paused'
-    : current?.state === 'needs_decision'
-      ? 'Needs you'
-      : current?.state === 'publishing'
-        ? 'Updating PR'
-        : current?.state === 'proposed'
-          ? task.status === 'awaiting_plan'
-            ? 'Approve repair'
-            : task.status === 'awaiting_final'
-              ? 'Review repair'
-              : 'Repairing'
-          : current?.state === 'complete'
-            ? 'Repairs published'
-            : 'Watching PR';
-  const state = {
-    key: !policy.enabled
-      ? 'paused'
+  const ended = ['closed', 'merged'].includes(entry.publication?.state);
+  const phase = ended
+    ? entry.publication.state === 'merged'
+      ? 'PR merged'
+      : 'PR closed'
+    : !policy.enabled
+      ? 'Paused'
       : current?.state === 'needs_decision'
-        ? 'blocked'
-        : current?.state === 'complete'
-          ? 'complete'
-          : ['publishing', 'proposed'].includes(current?.state)
-            ? 'running'
-            : 'pending',
+        ? 'Needs you'
+        : current?.state === 'publishing'
+          ? 'Updating PR'
+          : current?.state === 'proposed'
+            ? task.status === 'awaiting_plan'
+              ? 'Approve repair'
+              : task.status === 'awaiting_final'
+                ? 'Review repair'
+                : 'Repairing'
+            : current?.state === 'complete'
+              ? 'Repairs published'
+              : 'Watching PR';
+  const state = {
+    key: ended
+      ? 'complete'
+      : !policy.enabled
+        ? 'paused'
+        : current?.state === 'needs_decision'
+          ? 'blocked'
+          : current?.state === 'complete'
+            ? 'complete'
+            : ['publishing', 'proposed'].includes(current?.state)
+              ? 'running'
+              : 'pending',
     label: phase,
-    mark: current?.state === 'complete' ? '✓' : '○',
+    mark: ended || current?.state === 'complete' ? '✓' : '○',
   };
   return workflowRow({
     title: 'PR feedback',
@@ -165,6 +172,6 @@ export function feedbackWorkflowStage(task) {
     run: run ?? null,
     state,
     fallback: 'Added to workflow',
-    extra: `<span class="feedback-step-actions"><button class="btn text small" data-action="open-feedback-activity" data-run="${e(run?.id ?? 'all')}">Activity</button>${policy.enabled ? `<button class="btn text small" data-action="feedback-toggle" data-enabled="false" data-repository-id="${e(entry.repository.id)}">Pause</button>` : ''}</span>`,
+    extra: `<span class="feedback-step-actions"><button class="btn text small" data-action="open-feedback-activity" data-run="${e(run?.id ?? 'all')}">Activity</button>${policy.enabled && !ended && current?.state === 'needs_decision' ? `<button class="btn text small" data-action="delivery-details" data-repository-id="${e(entry.repository.id)}">Respond</button>` : ''}${policy.enabled ? `<button class="btn text small" data-action="feedback-toggle" data-enabled="false" data-repository-id="${e(entry.repository.id)}">Pause</button>` : ''}</span>`,
   });
 }

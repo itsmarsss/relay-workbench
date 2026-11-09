@@ -169,6 +169,38 @@ try {
     }));
     assert.ok(bounds.right <= bounds.view + 1 && !bounds.overflow, JSON.stringify(bounds));
   }
+  const pending = app.store.get(result.id);
+  pending.repositories[0].feedbackAutopilot = {
+    enabled: true,
+    current: {
+      id: 'decision-feedback',
+      state: 'needs_decision',
+      reason: 'Choose a contract direction',
+      items: [
+        {
+          summary: 'Compatibility choice',
+          details: 'Two supported options',
+          url: 'https://code.example/review/1',
+        },
+      ],
+    },
+  };
+  app.store.save(pending, { type: 'publication', summary: 'Feedback needs direction' });
+  await page.setViewportSize({ width: 1440, height: 1100 });
+  await page.getByRole('button', { name: 'Respond', exact: true }).click();
+  await page.getByRole('button', { name: 'Respond to feedback', exact: true }).click();
+  await page.locator('#feedback-direction').fill('Keep compatibility');
+  let repair;
+  await page.route('**/api/tasks/*/follow-up', async (route) => {
+    repair = route.request().postDataJSON();
+    await route.fulfill({ json: { status: 'queued' } });
+  });
+  await page.getByRole('button', { name: 'Plan repair', exact: true }).click();
+  await page.locator('#dialog').waitFor({ state: 'hidden' });
+  assert.equal(repair.feedbackId, 'decision-feedback');
+  assert.equal(repair.mode, 'changes');
+  assert.match(repair.message, /Keep compatibility/);
+  assert.match(repair.message, /Compatibility choice/);
   await page.goto(`${base}/#task/${attention.id}/overview`);
   await page.locator('.health-panel').waitFor();
   await page.locator('.health-panel summary').click();

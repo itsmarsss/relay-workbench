@@ -312,6 +312,23 @@ export class WorkspaceAgent {
       url: `#task/${task.id}/overview`,
     };
   }
+  recordTaskApproval(question, proposal) {
+    requireValue(!this.controller, 'A workspace request is already running', 409);
+    const at = new Date().toISOString();
+    const record = {
+      id: randomUUID(),
+      question: text(question, 'Message', 10000),
+      answer: `Approved. Applied the requested changes to ${proposal.changes.length} ${proposal.changes.length === 1 ? 'task' : 'tasks'}.`,
+      status: 'complete',
+      createdAt: at,
+      finishedAt: at,
+      provider: 'relay',
+      toolCalls: [],
+    };
+    this.history = [...this.history, record];
+    this.save();
+    return record;
+  }
   async ask(question, origin, revisionOf) {
     requireValue(!this.controller, 'A workspace request is already running', 409);
     question = text(question, 'Message', 10000);

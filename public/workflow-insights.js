@@ -131,9 +131,11 @@ export function completionBrief(task) {
     checks,
     risks: [
       ...new Set(
-        [...latestChecks.values(), ...(review ? [review] : [])].flatMap(
-          (r) => r.handoff?.risks ?? [],
-        ),
+        [
+          ...latestChecks.values(),
+          ...(review ? [review] : []),
+          ...current.filter((r) => r.stage === 'implement' && r.handoff?.verdict === 'complete'),
+        ].flatMap((r) => r.handoff?.risks ?? []),
       ),
     ],
     evidence: result?.evidence ?? [],

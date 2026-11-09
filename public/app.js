@@ -1202,6 +1202,17 @@ document.addEventListener('click', async (event) => {
       toast('PR feedback added to the workflow.');
       return;
     }
+    if (action === 'feedback-respond') {
+      state.modal = {
+        feedbackId: element.dataset.feedbackId,
+        feedbackRepository: element.dataset.repositoryId,
+      };
+      showModal(
+        'Respond to PR feedback',
+        `<form id="feedback-response-form"><label class="field-label" for="feedback-direction">Your direction</label><textarea class="input" id="feedback-direction" name="message" rows="4" maxlength="10000" required placeholder="Which direction should the repair take?"></textarea><p class="form-help">Relay will plan a repair for your approval.</p><div class="modal-footer"><button class="btn primary" type="submit">Plan repair</button></div></form>`,
+      );
+      return;
+    }
     if (action === 'feedback-dismiss') {
       await api(`/tasks/${state.selected}/feedback`, 'POST', {
         repositoryId: element.dataset.repositoryId,
@@ -1847,6 +1858,29 @@ document.addEventListener('submit', async (event) => {
       await api(`/tasks/${state.selected}/request-changes`, 'POST', values);
       closeModal();
       await refresh();
+    }
+    if (form.id === 'feedback-response-form') {
+      const task = await api(`/tasks/${state.selected}`);
+      const entry = (task.repositories?.length > 1 ? task.repositories : [task]).find(
+        (e) => e.repository.id === state.modal.feedbackRepository,
+      );
+      const record = entry?.feedbackAutopilot?.current;
+      if (record?.id !== state.modal.feedbackId) throw new Error('Feedback changed; refresh.');
+      await api(`/tasks/${state.selected}/follow-up`, 'POST', {
+        mode: 'changes',
+        feedbackId: record.id,
+        message:
+          'Respond to the recorded PR feedback within this task. User direction: ' +
+          data.get('message') +
+          '\n\nFeedback:\n' +
+          record.items
+            .map((i) => i.summary + '\n' + i.details + '\n' + i.url)
+            .join('\n\n')
+            .slice(0, 9000),
+      });
+      closeModal();
+      await refresh();
+      return;
     }
     if (form.id === 'follow-up-form') {
       const run = await api(`/tasks/${state.selected}/follow-up`, 'POST', {

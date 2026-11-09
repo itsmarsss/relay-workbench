@@ -1,5 +1,6 @@
 import { randomUUID, createHash } from 'node:crypto';
 import { requireValue, text, reconfigureTask } from './domain.js';
+import { configurationProposals } from './workspace-permissions.js';
 import { workspaces } from './task-repositories.js';
 const key = 'workspace-task-proposals';
 export function taskProposals(store) {
@@ -38,7 +39,7 @@ function validate(store, change) {
     requireValue(
       task.status === 'draft' &&
         !task.attempts.length &&
-        workspaces(task).every((e) => !e.workspaceRoot && !e.baseCommit),
+        workspaces(task).every((e) => !e.workspace && !e.workspaceRoot && !e.baseCommit),
       'Only unstarted drafts can be configured from chat',
       409,
     );
@@ -79,6 +80,14 @@ function validate(store, change) {
         task.preset !== 'investigate' &&
         entry.publication?.state === 'open'),
     'Feedback requires an accepted task with an open PR',
+    409,
+  );
+  requireValue(
+    !change.enabled ||
+      !workspaces(task).some(
+        (e) => e.submission?.status === 'running' || e.delivery?.status === 'running',
+      ),
+    'Wait for publication before enabling feedback',
     409,
   );
   return { task, entry };
@@ -179,7 +188,6 @@ export async function decideTaskProposal(
           !engine.running.has(task.id) &&
           !engine.manualRuns.has(task.id) &&
           !feedback.jobs.has(task.id) &&
-          !feedback.starting?.has(task.id) &&
           !busy(task.id) &&
           !engine.stopping &&
           (!task.recoveryNotBefore || Date.now() >= task.recoveryNotBefore),
@@ -195,7 +203,12 @@ export async function decideTaskProposal(
         });
       else {
         feedback.configure(change.taskId, change.repositoryId, change.enabled);
-        if (change.enabled) monitor.configure(change.taskId, change.repositoryId, true);
+        if (
+          change.enabled &&
+          !workspaces(store.get(change.taskId)).find((e) => e.repository.id === change.repositoryId)
+            .publicationMonitor?.enabled
+        )
+          monitor.configure(change.taskId, change.repositoryId, true);
       }
     }
   }
@@ -206,6 +219,7 @@ export async function decideTaskProposal(
 }
 export function latestTaskConfirmation(store, history, question) {
   if (!/^(yes|approve|go ahead|do it)[.!]?$/i.test(question.trim())) return null;
+  if (configurationProposals(store).some((p) => p.status === 'pending')) return null;
   const last = history.at(-1);
   if (last?.status !== 'complete') return null;
   const pending = taskProposals(store).filter((p) => p.status === 'pending');

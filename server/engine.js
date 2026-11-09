@@ -189,12 +189,28 @@ export class Engine {
           'The workspace became busy',
           409,
         );
+        const feedbackEntry = entries.find(
+          (e) =>
+            e.feedbackAutopilot?.enabled &&
+            (data.feedbackId
+              ? e.feedbackAutopilot.current?.id === data.feedbackId &&
+                e.feedbackAutopilot.current.state === 'needs_decision'
+              : data.sourceFeedbackId &&
+                e.feedbackAutopilot.current?.runId === data.sourceFeedbackId),
+        );
+        requireValue(
+          !data.feedbackId || feedbackEntry,
+          'Feedback changed; refresh before responding',
+          409,
+        );
+        const feedbackRecord = feedbackEntry?.feedbackAutopilot.current;
         const followUp = {
           id: randomUUID(),
           request,
           startedAt: new Date().toISOString(),
           previousApproach: task.chosenApproach,
-          sourceFeedbackId: data.sourceFeedbackId,
+          sourceFeedbackId: feedbackRecord?.runId ?? data.sourceFeedbackId,
+          feedbackRecordId: feedbackRecord?.id,
         };
         for (const [index, entry] of entries.entries()) {
           if (!task.demo) {
@@ -203,6 +219,15 @@ export class Engine {
           }
           entry.acceptedFingerprint = null;
           if (entry.publicationMonitor) entry.publicationMonitor.enabled = false;
+        }
+        if (feedbackRecord) {
+          feedbackRecord.state = 'proposed';
+          feedbackRecord.followUpId = followUp.id;
+          feedbackRecord.reason = 'Planning the requested feedback repair.';
+          const saved = feedbackEntry.feedbackAutopilot.history?.find(
+            (r) => r.id === feedbackRecord.id,
+          );
+          if (saved) Object.assign(saved, feedbackRecord);
         }
         syncPrimary(task);
         task.followUpContext = followUp;

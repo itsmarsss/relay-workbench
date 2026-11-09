@@ -260,9 +260,11 @@ export function createApp({ directory, publicDirectory, engineOptions = {} }) {
           res,
           202,
           await (async () => {
+            const question = text(request.question, 'Message', 10000);
+            requireValue(!workspaceAgent.controller, 'A workspace request is already running', 409);
             const proposal =
               !request.revisionOf &&
-              latestTaskConfirmation(store, workspaceAgent.history, String(request.question ?? ''));
+              latestTaskConfirmation(store, workspaceAgent.history, question);
             if (proposal)
               await decideTaskProposal(
                 store,
@@ -273,7 +275,9 @@ export function createApp({ directory, publicDirectory, engineOptions = {} }) {
                 'approve',
                 (id) => publicationWorkflow.running.has(id) || followUpAgent.running.has(id),
               );
-            return workspaceAgent.ask(request.question, origin, request.revisionOf);
+            return proposal
+              ? workspaceAgent.recordTaskApproval(question, proposal)
+              : workspaceAgent.ask(question, origin, request.revisionOf);
           })(),
         );
       }
@@ -680,7 +684,12 @@ export function createApp({ directory, publicDirectory, engineOptions = {} }) {
           const result = request.dismiss
             ? feedbackAutopilot.dismiss(id, repositoryId, request.dismiss)
             : feedbackAutopilot.configure(id, repositoryId, request.enabled);
-          if (request.enabled === true) publicationMonitor.configure(id, repositoryId, true);
+          if (
+            request.enabled === true &&
+            !workspaces(result).find((e) => e.repository.id === repositoryId).publicationMonitor
+              ?.enabled
+          )
+            publicationMonitor.configure(id, repositoryId, true);
           return json(res, 200, result);
         }
         if (operation === 'publish-stop' && req.method === 'POST')
