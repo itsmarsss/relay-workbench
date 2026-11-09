@@ -1928,7 +1928,7 @@ export class Engine {
       !['blocked', 'paused', 'cancelled'].includes(task.status)
     ) {
       try {
-        await captureCheckpoint(this.store, task, savedAttempt);
+        await captureCheckpoint(this.store, task, savedAttempt, { expectedFingerprint: after });
       } catch (error) {
         this.store.event(id, {
           type: 'checkpoint_failed',

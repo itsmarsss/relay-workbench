@@ -134,7 +134,8 @@ export function createApp({ directory, publicDirectory, engineOptions = {} }) {
     mutations = 0;
   function requireIdle() {
     requireValue(
-      engine.running.size === 0 &&
+      !automation.busy &&
+        engine.running.size === 0 &&
         engine.manualRuns.size === 0 &&
         external.size === 0 &&
         publicationMonitor.running.size === 0 &&
@@ -543,7 +544,7 @@ export function createApp({ directory, publicDirectory, engineOptions = {} }) {
       }
       if (path === '/api/config' && req.method === 'PUT') {
         requireValue(
-          engine.running.size === 0 && external.size === 0,
+          !automation.busy && engine.running.size === 0 && external.size === 0,
           'Pause active executions before changing configuration',
           409,
         );
@@ -648,6 +649,10 @@ export function createApp({ directory, publicDirectory, engineOptions = {} }) {
         }
         if (operation === 'fork' && req.method === 'POST') {
           const request = await body(req);
+          requireValue(
+            request && typeof request === 'object' && !Array.isArray(request),
+            'Invalid checkpoint continuation',
+          );
           requireValue(!engine.actionLocks.has(id), 'Wait for the current task action', 409);
           engine.actionLocks.add(id);
           try {

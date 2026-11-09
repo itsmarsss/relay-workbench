@@ -29,10 +29,10 @@ export function workflowHistory(store, id) {
       .map((row) => JSON.parse(row.body)),
   };
 }
-export async function captureCheckpoint(store, task, attempt) {
+export async function captureCheckpoint(store, task, attempt, { expectedFingerprint } = {}) {
   const key = `checkpoints:${task.id}`;
   if (records(store, key).some((c) => c.attemptId === attempt.id)) return;
-  const before = task.demo ? null : await fingerprint(task);
+  const before = task.demo ? null : (expectedFingerprint ?? (await fingerprint(task)));
   const id = randomUUID(),
     repositories = [],
     refs = [];
@@ -64,15 +64,21 @@ export async function captureCheckpoint(store, task, attempt) {
         await git(root, ['add', '-A', '--', '.'], { env });
         const workingTree = await git(root, ['write-tree'], { env });
         // Trees need their own refs: the HEAD commit alone does not retain dirty content.
+        const repositoryRefs = [];
+        const updates = [];
         for (const [name, object] of Object.entries({
           head,
           index: indexTree,
           work: workingTree,
         })) {
           const ref = `refs/relay/checkpoints/${task.id}/${id}/${i}/${name}`;
-          await git(root, ['update-ref', ref, object]);
-          refs.push({ root, ref });
+          updates.push(`update ${ref} ${object}`);
+          repositoryRefs.push({ root, ref });
         }
+        await git(root, ['update-ref', '--stdin'], {
+          input: `start\n${updates.join('\n')}\nprepare\ncommit\n`,
+        });
+        refs.push(...repositoryRefs);
         repositories.push({
           repositoryId: entry.repository.id,
           root,
@@ -82,7 +88,7 @@ export async function captureCheckpoint(store, task, attempt) {
         });
       }
     requireValue(
-      task.demo || before === (await fingerprint(task)),
+      task.demo || previous?.fingerprint === before || before === (await fingerprint(task)),
       'Workspace changed while saving checkpoint',
     );
     const record = {
@@ -179,8 +185,12 @@ export async function forkCheckpoint(
     };
   });
   task.chosenApproach = source.chosenApproach;
-  task.approvals = source.approvals.filter((a) => a.type === 'approach');
+  task.approvals = source.approvals
+    .filter((a) => a.type === 'approach')
+    .map(({ automation, ...approval }) => ({ ...approval, inherited: true }));
+  task.reviewComments = structuredClone(source.reviewComments ?? []);
   task.messages = [
+    ...structuredClone(source.messages ?? []),
     {
       role: 'user',
       at: now,

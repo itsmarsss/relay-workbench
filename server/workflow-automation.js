@@ -31,7 +31,12 @@ export class WorkflowAutomation {
     );
     this.timer.unref();
   }
-  configure(id, { enabled, scope = 'reviewed' }) {
+  configure(id, request) {
+    requireValue(
+      request && typeof request === 'object' && !Array.isArray(request),
+      'Invalid Auto configuration',
+    );
+    const { enabled, scope = 'reviewed' } = request;
     requireValue(typeof enabled === 'boolean', 'Choose whether Auto mode is enabled');
     requireValue(['reviewed', 'draft_pr'].includes(scope), 'Choose a supported Auto scope');
     const previous = automationState(this.store, id);

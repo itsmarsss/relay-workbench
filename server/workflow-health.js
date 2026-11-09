@@ -1,6 +1,6 @@
 import { currentTaskRun } from '../public/task-runs.js';
 
-// Heartbeats, transcript chunks and repeated check polls are not progress.
+// Heartbeats, transcript chunks and repeated identical activity are not progress.
 export function workflowHealth(task, events = [], now = Date.now()) {
   const run = currentTaskRun(task);
   if (run?.status !== 'running' || (!run.auxiliary && task.status !== 'running')) {
@@ -23,22 +23,38 @@ export function workflowHealth(task, events = [], now = Date.now()) {
     const at = Date.parse(event.at);
     if (event.attemptId !== run.id || at < started || !Number.isFinite(at)) continue;
     if (!['activity', 'check_evidence'].includes(event.type)) continue;
-    if (/^Check progress:/i.test(event.summary ?? '')) continue;
     const current = JSON.stringify([event.kind, event.summary, event.checks]);
     if (current === signature) continue;
     signature = current;
     lastAt = Math.max(lastAt, at);
     operation = (event.summary || event.details || 'Agent is working').slice(0, 240);
   }
+  const checks =
+    run.verificationEvidence ??
+    events.findLast((event) => event.attemptId === run.id && event.type === 'check_evidence')
+      ?.checks ??
+    [];
+  const waiting = checks.filter((check) => check.status === 'waiting').length;
+  const checking = checks.filter((check) => check.status === 'running').length;
+  const waitingOn = waiting
+    ? 'Verification resources'
+    : checking
+      ? `${checking} running ${checking === 1 ? 'check' : 'checks'}`
+      : null;
   const quietAfterMs = 10 * 60 * 1000;
   const quiet = Number.isFinite(lastAt) && now - lastAt >= quietAfterMs;
   return {
-    state: quiet ? 'quiet' : 'working',
+    state: quiet ? 'quiet' : waiting ? 'waiting_resource' : checking ? 'checking' : 'working',
+    waitingOn,
     quiet,
     attemptId: run.id,
     lastAt: Number.isFinite(lastAt) ? new Date(lastAt).toISOString() : run.startedAt,
     operation,
-    summary: quiet ? 'No recent output · inspect the last operation' : operation,
+    summary: quiet
+      ? 'No recent output · inspect the last operation'
+      : waitingOn
+        ? `${waitingOn} · ${operation}`
+        : operation,
     quietAfterMs,
   };
 }

@@ -157,7 +157,12 @@ test('health excludes stale attempts, heartbeats and repeated check polls', asyn
   const events = [
     event,
     { ...event, at: new Date().toISOString() },
-    { ...event, summary: 'Check progress: running 1', at: new Date().toISOString() },
+    {
+      ...event,
+      type: 'heartbeat',
+      summary: 'Check progress: running 1',
+      at: new Date().toISOString(),
+    },
     { ...event, attemptId: 'old', summary: 'Old output', at: new Date().toISOString() },
   ];
   assert.equal(workflowHealth(task, events).quiet, true);
@@ -167,6 +172,15 @@ test('health excludes stale attempts, heartbeats and repeated check polls', asyn
   assert.equal(inbox(store)[0].action, 'Inspect quiet agent');
   store.event(task.id, { ...event, summary: 'Tests finished', at: new Date().toISOString() });
   assert.equal(inbox(store).length, 0);
+  assert.equal(
+    workflowHealth(task, [
+      ...events,
+      { ...event, summary: 'Check progress: compiled next package', at: new Date().toISOString() },
+    ]).quiet,
+    false,
+  );
+  task.attempts[0].verificationEvidence = [{ status: 'waiting' }];
+  assert.equal(workflowHealth(task, [event], start + 2000).state, 'waiting_resource');
 });
 
 test('checkpoint forks preserve HEAD, staging and untracked files without touching source', async (t) => {
@@ -200,6 +214,21 @@ test('checkpoint forks preserve HEAD, staging and untracked files without touchi
   const task = newTask({ title: 'Saved work', repositoryId: 'repo' }, config);
   await prepareWorkspace(task, store.directory, []);
   const workspace = task.workspaceRoot;
+  const originalBase = task.baseCommit;
+  await writeFile(join(workspace, 'committed'), 'preserve this commit\n');
+  await git(workspace, ['add', 'committed']);
+  await git(workspace, [
+    '-c',
+    'user.name=Fixture',
+    '-c',
+    'user.email=fixture@example.test',
+    'commit',
+    '-m',
+    'test: checkpoint history',
+  ]);
+  task.messages = [
+    { role: 'user', text: 'Preserve the compatibility contract.', delivery: 'included' },
+  ];
   await writeFile(join(workspace, 'tracked'), 'staged\n');
   await git(workspace, ['add', 'tracked']);
   await writeFile(join(workspace, 'tracked'), 'unstaged\n');
@@ -233,6 +262,14 @@ test('checkpoint forks preserve HEAD, staging and untracked files without touchi
   assert.equal(await readFile(join(fork.workspaceRoot, 'new-file'), 'utf8'), 'untracked\n');
   await assert.rejects(readFile(join(fork.workspaceRoot, 'ignored')), { code: 'ENOENT' });
   assert.notEqual(fork.workspaceRoot, workspace);
+  assert.equal(fork.baseCommit, originalBase);
+  assert.equal(
+    await readFile(join(fork.workspaceRoot, 'committed'), 'utf8'),
+    'preserve this commit\n',
+  );
+  assert.ok(
+    fork.messages.some((message) => message.text === 'Preserve the compatibility contract.'),
+  );
   assert.equal(fork.verifiedFingerprint, null);
   assert.equal(fork.reviewedFingerprint, null);
   assert.equal(fork.attempts[0].sessionId, undefined);
@@ -244,6 +281,22 @@ test('checkpoint forks preserve HEAD, staging and untracked files without touchi
   const parent = layout.nodes.find((n) => n.number === child.parentNumber);
   assert.equal(parent.checkpointId, record.id);
   assert.ok(layout.edges.some((e) => e.from === parent.number && e.to === child.number));
+  const row = store.db.prepare('SELECT value FROM meta WHERE key=?').get(`checkpoints:${task.id}`);
+  const damaged = JSON.parse(row.value);
+  damaged[0].repositories[0].workingTree = '0'.repeat(40);
+  store.db
+    .prepare('UPDATE meta SET value=? WHERE key=?')
+    .run(JSON.stringify(damaged), `checkpoints:${task.id}`);
+  await assert.rejects(forkCheckpoint(store, task.id, record.id), /read-tree failed/);
+  const failed = store
+    .all()
+    .find((item) => item.fork?.sourceTaskId === task.id && item.id !== fork.id);
+  assert.equal(failed.status, 'blocked');
+  assert.equal(failed.checkpointRestore.status, 'failed');
+  assert.equal(await fingerprint(task), current);
+  const engine = new Engine(store);
+  await assert.rejects(engine.action(failed.id, 'resume'), /Finish restoring/);
+  await engine.stop();
 });
 
 test('invalid plan recommendation is rejected rather than guessed', () => {
