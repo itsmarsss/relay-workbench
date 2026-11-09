@@ -82,7 +82,9 @@ export async function runProcess(
         if (failure) return;
         failure = message instanceof Error ? message : new Error(message);
         kill('SIGTERM');
-        hardKill = setTimeout(() => kill('SIGKILL'), 2000);
+        // Terminal cleanup needs time to enumerate and terminate separate
+        // background process groups before its supervisor can exit.
+        hardKill = setTimeout(() => kill('SIGKILL'), tty ? 8000 : 2000);
         hardKill.unref();
       };
       const kill = (sig) => {
