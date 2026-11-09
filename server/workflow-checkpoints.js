@@ -295,8 +295,10 @@ export async function forkCheckpoint(
         saved.head;
       syncPrimary(task);
       store.save(task);
-      await git(view.workspaceRoot, ['read-tree', '--reset', '-u', saved.workingTree]);
-      await git(view.workspaceRoot, ['read-tree', saved.indexTree]);
+      await git(view.workspaceRoot, ['read-tree', '--reset', '-u', saved.workingTree], {
+        timeout: 600000,
+      });
+      await git(view.workspaceRoot, ['read-tree', saved.indexTree], { timeout: 600000 });
     }
     requireValue(
       task.demo || record.fingerprint === (await fingerprint(task)),
@@ -308,6 +310,24 @@ export async function forkCheckpoint(
     task.error = `Checkpoint restore failed: ${error.message}. Existing work has been preserved.`;
     task.checkpointRestore.status = 'failed';
     store.save(task, { type: 'blocked', summary: task.error });
+    put(store, `forks:${sourceId}`, [
+      ...records(store, `forks:${sourceId}`),
+      {
+        taskId: task.id,
+        checkpointId,
+        attemptId: record.attemptId,
+        at: now,
+        stage: task.stage,
+        mode: stage,
+        status: 'failed',
+      },
+    ]);
+    store.event(sourceId, {
+      type: 'fork',
+      summary: `Continuation from ${record.stage} could not be restored; inspect the preserved workspace.`,
+      continuationTaskId: task.id,
+      checkpointId,
+    });
     throw error;
   }
   task.reviewedFingerprint = null;
