@@ -87,15 +87,42 @@ try {
     configurationProposals(app.store).find((item) => item.id === proposal.id).status,
     'approved',
   );
-  const draft = app.engine.create({ title: 'Configure this draft', demo: true });
+  const draft = app.engine.create({
+    title: 'Configure this draft',
+    description: 'Keep this context.\nUse the old model.\nFinal paragraph.',
+    demo: true,
+  });
   proposeTaskChanges(
     app.store,
-    [{ taskId: draft.id, operation: 'settings', settings: { preset: 'small' } }],
+    [
+      {
+        taskId: draft.id,
+        operation: 'settings',
+        settings: {
+          preset: 'small',
+          description: 'Keep this context.\nUse the new model.\nFinal paragraph.',
+        },
+      },
+    ],
     'Use the focused workflow',
   );
   await page.getByRole('button', { name: 'Review action' }).click();
   await dialog.getByRole('heading', { name: 'Configure this draft' }).waitFor();
   assert.notEqual(app.store.get(draft.id).preset, 'small');
+  assert.equal(await dialog.locator('.change-removed mark').innerText(), 'old');
+  assert.equal(await dialog.locator('.change-added mark').innerText(), 'new');
+  assert.match(await dialog.locator('.change-context').first().innerText(), /Keep this context/);
+  await assertReadableText(page);
+  await page.evaluate(() => window.RelayTheme.set('dark'));
+  await assertReadableText(page);
+  await page.setViewportSize({ width: 390, height: 844 });
+  assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
+  await assertReadableText(page);
+  await mkdir('docs/screenshots', { recursive: true });
+  await page.screenshot({ path: 'docs/screenshots/paragraph-diff-dark-mobile.png' });
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.evaluate(() => window.RelayTheme.set('light'));
+
   await dialog.getByRole('button', { name: 'Approve changes' }).click();
   await dialog.waitFor({ state: 'hidden' });
   assert.equal(app.store.get(draft.id).preset, 'small');

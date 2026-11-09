@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { changedFields, changePreview } from '../public/change-preview.js';
+import { changedFields, changePreview, diffSequence } from '../public/change-preview.js';
 import { taskProposalDiff } from '../public/task-proposal-view.js';
 
 test('review diffs isolate nested changes and preserve ordered arrays and missing values', () => {
@@ -52,4 +52,51 @@ test('JSON keys matching object prototypes are compared as own fields', () => {
   assert.deepEqual(changedFields({}, JSON.parse('{"constructor":"custom"}')), [
     { path: ['constructor'], before: undefined, after: 'custom' },
   ]);
+});
+
+test('paragraph diffs preserve unchanged lines and highlight changed words', () => {
+  const html = changePreview(
+    { description: 'Opening paragraph.\n\nUse the old model.\nLast paragraph.' },
+    { description: 'Opening paragraph.\n\nUse the new model.\nLast paragraph.' },
+  );
+  assert.match(html, /change-context/);
+  assert.match(html, /<mark>old<\/mark>/);
+  assert.match(html, /<mark>new<\/mark>/);
+  assert.equal((html.match(/Opening paragraph/g) || []).length, 1);
+  assert.match(html, /diff-line-number/);
+  assert.ok(!html.includes('\\n'));
+});
+
+test('line edits reconstruct both inputs with insertions, repeated lines and trailing newlines', () => {
+  for (const [before, after] of [
+    ['a\nb\nc\n', 'a\nx\nc\n'],
+    ['same\nsame\nend', 'same\nadded\nsame\nend'],
+    ['', 'new\n'],
+    ['old\n', ''],
+    ['a\nb', 'b\na'],
+    ['x'.repeat(1000).split('').join('\n'), 'y'.repeat(1000).split('').join('\n')],
+  ]) {
+    const rows = diffSequence(before.split('\n'), after.split('\n'));
+    assert.equal(
+      rows
+        .filter((row) => row.kind !== 'added')
+        .map((row) => row.text)
+        .join('\n'),
+      before,
+    );
+    assert.equal(
+      rows
+        .filter((row) => row.kind !== 'removed')
+        .map((row) => row.text)
+        .join('\n'),
+      after,
+    );
+  }
+});
+
+test('inline text highlights escape markup even inside changed words', () => {
+  const html = changePreview('Use <script>old</script>', 'Use <img onerror=bad>');
+  assert.ok(!html.includes('<script>'));
+  assert.ok(!html.includes('<img'));
+  assert.match(html, /&lt;/);
 });
