@@ -111,3 +111,30 @@ test('publishing blockers appear in the inbox without reopening accepted impleme
     await rm(directory, { recursive: true, force: true });
   }
 });
+
+test('checkpoint bookkeeping cannot invalidate an unchanged proposal receipt', async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), 'relay-inbox-gate-'));
+  const store = new Store(directory);
+  t.after(async () => {
+    store.close();
+    await rm(directory, { recursive: true, force: true });
+  });
+  const task = {
+    id: 'gate',
+    title: 'Stable proposal',
+    status: 'awaiting_plan',
+    attempts: [{ id: 'plan-attempt', stage: 'plan', status: 'complete' }],
+    messages: [],
+  };
+  store.save(task, { type: 'handoff' });
+  const first = inbox(store)[0];
+  acknowledge(store, first.key);
+  store.event(task.id, { type: 'checkpoint', summary: 'Checkpoint saved.' });
+  store.event(task.id, { type: 'decision', summary: 'Choose an approach.' });
+  assert.equal(inbox(store)[0].key, first.key);
+  assert.equal(inbox(store)[0].seen, true);
+  task.messages.push({ role: 'user', text: 'A new constraint.', delivery: 'pending' });
+  store.save(task);
+  assert.notEqual(inbox(store)[0].key, first.key);
+  assert.equal(inbox(store)[0].seen, false);
+});

@@ -17,6 +17,8 @@ import { WorkflowAutomation, automationState } from '../server/workflow-automati
 import { workflowHealth } from '../server/workflow-health.js';
 import { demoHandoff } from '../server/harness.js';
 import { inbox } from '../server/inbox.js';
+import { blockerDecision } from '../server/recovery.js';
+import { applyLoopGuard } from '../server/loop-guard.js';
 import { executionNodes, graphLayout } from '../public/execution-map.js';
 
 async function fixture(t) {
@@ -273,6 +275,7 @@ test('checkpoint forks preserve HEAD, staging and untracked files without touchi
   assert.equal(fork.verifiedFingerprint, null);
   assert.equal(fork.reviewedFingerprint, null);
   assert.equal(fork.attempts[0].sessionId, undefined);
+  assert.equal(fork.attempts[0].originTaskId, task.id);
   assert.equal(fork.status, 'paused');
   assert.equal(automationState(store, fork.id).enabled, false);
   const graphTask = { ...task, history: workflowHistory(store, task.id) };
@@ -293,9 +296,21 @@ test('checkpoint forks preserve HEAD, staging and untracked files without touchi
     .find((item) => item.fork?.sourceTaskId === task.id && item.id !== fork.id);
   assert.equal(failed.status, 'blocked');
   assert.equal(failed.checkpointRestore.status, 'failed');
+  assert.ok(failed.workspaceRoot, 'Partially restored worktrees must retain ownership metadata');
   assert.equal(await fingerprint(task), current);
   const engine = new Engine(store);
   await assert.rejects(engine.action(failed.id, 'resume'), /Finish restoring/);
+  const reviewed = store.get(task.id);
+  reviewed.status = 'awaiting_final';
+  reviewed.reviewedFingerprint = await fingerprint(reviewed);
+  store.save(reviewed);
+  const auto = new WorkflowAutomation(store, engine, {}, { interval: 60000 });
+  const grant = auto.configure(reviewed.id, { enabled: true });
+  const accepting = engine.action(reviewed.id, 'accept', { automation: grant });
+  auto.configure(reviewed.id, { enabled: false });
+  await assert.rejects(accepting, /delegation changed/);
+  assert.equal(store.get(reviewed.id).status, 'awaiting_final');
+  await auto.stop();
   await engine.stop();
 });
 
@@ -401,4 +416,219 @@ test('multi-repository checkpoints restore the whole workspace together', async 
       await readFile(join(entry.workspaceRoot, 'code'), 'utf8'),
       `${entry.repository.id} changed\n`,
     );
+});
+
+test('saved plan and debugger choices branch without replaying investigation', async (t) => {
+  const { store } = await fixture(t);
+  const engine = new Engine(store, { demoDelay: 1 });
+  t.after(() => engine.stop());
+  const source = newTask({ title: 'Choose a different path', demo: true }, DEFAULT_CONFIG);
+  const plan = demoHandoff(source, 'plan');
+  source.chosenApproach = plan.options[0];
+  source.approvals = [{ type: 'approach', option: plan.options[0] }];
+  const diagnosis = {
+    ...demoHandoff(source, 'investigate'),
+    verdict: 'blocked',
+    summary: 'Two supported remedies',
+    options: [
+      {
+        id: 'design-alternative',
+        title: 'Use an alternate remedy',
+        description: 'Try the other supported configuration.',
+        tradeoffs: 'Requires targeted revalidation.',
+      },
+    ],
+  };
+  const at = new Date().toISOString();
+  source.attempts = [
+    {
+      id: 'investigation',
+      stage: 'investigate',
+      status: 'complete',
+      handoff: demoHandoff(source, 'investigate'),
+      startedAt: at,
+    },
+    { id: 'plan', stage: 'plan', status: 'complete', handoff: plan, startedAt: at },
+    {
+      id: 'implementation',
+      stage: 'implement',
+      role: 'specialist',
+      status: 'complete',
+      handoff: { ...diagnosis, options: [] },
+      startedAt: at,
+    },
+    {
+      id: 'debug',
+      stage: 'implement',
+      role: 'debug',
+      status: 'complete',
+      handoff: diagnosis,
+      startedAt: at,
+    },
+  ];
+  source.stage = 'implement';
+  source.status = 'blocked';
+  source.recovery = {
+    key: 'implement:0',
+    sourceAttemptId: 'implementation',
+    active: false,
+    phase: 'debug',
+    lastDiagnosis: diagnosis,
+  };
+  source.blockerDecision = blockerDecision(source, diagnosis);
+  store.save(source);
+  const saved = await captureCheckpoint(store, source, source.attempts.at(-1));
+  assert.equal(checkpoints(store, source.id)[0].canChooseDebug, true);
+  const alternate = await forkCheckpoint(store, source.id, saved.id, { stage: 'approach' });
+  assert.equal(alternate.status, 'awaiting_plan');
+  assert.equal(alternate.chosenApproach, null);
+  assert.equal(alternate.loopGuardAcknowledgedAt, alternate.attempts.length);
+  await engine.action(alternate.id, 'approve-plan', { optionId: 'patch-callers' });
+  await until(
+    () => store.get(alternate.id).status === 'awaiting_final' && !engine.running.has(alternate.id),
+  );
+  const implementation = store.get(alternate.id);
+  assert.equal(implementation.chosenApproach.id, 'patch-callers');
+  assert.equal(implementation.attempts.find((a) => !a.inherited).stage, 'implement');
+  assert.ok(
+    !implementation.attempts.some((a) => !a.inherited && ['investigate', 'plan'].includes(a.stage)),
+  );
+  const debugFork = await forkCheckpoint(store, source.id, saved.id, { stage: 'decision' });
+  assert.equal(debugFork.status, 'blocked');
+  assert.equal(debugFork.blockerDecision.options[0].id, 'design-alternative');
+  const loopFixture = structuredClone(debugFork);
+  for (const prior of loopFixture.attempts) prior.fingerprint = 'same-source';
+  const firstFailure = {
+    id: 'first-new-failure',
+    stage: 'implement',
+    fingerprint: 'same-source',
+    handoff: diagnosis,
+  };
+  loopFixture.attempts.push(firstFailure);
+  assert.equal(applyLoopGuard(loopFixture, firstFailure), false);
+  assert.notEqual(debugFork.blockerDecision.id, source.blockerDecision.id);
+  await engine.action(debugFork.id, 'resolve-blocker', {
+    decisionId: debugFork.blockerDecision.id,
+    resolution: 'retry',
+    optionId: 'design-alternative',
+  });
+  await until(
+    () => store.get(debugFork.id).status === 'awaiting_final' && !engine.running.has(debugFork.id),
+  );
+  const continued = store.get(debugFork.id);
+  assert.equal(continued.attempts.find((a) => !a.inherited).role, 'debug');
+  assert.ok(continued.messages.some((m) => m.text.includes('alternate remedy')));
+  assert.ok(
+    !continued.attempts.some((a) => !a.inherited && ['investigate', 'plan'].includes(a.stage)),
+  );
+  assert.equal(store.get(source.id).chosenApproach.id, 'shared-boundary');
+  assert.equal(store.get(source.id).status, 'blocked');
+});
+
+test('explicit replanning survives completed snapshots and interrupted restores cannot run', async (t) => {
+  const { store } = await fixture(t);
+  const source = newTask({ title: 'Completed snapshot', demo: true }, DEFAULT_CONFIG);
+  const handoff = demoHandoff(source, 'plan');
+  source.attempts = [{ id: 'completed-plan', stage: 'plan', status: 'complete', handoff }];
+  source.status = 'completed';
+  source.stage = 'review';
+  source.chosenApproach = handoff.options[0];
+  store.save(source);
+  const record = await captureCheckpoint(store, source, source.attempts[0]);
+  const fork = await forkCheckpoint(store, source.id, record.id, { stage: 'plan' });
+  assert.equal(fork.stage, 'plan');
+  assert.equal(fork.chosenApproach, null);
+  fork.checkpointRestore.status = 'preparing';
+  store.save(fork);
+  const engine = new Engine(store);
+  assert.equal(store.get(fork.id).checkpointRestore.status, 'failed');
+  assert.equal(store.get(fork.id).status, 'blocked');
+  await assert.rejects(engine.action(fork.id, 'resume'), /Finish restoring/);
+  await engine.stop();
+});
+
+test('Auto retries corrected preflight and tracks publication per follow-up cycle', async (t) => {
+  const { store } = await fixture(t);
+  let calls = 0;
+  const engine = { running: new Map(), manualRuns: new Map(), actionLocks: new Set() };
+  const auto = new WorkflowAutomation(
+    store,
+    engine,
+    {
+      start: async () => {
+        if (++calls === 1) throw new Error('Missing publishing tool');
+      },
+    },
+    { interval: 60000 },
+  );
+  t.after(() => auto.stop());
+  const task = newTask({ title: 'Publication cycles', demo: true }, DEFAULT_CONFIG);
+  task.demo = false;
+  task.status = 'completed';
+  store.save(task);
+  auto.configure(task.id, { enabled: true, scope: 'draft_pr' });
+  await auto.tick();
+  assert.match(automationState(store, task.id).error, /Missing publishing tool/);
+  assert.equal(automationState(store, task.id).publicationReceipts, undefined);
+  auto.configure(task.id, { enabled: true, scope: 'draft_pr' });
+  await auto.tick();
+  await auto.tick();
+  assert.equal(calls, 2);
+  task.followUpContext = { id: 'new-cycle' };
+  store.save(task);
+  await auto.tick();
+  await auto.tick();
+  assert.equal(calls, 3);
+});
+
+test('revoked Auto authorization cannot approve or accept a task', async (t) => {
+  const { store } = await fixture(t);
+  const engine = new Engine(store);
+  const auto = new WorkflowAutomation(store, engine, {}, { interval: 60000 });
+  t.after(async () => {
+    await auto.stop();
+    await engine.stop();
+  });
+  const task = newTask({ title: 'Delegation revocation', demo: true }, DEFAULT_CONFIG);
+  task.status = 'awaiting_plan';
+  task.attempts = [
+    { id: 'plan', stage: 'plan', status: 'complete', handoff: demoHandoff(task, 'plan') },
+  ];
+  store.save(task);
+  const grant = auto.configure(task.id, { enabled: true });
+  auto.configure(task.id, { enabled: false });
+  await assert.rejects(
+    engine.action(task.id, 'approve-plan', { optionId: 'shared-boundary', automation: grant }),
+    /delegation changed/,
+  );
+  task.status = 'awaiting_final';
+  store.save(task);
+  await assert.rejects(
+    engine.action(task.id, 'accept', { automation: grant }),
+    /delegation changed/,
+  );
+  assert.equal(store.get(task.id).status, 'awaiting_final');
+});
+
+test('recommendation displays and selectors exclude diagnostic plans', async () => {
+  const { completedPlan } = await import('../public/workflow-plan.js');
+  const { planOptions } = await import('../public/plan-options.js');
+  const { decisionBrief } = await import('../public/workflow-insights.js');
+  const task = newTask({ title: 'Second option recommendation', demo: true }, DEFAULT_CONFIG);
+  task.status = 'awaiting_plan';
+  const plan = demoHandoff(task, 'plan');
+  plan.recommendedOptionId = 'patch-callers';
+  plan.recommendationReason = 'These consumers intentionally diverge.';
+  task.attempts = [
+    { stage: 'plan', status: 'complete', handoff: plan },
+    { stage: 'plan', status: 'complete', role: 'debug', handoff: { ...plan, options: [] } },
+  ];
+  assert.equal(completedPlan(task), plan);
+  assert.equal(decisionBrief(task).recommendation, plan.options[1].title);
+  const markup = planOptions(plan.options, plan.recommendedOptionId);
+  assert.match(markup, /value="patch-callers" checked/);
+  assert.equal((markup.match(/<em>Recommended<\/em>/g) ?? []).length, 1);
+  assert.equal(planOptions(plan.options).includes('<em>Recommended</em>'), false);
+  task.followUpContext = { id: 'next-cycle', startedAt: new Date().toISOString() };
+  assert.equal(completedPlan(task), undefined);
 });

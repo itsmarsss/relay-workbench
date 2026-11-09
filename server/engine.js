@@ -1,3 +1,5 @@
+import { completedPlan } from '../public/workflow-plan.js';
+import { requireAutomationAuthorization } from './workflow-automation.js';
 import { captureCheckpoint } from './workflow-checkpoints.js';
 import { applyLoopGuard } from './loop-guard.js';
 import {
@@ -46,6 +48,13 @@ export class Engine {
     this.workspaceReservations = new Map();
     this.stopping = false;
     for (const task of store.all()) {
+      if (task.checkpointRestore?.status === 'preparing') {
+        task.checkpointRestore.status = 'failed';
+        task.status = 'blocked';
+        task.error =
+          'Checkpoint restoration was interrupted. Work is preserved; create a new continuation from the original checkpoint.';
+        store.save(task, { type: 'blocked', summary: task.error });
+      }
       for (const entry of workspaces(task)) {
         if (
           entry.repository.strategy === 'attach' &&
@@ -641,7 +650,11 @@ export class Engine {
         task.loopGuardAcknowledgedAt = task.attempts.length;
         task.loopGuard = null;
         task.budgetContinuationAttemptId = budgetAttempt?.id ?? null;
-        if (budgetAttempt?.role !== 'debug') task.recovery = null;
+        const checkpointRecovery =
+          task.fork &&
+          task.checkpointRestore?.status === 'complete' &&
+          !task.attempts.some((attempt) => !attempt.inherited);
+        if (!checkpointRecovery && budgetAttempt?.role !== 'debug') task.recovery = null;
         if (task.blockerDecision?.kind === 'verification_report' && task.verificationReportRepair)
           task.verificationReportRepair.count = 0;
         task.blockerDecision = null;
@@ -676,6 +689,7 @@ export class Engine {
         }
         if (action === 'start' && task.preset === 'small' && !task.smartRouting)
           task.stage = 'investigate';
+        requireAutomationAuthorization(this.store, id, data.automation);
         task.status = 'queued';
         task.error = null;
         this.store.save(task, {
@@ -697,11 +711,10 @@ export class Engine {
           409,
         );
         requireValue(status === 'awaiting_plan', 'Task is not awaiting an approach', 409);
-        const plan = task.attempts.findLast(
-          (a) => a.stage === 'plan' && a.status === 'complete',
-        )?.handoff;
+        const plan = completedPlan(task);
         const option = plan?.options.find((o) => o.id === data.optionId);
         requireValue(option, 'Select one of the proposed approaches');
+        requireAutomationAuthorization(this.store, id, data.automation);
         task.chosenApproach = option;
         task.approvals.push({
           type: 'approach',
@@ -761,6 +774,7 @@ export class Engine {
           );
         for (const entry of workspaces(task))
           if (!task.demo) entry.acceptedFingerprint = await fingerprint(workspaceView(task, entry));
+        requireAutomationAuthorization(this.store, id, data.automation);
         task.status = 'completed';
         task.approvals.push({
           type: 'final',
@@ -1920,13 +1934,7 @@ export class Engine {
       task.recovery.active = false;
       this.store.save(task);
     }
-    if (
-      !debugging &&
-      !trustedVerification &&
-      handoff.verdict === 'complete' &&
-      !handoff.findings.length &&
-      !['blocked', 'paused', 'cancelled'].includes(task.status)
-    ) {
+    if (!['paused', 'cancelled', 'manual'].includes(task.status)) {
       try {
         await captureCheckpoint(this.store, task, savedAttempt, { expectedFingerprint: after });
       } catch (error) {

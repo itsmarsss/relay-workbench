@@ -1,3 +1,4 @@
+import { checkpoints } from '../server/workflow-checkpoints.js';
 import { runCheck } from '../server/check-runner.js';
 import { RuntimeBudgetError } from '../server/runtime-budget.js';
 import test from 'node:test';
@@ -597,6 +598,10 @@ test('debugger escalation carries decisions and replan requires fresh approval',
   const blocked = await waitFor(f.store, task.id, (t) => t.status === 'blocked');
   assert.equal(blocked.stage, 'implement');
   assert.equal(blocked.blockerDecision.debugAttempts, 2);
+  await waitFor(f.store, task.id, () => !engine.running.has(task.id));
+  assert.ok(
+    checkpoints(f.store, task.id).some((point) => point.role === 'debug' && point.canChooseDebug),
+  );
   assert.equal(blocked.approvals.length, 1);
   await assert.rejects(
     engine.action(task.id, 'resolve-blocker', { decisionId: 'stale', resolution: 'replan' }),

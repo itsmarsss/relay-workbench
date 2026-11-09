@@ -1,3 +1,4 @@
+import { completedPlan } from './workflow-plan.js';
 import {
   automationControl,
   checkpointControl,
@@ -472,12 +473,18 @@ function taskView() {
     )}${t.chosenApproach ? `<section class="context-card approved-card"><div class="context-title">APPROVED APPROACH ${icon('check')}</div><strong>${e(t.chosenApproach.title)}</strong><p>${e(t.chosenApproach.description)}</p></section>` : ''}</aside></div>`;
 }
 function planGate(t) {
-  const plan = t.attempts.findLast((a) => a.stage === 'plan' && a.handoff)?.handoff;
-  return `<div class="approval-panel"><div class="gate-heading"><div class="approval-icon">${icon('git')}</div><div><h2>Choose an approach</h2></div></div><form id="approve-form"><div class="approach-options">${planOptions(plan?.options)}</div><label class="field-label" for="approval-note">Notes <span>(optional)</span></label><input id="approval-note" class="input" placeholder="Constraints, preferences, things to keep in mind…" maxlength="10000"><div class="approval-actions"><button class="btn primary" type="submit">Approve & implement ${icon('arrow')}</button>${button('request-changes', 'Revise the proposal', 'text')}</div></form></div>`;
+  const plan = completedPlan(t);
+  return `<div class="approval-panel"><div class="gate-heading"><div class="approval-icon">${icon('git')}</div><div><h2>Choose an approach</h2></div></div><form id="approve-form"><div class="approach-options">${planOptions(plan?.options, plan?.recommendedOptionId)}</div><label class="field-label" for="approval-note">Notes <span>(optional)</span></label><input id="approval-note" class="input" placeholder="Constraints, preferences, things to keep in mind…" maxlength="10000"><div class="approval-actions"><button class="btn primary" type="submit">Approve & implement ${icon('arrow')}</button>${button('request-changes', 'Revise the proposal', 'text')}</div></form></div>`;
 }
 function threadView(t) {
   const meaningful = new Set([
     'health',
+    'automation',
+    'auto_decision',
+    'checkpoint',
+    'checkpoint_failed',
+    'fork',
+    'quiet',
     'created',
     'configuration',
     'queued',
@@ -541,7 +548,7 @@ function threadView(t) {
   const run = activityRunSelection(t, grouped, state.activitySelection);
   const followingCurrent =
     run.selected?.id === latestAttempt?.id && state.activitySelection !== 'all';
-  return `<div class="activity-browser">${activityRunNavigation(t, run.selected, state.activitySelection)}<div class="activity-run-content">${activityRunHeader(run.selected, state.events)}<div class="timeline">${run.events.map((ev) => (state.activitySelection === 'all' && activityPassoff(t, ev) ? `<article data-event-seq="${ev.seq}" class="timeline-item passoff-event"><div class="timeline-avatar">${icon('arrow')}</div><div class="timeline-body">${activityPassoff(t, ev)}${ev.repositoryId ? `<small class="passoff-repository">${e((t.repositories?.length > 1 ? t.repositories : [t]).find((r) => r.repository.id === ev.repositoryId)?.repository.name ?? ev.repositoryId)}</small>` : ''}</div></article>` : `<article data-event-seq="${ev.seq}" class="timeline-item ${ev.type === 'decision' ? 'decision-event' : ''}"><div class="timeline-avatar">${activityEventIdentity(ev).harness ? harnessBadge(activityEventIdentity(ev).harness) : icon(ev.type === 'approval' || ev.type === 'accepted' ? 'check' : ev.type === 'decision' ? 'eye' : ev.type === 'feedback' ? 'arrow' : 'layers')}</div><div class="timeline-body"><div class="event-meta">${activityEventMeta(ev, ev.stage ? (stageNames[ev.stage] ?? (ev.stage === 'publish' ? 'Publication' : ev.stage === 'feedback' ? 'PR feedback' : 'PR status')) : null)}<time>${ago(ev.at)}</time>${ev.repositoryId ? `<span>${e((t.repositories?.length > 1 ? t.repositories : [t]).find((r) => r.repository.id === ev.repositoryId)?.repository.name ?? ev.repositoryId)}</span>` : ''}</div>${ev.toolEvents ? `<details class="event-details tool-activity" data-event-key="tools-${ev.seq}"><summary>${ev.toolEvents.length} ${ev.toolEvents.length === 1 ? 'activity' : 'activities'} · ${e(concise(ev.toolEvents.at(-1).summary, 120))}</summary>${ev.toolEvents.map((tool) => `<div class="tool-entry"><strong>${e(concise(tool.summary, 180))}</strong>${tool.details ? `<pre class="code-block">${e(tool.details)}</pre>` : ''}</div>`).join('')}</details>` : ev.type === 'activity' && ev.kind === 'message' ? `<div class="prose agent-message">${prose(concise(ev.details || ev.summary, 360))}</div>${(ev.details || ev.summary).length > 360 ? `<details class="event-details" data-event-key="message-${ev.seq}"><summary>Full message</summary><div class="prose">${prose(ev.details || ev.summary)}</div></details>` : ''}` : `<h3>${e(concise(ev.summary))}</h3>`}${ev.type === 'handoff' ? `<details class="report-section" data-event-key="handoff-report-${ev.seq}"><summary>Run details &amp; evidence</summary>${handoffBodyForThread(t, ev)}</details>` : ev.details && !ev.toolEvents && ev.type !== 'activity' ? `<details data-event-key="event-${ev.seq}" class="event-details"><summary>Details</summary><div class="prose">${prose(ev.details)}</div></details>` : ''}</div></article>`)).join('')}${followingCurrent && ['running', 'queued'].includes(t.status) ? `<article class="timeline-item working"><div class="timeline-avatar">${harnessBadge(latestAttempt?.harness ?? t.routing[t.stage])}</div><div class="timeline-body"><div class="event-meta"><strong>${e(stageNames[t.stage])}</strong><span class="typing-dots"><i></i><i></i><i></i></span></div><p>${e(concise(activity?.summary || 'Preparing the next handoff…'))}</p><small>Updates appear here as work progresses.</small></div></article>` : ''}</div></div></div>`;
+  return `<div class="activity-browser">${activityRunNavigation(t, run.selected, state.activitySelection)}<div class="activity-run-content">${activityRunHeader(run.selected, state.events, t)}<div class="timeline">${run.events.map((ev) => (state.activitySelection === 'all' && activityPassoff(t, ev) ? `<article data-event-seq="${ev.seq}" class="timeline-item passoff-event"><div class="timeline-avatar">${icon('arrow')}</div><div class="timeline-body">${activityPassoff(t, ev)}${ev.repositoryId ? `<small class="passoff-repository">${e((t.repositories?.length > 1 ? t.repositories : [t]).find((r) => r.repository.id === ev.repositoryId)?.repository.name ?? ev.repositoryId)}</small>` : ''}</div></article>` : `<article data-event-seq="${ev.seq}" class="timeline-item ${ev.type === 'decision' ? 'decision-event' : ''}"><div class="timeline-avatar">${activityEventIdentity(ev).harness ? harnessBadge(activityEventIdentity(ev).harness) : icon(ev.type === 'approval' || ev.type === 'accepted' ? 'check' : ev.type === 'decision' ? 'eye' : ev.type === 'feedback' ? 'arrow' : 'layers')}</div><div class="timeline-body"><div class="event-meta">${activityEventMeta(ev, ev.stage ? (stageNames[ev.stage] ?? (ev.stage === 'publish' ? 'Publication' : ev.stage === 'feedback' ? 'PR feedback' : 'PR status')) : null)}<time>${ago(ev.at)}</time>${ev.repositoryId ? `<span>${e((t.repositories?.length > 1 ? t.repositories : [t]).find((r) => r.repository.id === ev.repositoryId)?.repository.name ?? ev.repositoryId)}</span>` : ''}</div>${ev.toolEvents ? `<details class="event-details tool-activity" data-event-key="tools-${ev.seq}"><summary>${ev.toolEvents.length} ${ev.toolEvents.length === 1 ? 'activity' : 'activities'} · ${e(concise(ev.toolEvents.at(-1).summary, 120))}</summary>${ev.toolEvents.map((tool) => `<div class="tool-entry"><strong>${e(concise(tool.summary, 180))}</strong>${tool.details ? `<pre class="code-block">${e(tool.details)}</pre>` : ''}</div>`).join('')}</details>` : ev.type === 'activity' && ev.kind === 'message' ? `<div class="prose agent-message">${prose(concise(ev.details || ev.summary, 360))}</div>${(ev.details || ev.summary).length > 360 ? `<details class="event-details" data-event-key="message-${ev.seq}"><summary>Full message</summary><div class="prose">${prose(ev.details || ev.summary)}</div></details>` : ''}` : `<h3>${e(concise(ev.summary))}</h3>`}${ev.type === 'handoff' ? `<details class="report-section" data-event-key="handoff-report-${ev.seq}"><summary>Run details &amp; evidence</summary>${handoffBodyForThread(t, ev)}</details>` : ev.details && !ev.toolEvents && ev.type !== 'activity' ? `<details data-event-key="event-${ev.seq}" class="event-details"><summary>Details</summary><div class="prose">${prose(ev.details)}</div></details>` : ''}</div></article>`)).join('')}${followingCurrent && ['running', 'queued'].includes(t.status) ? `<article class="timeline-item working"><div class="timeline-avatar">${harnessBadge(latestAttempt?.harness ?? t.routing[t.stage])}</div><div class="timeline-body"><div class="event-meta"><strong>${e(stageNames[t.stage])}</strong><span class="typing-dots"><i></i><i></i><i></i></span></div><p>${e(concise(activity?.summary || 'Preparing the next handoff…'))}</p><small>Updates appear here as work progresses.</small></div></article>` : ''}</div></div></div>`;
 }
 function handoffBodyForThread(t, ev) {
   return handoffBody(taskRuns(t).find((a) => a.id === ev.attemptId)?.handoff);
@@ -1618,7 +1625,14 @@ document.addEventListener('click', async (event) => {
       return;
     }
     if (action === 'graph-open-activity') {
-      state.activityTaskId = state.task.id;
+      const targetTaskId = element.dataset.taskId ?? state.task.id;
+      state.activityTaskId = targetTaskId;
+      if (targetTaskId !== state.task.id) {
+        state.activitySelection = element.dataset.id;
+        state.executionMapOpen = false;
+        location.hash = `task/${targetTaskId}/thread`;
+        return;
+      }
       state.activitySelection = element.dataset.id;
       state.executionMapOpen = false;
       state.tab = 'thread';

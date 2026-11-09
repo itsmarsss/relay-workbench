@@ -1,3 +1,6 @@
+import { captureCheckpoint } from '../server/workflow-checkpoints.js';
+import { blockerDecision } from '../server/recovery.js';
+import { demoHandoff } from '../server/harness.js';
 import assert from 'node:assert/strict';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -49,6 +52,37 @@ try {
     await new Promise((r) => setTimeout(r, 20));
   assert.equal(app.store.get(task.id).status, 'completed');
   await page.reload();
+  await page.locator('[data-action="tab"][data-tab="thread"]').click();
+  await page.locator('[data-action="activity-run"][data-run="all"]').click();
+  await page
+    .getByRole('heading', { name: 'Auto enabled: finish through reviewed result.' })
+    .waitFor();
+  await page.getByRole('heading', { name: /Checkpoint saved after plan/ }).waitFor();
+  // Reopen a plan directly; a fresh investigation/planning run must not start.
+  await page.locator('[data-action="workflow-checkpoints"]').click();
+  await page
+    .locator('.checkpoint-list article')
+    .filter({ has: page.getByText('After plan', { exact: true }) })
+    .locator('[data-action="fork-checkpoint"]')
+    .click();
+  await page.locator('#checkpoint-stage').selectOption('approach', { force: true });
+  await page.locator('[data-action="confirm-fork-checkpoint"]').click();
+  await page.waitForURL((url) => url.hash.startsWith('#task/') && !url.hash.includes(task.id));
+  await page.locator('#approve-form').waitFor();
+  const approachFork = app.store.all().find((item) => item.fork?.mode === 'approach');
+  assert.ok(approachFork);
+  assert.equal(approachFork.attempts.filter((attempt) => !attempt.inherited).length, 0);
+  assert.equal(await page.locator('#approve-form .approach-option').count(), 2);
+  await page.locator('[data-action="tab"][data-tab="thread"]').click();
+  await page.getByRole('link', { name: 'View original activity ↗' }).waitFor();
+  assert.equal(
+    await page.getByRole('link', { name: 'View original activity ↗' }).getAttribute('href'),
+    `#task/${task.id}/thread`,
+  );
+  await page.getByRole('link', { name: 'View original activity ↗' }).click();
+  await page.waitForURL((url) => url.hash === `#task/${task.id}/thread`);
+  assert.equal(await page.locator('.graph-dialog').count(), 0);
+  await page.goto(`${base}/#task/${task.id}/overview`);
   await page.locator('[data-action="open-execution-map"]').click();
   await page.locator('.graph-node[data-id^="checkpoint-"]').first().click();
   await page.locator('.graph-inspector [data-action="fork-checkpoint"]').click();
@@ -63,7 +97,9 @@ try {
   await page.locator('[data-action="confirm-fork-checkpoint"]').click();
   await page.waitForURL((url) => url.hash.startsWith('#task/') && !url.hash.includes(task.id));
   await page.getByRole('link', { name: 'Original workflow ↗' }).waitFor();
-  const fork = app.store.all().find((item) => item.fork?.sourceTaskId === task.id);
+  const fork = app.store
+    .all()
+    .find((item) => item.fork?.sourceTaskId === task.id && item.fork.mode === 'saved');
   assert.ok(fork);
   assert.equal(fork.status, 'paused');
   assert.equal(await page.getByRole('button', { name: 'Auto mode', exact: true }).count(), 1);
@@ -71,6 +107,46 @@ try {
   await page.locator('.graph-node[data-id^="fork-"]').click();
   await page.getByRole('link', { name: 'Open linked workflow ↗' }).waitFor();
   await page.screenshot({ path: '/tmp/relay-workflow-controls.png', fullPage: true });
+  const debugging = app.engine.create({ title: 'Debugger choice UI', demo: true });
+  debugging.attempts = structuredClone(app.store.get(task.id).attempts);
+  debugging.chosenApproach = app.store.get(task.id).chosenApproach;
+  const diagnosis = {
+    ...demoHandoff(debugging, 'investigate'),
+    verdict: 'blocked',
+    summary: 'Choose a supported remedy',
+    options: [
+      {
+        id: 'remedy-two',
+        title: 'Try the alternate remedy',
+        description: 'Use another supported approach.',
+        tradeoffs: 'Needs targeted checks.',
+      },
+    ],
+  };
+  const attempt = {
+    id: 'debug-ui',
+    role: 'debug',
+    stage: 'implement',
+    status: 'complete',
+    handoff: diagnosis,
+    startedAt: new Date().toISOString(),
+    finishedAt: new Date().toISOString(),
+  };
+  debugging.attempts.push(attempt);
+  debugging.stage = 'implement';
+  debugging.status = 'blocked';
+  debugging.blockerDecision = blockerDecision(debugging, diagnosis);
+  app.store.save(debugging);
+  await captureCheckpoint(app.store, debugging, attempt);
+  await page.goto(`${base}/#task/${debugging.id}/overview`);
+  await page.locator('[data-action="workflow-checkpoints"]').click();
+  await page.locator('.checkpoint-list [data-action="fork-checkpoint"]').click();
+  await page.locator('#checkpoint-stage').selectOption('decision', { force: true });
+  await page.locator('[data-action="confirm-fork-checkpoint"]').click();
+  await page.waitForURL((url) => url.hash.startsWith('#task/') && !url.hash.includes(debugging.id));
+  await page.getByRole('heading', { name: 'Choose how to continue' }).waitFor();
+  await page.locator('[data-action="resolve-blocker"][data-option-id="remedy-two"]').waitFor();
+  assert.equal(app.store.get(debugging.id).status, 'blocked');
   assert.deepEqual(errors, []);
   console.log('Workflow controls browser checks passed.');
 } finally {
