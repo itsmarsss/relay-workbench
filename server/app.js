@@ -703,6 +703,7 @@ export function createApp({ directory, publicDirectory, engineOptions = {} }) {
                 'awaiting_final',
                 'review',
                 'completed',
+                'finished',
                 'blocked',
                 'cancelled',
               ].includes(request.value),
@@ -716,6 +717,7 @@ export function createApp({ directory, publicDirectory, engineOptions = {} }) {
             review: 'review',
             final: 'awaiting_final',
             done: 'completed',
+            finished: 'finished',
             attention: 'blocked',
             cancelled: 'cancelled',
           };

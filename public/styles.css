@@ -789,7 +789,8 @@ main {
   border-color: var(--tone-eee2c1, #eee2c1);
   color: var(--tone-67562e, #67562e);
 }
-.badge.completed {
+.badge.completed,
+.badge.finished {
   background: var(--tone-eaf3e7, #eaf3e7);
   border-color: var(--tone-d9e9d2, #d9e9d2);
   color: var(--tone-4a5c3f, #4a5c3f);
@@ -3114,7 +3115,8 @@ details.error-panel > p {
 .column-review > header {
   border-top-color: var(--tone-8470d5, #8470d5);
 }
-.column-done > header {
+.column-done > header,
+.column-finished > header {
   border-top-color: var(--tone-4a9a78, #4a9a78);
 }
 .column-attention > header {

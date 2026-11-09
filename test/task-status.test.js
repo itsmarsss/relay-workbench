@@ -1,8 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { displayStatus } from '../public/task-status.js';
-import { workflowColumn } from '../public/workflow.js';
+import { workflowBoard, workflowColumn } from '../public/workflow.js';
 import { filterTasks } from '../public/tasks.js';
+import { readTaskFilters } from '../public/task-filters-route.js';
 import { publicationPanel } from '../public/publication.js';
 test('publishing remains active and manual status controls board and filters', () => {
   const task = {
@@ -22,6 +23,25 @@ test('publishing remains active and manual status controls board and filters', (
   assert.equal(workflowColumn(task), 'review');
   task.statusOverride = { value: 'draft' };
   assert.equal(workflowColumn(task), 'backlog');
+  assert.equal(task.status, 'completed');
+});
+test('completed is a separate, manual board status from a finished pipeline', () => {
+  const task = {
+    id: 'a',
+    title: 'Task',
+    status: 'completed',
+    repository: { id: 'r', name: 'Repo' },
+  };
+  const state = { filter: 'completed', search: '', taskSort: 'recent' };
+  assert.equal(workflowColumn(task), 'done');
+  assert.match(workflowBoard([task]), /aria-label="Completed"/);
+  task.statusOverride = { value: 'finished', lane: 'finished' };
+  assert.equal(displayStatus(task), 'finished');
+  assert.equal(workflowColumn(task), 'finished');
+  assert.equal(filterTasks([task], state).length, 0);
+  state.filter = 'finished';
+  assert.equal(filterTasks([task], state).length, 1);
+  assert.equal(readTaskFilters('#tasks?scope=finished').filter, 'finished');
   assert.equal(task.status, 'completed');
 });
 test('PR tracker omits dashboard prose, duplicate stages and stale timestamps', () => {

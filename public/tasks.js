@@ -19,6 +19,7 @@ export function filterTasks(tasks, state) {
         ['running', 'queued', 'publishing', 'review'].includes(displayStatus(task))) ||
       (state.filter === 'backlog' && displayStatus(task) === 'draft') ||
       (state.filter === 'completed' && displayStatus(task) === 'completed') ||
+      (state.filter === 'finished' && displayStatus(task) === 'finished') ||
       (state.filter === 'cancelled' && displayStatus(task) === 'cancelled');
     return (
       scope &&
@@ -37,7 +38,7 @@ export function filterTasks(tasks, state) {
         ? 1
         : displayStatus(task) === 'draft'
           ? 2
-          : displayStatus(task) === 'completed'
+          : ['completed', 'finished'].includes(displayStatus(task))
             ? 3
             : 4;
   return filtered.sort(
@@ -77,6 +78,11 @@ export function tasksPage(state) {
     ],
     ['backlog', 'Backlog', state.tasks.filter((task) => displayStatus(task) === 'draft').length],
     ['completed', 'Done', state.tasks.filter((task) => displayStatus(task) === 'completed').length],
+    [
+      'finished',
+      'Completed',
+      state.tasks.filter((task) => displayStatus(task) === 'finished').length,
+    ],
     [
       'cancelled',
       'Cancelled',
