@@ -457,3 +457,16 @@ test('large activity pages are bounded with explicit excerpts and lossless curso
   const next = await agent.tool('read_task_activity', { id: task.id, after: page.nextAfter });
   assert.deepEqual(next.events, []);
 });
+
+test('task approval previews use normalized effective settings', async (t) => {
+  const { engine, propose, decide, store } = await fixture(t);
+  const task = engine.create({ title: 'Original', demo: true });
+  const proposal = propose(task, {
+    operation: 'settings',
+    settings: { title: '  Updated title  ' },
+    after: { title: 'forged' },
+  });
+  assert.equal(proposal.changes[0].after.title, 'Updated title');
+  await decide(proposal.id);
+  assert.equal(store.get(task.id).title, proposal.changes[0].after.title);
+});

@@ -1,10 +1,11 @@
+import { changePreview } from './change-preview.js';
 import { e, prose } from './ui.js';
 export function taskProposalChange(change) {
   switch (change.operation) {
     case 'settings':
       return {
         operation: 'Edit task settings',
-        ...change.settings,
+        ...(change.after ?? change.settings),
         nextWorkflowState: change.effects,
       };
     case 'automation':
@@ -46,6 +47,24 @@ export function taskProposalChange(change) {
       };
     default:
       return { operation: change.operation };
+  }
+}
+
+export function taskProposalDiff(change) {
+  switch (change.operation) {
+    case 'settings':
+      return changePreview(change.before, change.after ?? change.settings);
+    case 'automation':
+      return changePreview(
+        { enabled: change.before?.enabled, scope: change.before?.scope },
+        { enabled: change.enabled, scope: change.scope },
+      );
+    case 'monitor':
+      return changePreview({ enabled: change.before?.monitor }, { enabled: change.enabled });
+    case 'feedback':
+      return changePreview(change.before, { enabled: change.enabled });
+    default:
+      return '';
   }
 }
 
@@ -128,8 +147,10 @@ export function taskProposalPreview(change) {
       break;
     case 'feedback':
       summary = change.enabled ? 'Enable PR feedback automation' : 'Disable PR feedback automation';
-      detail = 'Applies to the selected repository.';
+      detail = change.enabled
+        ? 'Applies to the selected repository and starts PR monitoring if needed.'
+        : 'Applies to the selected repository. PR monitoring stays unchanged.';
       break;
   }
-  return `<section><h3>${e(change.title)}</h3><p><strong>${e(summary || proposed.operation)}</strong></p>${detail ? `<div class="prose">${prose(detail)}</div>` : ''}${current ? `<p class="form-help">${e(current)}</p>` : ''}${change.note ? `<p>${e(change.note)}</p>` : ''}<details class="detail-disclosure"><summary>Exact settings and context</summary><strong>Current</strong><pre class="code-block">${e(JSON.stringify(change.before, null, 2))}</pre><strong>Proposed</strong><pre class="code-block">${e(JSON.stringify(proposed, null, 2))}</pre></details></section>`;
+  return `<section><h3>${e(change.title)}</h3><p><strong>${e(summary || proposed.operation)}</strong></p>${detail ? `<div class="prose">${prose(detail)}</div>` : ''}${current ? `<p class="form-help">${e(current)}</p>` : ''}${change.note ? `<p>${e(change.note)}</p>` : ''}${taskProposalDiff(change)}<details class="detail-disclosure"><summary>Exact settings and context</summary><strong>Current</strong><pre class="code-block">${e(JSON.stringify(change.before, null, 2))}</pre><strong>Proposed</strong><pre class="code-block">${e(JSON.stringify(proposed, null, 2))}</pre></details></section>`;
 }
