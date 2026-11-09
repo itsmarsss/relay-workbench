@@ -34,9 +34,16 @@ func within(root, path string) bool {
 	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(os.PathSeparator)) && !filepath.IsAbs(rel)
 }
 func (r Runner) git(ctx context.Context, cwd string, args ...string) (string, error) {
-	result, err := process.Run(ctx, process.Options{WorkerExecutable: r.WorkerExecutable, WorkerArgs: r.WorkerArgs, Command: "git", Args: append([]string{"-C", cwd}, args...), Directory: cwd, Environment: r.Environment, Timeout: 2 * time.Minute, MaxOutputBytes: 8 * 1024 * 1024})
+	if len(args) == 0 {
+		return "", errors.New("git operation required")
+	}
+	timeout := 2 * time.Minute
+	if args[0] == "worktree" || args[0] == "status" || args[0] == "diff" || args[0] == "ls-files" || args[0] == "read-tree" {
+		timeout = 10 * time.Minute
+	}
+	result, err := process.Run(ctx, process.Options{WorkerExecutable: r.WorkerExecutable, WorkerArgs: r.WorkerArgs, Command: "git", Args: append([]string{"-C", cwd}, args...), Directory: cwd, Environment: r.Environment, Timeout: timeout, MaxOutputBytes: 8 * 1024 * 1024})
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("git %s in %s: %w", args[0], cwd, err)
 	}
 	if result.ExitCode != 0 {
 		detail := strings.TrimSpace(result.Stderr)

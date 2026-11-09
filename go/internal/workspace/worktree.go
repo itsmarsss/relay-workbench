@@ -150,11 +150,17 @@ func (r Runner) createOwned(ctx context.Context, area *WorktreeArea, profile Pro
 		return draft, &WorktreeError{draft, errors.New("worktree belongs to a different repository")}
 	}
 	branch, err := r.git(ctx, target.Root, "symbolic-ref", "--short", "HEAD")
-	if err != nil || strings.TrimSpace(branch) != draft.Branch {
+	if err != nil {
+		return draft, &WorktreeError{draft, err}
+	}
+	if strings.TrimSpace(branch) != draft.Branch {
 		return draft, &WorktreeError{draft, errors.New("worktree branch does not match")}
 	}
 	head, err := r.git(ctx, target.Root, "rev-parse", "HEAD")
-	if err != nil || strings.TrimSpace(head) != draft.BaseCommit {
+	if err != nil {
+		return draft, &WorktreeError{draft, err}
+	}
+	if strings.TrimSpace(head) != draft.BaseCommit {
 		return draft, &WorktreeError{draft, errors.New("worktree base commit does not match")}
 	}
 	if err = verify(); err != nil {
@@ -167,7 +173,10 @@ func (r Runner) createOwned(ctx context.Context, area *WorktreeArea, profile Pro
 		return draft, &WorktreeError{draft, err}
 	}
 	status, err := r.git(ctx, target.Root, "status", "--porcelain", "--untracked-files=normal")
-	if err != nil || strings.TrimSpace(status) != "" {
+	if err != nil {
+		return draft, &WorktreeError{draft, err}
+	}
+	if strings.TrimSpace(status) != "" {
 		return draft, &WorktreeError{draft, errors.New("new worktree is not clean")}
 	}
 	draft.Root = target.Root
