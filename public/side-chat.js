@@ -1,3 +1,4 @@
+import { mentionAnswerHTML } from './task-mentions.js';
 import { chatActions } from './chat-actions.js';
 import { sideAnswerText } from './side-answer.js';
 import { answerMemories } from './memory.js';
@@ -10,9 +11,13 @@ function sourceActivity(question) {
   const names = {
     github_read: 'Read GitHub',
     read_configuration: 'Read settings and runtime',
+    read_model_catalog: 'Read available models',
     read_memory: 'Recall approved memory',
     search_conversation: 'Search conversation',
     propose_config_change: 'Request settings approval',
+    propose_task_changes: 'Request task action approval',
+    read_task_activity: 'Read task activity',
+    read_task_changes: 'Read task changes',
     list_tasks: 'Refresh tasks',
     get_task: 'Read task',
     create_draft: 'Create draft',
@@ -45,8 +50,8 @@ function sourceActivity(question) {
     })
     .join('')}</ol></details>`;
 }
-export function answerBody(question) {
-  return `${sourceActivity(question)}${question.answer ? `<div class="prose side-chat-response">${prose(sideAnswerText(question.answer))}</div>` : ''}${question.error ? `<p class="error-text">${e(question.error)}</p>` : ''}${question.status === 'running' ? `<p class="side-chat-thinking" role="status">${question.toolCalls?.some((call) => call.status === 'running') ? 'Inspecting source…' : question.answer ? 'Replying…' : 'Connecting…'}</p>` : ''}`;
+export function answerBody(question, { mentions = [] } = {}) {
+  return `${sourceActivity(question)}${question.answer ? `<div class="prose side-chat-response">${mentionAnswerHTML(prose(sideAnswerText(question.answer)), [...(question.answerMentions ?? []), ...mentions])}</div>` : ''}${question.error ? `<p class="error-text">${e(question.error)}</p>` : ''}${question.status === 'running' ? `<p class="side-chat-thinking" role="status">${question.toolCalls?.some((call) => call.status === 'running') ? 'Inspecting source…' : question.answer ? 'Replying…' : 'Connecting…'}</p>` : ''}`;
 }
 export function sideChat(task, open = false) {
   const questions = task.sideQuestions ?? [];

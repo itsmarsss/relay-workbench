@@ -104,6 +104,12 @@ export function markdown(value) {
       const url = new URL(link.getAttribute('href') || '', window.location.href);
       if (!['http:', 'https:', 'mailto:'].includes(url.protocol) || url.username || url.password)
         throw new Error('Unsupported URL');
+      if (
+        /^#task\/[a-f0-9-]{36}\/(overview|thread|diff|handoffs)$/.test(
+          link.getAttribute('href') || '',
+        )
+      )
+        link.classList.add('task-mention');
       link.setAttribute('rel', 'noopener noreferrer');
       if (url.origin !== window.location.origin) link.setAttribute('target', '_blank');
     } catch {

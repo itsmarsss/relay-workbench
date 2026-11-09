@@ -1,3 +1,4 @@
+import { taskProposalPreview } from './task-proposal-view.js';
 import { completedPlan } from './workflow-plan.js';
 import {
   automationControl,
@@ -1068,7 +1069,7 @@ document.addEventListener('click', async (event) => {
           ['readMemory', 'Read approved memory'],
           ['createDrafts', 'Create draft tasks'],
           ['proposeSettings', 'Propose setting changes for your approval'],
-          ['proposeTasks', 'Propose task workflows and PR feedback'],
+          ['proposeTasks', 'Propose task settings, Auto and workflow actions'],
         ]
           .map(
             ([id, label]) =>
@@ -1076,7 +1077,7 @@ document.addEventListener('click', async (event) => {
           )
           .join(
             '',
-          )}</fieldset><p class="form-help">Relay cannot approve its own changes, start workflows, or bypass implementation and final review.</p><div class="modal-footer"><button type="button" class="btn secondary" data-action="close-modal">Cancel</button><button class="btn primary" type="submit">Save Relay settings</button></div></form>`,
+          )}</fieldset><p class="form-help">Relay proposes actions for your approval. It cannot approve its own changes or bypass verification and review.</p><details class="detail-disclosure"><summary>What Relay can do</summary><p>Inspect task activity, changes, checkpoints, PRs, models and settings.</p><p>With your approval: edit task settings, configure Auto, run workflow steps, branch from checkpoints, publish and manage PR monitoring or feedback.</p><p>Relay cannot approve its own requests, merge PRs, delete worktrees or run arbitrary shell commands.</p></details><div class="modal-footer"><button type="button" class="btn secondary" data-action="close-modal">Cancel</button><button class="btn primary" type="submit">Save Relay settings</button></div></form>`,
       );
       return;
     }
@@ -1086,7 +1087,7 @@ document.addEventListener('click', async (event) => {
       state.modal = { proposalId: proposal.id };
       showModal(
         'Review task changes',
-        `<p>${e(proposal.reason)}</p><div class="workspace-setting-diff">${proposal.changes.map((c) => `<section><h3>${e(c.title)}</h3><strong>Current</strong><pre class="code-block">${e(JSON.stringify(c.before, null, 2))}</pre><strong>Proposed</strong><pre class="code-block">${e(JSON.stringify(c.operation === 'settings' ? c.settings : { feedback: c.enabled }, null, 2))}</pre></section>`).join('')}</div><div class="modal-footer"><button class="btn secondary" data-action="decide-task-proposal" data-decision="reject">Reject</button><button class="btn primary" data-action="decide-task-proposal" data-decision="approve">Approve changes</button></div>`,
+        `<p>${e(proposal.reason)}</p><div class="workspace-setting-diff">${proposal.changes.map(taskProposalPreview).join('')}</div><div class="modal-footer"><button class="btn secondary" data-action="decide-task-proposal" data-decision="reject">Reject</button><button class="btn primary" data-action="decide-task-proposal" data-decision="approve">Approve changes</button></div>`,
         true,
       );
       return;

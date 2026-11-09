@@ -1,7 +1,12 @@
 import { WorkflowAutomation, automationState } from './workflow-automation.js';
 import { workflowHistory, forkCheckpoint } from './workflow-checkpoints.js';
 import { readWorkflowHealth } from './workflow-health.js';
-import { taskProposals, decideTaskProposal, latestTaskConfirmation } from './task-proposals.js';
+import {
+  taskProposals,
+  decideTaskProposal,
+  latestTaskConfirmation,
+  recoverTaskProposals,
+} from './task-proposals.js';
 import { requirePublicationPrerequisites } from './publication-prerequisites.js';
 import { FeedbackAutopilot } from './feedback-autopilot.js';
 import { configurationProposals, decideConfiguration } from './workspace-permissions.js';
@@ -107,10 +112,12 @@ export function createApp({ directory, publicDirectory, engineOptions = {} }) {
   const followUpAgent = new FollowUpAgent(store, engine, publicationMonitor, {
     run: engineOptions.followUpRun ?? engineOptions.harness,
   });
+  const modelCatalog = new ModelCatalog({ run: engineOptions.modelDiscoveryRun });
   const workspaceAgent = new WorkspaceAgent(store, engine, {
     run: engineOptions.workspaceAgentRun,
+    modelCatalog,
   });
-  const modelCatalog = new ModelCatalog({ run: engineOptions.modelDiscoveryRun });
+  recoverTaskProposals(store);
   const automation = new WorkflowAutomation(store, engine, publicationWorkflow, {
     isBusy: (id) =>
       publicationWorkflow.running.has(id) ||
@@ -252,6 +259,7 @@ export function createApp({ directory, publicDirectory, engineOptions = {} }) {
             taskProposal[1],
             request.decision,
             (id) => publicationWorkflow.running.has(id) || followUpAgent.running.has(id),
+            { automation, publication: publicationWorkflow },
           ),
         );
       }
@@ -309,6 +317,7 @@ export function createApp({ directory, publicDirectory, engineOptions = {} }) {
                 proposal.id,
                 'approve',
                 (id) => publicationWorkflow.running.has(id) || followUpAgent.running.has(id),
+                { automation, publication: publicationWorkflow },
               );
             return proposal
               ? chatAgent.recordTaskApproval(question, proposal)
