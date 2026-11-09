@@ -1,3 +1,8 @@
+import {
+  installTaskMentions,
+  submittedMentions,
+  clearComposerMentions,
+} from './task-mention-picker.js';
 import { healthPanel, completionPanel, coordinationPanel } from './productivity.js';
 import { syncTabMotion } from './tab-motion.js';
 import { installTaskContextMenu } from './task-context-menu.js';
@@ -888,7 +893,7 @@ document.addEventListener('click', async (event) => {
       state.modal = { chatScope: scope, messageId: message.id, taskId: state.selected };
       showModal(
         'Edit message',
-        `<form id="chat-edit-form"><label class="field-label" for="chat-edit-question">Your message</label><textarea class="input" id="chat-edit-question" name="question" rows="6" maxlength="10000" required>${e(message.question)}</textarea><p class="form-help">Sends a revised message. Earlier replies and actions stay in history.</p><div class="modal-footer"><button type="button" class="btn secondary" data-action="close-modal">Cancel</button><button class="btn primary" type="submit">Send revision</button></div></form>`,
+        `<form id="chat-edit-form"><label class="field-label" for="chat-edit-question">Your message</label><textarea class="input" id="chat-edit-question" ${scope === 'workspace' ? `data-task-mentions="${e(JSON.stringify(message.mentions ?? []))}"` : ''} name="question" rows="6" maxlength="10000" required>${e(message.question)}</textarea><p class="form-help">Sends a revised message. Earlier replies and actions stay in history.</p><div class="modal-footer"><button type="button" class="btn secondary" data-action="close-modal">Cancel</button><button class="btn primary" type="submit">Send revision</button></div></form>`,
       );
       return;
     }
@@ -1919,7 +1924,13 @@ document.addEventListener('submit', async (event) => {
       await api(
         chatScope === 'workspace' ? '/workspace-agent' : `/tasks/${taskId}/question`,
         'POST',
-        { question: values.question, revisionOf: messageId },
+        {
+          question: values.question,
+          revisionOf: messageId,
+          ...(chatScope === 'workspace'
+            ? { mentions: submittedMentions(form.querySelector('textarea')) }
+            : {}),
+        },
       );
       closeModal();
       await refresh();
@@ -2263,6 +2274,7 @@ document.addEventListener(
   true,
 );
 document.addEventListener('relay-images-updated', () => renderMain());
+installTaskMentions(() => state.tasks);
 boot();
 
 document.addEventListener('submit', async (event) => {
@@ -2272,7 +2284,11 @@ document.addEventListener('submit', async (event) => {
     button = form.querySelector('[type=submit]');
   button.disabled = true;
   try {
-    await api('/workspace-agent', 'POST', { question: new FormData(form).get('question') });
+    await api('/workspace-agent', 'POST', {
+      question: new FormData(form).get('question'),
+      mentions: submittedMentions(form.querySelector('textarea')),
+    });
+    clearComposerMentions(form.querySelector('textarea'));
     form.reset();
     state.orchestratorDraft = '';
     try {

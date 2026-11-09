@@ -277,7 +277,7 @@ export function createApp({ directory, publicDirectory, engineOptions = {} }) {
               );
             return proposal
               ? workspaceAgent.recordTaskApproval(question, proposal)
-              : workspaceAgent.ask(question, origin, request.revisionOf);
+              : workspaceAgent.ask(question, origin, request.revisionOf, request.mentions);
           })(),
         );
       }
