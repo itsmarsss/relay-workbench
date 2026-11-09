@@ -33,9 +33,22 @@ type Server struct {
 	host, webDir string
 	streams      chan struct{}
 	token        [32]byte
+	workflow     Coordinator
+}
+
+// Coordinator is supplied by the local server, never by an HTTP request.
+type Coordinator interface {
+	Start(string) (map[string]any, error)
+	Resume(string) (map[string]any, error)
+	Pause(string) error
+	Running() int
 }
 
 func New(db *store.Store, port int, webDir string) (*Server, error) {
+	return NewWithCoordinator(db, port, webDir, nil)
+}
+
+func NewWithCoordinator(db *store.Store, port int, webDir string, workflow Coordinator) (*Server, error) {
 	if db == nil || port < 1 || port > 65535 || webDir == "" {
 		return nil, errors.New("invalid preview server configuration")
 	}
@@ -51,12 +64,15 @@ func New(db *store.Store, port int, webDir string) (*Server, error) {
 	if err != nil || !info.IsDir() {
 		return nil, errors.New("web directory must exist")
 	}
-	server := &Server{store: db, host: fmt.Sprintf("127.0.0.1:%d", port), webDir: root, streams: make(chan struct{}, 64)}
+	server := &Server{store: db, host: fmt.Sprintf("127.0.0.1:%d", port), webDir: root, streams: make(chan struct{}, 64), workflow: workflow}
 	if _, err = rand.Read(server.token[:]); err != nil {
 		return nil, err
 	}
 	return server, nil
 }
+
+// SetCoordinator must be called before the HTTP server starts serving.
+func (s *Server) SetCoordinator(coordinator Coordinator) { s.workflow = coordinator }
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("X-Frame-Options", "DENY")
@@ -69,6 +85,14 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	path := r.URL.Path
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		if id, action, ok := workflowAction(path); ok && r.Method == http.MethodPost && s.workflow != nil {
+			if !s.authorized(r) {
+				respond(w, 403, map[string]string{"error": "Session token required"})
+				return
+			}
+			s.runWorkflowAction(w, r, id, action)
+			return
+		}
 		if (path != "/api/tasks" || r.Method != http.MethodPost) && (path != "/api/config" || r.Method != http.MethodPut) && (path != "/api/storage/policy" || r.Method != http.MethodPut) {
 			w.Header().Set("Allow", "GET, HEAD")
 			respond(w, http.StatusMethodNotAllowed, map[string]string{"error": "Workflow actions are not ported yet"})
@@ -87,7 +111,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			respond(w, 500, map[string]string{"error": "Could not read configuration"})
 			return
 		}
-		respond(w, 200, map[string]any{"token": hex.EncodeToString(s.token[:]), "config": config.Value, "configRevision": config.Revision, "version": "experimental-go"})
+		respond(w, 200, map[string]any{"token": hex.EncodeToString(s.token[:]), "config": config.Value, "configRevision": config.Revision, "version": "experimental-go", "workflowPreview": s.workflow != nil})
 		return
 	}
 	if path == "/api/storage/scan" {
@@ -131,7 +155,11 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if path == "/api/health" {
-		respond(w, http.StatusOK, map[string]any{"ok": true, "running": 0, "monitoring": 0, "version": "experimental-go"})
+		running := 0
+		if s.workflow != nil {
+			running = s.workflow.Running()
+		}
+		respond(w, http.StatusOK, map[string]any{"ok": true, "running": running, "monitoring": 0, "version": "experimental-go"})
 		return
 	}
 	if path == "/api/events" {
@@ -202,6 +230,51 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.asset(w, r)
+}
+
+func workflowAction(path string) (string, string, bool) {
+	if !strings.HasPrefix(path, "/api/tasks/") {
+		return "", "", false
+	}
+	parts := strings.Split(strings.TrimPrefix(path, "/api/tasks/"), "/")
+	if len(parts) != 2 || !taskID.MatchString(parts[0]) || (parts[1] != "start" && parts[1] != "resume" && parts[1] != "pause") {
+		return "", "", false
+	}
+	return parts[0], parts[1], true
+}
+
+func (s *Server) runWorkflowAction(w http.ResponseWriter, r *http.Request, id, action string) {
+	body, err := requestObject(w, r)
+	if err != nil || len(body) != 0 {
+		respond(w, 400, map[string]string{"error": "Workflow actions do not accept extra fields"})
+		return
+	}
+	if action == "start" || action == "resume" {
+		var result map[string]any
+		if action == "start" {
+			result, err = s.workflow.Start(id)
+		} else {
+			result, err = s.workflow.Resume(id)
+		}
+		if errors.Is(err, os.ErrNotExist) {
+			respond(w, 404, map[string]string{"error": "Task not found"})
+		} else if err != nil {
+			respond(w, 409, map[string]string{"error": err.Error()})
+		} else {
+			respond(w, 202, result)
+		}
+		return
+	}
+	if err = s.workflow.Pause(id); err != nil {
+		respond(w, 409, map[string]string{"error": err.Error()})
+		return
+	}
+	result, err := s.store.Get(id)
+	if err != nil {
+		respond(w, 500, map[string]string{"error": "Could not read paused task"})
+		return
+	}
+	respond(w, 200, result)
 }
 func (s *Server) authorized(r *http.Request) bool {
 	supplied, err := hex.DecodeString(r.Header.Get("X-Relay-Token"))

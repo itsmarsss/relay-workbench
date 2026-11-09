@@ -86,7 +86,12 @@ export type RepositoryProfile = {
   [key: string]: unknown;
 };
 export type RelayConfig = Record<string, unknown> & { repositories: RepositoryProfile[] };
-export type Bootstrap = { token: string; config: RelayConfig; configRevision: string };
+export type Bootstrap = {
+  token: string;
+  config: RelayConfig;
+  configRevision: string;
+  workflowPreview: boolean;
+};
 export function isConfig(value: unknown): value is RelayConfig {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
   const config = value as Record<string, unknown>;

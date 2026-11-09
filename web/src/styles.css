@@ -679,6 +679,11 @@ button:disabled {
 .task-page-heading h1 {
   overflow-wrap: anywhere;
 }
+.task-page-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
 .task-meta {
   display: flex;
   flex-wrap: wrap;
@@ -701,6 +706,31 @@ button:disabled {
   margin: 18px 0;
   color: #465c51;
   font-size: 13px;
+}
+.plan-preview {
+  border: 1px solid #cfd9d0;
+  border-radius: 8px;
+  padding: 16px;
+  margin: 18px 0;
+  background: #fff;
+}
+.plan-options {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr));
+  gap: 12px;
+}
+.plan-options article {
+  border: 1px solid #d9e2da;
+  border-radius: 6px;
+  padding: 12px;
+}
+.plan-options h3,
+.plan-options h4 {
+  margin: 0 0 8px;
+}
+.plan-options h3 small {
+  color: #235d3e;
+  font-size: 12px;
 }
 .detail-nav {
   display: flex;
@@ -1091,10 +1121,17 @@ html:has(dialog[open]) {
   .editor-modal,
   .repository-card,
   .description-card,
+  .plan-preview,
   .task-detail-panel {
     background: #1b2921;
     color: #e3ece6;
     border-color: #506258;
+  }
+  .plan-options article {
+    border-color: #506258;
+  }
+  .plan-options h3 small {
+    color: #b7e2c4;
   }
   button.primary {
     background: #a9d7b8;

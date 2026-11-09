@@ -250,7 +250,7 @@ function Tree({
   );
 }
 export default function App() {
-  const { tasks, bootstrap, connected, error, create, updateConfig } = useRelay(),
+  const { tasks, bootstrap, connected, error, create, updateConfig, act } = useRelay(),
     [deck, setDeck] = useState(initialDeck),
     [focus, setFocus] = useState(''),
     [modal, setModal] = useState<{ kind: 'rename' | 'close'; tabId: string } | null>(null),
@@ -461,8 +461,9 @@ export default function App() {
               />
             </div>
             <p className="note">
-              Drafts and local profiles are available. Agent execution and interactive terminals are
-              still being ported.
+              {bootstrap?.workflowPreview
+                ? 'Investigation and planning are available for isolated test repositories. Later workflow stages and interactive terminals are still being ported.'
+                : 'Drafts and local profiles are available. Workflow execution is still being ported.'}
             </p>
           </>
         ) : route.kind === 'tasks' ? (
@@ -497,6 +498,8 @@ export default function App() {
             key={route.id}
             id={route.id}
             tab={route.tab}
+            workflowPreview={bootstrap?.workflowPreview === true}
+            onAction={act}
             onTab={(tab) => navigate(`#task/${route.id}/${tab}`)}
             onBack={() => navigate('#tasks')}
             onDeck={() => navigate(`#deck?tab=${encodeURIComponent(deck.active)}`)}
@@ -511,6 +514,7 @@ export default function App() {
       {draftOpen && bootstrap && (
         <DraftComposer
           config={bootstrap.config}
+          workflowPreview={bootstrap.workflowPreview}
           onCreate={create}
           onClose={() => setDraftOpen(false)}
           onCreated={(task) => {

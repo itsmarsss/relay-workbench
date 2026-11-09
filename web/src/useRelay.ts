@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { createTask, fetchBootstrap, fetchTasks, saveConfig } from './api';
+import { createTask, fetchBootstrap, fetchTasks, saveConfig, taskAction } from './api';
 import type { Bootstrap, RelayConfig, Task } from './types';
 
 export function useRelay() {
@@ -93,6 +93,18 @@ export function useRelay() {
       throw failure;
     }
   }
+  async function act(id: string, action: 'start' | 'resume' | 'pause'): Promise<Task> {
+    if (!bootstrap?.workflowPreview) throw new Error('Workflow preview is unavailable.');
+    try {
+      const result = await taskAction(bootstrap.token, id, action);
+      setTasks((current) => current.map((task) => (task.id === id ? result : task)));
+      void refreshRef.current();
+      return result;
+    } catch (failure) {
+      void refreshRef.current();
+      throw failure;
+    }
+  }
   return {
     tasks,
     bootstrap,
@@ -100,6 +112,7 @@ export function useRelay() {
     error,
     create,
     updateConfig,
+    act,
     refresh: () => refreshRef.current(),
   };
 }
