@@ -6,6 +6,10 @@ export function syncTabMotion(root = document) {
     const selected = bar.querySelector('button[aria-selected="true"],button[aria-pressed="true"]');
     const indicator = bar.querySelector('[data-tab-indicator]');
     if (!selected || !indicator) continue;
+    // Keep restored/deep-linked selections visible without moving the document.
+    if (selected.offsetLeft < bar.scrollLeft) bar.scrollLeft = selected.offsetLeft;
+    else if (selected.offsetLeft + selected.offsetWidth > bar.scrollLeft + bar.clientWidth)
+      bar.scrollLeft = selected.offsetLeft + selected.offsetWidth - bar.clientWidth;
     const box = selected.getBoundingClientRect(),
       parent = bar.getBoundingClientRect();
     const next = {

@@ -314,3 +314,7 @@
 .result-disclosure > summary > .result-chevron {
   grid-column: 3;
 }
+
+.result-gates > .is-unrecorded svg {
+  color: var(--muted);
+}

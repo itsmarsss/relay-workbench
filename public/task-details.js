@@ -20,5 +20,5 @@ export function issueLink(ticket) {
 
 export function taskDetails(task) {
   if (!task.description && !task.ticket) return '';
-  return `<section class="task-details" aria-label="Task description"><div class="context-title">DESCRIPTION &amp; REQUIREMENTS ${icon('book')}</div>${task.description ? `<div id="task-description" class="prose task-description" tabindex="0" role="region" aria-label="Description and requirements">${prose(task.description)}</div>` : '<p class="muted">No description provided.</p>'}</section>`;
+  return `<section class="task-details" aria-label="Task description"><div class="context-title">DESCRIPTION &amp; REQUIREMENTS ${icon('book')}</div>${task.description ? `<div id="task-description" class="prose task-description" tabindex="0" role="region" aria-label="Description and requirements">${prose(task.description)}</div><button type="button" class="btn text small description-toggle" aria-controls="task-description" aria-expanded="false" hidden>Expand description</button>` : '<p class="muted">No description provided.</p>'}</section>`;
 }

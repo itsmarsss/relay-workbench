@@ -1263,13 +1263,13 @@ select.input {
   font-size: 13px;
   color: var(--tone-54594e, #54594e);
   padding: 0;
-  margin-bottom: 18px;
+  margin-bottom: 10px;
 }
 .task-heading {
   position: relative;
-  padding-bottom: 25px;
+  padding-bottom: 16px;
   border-bottom: 1px solid var(--line);
-  margin-bottom: 24px;
+  margin-bottom: 16px;
 }
 .task-title-row {
   display: flex;
@@ -1293,7 +1293,7 @@ select.input {
   display: flex;
   gap: 10px;
   flex-wrap: wrap;
-  margin-top: 19px;
+  margin-top: 12px;
 }
 .task-layout {
   display: grid;

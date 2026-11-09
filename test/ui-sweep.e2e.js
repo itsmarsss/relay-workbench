@@ -111,6 +111,16 @@ try {
   const base = `http://127.0.0.1:${app.server.address().port}`;
   async function check(name, width) {
     await assertReadableText(page);
+    if (await page.locator('.detail-tabs').count()) {
+      assert.ok(
+        await page.locator('.detail-tabs').evaluate((bar) => {
+          const selected = bar.querySelector('[aria-selected=true]').getBoundingClientRect();
+          const indicator = bar.querySelector('[data-tab-indicator]').getBoundingClientRect();
+          return bar.clientHeight <= 44 && Math.abs(indicator.bottom - selected.bottom) < 3;
+        }),
+        'Tab selection remains aligned in a single row',
+      );
+    }
     assert.ok(
       await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1),
       `${name} fits viewport`,
@@ -132,6 +142,18 @@ try {
       await page
         .locator('.workspace-branch code')
         .evaluate((el) => parseFloat(getComputedStyle(el).fontSize) <= 13),
+    );
+    assert.equal(
+      await page.locator('.description-toggle').isVisible(),
+      false,
+      'Short descriptions need no expansion control',
+    );
+    await page.getByText('Verification not recorded', { exact: true }).waitFor();
+    assert.ok(
+      await page
+        .locator('.task-heading')
+        .evaluate((el) => el.getBoundingClientRect().height < (innerWidth > 1100 ? 160 : 260)),
+      'Task header stays compact',
     );
     await check('workspace', width);
     await page.getByRole('button', { name: /View run history/ }).click();
@@ -169,7 +191,26 @@ try {
       pageScroll,
       'Opening the graph preserves page position',
     );
-    await page.getByRole('region', { name: 'Execution graph', exact: true }).waitFor();
+    await page.getByRole('dialog', { name: 'Execution graph', exact: true }).waitFor();
+    const dialog = page.getByRole('dialog', { name: 'Execution graph', exact: true });
+    assert.equal(await dialog.getAttribute('aria-modal'), 'true');
+    assert.ok(await page.locator('.sidebar').evaluate((el) => el.inert));
+    const insideGraph = () =>
+      page.evaluate(() => !!document.activeElement.closest('.graph-dialog'));
+    assert.ok(await insideGraph(), 'Opening the graph moves focus inside');
+    await dialog.getByRole('button', { name: 'Latest run', exact: true }).focus();
+    await page.keyboard.press('Shift+Tab');
+    assert.ok(await insideGraph(), 'Backward tabbing stays inside the graph');
+    for (let i = 0; i < 20; i++) {
+      await page.keyboard.press('Tab');
+      assert.ok(await insideGraph(), 'Forward tabbing stays inside the graph');
+    }
+    await page.keyboard.press('n');
+    assert.equal(
+      await page.locator('#dialog[open]').count(),
+      0,
+      'Background new-task shortcut is suspended',
+    );
     assert.equal(await page.locator('.graph-lane-title').count(), 3);
     await page.getByRole('button', { name: 'Fit view', exact: true }).click();
     await check('graph', width);
@@ -208,6 +249,11 @@ try {
     await page.locator('.graph-inspector h3').filter({ hasText: 'Debugger' }).waitFor();
     await check('graph-detail', width);
     await page.getByRole('button', { name: 'Close execution graph', exact: true }).click();
+    assert.ok(
+      await page.locator('.workflow-graph-button').evaluate((el) => el === document.activeElement),
+      'Closing restores focus to the opener',
+    );
+    assert.equal(await page.locator('.sidebar').evaluate((el) => el.inert), false);
     await page.getByRole('button', { name: 'PR details for Example project', exact: true }).click();
     await page.locator('dialog .pr-detail-link').waitFor();
     await check('pr-details', width);
@@ -260,12 +306,35 @@ try {
       0,
       'Accepted tasks omit duplicate context cards',
     );
+    const expansion = page.getByRole('button', { name: 'Expand description', exact: true });
+    await expansion.waitFor();
+    await expansion.click();
+    assert.equal(await page.locator('.description-toggle').getAttribute('aria-expanded'), 'true');
+    assert.ok(
+      await page
+        .locator('.task-description')
+        .evaluate((el) => el.scrollHeight <= el.clientHeight + 1),
+      'Expanded descriptions expose the full content',
+    );
+    await page.getByRole('tab', { name: 'Overview', exact: true }).click();
+    assert.equal(
+      await page.locator('.description-toggle').getAttribute('aria-expanded'),
+      'true',
+      'Live reconciliation preserves expansion',
+    );
+    await page.getByRole('button', { name: 'Collapse description', exact: true }).click();
+    assert.ok(await page.locator('.task-description').evaluate((el) => el.clientHeight <= 420));
     await check('dense-task', width);
     await page.getByRole('button', { name: 'Open execution graph', exact: true }).click();
     await page.locator('.graph-node').nth(4).click();
     await page.locator('.graph-inspector .detail-disclosure').first().locator('summary').click();
     await check('dense-graph', width);
-    await page.getByRole('button', { name: 'Close execution graph', exact: true }).click();
+    await page.keyboard.press('Escape');
+    assert.equal(
+      await page.getByRole('dialog', { name: 'Execution graph', exact: true }).count(),
+      0,
+    );
+    assert.equal(await page.locator('.sidebar').evaluate((el) => el.inert), false);
   }
   assert.deepEqual(errors, []);
   console.log(

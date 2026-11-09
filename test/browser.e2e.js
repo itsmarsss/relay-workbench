@@ -1000,7 +1000,7 @@ try {
       'true',
     );
     await page.getByRole('button', { name: 'Open execution graph', exact: false }).click();
-    await page.getByRole('region', { name: 'Execution graph', exact: true }).waitFor();
+    await page.getByRole('dialog', { name: 'Execution graph', exact: true }).waitFor();
     for (const width of [1440, 390]) {
       await page.setViewportSize({ width, height: 1100 });
       await page.screenshot({

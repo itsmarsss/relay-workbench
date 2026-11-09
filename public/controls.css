@@ -358,6 +358,7 @@ summary::before {
 /* A shared tab strip with one moving selection indicator. */
 .relay-tabs.task-scopes,
 .relay-tabs.detail-tabs {
+  flex-wrap: nowrap;
   position: relative;
   display: flex;
   gap: 4px;

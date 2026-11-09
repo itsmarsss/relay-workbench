@@ -1,3 +1,4 @@
+import { completionPanel } from '../public/productivity.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, rm } from 'node:fs/promises';
@@ -553,4 +554,19 @@ test('completion notes use the latest reports per repository, not resolved earli
     ],
   };
   assert.deepEqual(completionBrief(task).risks, ['Current rollout note', 'Second repository note']);
+});
+
+test('accepted results distinguish missing historical records from pending approval gates', () => {
+  const task = { status: 'completed', attempts: [] };
+  assert.match(completionPanel(task), /Verification not recorded/);
+  assert.match(completionPanel(task), /Review not recorded/);
+  assert.doesNotMatch(completionPanel(task), /pending/);
+  task.status = 'awaiting_final';
+  assert.match(completionPanel(task), /Verification pending/);
+  assert.match(completionPanel(task), /Review pending/);
+  task.verifiedFingerprint = 'verified';
+  task.reviewedFingerprint = 'reviewed';
+  assert.doesNotMatch(completionPanel(task), /pending|not recorded/);
+  assert.match(completionPanel(task), /Verified/);
+  assert.match(completionPanel(task), /Reviewed/);
 });
