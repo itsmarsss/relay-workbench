@@ -21,7 +21,19 @@ export async function settleUI(page) {
 export async function assertReadableText(page) {
   await settleUI(page);
   const failures = await page.evaluate(() => {
-    const rgb = (value) => (value.match(/[\d.]+/g) || []).map(Number);
+    const canvas = document.createElement('canvas');
+    canvas.width = canvas.height = 1;
+    const context = canvas.getContext('2d', { willReadFrequently: true });
+    const rgb = (value) => {
+      if (value.startsWith('rgb')) return (value.match(/[\d.]+/g) || []).map(Number);
+      // Modern CSS color-mix computes to color(srgb ...), whose channels are 0–1.
+      // Let the browser resolve any supported color space before measuring it.
+      context.clearRect(0, 0, 1, 1);
+      context.fillStyle = value;
+      context.fillRect(0, 0, 1, 1);
+      const [r, g, b, alpha] = context.getImageData(0, 0, 1, 1).data;
+      return [r, g, b, alpha / 255];
+    };
     const blend = (front, back) =>
       front
         .slice(0, 3)

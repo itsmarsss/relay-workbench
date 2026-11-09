@@ -1,3 +1,4 @@
+import { changePreview } from './change-preview.js';
 import { taskProposalPreview } from './task-proposal-view.js';
 import { completedPlan } from './workflow-plan.js';
 import {
@@ -1108,7 +1109,7 @@ document.addEventListener('click', async (event) => {
       state.modal = { proposalId: proposal.id };
       showModal(
         'Review setting changes',
-        `<p class="modal-description">${e(proposal.reason)}</p><div class="workspace-setting-diff">${proposal.changes.map((change) => `<section><h3>${e(change.path.join(' → '))}</h3><div><strong>Current</strong><pre class="code-block">${e(JSON.stringify(change.before, null, 2))}</pre><strong>Proposed</strong><pre class="code-block">${e(JSON.stringify(change.after, null, 2))}</pre></div></section>`).join('')}</div><p class="form-help">Approval applies only these changes. If settings have changed since the proposal, Relay must propose again.</p><div class="modal-footer"><button class="btn secondary" data-action="decide-workspace-change" data-decision="reject">Reject</button><button class="btn primary" data-action="decide-workspace-change" data-decision="approve">Approve changes</button></div>`,
+        `<p class="modal-description">${e(proposal.reason)}</p><div class="workspace-setting-diff">${proposal.changes.map((change) => `<section><h3>${e(change.path.join(' → '))}</h3>${changePreview(change.before, change.after)}</section>`).join('')}</div><p class="form-help">Approval applies only these changes. If settings have changed since the proposal, Relay must propose again.</p><div class="modal-footer"><button class="btn secondary" data-action="decide-workspace-change" data-decision="reject">Reject</button><button class="btn primary" data-action="decide-workspace-change" data-decision="approve">Approve changes</button></div>`,
         true,
       );
       return;

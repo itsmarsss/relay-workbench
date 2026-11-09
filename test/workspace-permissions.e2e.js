@@ -54,6 +54,17 @@ try {
   assert.equal(app.store.config.workspaceAgent.permissions.readMemory, false);
   await page.getByRole('button', { name: 'Review 1 change' }).click();
   await dialog.getByRole('heading', { name: 'concurrency', exact: true }).waitFor();
+  assert.equal(await dialog.locator('.change-removed pre').innerText(), '2');
+  assert.equal(await dialog.locator('.change-added pre').innerText(), '3');
+  await assertReadableText(page, 'Settings diff', '#dialog');
+  await page.evaluate(() => window.RelayTheme.set('dark'));
+  await page.waitForTimeout(300);
+  await assertReadableText(page, 'Dark settings diff', '#dialog');
+  await page.setViewportSize({ width: 390, height: 844 });
+  assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.evaluate(() => window.RelayTheme.set('light'));
+
   await dialog.getByRole('button', { name: 'Approve changes' }).click();
   await page
     .getByRole('status')

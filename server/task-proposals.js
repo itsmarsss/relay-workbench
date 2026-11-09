@@ -103,7 +103,9 @@ function validate(store, change) {
   requireValue(
     allowed &&
       Object.keys(change).every((k) =>
-        ['taskId', 'operation', 'title', 'base', 'before', 'effects', ...allowed].includes(k),
+        ['taskId', 'operation', 'title', 'base', 'before', 'after', 'effects', ...allowed].includes(
+          k,
+        ),
       ),
     'Unsupported task change fields',
   );
@@ -191,7 +193,14 @@ export function proposeTaskChanges(store, changes, reason, messageId) {
     const { task, candidate, entry, settings, before } = validate(store, change);
     return {
       ...structuredClone(change),
-      ...(settings ? { settings } : {}),
+      ...(settings
+        ? {
+            settings,
+            after: Object.fromEntries(
+              Object.keys(settings).map((key) => [key, currentSetting(candidate, key)]),
+            ),
+          }
+        : {}),
       title: task.title,
       effects: candidate
         ? {
