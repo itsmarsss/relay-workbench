@@ -2,6 +2,12 @@
 
 A local workbench that coordinates Codex, Claude Code and Pi across investigation, planning, implementation, verification and independent review. You approve an approach and accept the final result. Every stage shares a worktree and leaves an inspectable handoff.
 
+## Task deck
+
+Open **Task deck** in the sidebar to work with several tasks at once. Add workspaces as tabs, choose a task for each pane, and split panes horizontally or vertically. Drag the dividers or use the arrow keys to resize; **Focus** temporarily expands a pane without stopping the others. Switch between activity, terminal, changes, and other task views in each pane. Task controls and approval gates work as they do on the full task page.
+
+Layouts are saved in the current browser. Closing a pane or workspace removes its layout only; tasks and agents keep running. Up to eight panes can be open per workspace. If the same manual terminal is shown in more than one pane, the panes share its input and size.
+
 ## Workflow intelligence
 
 Choose a workflow when creating a task: **Bug fix**, **Small change**, **Investigate only**, **Cross-repo feature**, or a custom workflow. Specialist and model settings remain editable. Small changes skip routing triage when smart routing is off; investigation-only tasks stop with findings and cannot implement or publish. Other workflows retain approach approval, verification, independent review, and final acceptance.

@@ -194,6 +194,14 @@ export function createApp({ directory, publicDirectory, engineOptions = {} }) {
       );
       const url = new URL(req.url, origin);
       const path = url.pathname;
+      // Only the dedicated local pane view may be framed, and only by this origin.
+      if (path === '/' && url.searchParams.get('embed') === '1') {
+        res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+        res.setHeader(
+          'Content-Security-Policy',
+          `default-src 'self'; script-src 'self'; style-src 'self' 'nonce-${styleNonce}'; img-src 'self' https:; connect-src 'self'; frame-ancestors 'self'; base-uri 'none'; form-action 'self'`,
+        );
+      }
       if (path === '/api/workspace-agent/tool' && req.method === 'POST') {
         requireValue(!maintenance, 'Maintenance in progress', 409);
         const supplied = req.headers['x-relay-workspace'];

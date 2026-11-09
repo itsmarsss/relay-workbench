@@ -20,6 +20,11 @@ function patch(node, next) {
     if (node.nodeValue !== next.nodeValue) node.nodeValue = next.nodeValue;
     return;
   }
+  // Keep live pane documents mounted when only the selected task view changes.
+  if (node.hasAttribute('data-deck-frame') && node.dataset.taskId === next.dataset.taskId) {
+    node.title = next.title;
+    return;
+  }
   // xterm owns this subtree and its input/selection/scroll state.
   if (node.hasAttribute('data-browser-terminal')) return;
   for (const attribute of [...node.attributes]) {

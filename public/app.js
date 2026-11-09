@@ -1,3 +1,14 @@
+import {
+  loadDeck,
+  saveDeck,
+  selectedDeck,
+  addDeckTab,
+  splitPane,
+  removePane,
+  findNode,
+  leaves,
+  deckView,
+} from './task-deck.js';
 import { changePreview } from './change-preview.js';
 import { taskProposalPreview } from './task-proposal-view.js';
 import { completedPlan } from './workflow-plan.js';
@@ -94,6 +105,10 @@ import {
   empty,
 } from './ui.js';
 
+const embedded = new URLSearchParams(location.search).get('embed') === '1';
+if (embedded) document.documentElement.dataset.embeddedTask = 'true';
+const deck = loadDeck(localStorage);
+
 const state = {
   workspaceChatId: readWorkspaceChatId(),
   workspaceChatListOpen: false,
@@ -181,7 +196,7 @@ function nav(view, label, name, extra = '') {
   return `<button class="nav-item ${state.view === view ? 'active' : ''}" ${state.view === view ? 'aria-current="page"' : ''} data-action="navigate" data-view="${view}" aria-label="${e(label)}" title="${e(label)}">${icon(name)}<span>${label}</span>${extra}</button>`;
 }
 function shell() {
-  app.innerHTML = `<aside class="sidebar" aria-label="Workspace sidebar"><div class="sidebar-heading"><a class="brand" href="#" data-action="navigate" data-view="overview" aria-label="Relay overview"><span class="brand-mark">${icon('relay')}</span><span class="brand-name">relay</span></a>${sidebarControls()}</div><div class="sidebar-section-label">Workspace</div><nav id="workspace-navigation" aria-label="Workspace">${nav('overview', 'Overview', 'grid')}${nav('assistant', 'Relay agent', 'relay')}${nav('tasks', 'All tasks', 'layers', `<span class="nav-count">${state.tasks.length}</span>`)}${nav('inbox', 'Approval inbox', 'eye')}${nav('repositories', 'Repositories', 'folder')}${nav('harnesses', 'Agents', 'bolt')}${nav('memory', 'Memory', 'book')}</nav><div class="sidebar-bottom">${nav('settings', 'Settings', 'settings')}<div class="connection"><span class="local-dot ${state.connected ? '' : 'offline'}"></span><span>${state.connected ? 'Connected locally' : 'Reconnecting…'}</span><small>v0.1</small></div></div></aside><div class="main-shell"><header class="topbar"><div class="breadcrumb"><span class="breadcrumb-root">Workspace</span> ${icon('chevron')} <span>${state.view === 'task' ? 'Task workspace' : ({ assistant: 'Relay agent', harnesses: 'Agents', inbox: 'Approval inbox' }[state.view] ?? state.view.charAt(0).toUpperCase() + state.view.slice(1))}</span></div><div class="top-actions"><button class="btn small orchestrator-trigger" data-action="open-orchestrator" aria-label="Open Relay orchestrator" aria-haspopup="dialog" aria-controls="relay-orchestrator" aria-expanded="false" title="Open Relay · Command/Ctrl K">${icon('relay')}<span>Relay</span><kbd class="keyboard-hint">${/Mac|iPhone|iPad/.test(navigator.platform) ? '⌘K' : 'Ctrl K'}</kbd></button><button class="btn primary small new-task-button" data-action="new-task" aria-label="New task">${icon('plus')}<span>New task</span><kbd class="keyboard-hint" title="Keyboard shortcut: N">N</kbd></button></div></header><main id="main"></main></div>`;
+  app.innerHTML = `<aside class="sidebar" aria-label="Workspace sidebar"><div class="sidebar-heading"><a class="brand" href="#" data-action="navigate" data-view="overview" aria-label="Relay overview"><span class="brand-mark">${icon('relay')}</span><span class="brand-name">relay</span></a>${sidebarControls()}</div><div class="sidebar-section-label">Workspace</div><nav id="workspace-navigation" aria-label="Workspace">${nav('overview', 'Overview', 'grid')}${nav('assistant', 'Relay agent', 'relay')}${nav('tasks', 'All tasks', 'layers', `<span class="nav-count">${state.tasks.length}</span>`)}${nav('deck', 'Task deck', 'grid')}${nav('inbox', 'Approval inbox', 'eye')}${nav('repositories', 'Repositories', 'folder')}${nav('harnesses', 'Agents', 'bolt')}${nav('memory', 'Memory', 'book')}</nav><div class="sidebar-bottom">${nav('settings', 'Settings', 'settings')}<div class="connection"><span class="local-dot ${state.connected ? '' : 'offline'}"></span><span>${state.connected ? 'Connected locally' : 'Reconnecting…'}</span><small>v0.1</small></div></div></aside><div class="main-shell"><header class="topbar"><div class="breadcrumb"><span class="breadcrumb-root">Workspace</span> ${icon('chevron')} <span>${state.view === 'task' ? 'Task workspace' : ({ assistant: 'Relay agent', harnesses: 'Agents', inbox: 'Approval inbox', deck: 'Task deck' }[state.view] ?? state.view.charAt(0).toUpperCase() + state.view.slice(1))}</span></div><div class="top-actions"><button class="btn small orchestrator-trigger" data-action="open-orchestrator" aria-label="Open Relay orchestrator" aria-haspopup="dialog" aria-controls="relay-orchestrator" aria-expanded="false" title="Open Relay · Command/Ctrl K">${icon('relay')}<span>Relay</span><kbd class="keyboard-hint">${/Mac|iPhone|iPad/.test(navigator.platform) ? '⌘K' : 'Ctrl K'}</kbd></button><button class="btn primary small new-task-button" data-action="new-task" aria-label="New task">${icon('plus')}<span>New task</span><kbd class="keyboard-hint" title="Keyboard shortcut: N">N</kbd></button></div></header><main id="main"></main></div>`;
   syncSidebar();
   renderMain();
 }
@@ -190,6 +205,7 @@ function renderMain() {
   if (
     !main ||
     document.documentElement.hasAttribute('data-chat-interacting') ||
+    document.documentElement.hasAttribute('data-deck-resizing') ||
     main.querySelector('[data-uploading]') ||
     (state.view === 'tasks' && (state.boardDragging || state.boardMoving))
   )
@@ -244,37 +260,46 @@ function renderMain() {
   );
   const selectedApproach = main.querySelector('input[name="optionId"]:checked')?.value;
   const markup =
-    state.view === 'assistant'
-      ? workspaceAgentView(state.workspaceMessages, state.tasks, {
-          info: {
-            ...state.workspaceInfo,
-            chatListOpen: state.workspaceChatListOpen,
-            chatSearch: state.workspaceChatSearch,
-          },
-        })
-      : state.view === 'memory'
-        ? state.memoryAvailable
-          ? memoryPage(state.memories, state.config, state.tasks, {
-              query: state.memoryQuery,
-              filter: state.memoryFilter,
-            })
-          : '<section class="settings-panel"><h1>Memory</h1><p>The memory backend update is waiting for active work to finish. Your pipeline keeps running. Reload after Relay restarts to use memory.</p></section>'
-        : state.view === 'inbox'
-          ? inboxPage(state.inbox)
-          : state.view === 'overview'
-            ? overview()
-            : state.view === 'tasks'
-              ? tasksView()
-              : state.view === 'task'
-                ? taskView()
-                : state.view === 'repositories'
-                  ? repositoriesView()
-                  : state.view === 'harnesses'
-                    ? harnessesView()
-                    : settingsView();
+    state.view === 'deck'
+      ? deckView(deck, state.tasks)
+      : state.view === 'assistant'
+        ? workspaceAgentView(state.workspaceMessages, state.tasks, {
+            info: {
+              ...state.workspaceInfo,
+              chatListOpen: state.workspaceChatListOpen,
+              chatSearch: state.workspaceChatSearch,
+            },
+          })
+        : state.view === 'memory'
+          ? state.memoryAvailable
+            ? memoryPage(state.memories, state.config, state.tasks, {
+                query: state.memoryQuery,
+                filter: state.memoryFilter,
+              })
+            : '<section class="settings-panel"><h1>Memory</h1><p>The memory backend update is waiting for active work to finish. Your pipeline keeps running. Reload after Relay restarts to use memory.</p></section>'
+          : state.view === 'inbox'
+            ? inboxPage(state.inbox)
+            : state.view === 'overview'
+              ? overview()
+              : state.view === 'tasks'
+                ? tasksView()
+                : state.view === 'task'
+                  ? taskView()
+                  : state.view === 'repositories'
+                    ? repositoriesView()
+                    : state.view === 'harnesses'
+                      ? harnessesView()
+                      : settingsView();
   if (state.view === 'tasks') writeTaskFilters(state);
   main.dataset.motionScope = `${state.view}:${state.selected ?? ''}:${state.tab}`;
   updateLiveDOM(main, markup, `${state.view}:${state.selected ?? ''}`);
+  if (state.view === 'deck') applyDeckSizes();
+  if (embedded && state.view === 'task' && state.selected && window.parent !== window) {
+    window.parent.postMessage(
+      { type: 'relay-pane-route', taskId: state.selected, tab: state.tab },
+      location.origin,
+    );
+  }
   const composer = main.querySelector('#workspace-request');
   if (composer) {
     composer.value = state.orchestratorDraft ?? '';
@@ -640,6 +665,200 @@ function settingsView() {
   return `${pageHeading('MAKE IT YOURS', 'Settings', 'Local configuration, execution limits, and private integration profiles.')}<section class="settings-panel"><h2>Appearance</h2><label class="field-label" for="theme-preference">Theme</label><select id="theme-preference" class="input">${['system', 'light', 'dark'].map((value) => `<option value="${value}" ${window.RelayTheme.preference() === value ? 'selected' : ''}>${value === 'system' ? 'System' : value === 'dark' ? 'Dark' : 'Light'}</option>`).join('')}</select><label class="motion-preference"><input type="checkbox" id="low-motion" ${lowMotion() ? 'checked' : ''}> Low motion</label><p>Turn off animations and transitions. Saved in this browser.</p></section><section class="settings-panel"><h2>Notifications</h2><p>Desktop alerts for decisions, ready results, and completed investigations while Relay is open.</p><button class="btn secondary" data-action="enable-notifications">${localStorage.getItem('relay-notifications') === 'enabled' ? 'Disable desktop notifications' : 'Enable desktop notifications'}</button></section><form id="settings-form" class="settings-panel"><h2>Execution</h2><p>Control concurrency, retries, and run duration.</p><div class="settings-fields"><label>Concurrent tasks<input id="setting-concurrency" class="input" type="number" name="concurrency" min="1" max="8" value="${state.config.concurrency}" required><small>Work in different repositories concurrently.</small></label><label>Automatic repair rounds<input id="setting-rounds" class="input" type="number" name="maxRepairRounds" min="1" max="10" value="${state.config.maxRepairRounds}" required><small>Pause for your input after repeated failures.</small></label><label>Blocker recovery attempts<input id="setting-recovery" class="input" type="number" name="maxRecoveryAttempts" min="0" max="5" value="${state.config.maxRecoveryAttempts ?? 2}" required><small>Agents try to resolve blockers before asking you.</small></label><label>Stage budget (minutes)<input id="setting-timeout" class="input" type="number" name="timeoutMinutes" min="1" max="240" value="${state.config.timeoutMinutes}" required><small>Progress can extend each agent or check up to twice this budget.</small></label></div><button class="btn primary" type="submit">Save execution settings</button></form>${storageView(state.storage)}<section class="settings-panel"><h2>Private integration profiles</h2><p>Import repository profiles or a full configuration as JSON. Profiles stay on this machine.</p><div class="inline-actions">${button('import-profile', 'Import local profile', 'secondary', 'download')}${button('view-config', 'View configuration', 'text', 'code')}</div></section><details class="settings-panel local-execution-details"><summary>Local execution and privacy</summary><p>Relay listens on <code>127.0.0.1</code>. Task history, transcripts, and approvals are stored on this machine. Your harness CLIs handle authentication; Relay does not store API keys.</p><p>Harness and verification commands run with your user account. Use an isolated environment for untrusted code. Read the project README for execution and recovery details.</p></details>`;
 }
 
+function deckURL() {
+  return `#deck?tab=${encodeURIComponent(deck.active)}`;
+}
+function selectDeckFromURL() {
+  const id = new URLSearchParams(location.hash.split('?')[1]).get('tab');
+  if (deck.tabs.some((tab) => tab.id === id)) deck.active = id;
+  deck.focus = '';
+}
+function persistDeck() {
+  saveDeck(localStorage, deck);
+}
+function applyDeckSizes() {
+  const root = selectedDeck(deck).root;
+  const minimum = (node) => {
+    if (node.kind !== 'split') return { width: 280, height: 250 };
+    const a = minimum(node.first),
+      b = minimum(node.second);
+    return node.direction === 'horizontal'
+      ? { width: a.width + b.width + 8, height: Math.max(a.height, b.height) }
+      : { width: Math.max(a.width, b.width), height: a.height + b.height + 8 };
+  };
+  for (const element of document.querySelectorAll('[data-deck-split]')) {
+    const node = findNode(root, element.dataset.deckSplit);
+    if (!node || node.kind !== 'split') continue;
+    const min = minimum(node);
+    element.style.minWidth = `${min.width}px`;
+    element.style.minHeight = `${min.height}px`;
+    const size = `minmax(0, ${node.ratio}fr) 8px minmax(0, ${100 - node.ratio}fr)`;
+    if (node.direction === 'horizontal') element.style.gridTemplateColumns = size;
+    else element.style.gridTemplateRows = size;
+    element
+      .querySelector(':scope > [data-deck-divider]')
+      ?.setAttribute('aria-valuenow', String(node.ratio));
+  }
+}
+async function handleDeckAction(action, element) {
+  const tab = selectedDeck(deck),
+    id = element.dataset.id;
+  if (action === 'deck-open-task') return openTask(id, true, element.dataset.view);
+  if (action === 'deck-rename-tab') {
+    state.modal = { deckTabId: tab.id };
+    showModal(
+      'Rename workspace',
+      `<form id="deck-rename-form"><label class="field-label" for="deck-name">Workspace name</label><input class="input" id="deck-name" name="name" maxlength="60" required value="${e(tab.name)}"><div class="modal-footer"><button type="button" class="btn secondary" data-action="close-modal">Cancel</button><button class="btn primary" type="submit">Save name</button></div></form>`,
+    );
+    return;
+  }
+  if (action === 'deck-close-tab') {
+    if (deck.tabs.length < 2) return;
+    state.modal = { deckTabId: tab.id };
+    showModal(
+      'Close workspace',
+      confirmation({
+        subject: tab.name,
+        description: 'Close this layout? Tasks and running agents keep working.',
+        confirm: 'Close workspace',
+        action: 'deck-confirm-close',
+        tone: 'primary',
+      }),
+    );
+    return;
+  }
+  if (action === 'deck-confirm-close') {
+    const closing = state.modal?.deckTabId;
+    if (deck.tabs.length < 2 || !deck.tabs.some((item) => item.id === closing)) return;
+    deck.tabs = deck.tabs.filter((item) => item.id !== closing);
+    deck.active = deck.tabs[0].id;
+    deck.focus = '';
+    closeModal();
+  } else if (action === 'deck-add-tab') addDeckTab(deck);
+  else if (action === 'deck-select-tab') {
+    if (!deck.tabs.some((item) => item.id === id)) return;
+    deck.active = id;
+    deck.focus = '';
+  } else if (action === 'deck-split') {
+    if (!splitPane(tab, id, element.dataset.direction)) return;
+    deck.focus = '';
+  } else if (action === 'deck-remove-pane') {
+    removePane(tab, id);
+    deck.focus = '';
+  } else if (action === 'deck-focus') {
+    const pane = findNode(tab.root, id);
+    if (!pane || pane.kind === 'split') return;
+    deck.focus = deck.focus === id ? '' : id;
+  } else if (action === 'deck-view') {
+    const pane = findNode(tab.root, id);
+    if (
+      !pane ||
+      pane.kind === 'split' ||
+      !['overview', 'thread', 'terminals', 'diff', 'handoffs', 'transcript'].includes(
+        element.dataset.view,
+      )
+    )
+      return;
+    pane.view = element.dataset.view;
+    const frame = document.getElementById(`deck-frame-${pane.id}`);
+    if (frame?.contentWindow && pane.taskId)
+      frame.contentWindow.location.hash = taskRoute(pane.taskId, pane.view);
+  } else return;
+  persistDeck();
+  if (['deck-select-tab', 'deck-add-tab', 'deck-confirm-close'].includes(action))
+    history.pushState(null, '', deckURL());
+  renderMain();
+  if (action === 'deck-focus') document.querySelector('.deck-canvas')?.scrollTo(0, 0);
+}
+
+window.addEventListener('message', (event) => {
+  if (
+    state.view !== 'deck' ||
+    event.origin !== location.origin ||
+    event.data?.type !== 'relay-pane-route'
+  )
+    return;
+  const frame = [...document.querySelectorAll('[data-deck-frame]')].find(
+    (node) => node.contentWindow === event.source,
+  );
+  if (!frame) return;
+  let route;
+  try {
+    route = parseTaskRoute(frame.contentWindow.location.hash);
+  } catch {
+    return;
+  }
+  if (
+    !route ||
+    route.id !== event.data.taskId ||
+    route.tab !== event.data.tab ||
+    !state.tasks.some((task) => task.id === route.id)
+  )
+    return;
+  const pane = findNode(selectedDeck(deck).root, frame.id.slice('deck-frame-'.length));
+  if (!pane || pane.kind === 'split' || (pane.taskId === route.id && pane.view === route.tab))
+    return;
+  pane.taskId = route.id;
+  pane.view = route.tab;
+  persistDeck();
+  renderMain();
+});
+
+document.addEventListener('keydown', (event) => {
+  const handle = event.target.closest?.('[data-deck-divider]');
+  if (
+    !handle ||
+    !['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End'].includes(event.key)
+  )
+    return;
+  const node = findNode(selectedDeck(deck).root, handle.dataset.deckDivider);
+  if (!node || node.kind !== 'split') return;
+  const negative = node.direction === 'horizontal' ? 'ArrowLeft' : 'ArrowUp';
+  const positive = node.direction === 'horizontal' ? 'ArrowRight' : 'ArrowDown';
+  if (![negative, positive, 'Home', 'End'].includes(event.key)) return;
+  event.preventDefault();
+  node.ratio =
+    event.key === 'Home'
+      ? 20
+      : event.key === 'End'
+        ? 80
+        : Math.max(20, Math.min(80, node.ratio + (event.key === negative ? -5 : 5)));
+  applyDeckSizes();
+  persistDeck();
+});
+document.addEventListener('pointerdown', (event) => {
+  const handle = event.target.closest?.('[data-deck-divider]');
+  if (!handle || event.button !== 0) return;
+  const node = findNode(selectedDeck(deck).root, handle.dataset.deckDivider),
+    parent = handle.parentElement;
+  if (!node || node.kind !== 'split') return;
+  event.preventDefault();
+  handle.setPointerCapture(event.pointerId);
+  document.documentElement.setAttribute('data-deck-resizing', '');
+  const move = (e) => {
+    const rect = parent.getBoundingClientRect();
+    const ratio =
+      node.direction === 'horizontal'
+        ? (e.clientX - rect.left) / rect.width
+        : (e.clientY - rect.top) / rect.height;
+    node.ratio = Math.round(Math.max(20, Math.min(80, ratio * 100)));
+    applyDeckSizes();
+  };
+  const finish = () => {
+    handle.removeEventListener('pointermove', move);
+    handle.removeEventListener('pointerup', finish);
+    handle.removeEventListener('pointercancel', finish);
+    handle.removeEventListener('lostpointercapture', finish);
+    document.documentElement.removeAttribute('data-deck-resizing');
+    persistDeck();
+    renderMain();
+  };
+  handle.addEventListener('pointermove', move);
+  handle.addEventListener('pointerup', finish);
+  handle.addEventListener('pointercancel', finish);
+  handle.addEventListener('lostpointercapture', finish);
+});
+
 function showModal(title, contents, wide = false) {
   modalReturnFocus = document.activeElement;
   document.querySelector('#modal-root').innerHTML =
@@ -797,8 +1016,10 @@ async function refreshSnapshot() {
     loadMemories(),
   ]);
   state.tasks = state.tasks.map((task) => pendingStatuses.apply(task));
-  notifyInbox(state.inbox);
-  notifyResults(state.tasks);
+  if (!embedded) {
+    notifyInbox(state.inbox);
+    notifyResults(state.tasks);
+  }
   if (state.view === 'assistant' || state.orchestratorOpen) await loadWorkspaceAgent();
   if (state.view === 'harnesses')
     state.outcomes = await api(
@@ -907,7 +1128,7 @@ async function navigate(view, recordHistory = true) {
   state.selected = null;
   state.task = null;
   shell();
-  if (recordHistory) history.pushState(null, '', `#${view}`);
+  if (recordHistory) history.pushState(null, '', view === 'deck' ? deckURL() : `#${view}`);
   if (view === 'tasks') writeTaskFilters(state);
   if (view === 'repositories' && !state.repositoryDiscovery) loadRepositoryDiscovery();
   if (view === 'harnesses') {
@@ -966,6 +1187,10 @@ document.addEventListener('click', async (event) => {
   if (state.busy) return;
   const action = element.dataset.action;
   try {
+    if (action.startsWith('deck-')) {
+      await handleDeckAction(action, element);
+      return;
+    }
     if (action === 'fork-checkpoint' && state.executionMapOpen) {
       state.executionMapOpen = false;
       renderMain();
@@ -1884,6 +2109,15 @@ document.addEventListener('submit', async (event) => {
   const submit = form.querySelector('button[type="submit"]');
   if (submit) submit.disabled = true;
   try {
+    if (form.id === 'deck-rename-form') {
+      const tab = deck.tabs.find((item) => item.id === state.modal?.deckTabId);
+      if (!tab || !String(data.get('name')).trim()) throw new Error('Enter a workspace name.');
+      tab.name = String(data.get('name')).trim().slice(0, 60);
+      persistDeck();
+      closeModal();
+      renderMain();
+      return;
+    }
     if (form.id === 'board-move-form') {
       const id = state.modal.boardTaskId;
       const lane = data.get('lane');
@@ -2200,6 +2434,15 @@ document.addEventListener('submit', async (event) => {
   }
 });
 document.addEventListener('change', async (event) => {
+  if (event.target.dataset.deckTask) {
+    const tab = selectedDeck(deck),
+      pane = findNode(tab.root, event.target.dataset.deckTask);
+    if (!pane || pane.kind === 'split') return;
+    pane.taskId = event.target.value;
+    persistDeck();
+    renderMain();
+    return;
+  }
   if (event.target.id === 'theme-preference') {
     window.RelayTheme.set(event.target.value);
     return;
@@ -2325,6 +2568,7 @@ document.addEventListener('keydown', (event) => {
 window.addEventListener('popstate', () => {
   const hash = location.hash.slice(1).split('?')[0];
   if (hash === 'tasks') Object.assign(state, readTaskFilters(location.hash));
+  if (hash === 'deck') selectDeckFromURL();
   const route = parseTaskRoute(location.hash);
   if (route && state.view === 'task' && state.selected === route.id && state.task) {
     state.tab = route.tab;
@@ -2336,9 +2580,16 @@ window.addEventListener('popstate', () => {
   const operation = route
     ? openTask(route.id, false, route.tab, route.sideChatOpen === true)
     : navigate(
-        ['tasks', 'inbox', 'repositories', 'harnesses', 'settings', 'memory', 'assistant'].includes(
-          hash,
-        )
+        [
+          'tasks',
+          'deck',
+          'inbox',
+          'repositories',
+          'harnesses',
+          'settings',
+          'memory',
+          'assistant',
+        ].includes(hash)
           ? hash
           : 'overview',
         false,
@@ -2385,6 +2636,7 @@ async function boot() {
     ]);
     const hash = location.hash.slice(1).split('?')[0];
     if (hash === 'tasks') Object.assign(state, readTaskFilters(location.hash));
+    if (hash === 'deck') selectDeckFromURL();
     if (hash.startsWith('task/'))
       await openTask(
         parseTaskRoute(location.hash)?.id ?? hash.slice(5),
@@ -2397,6 +2649,7 @@ async function boot() {
         'assistant',
         'overview',
         'tasks',
+        'deck',
         'inbox',
         'repositories',
         'harnesses',
@@ -2417,8 +2670,10 @@ async function boot() {
     }
     if (state.view === 'inbox') renderMain();
     state.tasks = state.tasks.map((task) => pendingStatuses.apply(task));
-    notifyInbox(state.inbox);
-    notifyResults(state.tasks);
+    if (!embedded) {
+      notifyInbox(state.inbox);
+      notifyResults(state.tasks);
+    }
     connect();
     setInterval(() => updateTimers(), 1000);
     setInterval(() => {

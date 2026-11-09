@@ -163,5 +163,5 @@ export function syncBrowserTerminal(task, token, restoreFocus = false) {
     },
   };
   fit();
-  terminal.focus();
+  if (window.top === window.self) terminal.focus();
 }
