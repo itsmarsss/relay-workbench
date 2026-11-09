@@ -87,7 +87,8 @@ import {
 } from './ui.js';
 
 const state = {
-  orchestratorDraft: readWorkspaceDraft(),
+  workspaceChatId: readWorkspaceChatId(),
+  orchestratorDraft: readWorkspaceDraft(readWorkspaceChatId()),
   modelCatalog: {},
   modelCatalogLoading: false,
   repositoryDiscovery: null,
@@ -723,16 +724,38 @@ function repositoryModal(id, preset = {}) {
 }
 const refresh = refreshQueue(refreshSnapshot, { onError: (error) => toast(error.message, true) });
 async function loadWorkspaceAgent() {
+  const requested = state.workspaceChatId;
+  const chats = await api('/workspace-agent/chats');
+  if (requested !== state.workspaceChatId) return;
+  const chatId = chats.some((chat) => chat.id === requested) ? requested : chats[0]?.id;
   const [messages, info] = await Promise.all([
-    api('/workspace-agent'),
-    api('/workspace-agent/context').catch((error) => {
-      if (error.status !== 404) throw error;
-      return { model: state.config?.harnesses.claude.model || 'Claude default', unavailable: true };
-    }),
+    api(`/workspace-agent?chatId=${encodeURIComponent(chatId)}`),
+    api('/workspace-agent/context'),
   ]);
+  if (requested !== state.workspaceChatId) return;
+  if (state.workspaceChatId !== chatId) {
+    state.workspaceChatId = chatId;
+    state.orchestratorDraft = readWorkspaceDraft(chatId);
+  }
   state.workspaceMessages = messages;
-  state.workspaceInfo = info;
+  state.workspaceInfo = { ...info, chats, chatId };
 }
+async function selectRelayChat(chatId) {
+  state.workspaceChatId = chatId;
+  state.orchestratorDraft = readWorkspaceDraft(chatId);
+  state.workspaceMessages = [];
+  for (const input of document.querySelectorAll('#workspace-request')) {
+    input.value = state.orchestratorDraft;
+    input.dataset.conversationId = chatId;
+  }
+  try {
+    localStorage.setItem('relay-workspace-chat', chatId);
+  } catch {}
+  await loadWorkspaceAgent();
+  renderMain();
+  syncOrchestrator();
+}
+
 async function refreshSnapshot() {
   await pendingStatuses.sync(api);
   [state.tasks, state.inbox, state.memories] = await Promise.all([
@@ -927,6 +950,44 @@ document.addEventListener('click', async (event) => {
       );
       return;
     }
+    if (action === 'new-relay-chat' || action === 'rename-relay-chat') {
+      const chat = state.workspaceInfo?.chats?.find((chat) => chat.id === state.workspaceChatId);
+      state.modal = { chatId: action === 'rename-relay-chat' ? chat?.id : null };
+      showModal(
+        action === 'new-relay-chat' ? 'New conversation' : 'Rename conversation',
+        `<form id="relay-chat-name-form"><label class="field-label" for="relay-chat-title">Name</label><input class="input" id="relay-chat-title" name="title" maxlength="100" required value="${e(action === 'rename-relay-chat' ? chat?.title || '' : '')}" placeholder="What are we working on?"><div class="modal-actions"><button class="btn secondary" type="button" data-action="close-modal">Cancel</button><button class="btn primary" type="submit">${action === 'new-relay-chat' ? 'Create chat' : 'Save'}</button></div></form>`,
+      );
+      return;
+    }
+    if (action === 'delete-relay-chat') {
+      const chat = state.workspaceInfo.chats.find((chat) => chat.id === state.workspaceChatId);
+      state.modal = { chatId: chat.id };
+      showModal(
+        'Delete this conversation?',
+        confirmation({
+          subject: chat.title,
+          description:
+            'Permanently removes this chat and its messages. Tasks and approved workspace memory are kept.',
+          cancel: 'Keep chat',
+          confirm: 'Delete chat',
+          action: 'confirm-delete-relay-chat',
+        }),
+      );
+      return;
+    }
+    if (action === 'confirm-delete-relay-chat') {
+      const id = state.modal.chatId;
+      await api(`/workspace-agent/chats/${id}`, 'DELETE');
+      try {
+        localStorage.removeItem(workspaceDraftKey(id));
+        localStorage.removeItem(
+          id === 'default' ? 'relay-workspace-mentions' : `relay-workspace-mentions:${id}`,
+        );
+      } catch {}
+      closeModal();
+      await selectRelayChat((await api('/workspace-agent/chats'))[0].id);
+      return;
+    }
     if (action === 'open-orchestrator') {
       await openOrchestrator();
       return;
@@ -1014,7 +1075,7 @@ document.addEventListener('click', async (event) => {
       return;
     }
     if (action === 'stop-workspace-agent') {
-      await api('/workspace-agent/stop', 'POST', {});
+      await api('/workspace-agent/stop', 'POST', { chatId: state.workspaceChatId });
       await refresh();
       return;
     }
@@ -1924,6 +1985,17 @@ document.addEventListener('submit', async (event) => {
       await refresh();
       return;
     }
+    if (form.id === 'relay-chat-name-form') {
+      const id = state.modal.chatId;
+      const chat = await api(
+        id ? `/workspace-agent/chats/${id}` : '/workspace-agent/chats',
+        id ? 'PATCH' : 'POST',
+        { title: values.title },
+      );
+      closeModal();
+      await selectRelayChat(chat.id);
+      return;
+    }
     if (form.id === 'workspace-agent-settings-form') {
       state.config = await api('/workspace-agent/settings', 'PATCH', {
         model: values.model,
@@ -1952,7 +2024,10 @@ document.addEventListener('submit', async (event) => {
               : values.question,
           revisionOf: messageId,
           ...(chatScope === 'workspace'
-            ? { mentions: submittedMentions(form.querySelector('textarea')) }
+            ? {
+                mentions: submittedMentions(form.querySelector('textarea')),
+                chatId: state.workspaceChatId,
+              }
             : {}),
         },
       );
@@ -2054,6 +2129,14 @@ document.addEventListener('submit', async (event) => {
   }
 });
 document.addEventListener('change', async (event) => {
+  if (event.target.id === 'relay-chat-picker') {
+    try {
+      await selectRelayChat(event.target.value);
+    } catch (error) {
+      toast(error.message, true);
+    }
+    return;
+  }
   if (event.target.id === 'theme-preference') {
     window.RelayTheme.set(event.target.value);
     return;
@@ -2306,18 +2389,20 @@ document.addEventListener('submit', async (event) => {
   if (event.target.id !== 'workspace-agent-form') return;
   event.preventDefault();
   const form = event.target,
+    chatId = state.workspaceChatId,
     button = form.querySelector('[type=submit]');
   button.disabled = true;
   try {
     await api('/workspace-agent', 'POST', {
+      chatId,
       question: composedQuestion(form.querySelector('textarea')),
       mentions: submittedMentions(form.querySelector('textarea')),
     });
     clearComposerMentions(form.querySelector('textarea'));
     form.reset();
-    state.orchestratorDraft = '';
+    if (state.workspaceChatId === chatId) state.orchestratorDraft = '';
     try {
-      localStorage.removeItem('relay-workspace-draft');
+      localStorage.removeItem(workspaceDraftKey(chatId));
     } catch {}
     await refresh();
   } catch (error) {
@@ -2418,7 +2503,7 @@ document.addEventListener('input', (event) => {
   if (event.target.id === 'workspace-request') {
     state.orchestratorDraft = event.target.value;
     try {
-      localStorage.setItem('relay-workspace-draft', event.target.value);
+      localStorage.setItem(workspaceDraftKey(state.workspaceChatId), event.target.value);
     } catch {}
   }
 });
@@ -2456,9 +2541,19 @@ installTaskContextMenu({
   },
 });
 
-function readWorkspaceDraft() {
+function readWorkspaceChatId() {
   try {
-    return localStorage.getItem('relay-workspace-draft') || '';
+    return localStorage.getItem('relay-workspace-chat') || 'default';
+  } catch {
+    return 'default';
+  }
+}
+function workspaceDraftKey(id = 'default') {
+  return id === 'default' ? 'relay-workspace-draft' : `relay-workspace-draft:${id}`;
+}
+function readWorkspaceDraft(id = 'default') {
+  try {
+    return localStorage.getItem(workspaceDraftKey(id)) || '';
   } catch {
     return '';
   }

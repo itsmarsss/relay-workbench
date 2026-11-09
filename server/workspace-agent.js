@@ -139,12 +139,20 @@ export const workspaceTools = [
   },
 ];
 export class WorkspaceAgent {
-  constructor(store, engine, { run = runProcess } = {}) {
+  constructor(store, engine, { run = runProcess, chatId = 'default' } = {}) {
     this.store = store;
     this.engine = engine;
     this.run = run;
+    this.chatId = chatId;
+    this.children = new Map();
+    const conversations = store.db
+      .prepare('SELECT value FROM meta WHERE key=?')
+      .get('workspace-conversations');
+    this.chats = conversations
+      ? JSON.parse(conversations.value)
+      : [{ id: 'default', title: 'General', createdAt: new Date().toISOString() }];
     this.capability = randomBytes(32).toString('hex');
-    const saved = store.db.prepare('SELECT value FROM meta WHERE key=?').get('workspace-agent');
+    const saved = store.db.prepare('SELECT value FROM meta WHERE key=?').get(this.historyKey());
     this.history = saved ? JSON.parse(saved.value) : [];
     for (const message of this.history)
       if (message.status === 'running') {
@@ -152,10 +160,82 @@ export class WorkspaceAgent {
         message.error = 'Relay restarted. Send your request again.';
       }
   }
+  historyKey() {
+    return this.chatId === 'default' ? 'workspace-agent' : `workspace-agent:${this.chatId}`;
+  }
+  forChat(id) {
+    id ||= this.chats.some((chat) => chat.id === 'default') ? 'default' : this.chats[0]?.id;
+    requireValue(
+      this.chats.some((chat) => chat.id === id),
+      'Chat not found',
+      404,
+    );
+    if (id === this.chatId) return this;
+    if (!this.children.has(id))
+      this.children.set(
+        id,
+        new WorkspaceAgent(this.store, this.engine, { run: this.run, chatId: id }),
+      );
+    return this.children.get(id);
+  }
+  agents() {
+    return [this, ...this.children.values()];
+  }
+  get runningCount() {
+    return this.agents().filter((agent) => agent.controller).length;
+  }
+  listChats() {
+    return this.chats.map((chat) => {
+      const agent = this.forChat(chat.id);
+      return {
+        ...chat,
+        running: !!agent.controller,
+        messageCount: agent.history.length,
+        updatedAt: agent.history.at(-1)?.createdAt ?? chat.createdAt,
+      };
+    });
+  }
+  saveChats() {
+    this.store.db
+      .prepare('INSERT OR REPLACE INTO meta(key,value) VALUES(?,?)')
+      .run('workspace-conversations', JSON.stringify(this.chats));
+    this.store.notify({ type: 'workspace_agent', taskId: '' });
+  }
+  createChat(title = 'New chat') {
+    requireValue(this.chats.length < 200, 'Conversation limit reached; delete an unused chat', 409);
+    const chat = {
+      id: randomUUID(),
+      title: text(title, 'Chat title', 100),
+      createdAt: new Date().toISOString(),
+    };
+    this.chats.push(chat);
+    this.saveChats();
+    return chat;
+  }
+  renameChat(id, title) {
+    this.forChat(id);
+    const chat = this.chats.find((chat) => chat.id === id);
+    chat.title = text(title, 'Chat title', 100);
+    this.saveChats();
+    return chat;
+  }
+  deleteChat(id) {
+    const agent = this.forChat(id);
+    requireValue(!agent.controller, 'Stop this chat before deleting it', 409);
+    requireValue(this.chats.length > 1, 'Keep at least one chat', 409);
+    this.store.db.prepare('DELETE FROM meta WHERE key=?').run(agent.historyKey());
+    agent.history = [];
+    this.children.delete(id);
+    this.chats = this.chats.filter((chat) => chat.id !== id);
+    this.saveChats();
+  }
+  async stopAll() {
+    await Promise.all(this.agents().map((agent) => agent.stop()));
+  }
   save() {
     this.store.db
       .prepare('INSERT OR REPLACE INTO meta(key,value) VALUES(?,?)')
-      .run('workspace-agent', JSON.stringify(this.history));
+      .run(this.historyKey(), JSON.stringify(this.history));
     this.store.notify({ type: 'workspace_agent', taskId: '' });
   }
   async tool(name, args = {}) {
@@ -398,7 +478,7 @@ export class WorkspaceAgent {
     return record;
   }
   async respond(config, origin, record, signal) {
-    const cwd = join(this.store.directory, 'workspace-agent');
+    const cwd = join(this.store.directory, 'workspace-agent', this.chatId);
     await mkdir(cwd, { recursive: true, mode: 0o700 });
     const tools = [...workspaceTools.map((t) => t.name), 'github_read'];
     const mcp = {

@@ -124,7 +124,7 @@ export function createApp({ directory, publicDirectory, engineOptions = {} }) {
         publicationWorkflow.running.size === 0 &&
         feedbackAutopilot.jobs.size === 0 &&
         sideQuestions.running.size === 0 &&
-        !workspaceAgent.controller &&
+        workspaceAgent.runningCount === 0 &&
         followUpAgent.running.size === 0 &&
         !store.all().some((t) => ['running', 'queued', 'manual'].includes(t.status)),
       'Pause active workflows and submissions before maintenance',
@@ -172,15 +172,21 @@ export function createApp({ directory, publicDirectory, engineOptions = {} }) {
       if (path === '/api/workspace-agent/tool' && req.method === 'POST') {
         requireValue(!maintenance, 'Maintenance in progress', 409);
         const supplied = req.headers['x-relay-workspace'];
+        const chatAgent = workspaceAgent
+          .agents()
+          .find(
+            (agent) =>
+              typeof supplied === 'string' &&
+              /^[a-f0-9]{64}$/.test(supplied) &&
+              timingSafeEqual(Buffer.from(supplied), Buffer.from(agent.capability)),
+          );
         requireValue(
-          typeof supplied === 'string' &&
-            /^[a-f0-9]{64}$/.test(supplied) &&
-            timingSafeEqual(Buffer.from(supplied), Buffer.from(workspaceAgent.capability)),
+          typeof supplied === 'string' && /^[a-f0-9]{64}$/.test(supplied) && !!chatAgent,
           'Workspace capability required',
           403,
         );
         const request = await body(req);
-        return json(res, 200, await workspaceAgent.tool(request.name, request.args));
+        return json(res, 200, await chatAgent.tool(request.name, request.args));
       }
       if (!['GET', 'HEAD'].includes(req.method)) {
         requireValue(!maintenance, 'Maintenance in progress; retry shortly', 409);
@@ -252,19 +258,30 @@ export function createApp({ directory, publicDirectory, engineOptions = {} }) {
         const proposal = decideConfiguration(store, permissionRequest[1], request.decision);
         return json(res, 200, { status: proposal.status, config: store.config });
       }
+      if (path === '/api/workspace-agent/chats' && req.method === 'GET')
+        return json(res, 200, workspaceAgent.listChats());
+      if (path === '/api/workspace-agent/chats' && req.method === 'POST')
+        return json(res, 201, workspaceAgent.createChat((await body(req)).title));
+      const chatRoute = path.match(/^\/api\/workspace-agent\/chats\/(default|[a-f0-9-]+)$/);
+      if (chatRoute && req.method === 'PATCH')
+        return json(res, 200, workspaceAgent.renameChat(chatRoute[1], (await body(req)).title));
+      if (chatRoute && req.method === 'DELETE') {
+        workspaceAgent.deleteChat(chatRoute[1]);
+        return json(res, 200, { deleted: true });
+      }
       if (path === '/api/workspace-agent' && req.method === 'GET')
-        return json(res, 200, workspaceAgent.history);
+        return json(res, 200, workspaceAgent.forChat(url.searchParams.get('chatId')).history);
       if (path === '/api/workspace-agent' && req.method === 'POST') {
         const request = await body(req);
+        const chatAgent = workspaceAgent.forChat(request.chatId);
         return json(
           res,
           202,
           await (async () => {
             const question = text(request.question, 'Message', 10000);
-            requireValue(!workspaceAgent.controller, 'A workspace request is already running', 409);
+            requireValue(!chatAgent.controller, 'This chat already has a request running', 409);
             const proposal =
-              !request.revisionOf &&
-              latestTaskConfirmation(store, workspaceAgent.history, question);
+              !request.revisionOf && latestTaskConfirmation(store, chatAgent.history, question);
             if (proposal)
               await decideTaskProposal(
                 store,
@@ -276,13 +293,14 @@ export function createApp({ directory, publicDirectory, engineOptions = {} }) {
                 (id) => publicationWorkflow.running.has(id) || followUpAgent.running.has(id),
               );
             return proposal
-              ? workspaceAgent.recordTaskApproval(question, proposal)
-              : workspaceAgent.ask(question, origin, request.revisionOf, request.mentions);
+              ? chatAgent.recordTaskApproval(question, proposal)
+              : chatAgent.ask(question, origin, request.revisionOf, request.mentions);
           })(),
         );
       }
       if (path === '/api/workspace-agent/stop' && req.method === 'POST') {
-        await workspaceAgent.stop();
+        const request = await body(req);
+        await workspaceAgent.forChat(request.chatId).stop();
         return json(res, 200, { stopped: true });
       }
       if (path === '/api/storage' && req.method === 'GET')
@@ -470,7 +488,7 @@ export function createApp({ directory, publicDirectory, engineOptions = {} }) {
             publicationWorkflow.running.size +
             [...feedbackAutopilot.jobs.keys()].filter((id) => !publicationWorkflow.running.has(id))
               .length +
-            (workspaceAgent.controller ? 1 : 0),
+            workspaceAgent.runningCount,
           monitoring: publicationMonitor.running.size,
           version: '0.1.0',
         });
@@ -1198,7 +1216,7 @@ export function createApp({ directory, publicDirectory, engineOptions = {} }) {
     await followUpAgent.stop();
     await publicationWorkflow.stop();
     await publicationMonitor.stop();
-    await workspaceAgent.stop();
+    await workspaceAgent.stopAll();
     await sideQuestions.stop();
     await engine.stop();
     while (external.size) await new Promise((resolve) => setTimeout(resolve, 20));

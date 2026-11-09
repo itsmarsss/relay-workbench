@@ -620,3 +620,37 @@ main[data-render-scope^='assistant:'] {
   width: 16px;
   height: 16px;
 }
+
+.relay-chat-toolbar {
+  width: 100%;
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 1000px;
+  margin: 0 auto 16px;
+}
+.relay-chat-toolbar > relay-select,
+.relay-chat-toolbar > select {
+  flex: 1;
+  min-width: 0;
+}
+.relay-chat-toolbar > button {
+  flex-shrink: 0;
+}
+.relay-chat-toolbar .icon-button {
+  width: 40px;
+  height: 40px;
+}
+.orchestrator-dialog .relay-chat-toolbar {
+  margin-bottom: 12px;
+}
+@media (max-width: 500px) {
+  .relay-chat-toolbar {
+    flex-wrap: wrap;
+  }
+  .relay-chat-toolbar > relay-select,
+  .relay-chat-toolbar > select {
+    flex-basis: calc(100% - 100px);
+  }
+}

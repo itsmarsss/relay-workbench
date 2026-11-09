@@ -1,27 +1,31 @@
 import { mentionPresent, withoutMention } from './task-mentions.js';
 import { escapeHTML as e } from './escape.js';
 import { animateSurface } from './motion-preferences.js';
-const key = 'relay-workspace-mentions';
-let draftCache = [];
+const draftCache = new Map();
+function mentionKey(input) {
+  const id = input.dataset.conversationId || 'default';
+  return id === 'default' ? 'relay-workspace-mentions' : `relay-workspace-mentions:${id}`;
+}
 export function composerMentions(input) {
   try {
     const values = JSON.parse(
       input.id === 'workspace-request'
-        ? localStorage.getItem(key) || JSON.stringify(draftCache)
+        ? localStorage.getItem(mentionKey(input)) ||
+            JSON.stringify(draftCache.get(mentionKey(input)) || [])
         : input.dataset.taskMentions || '[]',
     );
     return Array.isArray(values)
       ? values.filter((m) => m && typeof m.id === 'string' && typeof m.label === 'string')
       : [];
   } catch {
-    return input.id === 'workspace-request' ? draftCache : [];
+    return input.id === 'workspace-request' ? draftCache.get(mentionKey(input)) || [] : [];
   }
 }
 function save(input, values) {
   if (input.id === 'workspace-request') {
-    draftCache = values;
+    draftCache.set(mentionKey(input), values);
     try {
-      localStorage.setItem(key, JSON.stringify(values));
+      localStorage.setItem(mentionKey(input), JSON.stringify(values));
     } catch {}
   } else input.dataset.taskMentions = JSON.stringify(values);
 }

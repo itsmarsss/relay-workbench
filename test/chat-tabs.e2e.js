@@ -141,6 +141,77 @@ try {
   await page.getByText('New workspace reply', { exact: true }).waitFor();
   await page.reload();
   await page.getByText('New workspace reply', { exact: true }).waitFor();
+  await page.locator('#workspace-request').fill('@Motion');
+  await page.getByRole('option', { name: /Motion and chat actions/ }).click();
+  await page.locator('#workspace-request').fill('Unsent general draft');
+  assert.equal(await page.locator('.composer-task-chip').count(), 1);
+  await page.getByRole('button', { name: 'New chat', exact: true }).click();
+  await page.locator('#relay-chat-title').fill('Architecture');
+  await page.getByRole('button', { name: 'Create chat', exact: true }).click();
+  await page.locator('.workspace-messages article').first().waitFor({ state: 'detached' });
+  assert.equal(await page.locator('#workspace-request').inputValue(), '');
+  assert.equal(await page.locator('.composer-task-chip').count(), 0);
+  await page.locator('#dialog').waitFor({ state: 'detached' });
+  await page.locator('#workspace-request').fill('Plan the next release');
+  await page.locator('#workspace-request').press('Enter');
+  await page.getByText('Plan the next release', { exact: true }).waitFor();
+  await page.getByText('New workspace reply', { exact: true }).waitFor();
+  await page.getByRole('button', { name: 'Rename conversation', exact: true }).click();
+  await page.locator('#relay-chat-title').fill('Release planning');
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
+  const picker = page.getByRole('combobox', { name: 'Conversation', exact: true });
+  await picker.click();
+  await page.getByRole('combobox', { name: 'Search Conversation', exact: true }).fill('General');
+  await page.getByRole('option', { name: 'General', exact: true }).click();
+  await page.getByText('Original workspace prompt', { exact: true }).waitFor();
+  assert.equal(await page.locator('#workspace-request').inputValue(), 'Unsent general draft');
+  assert.equal(
+    await page.locator('.composer-task-chip').count(),
+    1,
+    'Task references remain with their chat',
+  );
+  assert.equal(await page.getByText('Plan the next release', { exact: true }).count(), 0);
+  await picker.click();
+  await page.getByRole('option', { name: 'Release planning', exact: true }).click();
+  await page.getByText('Plan the next release', { exact: true }).waitFor();
+  await page.reload();
+  await page.getByText('Plan the next release', { exact: true }).waitFor();
+  assert.equal(await page.getByText('Original workspace prompt', { exact: true }).count(), 0);
+  await mkdir('docs/screenshots', { recursive: true });
+  await page.screenshot({ path: 'docs/screenshots/relay-conversations.png' });
+  await page.setViewportSize({ width: 390, height: 844 });
+  assert.ok(
+    await page
+      .locator('.relay-chat-toolbar')
+      .evaluate((el) => el.getBoundingClientRect().right <= innerWidth),
+  );
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto(`${base}/#task/${task.id}/overview`);
+  await page.getByRole('button', { name: 'Open Relay orchestrator', exact: true }).click();
+  const quick = page.getByRole('dialog', { name: 'Relay orchestrator', exact: true });
+  await quick.getByText('Plan the next release', { exact: true }).waitFor();
+  await quick.locator('#workspace-request').fill('Quick panel draft');
+  await quick.getByRole('combobox', { name: 'Conversation', exact: true }).click();
+  await quick.getByRole('option', { name: 'General', exact: true }).click();
+  await quick.getByText('Original workspace prompt', { exact: true }).waitFor();
+  assert.equal(await quick.locator('#workspace-request').inputValue(), 'Unsent general draft');
+  await quick.getByRole('combobox', { name: 'Conversation', exact: true }).click();
+  await quick.getByRole('option', { name: 'Release planning', exact: true }).click();
+  await quick.getByText('Plan the next release', { exact: true }).waitFor();
+  assert.equal(await quick.locator('#workspace-request').inputValue(), 'Quick panel draft');
+  await quick.getByRole('button', { name: 'Close Relay orchestrator', exact: true }).click();
+  await quick.waitFor({ state: 'detached' });
+  await page.goto(`${base}/#assistant`);
+  await page.getByText('Plan the next release', { exact: true }).waitFor();
+  assert.equal(await page.locator('#workspace-request').inputValue(), 'Quick panel draft');
+  await page.getByRole('button', { name: 'Delete conversation', exact: true }).click();
+  await page.getByRole('button', { name: 'Keep chat', exact: true }).click();
+  await page.getByText('Plan the next release', { exact: true }).waitFor();
+  await page.getByRole('button', { name: 'Delete conversation', exact: true }).click();
+  await page.getByRole('button', { name: 'Delete chat', exact: true }).click();
+  await page.getByText('Original workspace prompt', { exact: true }).waitFor();
+  assert.equal(await page.getByText('Plan the next release', { exact: true }).count(), 0);
+  assert.ok(app.store.get(task.id), 'Deleting a chat retains its tasks');
   await page.goto(`${base}/#settings`);
   await page.locator('#low-motion').check();
   await page.goto(`${base}/#task/${task.id}/overview`);
@@ -154,7 +225,7 @@ try {
   await page.screenshot({ path: 'docs/screenshots/shared-tabs.png' });
   assert.deepEqual(errors, []);
   console.log(
-    'Chat and tab checks passed: moving indicators, shared styling, low motion, copy prompt/reply, revision submission and preserved history in both chats.',
+    'Chat and tab checks passed: multiple conversations, per-chat drafts, create/rename/delete, persistence, responsive layout, revisions, copy actions and tab Motion.',
   );
 } finally {
   await browser?.close();
