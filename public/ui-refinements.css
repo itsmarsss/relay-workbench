@@ -1518,3 +1518,25 @@
     flex-wrap: wrap;
   }
 }
+
+.graph-run-navigation {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 12px 0;
+  padding: 6px 0;
+  border-block: 1px solid var(--line);
+  font-size: 12px;
+  color: var(--muted);
+}
+.graph-run-navigation .icon {
+  width: 14px;
+  height: 14px;
+}
+.previous-run-icon {
+  transform: rotate(180deg);
+}
+.graph-run-navigation button:disabled {
+  opacity: 0.4;
+}

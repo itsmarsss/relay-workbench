@@ -159,11 +159,50 @@ try {
       }
       await check(`task-${tab}`, width);
     }
+    await page
+      .getByRole('button', { name: 'Open execution graph', exact: true })
+      .scrollIntoViewIfNeeded();
+    const pageScroll = await page.evaluate(() => scrollY);
     await page.getByRole('button', { name: 'Open execution graph', exact: true }).click();
+    assert.equal(
+      await page.evaluate(() => scrollY),
+      pageScroll,
+      'Opening the graph preserves page position',
+    );
     await page.getByRole('region', { name: 'Execution graph', exact: true }).waitFor();
     assert.equal(await page.locator('.graph-lane-title').count(), 3);
     await page.getByRole('button', { name: 'Fit view', exact: true }).click();
     await check('graph', width);
+    await page.getByRole('button', { name: 'Readable view', exact: true }).click();
+    assert.equal(
+      await page.getByRole('button', { name: 'Reset zoom', exact: true }).innerText(),
+      '100%',
+    );
+    assert.ok(
+      await page.locator('.graph-node.selected').evaluate((node) => {
+        const box = node.getBoundingClientRect();
+        const viewport = node.closest('.node-graph-scroll').getBoundingClientRect();
+        return (
+          box.left >= viewport.left &&
+          box.right <= viewport.right &&
+          box.top >= viewport.top &&
+          box.bottom <= viewport.bottom
+        );
+      }),
+      'Readable view centers the selected node inside the graph viewport',
+    );
+    assert.equal(
+      await page.evaluate(() => scrollY),
+      pageScroll,
+      'Focusing a run does not scroll the page',
+    );
+    await page.getByRole('button', { name: 'Previous run', exact: true }).click();
+    await page.locator('.graph-inspector h3').filter({ hasText: 'Independent review' }).waitFor();
+    await page.getByRole('button', { name: 'Next run', exact: true }).click();
+    assert.equal(
+      await page.getByRole('button', { name: 'Next run', exact: true }).isDisabled(),
+      true,
+    );
     await page.getByRole('button', { name: 'Reset zoom', exact: true }).click();
     await page.locator('.graph-node').nth(4).click();
     await page.locator('.graph-inspector h3').filter({ hasText: 'Debugger' }).waitFor();
@@ -193,6 +232,40 @@ try {
     await page.locator('#memory-expiry').waitFor();
     await check('memory-advanced', width);
     await page.getByRole('button', { name: 'Close dialog', exact: true }).click();
+  }
+  task.title =
+    'Coordinate validation and compatibility across a very long multi-repository workflow without losing important implementation context';
+  task.description =
+    '## Requirements\n\n' +
+    'Preserve compatibility across all affected surfaces while documenting the alternatives and evidence. '.repeat(
+      18,
+    ) +
+    '\n\n### Boundary cases\n\n- Keep existing callers working.\n- Validate changes with focused checks.';
+  task.attempts[4].handoff.evidence = Array.from(
+    { length: 12 },
+    (_, i) =>
+      `Evidence ${i + 1}: ` + 'A detailed observation for a long diagnostic run. '.repeat(10),
+  );
+  app.store.save(task);
+  for (const [width, theme] of [
+    [390, 'dark'],
+    [1440, 'light'],
+  ]) {
+    await page.setViewportSize({ width, height: 1000 });
+    await page.goto(`${base}/#task/${task.id}/overview`);
+    await page.evaluate((theme) => window.RelayTheme.set(theme), theme);
+    await page.locator('.completion-brief').waitFor();
+    assert.equal(
+      await page.locator('.task-summary').count(),
+      0,
+      'Accepted tasks omit duplicate context cards',
+    );
+    await check('dense-task', width);
+    await page.getByRole('button', { name: 'Open execution graph', exact: true }).click();
+    await page.locator('.graph-node').nth(4).click();
+    await page.locator('.graph-inspector .detail-disclosure').first().locator('summary').click();
+    await check('dense-graph', width);
+    await page.getByRole('button', { name: 'Close execution graph', exact: true }).click();
   }
   assert.deepEqual(errors, []);
   console.log(

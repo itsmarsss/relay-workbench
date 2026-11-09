@@ -29,6 +29,16 @@ export function taskSummary(task, events = []) {
   const followUp = (task.deliveryRuns ?? []).findLast(
     (run) => run.stage === 'followup' && run.status === 'running',
   );
+  // The accepted result and header already describe settled work.
+  if (
+    task.status === 'completed' &&
+    !followUp &&
+    !publishing &&
+    !publicationBlocked &&
+    !task.error &&
+    !taskRuns(task).some((run) => run.status === 'running')
+  )
+    return '';
   const next = followUp
     ? 'Follow the agent in Activity or Terminals.'
     : publishing

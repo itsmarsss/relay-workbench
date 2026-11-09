@@ -240,3 +240,18 @@ test('Relay preparation failures show metadata repair without debugger actions',
   assert.match(retry, /Retry verification/);
   assert.doesNotMatch(retry, /Sync recorded base|Run debugger/);
 });
+
+test('settled results avoid duplicate summaries without hiding active work or blockers', () => {
+  const task = { title: 'Accepted change', status: 'completed', attempts: [], deliveryRuns: [] };
+  assert.equal(taskSummary(task), '');
+  task.deliveryRuns.push({ id: 'followup', stage: 'followup', status: 'running' });
+  assert.match(taskSummary(task), /Follow-up/);
+  task.deliveryRuns = [];
+  task.delivery = { status: 'blocked', summary: 'Publication requires help' };
+  assert.match(taskSummary(task), /Publishing needs attention/);
+  task.delivery = { status: 'running' };
+  assert.match(taskSummary(task), /publishing accepted changes/);
+  task.delivery = null;
+  task.status = 'awaiting_final';
+  assert.match(taskSummary(task), /Review the code changes/);
+});

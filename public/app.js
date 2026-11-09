@@ -54,7 +54,7 @@ import {
   activityPassoff,
 } from './activity-runs.js';
 import { taskRoute, parseTaskRoute } from './task-route.js';
-import { executionMap, graphLayout } from './execution-map.js';
+import { executionMap, graphLayout, focusGraphNode } from './execution-map.js';
 import { liveProgress, timer, updateTimers } from './live-progress.js';
 import { sideChat } from './side-chat.js';
 import { blockerDecisionView } from './blocker-decision.js';
@@ -1490,19 +1490,16 @@ document.addEventListener('click', async (event) => {
     }
     if (['open-execution-map', 'close-execution-map'].includes(action)) {
       state.executionMapOpen = action === 'open-execution-map';
+      if (state.executionMapOpen) state.graphZoom = 1;
       renderMain();
-      if (state.executionMapOpen)
-        document
-          .querySelector('.graph-node.selected')
-          ?.scrollIntoView({ block: 'nearest', inline: 'center' });
+      if (state.executionMapOpen) focusGraphNode();
       return;
     }
-    if (action === 'graph-current') {
-      state.graphSelectedId = null;
+    if (action === 'graph-current' || action === 'graph-focus') {
+      if (action === 'graph-current') state.graphSelectedId = null;
+      state.graphZoom = 1;
       renderMain();
-      document
-        .querySelector('.graph-node.selected')
-        ?.scrollIntoView({ block: 'nearest', inline: 'center' });
+      focusGraphNode();
       return;
     }
     if (action === 'graph-open-activity') {
@@ -1517,6 +1514,7 @@ document.addEventListener('click', async (event) => {
     if (action === 'graph-select') {
       state.graphSelectedId = element.dataset.id;
       renderMain();
+      focusGraphNode();
       return;
     }
     if (action === 'graph-fit') {
@@ -1542,6 +1540,7 @@ document.addEventListener('click', async (event) => {
               Math.min(1.5, state.graphZoom + (action === 'graph-zoom-in' ? 0.1 : -0.1)),
             );
       renderMain();
+      focusGraphNode();
       return;
     }
     if (action === 'sync-base') {
