@@ -645,6 +645,15 @@ function showModal(title, contents, wide = false) {
   document.querySelector('#modal-root').innerHTML =
     `<dialog id="dialog" class="modal ${wide ? 'wide' : ''}"><div class="modal-heading"><h2>${title}</h2><button class="icon-button" data-action="close-modal" aria-label="Close dialog">${icon('close')}</button></div>${contents}</dialog>`;
   const dialog = document.querySelector('#dialog');
+  if (dialog.querySelector('.workspace-setting-diff')) {
+    dialog.classList.add('approval-dialog');
+    const body = document.createElement('div');
+    body.className = 'approval-dialog-body';
+    const footer = dialog.querySelector('.modal-footer');
+    for (const node of [...dialog.childNodes])
+      if (node !== dialog.firstElementChild && node !== footer) body.append(node);
+    dialog.insertBefore(body, footer);
+  }
   prepareSearchSelects(dialog);
   dialog.showModal();
   animateSurface(dialog, 'dialog');

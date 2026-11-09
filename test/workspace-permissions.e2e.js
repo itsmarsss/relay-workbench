@@ -89,7 +89,9 @@ try {
   );
   const draft = app.engine.create({
     title: 'Configure this draft',
-    description: 'Keep this context.\nUse the old model.\nFinal paragraph.',
+    description:
+      'Keep this context.\nUse the old model.\nFinal paragraph.\n' +
+      'Unchanged paragraph with enough text to wrap on mobile.\n'.repeat(90),
     demo: true,
   });
   proposeTaskChanges(
@@ -100,7 +102,9 @@ try {
         operation: 'settings',
         settings: {
           preset: 'small',
-          description: 'Keep this context.\nUse the new model.\nFinal paragraph.',
+          description:
+            'Keep this context.\nUse the new model.\nFinal paragraph.\n' +
+            'Unchanged paragraph with enough text to wrap on mobile.\n'.repeat(90),
         },
       },
     ],
@@ -112,6 +116,49 @@ try {
   assert.equal(await dialog.locator('.change-removed mark').innerText(), 'old');
   assert.equal(await dialog.locator('.change-added mark').innerText(), 'new');
   assert.match(await dialog.locator('.change-context').first().innerText(), /Keep this context/);
+  const assertApprovalLayout = async () => {
+    const layout = await dialog.evaluate((node) => {
+      const box = node.getBoundingClientRect();
+      const heading = node.querySelector('.modal-heading').getBoundingClientRect();
+      const footer = node.querySelector('.modal-footer').getBoundingClientRect();
+      const body = node.querySelector('.approval-dialog-body');
+      return {
+        headingVisible: heading.top >= box.top,
+        footerVisible: footer.bottom <= box.bottom,
+        bottomGap: box.bottom - footer.bottom,
+        bodyScrolls: body.scrollHeight > body.clientHeight,
+        outerScrolls: node.scrollHeight > node.clientHeight + 1,
+        dimensions: {
+          scroll: node.scrollHeight,
+          client: node.clientHeight,
+          body: body.clientHeight,
+          bodyTop: body.getBoundingClientRect().top,
+          footerBottom: footer.bottom,
+          dialogBottom: box.bottom,
+        },
+        nestedScrollers: [
+          ...node.querySelectorAll('.workspace-setting-diff, .paragraph-diff'),
+        ].some((el) => el.scrollHeight > el.clientHeight + 1),
+      };
+    });
+    assert.ok(layout.headingVisible && layout.footerVisible);
+    assert.ok(layout.bottomGap < 32);
+    assert.ok(layout.bodyScrolls);
+    assert.equal(layout.outerScrolls, false, JSON.stringify(layout));
+    assert.equal(layout.nestedScrollers, false);
+    await dialog.locator('.approval-dialog-body').evaluate((node) => {
+      node.scrollTop = node.scrollHeight;
+    });
+    await dialog
+      .getByRole('button', { name: 'Approve changes' })
+      .isVisible()
+      .then((value) => assert.ok(value));
+    await dialog.locator('.approval-dialog-body').evaluate((node) => {
+      node.scrollTop = 0;
+    });
+  };
+  await assertApprovalLayout();
+
   await assertReadableText(page);
   await page.evaluate(() => window.RelayTheme.set('dark'));
   await assertReadableText(page);
@@ -119,6 +166,7 @@ try {
   assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
   await assertReadableText(page);
   await mkdir('docs/screenshots', { recursive: true });
+  await assertApprovalLayout();
   await page.screenshot({ path: 'docs/screenshots/paragraph-diff-dark-mobile.png' });
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.evaluate(() => window.RelayTheme.set('light'));
