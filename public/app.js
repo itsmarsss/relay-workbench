@@ -88,6 +88,8 @@ import {
 
 const state = {
   workspaceChatId: readWorkspaceChatId(),
+  workspaceChatListOpen: false,
+  workspaceChatSearch: '',
   orchestratorDraft: readWorkspaceDraft(readWorkspaceChatId()),
   modelCatalog: {},
   modelCatalogLoading: false,
@@ -235,7 +237,13 @@ function renderMain() {
   const selectedApproach = main.querySelector('input[name="optionId"]:checked')?.value;
   const markup =
     state.view === 'assistant'
-      ? workspaceAgentView(state.workspaceMessages, state.tasks, { info: state.workspaceInfo })
+      ? workspaceAgentView(state.workspaceMessages, state.tasks, {
+          info: {
+            ...state.workspaceInfo,
+            chatListOpen: state.workspaceChatListOpen,
+            chatSearch: state.workspaceChatSearch,
+          },
+        })
       : state.view === 'memory'
         ? state.memoryAvailable
           ? memoryPage(state.memories, state.config, state.tasks, {
@@ -741,6 +749,8 @@ async function loadWorkspaceAgent() {
   state.workspaceInfo = { ...info, chats, chatId };
 }
 async function selectRelayChat(chatId) {
+  state.workspaceChatListOpen = false;
+  state.workspaceChatSearch = '';
   state.workspaceChatId = chatId;
   state.orchestratorDraft = readWorkspaceDraft(chatId);
   state.workspaceMessages = [];
@@ -948,6 +958,20 @@ document.addEventListener('click', async (event) => {
         'Edit message',
         `<form id="chat-edit-form"><label class="field-label" for="chat-edit-question">Your message</label><textarea class="input" id="chat-edit-question" ${scope === 'workspace' ? `data-task-mentions="${e(JSON.stringify(message.mentions ?? []))}"` : ''} name="question" rows="6" maxlength="10000" required>${e(message.question)}</textarea><p class="form-help">Sends a revised message. Earlier replies and actions stay in history.</p><div class="modal-footer"><button type="button" class="btn secondary" data-action="close-modal">Cancel</button><button class="btn primary" type="submit">Send revision</button></div></form>`,
       );
+      return;
+    }
+    if (action === 'select-relay-chat') {
+      await selectRelayChat(element.dataset.id);
+      return;
+    }
+    if (action === 'toggle-relay-chats') {
+      state.workspaceChatListOpen = !state.workspaceChatListOpen;
+      renderMain();
+      if (state.workspaceChatListOpen) {
+        const list = document.querySelector('.relay-chat-list');
+        animateSurface(list, 'content');
+        list?.querySelector('input')?.focus({ preventScroll: true });
+      }
       return;
     }
     if (action === 'new-relay-chat' || action === 'rename-relay-chat') {
@@ -1993,7 +2017,10 @@ document.addEventListener('submit', async (event) => {
         { title: values.title },
       );
       closeModal();
-      await selectRelayChat(chat.id);
+      if (id) {
+        await loadWorkspaceAgent();
+        renderMain();
+      } else await selectRelayChat(chat.id);
       return;
     }
     if (form.id === 'workspace-agent-settings-form') {
@@ -2129,14 +2156,6 @@ document.addEventListener('submit', async (event) => {
   }
 });
 document.addEventListener('change', async (event) => {
-  if (event.target.id === 'relay-chat-picker') {
-    try {
-      await selectRelayChat(event.target.value);
-    } catch (error) {
-      toast(error.message, true);
-    }
-    return;
-  }
   if (event.target.id === 'theme-preference') {
     window.RelayTheme.set(event.target.value);
     return;
@@ -2480,7 +2499,11 @@ function syncOrchestrator() {
     body,
     workspaceAgentView(state.workspaceMessages, state.tasks, {
       compact: true,
-      info: state.workspaceInfo,
+      info: {
+        ...state.workspaceInfo,
+        chatListOpen: state.workspaceChatListOpen,
+        chatSearch: state.workspaceChatSearch,
+      },
     }),
     'orchestrator',
   );
@@ -2500,6 +2523,18 @@ function syncOrchestrator() {
   } else if (fresh) animateSurface(dialog, 'drawer');
 }
 document.addEventListener('input', (event) => {
+  if (event.target.matches('.relay-chat-search input')) {
+    state.workspaceChatSearch = event.target.value;
+    const query = event.target.value.trim().toLowerCase();
+    for (const list of document.querySelectorAll('.relay-chat-list')) {
+      let matches = 0;
+      for (const item of list.querySelectorAll('.relay-chat-item')) {
+        item.hidden = !item.dataset.chatTitle.includes(query);
+        if (!item.hidden) matches++;
+      }
+      list.querySelector('.relay-chat-no-results').hidden = matches > 0;
+    }
+  }
   if (event.target.id === 'workspace-request') {
     state.orchestratorDraft = event.target.value;
     try {
@@ -2575,3 +2610,23 @@ document.addEventListener('keydown', (event) => {
   const submit = form?.querySelector('[type=submit]');
   if (submit && !submit.disabled) form.requestSubmit(submit);
 });
+
+document.addEventListener(
+  'keydown',
+  (event) => {
+    if (
+      event.key !== 'Escape' ||
+      !state.workspaceChatListOpen ||
+      document.querySelector('#dialog[open]')
+    )
+      return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    state.workspaceChatListOpen = false;
+    renderMain();
+    document
+      .querySelector('.relay-chat-mobile-bar [data-action="toggle-relay-chats"]')
+      ?.focus({ preventScroll: true });
+  },
+  true,
+);

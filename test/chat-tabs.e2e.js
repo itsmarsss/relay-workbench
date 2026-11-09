@@ -6,6 +6,7 @@ import { chromium } from 'playwright';
 import { Store } from '../server/store.js';
 import { createApp } from '../server/app.js';
 import { mockDiscovery } from './discovery-fixtures.js';
+import { assertReadableText } from './browser-contrast.js';
 const directory = await mkdtemp(join(tmpdir(), 'relay-chat-tabs-'));
 const seed = new Store(directory);
 seed.db.prepare('INSERT INTO meta(key,value) VALUES(?,?)').run(
@@ -159,10 +160,14 @@ try {
   await page.getByRole('button', { name: 'Rename conversation', exact: true }).click();
   await page.locator('#relay-chat-title').fill('Release planning');
   await page.getByRole('button', { name: 'Save', exact: true }).click();
-  const picker = page.getByRole('combobox', { name: 'Conversation', exact: true });
-  await picker.click();
-  await page.getByRole('combobox', { name: 'Search Conversation', exact: true }).fill('General');
-  await page.getByRole('option', { name: 'General', exact: true }).click();
+  await dialog.waitFor({ state: 'detached' });
+  await page.getByRole('heading', { name: 'Release planning', exact: true }).waitFor();
+  const chats = page.getByRole('navigation', { name: 'Choose conversation', exact: true });
+  const searchChats = page.getByRole('searchbox', { name: 'Search conversations', exact: true });
+  await searchChats.fill('not-a-chat');
+  await page.getByText('No matching chats', { exact: true }).waitFor();
+  await searchChats.fill('General');
+  await chats.getByRole('button', { name: /^General/ }).click();
   await page.getByText('Original workspace prompt', { exact: true }).waitFor();
   assert.equal(await page.locator('#workspace-request').inputValue(), 'Unsent general draft');
   assert.equal(
@@ -171,32 +176,51 @@ try {
     'Task references remain with their chat',
   );
   assert.equal(await page.getByText('Plan the next release', { exact: true }).count(), 0);
-  await picker.click();
-  await page.getByRole('option', { name: 'Release planning', exact: true }).click();
+  await chats.getByRole('button', { name: /^Release planning/ }).click();
   await page.getByText('Plan the next release', { exact: true }).waitFor();
   await page.reload();
   await page.getByText('Plan the next release', { exact: true }).waitFor();
   assert.equal(await page.getByText('Original workspace prompt', { exact: true }).count(), 0);
   await mkdir('docs/screenshots', { recursive: true });
+  await assertReadableText(page);
+  assert.equal(await page.getByRole('combobox', { name: 'Conversation', exact: true }).count(), 0);
+  assert.equal(
+    await chats.getByRole('button', { name: /^Release planning/ }).getAttribute('aria-current'),
+    'page',
+  );
   await page.screenshot({ path: 'docs/screenshots/relay-conversations.png' });
   await page.setViewportSize({ width: 390, height: 844 });
   assert.ok(
     await page
-      .locator('.relay-chat-toolbar')
+      .locator('.relay-chat-shell')
       .evaluate((el) => el.getBoundingClientRect().right <= innerWidth),
   );
+  await page.getByRole('button', { name: /^Chats/ }).click();
+  await page.getByRole('searchbox', { name: 'Search conversations', exact: true }).waitFor();
+  await assertReadableText(page);
+  await page.screenshot({ path: 'docs/screenshots/relay-conversations-mobile.png' });
+  await page.keyboard.press('Escape');
+  await page
+    .getByRole('searchbox', { name: 'Search conversations', exact: true })
+    .waitFor({ state: 'hidden' });
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.goto(`${base}/#task/${task.id}/overview`);
   await page.getByRole('button', { name: 'Open Relay orchestrator', exact: true }).click();
   const quick = page.getByRole('dialog', { name: 'Relay orchestrator', exact: true });
   await quick.getByText('Plan the next release', { exact: true }).waitFor();
   await quick.locator('#workspace-request').fill('Quick panel draft');
-  await quick.getByRole('combobox', { name: 'Conversation', exact: true }).click();
-  await quick.getByRole('option', { name: 'General', exact: true }).click();
+  await quick.getByRole('button', { name: /^Chats/ }).click();
+  await quick
+    .getByRole('navigation', { name: 'Choose conversation', exact: true })
+    .getByRole('button', { name: /^General/ })
+    .click();
   await quick.getByText('Original workspace prompt', { exact: true }).waitFor();
   assert.equal(await quick.locator('#workspace-request').inputValue(), 'Unsent general draft');
-  await quick.getByRole('combobox', { name: 'Conversation', exact: true }).click();
-  await quick.getByRole('option', { name: 'Release planning', exact: true }).click();
+  await quick.getByRole('button', { name: /^Chats/ }).click();
+  await quick
+    .getByRole('navigation', { name: 'Choose conversation', exact: true })
+    .getByRole('button', { name: /^Release planning/ })
+    .click();
   await quick.getByText('Plan the next release', { exact: true }).waitFor();
   assert.equal(await quick.locator('#workspace-request').inputValue(), 'Quick panel draft');
   await quick.getByRole('button', { name: 'Close Relay orchestrator', exact: true }).click();
