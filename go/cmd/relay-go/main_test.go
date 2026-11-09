@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"relay.local/relay/internal/process"
+	"relay.local/relay/internal/verification"
 	"runtime"
 	"strings"
 	"testing"
@@ -26,6 +27,32 @@ func TestStartupErrorsReleaseExperimentalLock(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(dir, "server.lock")); !os.IsNotExist(err) {
 		t.Fatalf("lock left behind: %v", err)
+	}
+}
+
+func TestBuiltBinaryRunsSupervisedCheckHelper(t *testing.T) {
+	if testing.Short() || (runtime.GOOS != "darwin" && runtime.GOOS != "linux") {
+		t.Skip("builds the Unix verification helper")
+	}
+	binary := filepath.Join(t.TempDir(), "relay-go")
+	builder := exec.Command(filepath.Join(runtime.GOROOT(), "bin", "go"), "build", "-o", binary, ".")
+	if output, err := builder.CombinedOutput(); err != nil {
+		t.Fatalf("build: %s: %v", output, err)
+	}
+	root := t.TempDir()
+	runner, err := verification.StartRunner(context.Background(), verification.RunnerOptions{WorkerExecutable: binary, WorkerArgs: []string{"--internal-worker"}, Repositories: []verification.Repository{{ID: "repo", Root: root}}, SourceFingerprint: "fingerprint", Timeout: 10 * time.Second, OnEvent: func(context.Context, map[string]any) error { return nil }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer runner.Close()
+	command := exec.Command(binary, "--internal-check", "--socket", runner.Socket(), "--token", runner.Token(), "--repository", "repo", "--cwd", root, "--", "/bin/echo", "literal argument")
+	output, err := command.CombinedOutput()
+	if err != nil || !strings.Contains(string(output), "literal argument") {
+		t.Fatalf("helper failed: %s %v", output, err)
+	}
+	records := runner.Records()
+	if len(records) != 1 || records[0].Status != "complete" || records[0].Code == nil || *records[0].Code != 0 {
+		t.Fatalf("missing supervised result: %#v", records)
 	}
 }
 func TestRequiresExplicitIsolatedPaths(t *testing.T) {
