@@ -29,7 +29,7 @@ function flush() {
 function processTree() {
   const result = spawnSync('ps', ['-axo', 'pid=,ppid=,lstart='], {
     encoding: 'utf8',
-    timeout: 250,
+    timeout: 2000,
   });
   if (result.status !== 0) return new Map();
   return new Map(
@@ -38,7 +38,7 @@ function processTree() {
       .split('\n')
       .map((line) => {
         const [, pid, parent, birth] = line.match(/^\s*(\d+)\s+(\d+)\s+(.+)$/) ?? [];
-        return [Number(pid), { parent: Number(parent), birth }];
+        return [Number(pid), { parent: Number(parent), birth: birth?.trim() }];
       }),
   );
 }

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
-import { mkdtemp, readFile, writeFile, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, writeFile, chmod, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -143,8 +143,16 @@ test(
   },
 );
 
-test('returning control terminates interactive background jobs', { skip: !hasTmux }, async (t) => {
+async function backgroundCleanup(t, slowEnumeration = false) {
   const cwd = await fixture(t);
+  let env;
+  if (slowEnumeration) {
+    const bin = join(cwd, 'bin');
+    await mkdir(bin);
+    await writeFile(join(bin, 'ps'), '#!/bin/sh\n/bin/sleep 0.5\nexec /bin/ps "$@"\n');
+    await chmod(join(bin, 'ps'), 0o755);
+    env = { PATH: `${bin}:${process.env.PATH}` };
+  }
   const heartbeat = join(cwd, 'background');
   const script = join(cwd, 'background.cjs');
   await writeFile(
@@ -156,6 +164,7 @@ test('returning control terminates interactive background jobs', { skip: !hasTmu
   const running = runProcess('/bin/sh', ['-i'], {
     cwd,
     signal: controller.signal,
+    env,
     terminal: { name: 'background', interactive: true },
     onTerminal: (info) => {
       terminal = info;
@@ -188,7 +197,15 @@ test('returning control terminates interactive background jobs', { skip: !hasTmu
   const size = (await readFile(heartbeat, 'utf8')).length;
   await sleep(250);
   assert.equal((await readFile(heartbeat, 'utf8')).length, size);
-});
+}
+test(
+  'returning control terminates interactive background jobs',
+  { skip: !hasTmux },
+  backgroundCleanup,
+);
+test('terminal cleanup waits for slow process enumeration', { skip: !hasTmux }, (t) =>
+  backgroundCleanup(t, true),
+);
 
 test('terminal control decodes bytes without losing UTF-8 or escape keys', () => {
   assert.equal(decodeTerminalOutput('hello\\040world\\015\\012').toString(), 'hello world\r\n');

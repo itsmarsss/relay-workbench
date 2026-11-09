@@ -10,6 +10,7 @@ export const overrideStatuses = {
   awaiting_final: 'Final approval',
   review: 'In review',
   completed: 'Done',
+  finished: 'Completed',
   blocked: 'Needs attention',
   cancelled: 'Cancelled',
 };

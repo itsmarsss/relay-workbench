@@ -7,10 +7,16 @@ import { workspaces, workspaceView } from './task-repositories.js';
 
 export async function git(cwd, args, options = {}) {
   const { raw = false, ...processOptions } = options;
-  const result = await runProcess('git', ['-C', cwd, ...args], {
-    timeout: 120000,
-    ...processOptions,
-  });
+  let result;
+  try {
+    result = await runProcess('git', ['-C', cwd, ...args], {
+      timeout: 120000,
+      ...processOptions,
+    });
+  } catch (error) {
+    error.message = `git ${args[0]} in ${cwd}: ${error.message}`;
+    throw error;
+  }
   if (result.code !== 0)
     throw new Error(`git ${args[0]} failed: ${result.stderr.trim() || result.stdout.trim()}`);
   return raw ? result.stdout : result.stdout.trimEnd();
@@ -107,7 +113,9 @@ export async function prepareWorkspace(task, directory, allTasks, options = {}) 
       'Managed workspace has an unexpected base commit',
     );
     requireValue(
-      !(await git(target.root, ['status', '--porcelain', '--untracked-files=normal'])),
+      !(await git(target.root, ['status', '--porcelain', '--untracked-files=normal'], {
+        timeout: 600000,
+      })),
       'New managed workspace must be clean',
     );
     task.workspaceRoot = target.root;
@@ -117,7 +125,9 @@ export async function prepareWorkspace(task, directory, allTasks, options = {}) 
     const branch = `relay/${task.id.slice(0, 8)}`;
     const path = join(directory, 'worktrees', task.id);
     await mkdir(join(directory, 'worktrees'), { recursive: true });
-    await git(info.root, ['worktree', 'add', '-b', branch, path, task.baseCommit]);
+    await git(info.root, ['worktree', 'add', '-b', branch, path, task.baseCommit], {
+      timeout: 600000,
+    });
     task.branch = branch;
     task.workspaceRoot = path;
     task.workspace = join(path, info.relativeCwd);
@@ -134,9 +144,13 @@ export async function fingerprint(task) {
   const root = task.workspaceRoot;
   const hash = createHash('sha256');
   hash.update(await git(root, ['rev-parse', 'HEAD']));
-  hash.update(await git(root, ['diff', '--binary', 'HEAD', '--'], { raw: true }));
-  hash.update(await git(root, ['diff', '--cached', '--binary', '--'], { raw: true }));
-  const names = await git(root, ['ls-files', '--others', '--exclude-standard', '-z']);
+  hash.update(await git(root, ['diff', '--binary', 'HEAD', '--'], { raw: true, timeout: 600000 }));
+  hash.update(
+    await git(root, ['diff', '--cached', '--binary', '--'], { raw: true, timeout: 600000 }),
+  );
+  const names = await git(root, ['ls-files', '--others', '--exclude-standard', '-z'], {
+    timeout: 600000,
+  });
   for (const name of names.split('\0').filter(Boolean).sort()) {
     const path = join(root, name);
     const stat = await lstat(path);

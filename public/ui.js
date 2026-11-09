@@ -55,6 +55,7 @@ export const statusNames = {
   awaiting_plan: 'Choose an approach',
   awaiting_final: 'Final approval',
   completed: 'Done',
+  finished: 'Completed',
   paused: 'Paused',
   manual: 'Manual control',
   blocked: 'Needs attention',

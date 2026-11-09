@@ -27,9 +27,36 @@ export function checkpoints(store, id) {
   }));
 }
 export function workflowHistory(store, id) {
+  const forks = records(store, `forks:${id}`);
+  const byTask = new Map(forks.map((fork) => [fork.taskId, fork]));
+  // A crash or older Relay version may have saved the continuation without its
+  // corresponding history entry. Reconstruct it without changing either task.
+  const continuations = store.db
+    .prepare("SELECT body FROM tasks WHERE json_extract(body, '$.fork.sourceTaskId')=?")
+    .all(id);
+  for (const { body } of continuations) {
+    const task = JSON.parse(body);
+    const fork = byTask.get(task.id);
+    const status = task.checkpointRestore?.status;
+    if (fork) {
+      if (status === 'failed' || status === 'preparing') fork.status = status;
+    } else {
+      const entry = {
+        taskId: task.id,
+        checkpointId: task.fork.checkpointId,
+        attemptId: task.fork.sourceAttemptId,
+        at: task.fork.at,
+        stage: task.stage,
+        mode: task.fork.mode,
+        ...(status ? { status } : {}),
+      };
+      forks.push(entry);
+      byTask.set(task.id, entry);
+    }
+  }
   return {
     checkpoints: checkpoints(store, id),
-    forks: records(store, `forks:${id}`),
+    forks,
     decisions: store.db
       .prepare(
         "SELECT body FROM events WHERE task_id=? AND json_extract(body, '$.type')='auto_decision' ORDER BY seq",
@@ -295,8 +322,10 @@ export async function forkCheckpoint(
         saved.head;
       syncPrimary(task);
       store.save(task);
-      await git(view.workspaceRoot, ['read-tree', '--reset', '-u', saved.workingTree]);
-      await git(view.workspaceRoot, ['read-tree', saved.indexTree]);
+      await git(view.workspaceRoot, ['read-tree', '--reset', '-u', saved.workingTree], {
+        timeout: 600000,
+      });
+      await git(view.workspaceRoot, ['read-tree', saved.indexTree], { timeout: 600000 });
     }
     requireValue(
       task.demo || record.fingerprint === (await fingerprint(task)),
@@ -308,6 +337,24 @@ export async function forkCheckpoint(
     task.error = `Checkpoint restore failed: ${error.message}. Existing work has been preserved.`;
     task.checkpointRestore.status = 'failed';
     store.save(task, { type: 'blocked', summary: task.error });
+    put(store, `forks:${sourceId}`, [
+      ...records(store, `forks:${sourceId}`),
+      {
+        taskId: task.id,
+        checkpointId,
+        attemptId: record.attemptId,
+        at: now,
+        stage: task.stage,
+        mode: stage,
+        status: 'failed',
+      },
+    ]);
+    store.event(sourceId, {
+      type: 'fork',
+      summary: `Continuation from ${record.stage} could not be restored; inspect the preserved workspace.`,
+      continuationTaskId: task.id,
+      checkpointId,
+    });
     throw error;
   }
   task.reviewedFingerprint = null;

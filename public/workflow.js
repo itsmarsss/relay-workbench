@@ -10,7 +10,8 @@ export const columns = [
   ['progress', 'In progress', 'Implementation and verification'],
   ['review', 'In review', 'Independent agent review'],
   ['final', 'Final approval', 'Your final look'],
-  ['done', 'Done', 'Accepted results'],
+  ['done', 'Done', 'Pipeline finished'],
+  ['finished', 'Completed', 'Work is fully finished'],
   ['attention', 'Needs attention', 'Blocked, paused, or in your hands'],
   ['cancelled', 'Cancelled', 'Retained for reference'],
 ];
@@ -22,6 +23,7 @@ export const boardStatuses = {
   review: 'review',
   final: 'awaiting_final',
   done: 'completed',
+  finished: 'finished',
   attention: 'blocked',
   cancelled: 'cancelled',
 };
@@ -41,6 +43,7 @@ export function workflowColumn(task) {
         running: 'progress',
         review: 'review',
         completed: 'done',
+        finished: 'finished',
         blocked: 'attention',
         cancelled: 'cancelled',
         publishing: 'progress',
@@ -74,7 +77,10 @@ export function nextStep(task) {
 }
 export function workflowBoard(tasks, { showEmpty = false } = {}) {
   const visibleColumns = columns.filter(
-    ([id]) => (showEmpty && id !== 'cancelled') || tasks.some((t) => workflowColumn(t) === id),
+    ([id]) =>
+      id === 'finished' ||
+      (showEmpty && id !== 'cancelled') ||
+      tasks.some((t) => workflowColumn(t) === id),
   );
   return `<nav class="board-stage-nav ${visibleColumns.length <= 3 ? 'is-short' : ''}" aria-label="Jump to workflow stage">${visibleColumns.map(([id, title]) => `<button data-action="board-lane" data-lane="${id}"><span class="lane-dot lane-dot-${id}"></span>${title}<span class="lane-count">${tasks.filter((t) => workflowColumn(t) === id).length}</span></button>`).join('')}</nav><p class="board-drag-hint" id="board-drag-hint">Drag cards to update their board status. Workflow and approvals stay unchanged. Press M on a focused card to move it with the keyboard.</p><div class="workflow-board" aria-label="Task workflow board" tabindex="0">${columns
     .map(([id, title, hint]) => {
