@@ -547,9 +547,16 @@ test('explicit replanning survives completed snapshots and interrupted restores 
   assert.equal(fork.chosenApproach, null);
   fork.checkpointRestore.status = 'preparing';
   store.save(fork);
+  assert.equal(workflowHistory(store, source.id).forks[0].status, 'preparing');
+  store.db.prepare('DELETE FROM meta WHERE key=?').run(`forks:${source.id}`);
+  assert.equal(workflowHistory(store, source.id).forks[0].status, 'preparing');
   const engine = new Engine(store);
   assert.equal(store.get(fork.id).checkpointRestore.status, 'failed');
   assert.equal(store.get(fork.id).status, 'blocked');
+  const recovered = workflowHistory(store, source.id).forks;
+  assert.equal(recovered.length, 1);
+  assert.equal(recovered[0].taskId, fork.id);
+  assert.equal(recovered[0].status, 'failed');
   for (const action of ['resume', 'debug', 'verify-blocker', 'resolve-blocker', 'takeover'])
     await assert.rejects(engine.action(fork.id, action), /Finish restoring/);
   await engine.action(fork.id, 'cancel');

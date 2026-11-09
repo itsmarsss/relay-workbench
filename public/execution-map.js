@@ -40,7 +40,8 @@ export function executionNodes(task) {
       stage: 'fork',
       role: 'history',
       harness: 'relay',
-      status: fork.status === 'failed' ? 'failed' : 'complete',
+      status:
+        fork.status === 'failed' ? 'failed' : fork.status === 'preparing' ? 'running' : 'complete',
       startedAt: fork.at,
       finishedAt: fork.at,
       relation: 'Alternate continuation',
@@ -49,7 +50,9 @@ export function executionNodes(task) {
         summary:
           fork.status === 'failed'
             ? 'Continuation restore failed. Inspect the preserved workspace.'
-            : `Separate continuation${fork.mode === 'approach' ? ' to choose another approach' : fork.mode === 'decision' ? ' to revisit a debugger decision' : ` at ${fork.stage}`}. Original work preserved.`,
+            : fork.status === 'preparing'
+              ? 'Restoring the continuation workspace.'
+              : `Separate continuation${fork.mode === 'approach' ? ' to choose another approach' : fork.mode === 'decision' ? ' to revisit a debugger decision' : ` at ${fork.stage}`}. Original work preserved.`,
       },
     });
   if (task.fork)
@@ -59,20 +62,32 @@ export function executionNodes(task) {
       stage: 'fork',
       role: 'history',
       harness: 'relay',
-      status: task.checkpointRestore?.status === 'failed' ? 'failed' : 'complete',
+      status:
+        task.checkpointRestore?.status === 'failed'
+          ? 'failed'
+          : task.checkpointRestore?.status === 'preparing'
+            ? 'running'
+            : 'complete',
       startedAt: task.fork.at,
       finishedAt: task.fork.at,
-      relation: 'Restored checkpoint',
+      relation:
+        task.checkpointRestore?.status === 'failed'
+          ? 'Restore failed'
+          : task.checkpointRestore?.status === 'preparing'
+            ? 'Restoring checkpoint'
+            : 'Restored checkpoint',
       targetTaskId: task.fork.sourceTaskId,
       handoff: {
         summary:
           task.checkpointRestore?.status === 'failed'
             ? 'Checkpoint restore failed. Inspect the preserved workspace.'
-            : task.fork.mode === 'approach'
-              ? 'Saved plan reopened for another implementation choice. Earlier investigation preserved.'
-              : task.fork.mode === 'decision'
-                ? 'Saved debugger decision reopened. Earlier work and diagnosis preserved.'
-                : 'Continued from a saved checkpoint in new worktrees. Verification and acceptance reset.',
+            : task.checkpointRestore?.status === 'preparing'
+              ? 'Restoring the continuation workspace.'
+              : task.fork.mode === 'approach'
+                ? 'Saved plan reopened for another implementation choice. Earlier investigation preserved.'
+                : task.fork.mode === 'decision'
+                  ? 'Saved debugger decision reopened. Earlier work and diagnosis preserved.'
+                  : 'Continued from a saved checkpoint in new worktrees. Verification and acceptance reset.',
       },
     });
   const attempts = [...taskRuns(task), ...extras].sort(

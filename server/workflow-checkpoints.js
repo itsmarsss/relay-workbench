@@ -27,9 +27,36 @@ export function checkpoints(store, id) {
   }));
 }
 export function workflowHistory(store, id) {
+  const forks = records(store, `forks:${id}`);
+  const byTask = new Map(forks.map((fork) => [fork.taskId, fork]));
+  // A crash or older Relay version may have saved the continuation without its
+  // corresponding history entry. Reconstruct it without changing either task.
+  const continuations = store.db
+    .prepare("SELECT body FROM tasks WHERE json_extract(body, '$.fork.sourceTaskId')=?")
+    .all(id);
+  for (const { body } of continuations) {
+    const task = JSON.parse(body);
+    const fork = byTask.get(task.id);
+    const status = task.checkpointRestore?.status;
+    if (fork) {
+      if (status === 'failed' || status === 'preparing') fork.status = status;
+    } else {
+      const entry = {
+        taskId: task.id,
+        checkpointId: task.fork.checkpointId,
+        attemptId: task.fork.sourceAttemptId,
+        at: task.fork.at,
+        stage: task.stage,
+        mode: task.fork.mode,
+        ...(status ? { status } : {}),
+      };
+      forks.push(entry);
+      byTask.set(task.id, entry);
+    }
+  }
   return {
     checkpoints: checkpoints(store, id),
-    forks: records(store, `forks:${id}`),
+    forks,
     decisions: store.db
       .prepare(
         "SELECT body FROM events WHERE task_id=? AND json_extract(body, '$.type')='auto_decision' ORDER BY seq",
