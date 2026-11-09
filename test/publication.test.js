@@ -20,6 +20,36 @@ const snapshot = {
   checks: 'pending',
   review: 'required',
 };
+test('startup clears abandoned monitoring history without changing publication runs', async () => {
+  const task = {
+    id: 'task',
+    repository: { id: 'repo' },
+    attempts: [],
+    publicationMonitor: { status: 'idle' },
+    deliveryRuns: [
+      { id: 'old-poll', stage: 'monitor', status: 'running', handoff: { summary: 'Checking' } },
+      { id: 'publish', stage: 'publish', status: 'running' },
+      { id: 'done-poll', stage: 'monitor', status: 'complete' },
+    ],
+  };
+  let saved;
+  const store = {
+    all: () => [structuredClone(task)],
+    save: (value) => {
+      saved = value;
+    },
+  };
+  const monitor = new PublicationMonitor(store, { now: () => 1000000 });
+  try {
+    assert.equal(saved.deliveryRuns[0].status, 'interrupted');
+    assert.match(saved.deliveryRuns[0].handoff.summary, /outcome was not recorded/);
+    assert.equal(saved.deliveryRuns[1].status, 'running');
+    assert.equal(saved.deliveryRuns[2].status, 'complete');
+    assert.equal(saved.publicationMonitor.status, 'idle');
+  } finally {
+    await monitor.stop();
+  }
+});
 async function fixture(t, observe, options = {}) {
   const directory = await mkdtemp(join(tmpdir(), 'relay-publication-'));
   const root = join(directory, 'repo');

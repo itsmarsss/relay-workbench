@@ -68,8 +68,21 @@ export class PublicationMonitor {
         }
       if (changed) {
         for (const entry of workspaces(task)) saveDeliveryRun(task, entry, 'monitor');
-        store.save(task);
       }
+      // Older observations can be left running if a later poll replaced the
+      // current monitor before their final state was saved.
+      for (const run of task.deliveryRuns ?? []) {
+        if (run.stage !== 'monitor' || run.status !== 'running') continue;
+        run.status = 'interrupted';
+        run.recoveredAt = new Date(now()).toISOString();
+        run.handoff = {
+          ...run.handoff,
+          verdict: 'blocked',
+          summary: 'The PR observation outcome was not recorded before Relay restarted.',
+        };
+        changed = true;
+      }
+      if (changed) store.save(task);
     }
     this.timer = setInterval(() => this.tick(), 15000);
     this.timer.unref();
