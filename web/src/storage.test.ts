@@ -38,7 +38,7 @@ test('storage thresholds round trip and reject invalid edits', () => {
   );
 });
 test('large filesystem capacities retain precision', () => {
-  assert.equal(formatBytes('18446744073709551615'), '16.0 EB');
+  assert.equal(formatBytes('18446744073709551615'), '16.0 EiB');
   assert.equal(
     availablePercent({ totalBytes: '18446744073709551615', availableBytes: '9223372036854775807' }),
     49.99,

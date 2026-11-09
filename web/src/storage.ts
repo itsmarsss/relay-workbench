@@ -126,7 +126,7 @@ export async function saveStoragePolicy(
 export function formatBytes(value: number | string | bigint): string {
   const bytes = typeof value === 'bigint' ? value : BigInt(value);
   if (bytes < 1024n) return `${bytes} B`;
-  const units = ['KB', 'MB', 'GB', 'TB', 'PB', 'EB'];
+  const units = ['KiB', 'MiB', 'GiB', 'TiB', 'PiB', 'EiB'];
   let scale = 1024n,
     index = 0;
   while (bytes >= scale * 1024n && index < units.length - 1) {
