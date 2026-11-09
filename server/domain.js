@@ -331,6 +331,16 @@ export const HANDOFF_SCHEMA = {
   ],
 };
 export function handoffSchema(stage) {
+  if (stage === 'plan')
+    return {
+      ...HANDOFF_SCHEMA,
+      properties: {
+        ...HANDOFF_SCHEMA.properties,
+        recommendedOptionId: { type: ['string', 'null'] },
+        recommendationReason: { type: 'string' },
+      },
+      required: [...HANDOFF_SCHEMA.required, 'recommendedOptionId', 'recommendationReason'],
+    };
   if (stage === 'followup')
     return {
       ...HANDOFF_SCHEMA,
@@ -452,6 +462,13 @@ export function validateHandoff(raw, stage) {
     new Set(raw.options.map((o) => o.id)).size === raw.options.length,
     'Approach IDs must be unique',
   );
+  if (stage === 'plan' && raw.recommendedOptionId != null) {
+    requireValue(
+      raw.options.some((o) => o.id === raw.recommendedOptionId),
+      'Recommended approach must name a proposed option',
+    );
+    text(raw.recommendationReason, 'Recommendation rationale', 10000);
+  }
   requireValue(
     Array.isArray(raw.findings) &&
       raw.findings.every(

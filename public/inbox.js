@@ -18,7 +18,10 @@ export function notifyInbox(items) {
   }
   for (const item of items) {
     if (!item.seen && !notified.has(item.key)) {
-      const notification = new Notification(item.action, { body: item.title, tag: item.key });
+      const notification = new Notification(item.action, {
+        body: [item.title, item.summary].filter(Boolean).join(' · ').slice(0, 320),
+        tag: item.key,
+      });
       notification.onclick = () => {
         window.focus();
         location.hash = `task/${item.taskId}/overview`;

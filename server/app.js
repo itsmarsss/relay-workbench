@@ -1,3 +1,6 @@
+import { WorkflowAutomation, automationState } from './workflow-automation.js';
+import { workflowHistory, forkCheckpoint } from './workflow-checkpoints.js';
+import { readWorkflowHealth } from './workflow-health.js';
 import { taskProposals, decideTaskProposal, latestTaskConfirmation } from './task-proposals.js';
 import { requirePublicationPrerequisites } from './publication-prerequisites.js';
 import { FeedbackAutopilot } from './feedback-autopilot.js';
@@ -108,6 +111,20 @@ export function createApp({ directory, publicDirectory, engineOptions = {} }) {
     run: engineOptions.workspaceAgentRun,
   });
   const modelCatalog = new ModelCatalog({ run: engineOptions.modelDiscoveryRun });
+  const automation = new WorkflowAutomation(store, engine, publicationWorkflow, {
+    isBusy: (id) =>
+      publicationWorkflow.running.has(id) ||
+      followUpAgent.running.has(id) ||
+      feedbackAutopilot.jobs.has(id),
+    suspended: () => maintenance,
+  });
+  const enrichTask = (task) => ({
+    ...task,
+    automation: automationState(store, task.id),
+    history: workflowHistory(store, task.id),
+    health: readWorkflowHealth(store, task),
+  });
+
   const token = randomBytes(32).toString('hex');
   const streams = new Set();
   const terminalStreams = new Map();
@@ -117,7 +134,8 @@ export function createApp({ directory, publicDirectory, engineOptions = {} }) {
     mutations = 0;
   function requireIdle() {
     requireValue(
-      engine.running.size === 0 &&
+      !automation.busy &&
+        engine.running.size === 0 &&
         engine.manualRuns.size === 0 &&
         external.size === 0 &&
         publicationMonitor.running.size === 0 &&
@@ -526,7 +544,7 @@ export function createApp({ directory, publicDirectory, engineOptions = {} }) {
       }
       if (path === '/api/config' && req.method === 'PUT') {
         requireValue(
-          engine.running.size === 0 && external.size === 0,
+          !automation.busy && engine.running.size === 0 && external.size === 0,
           'Pause active executions before changing configuration',
           409,
         );
@@ -577,7 +595,15 @@ export function createApp({ directory, publicDirectory, engineOptions = {} }) {
           routingOutcomes(store.all(), store.config, url.searchParams.get('repositoryId') || ''),
         );
       if (path === '/api/tasks' && req.method === 'GET')
-        return json(res, 200, store.all().map(taskListSummary));
+        return json(
+          res,
+          200,
+          store.all().map((task) => ({
+            ...taskListSummary(task),
+            automation: automationState(store, task.id),
+            health: readWorkflowHealth(store, task),
+          })),
+        );
       if (path === '/api/tasks' && req.method === 'POST')
         return json(res, 201, engine.create(await body(req)));
       if (path === '/api/events' && req.method === 'GET') {
@@ -612,6 +638,29 @@ export function createApp({ directory, publicDirectory, engineOptions = {} }) {
         const [, id, operation] = match;
         const task = store.get(id);
         requireValue(task, 'Task not found', 404);
+        requireValue(
+          task.checkpointRestore?.status !== 'preparing' || req.method === 'GET',
+          'Wait for checkpoint restoration to finish',
+          409,
+        );
+        if (operation === 'automation' && req.method === 'POST') {
+          const state = automation.configure(id, await body(req));
+          return json(res, 200, state);
+        }
+        if (operation === 'fork' && req.method === 'POST') {
+          const request = await body(req);
+          requireValue(
+            request && typeof request === 'object' && !Array.isArray(request),
+            'Invalid checkpoint continuation',
+          );
+          requireValue(!engine.actionLocks.has(id), 'Wait for the current task action', 409);
+          engine.actionLocks.add(id);
+          try {
+            return json(res, 201, await forkCheckpoint(store, id, request.checkpointId, request));
+          } finally {
+            engine.actionLocks.delete(id);
+          }
+        }
         if (!operation && req.method === 'DELETE') {
           requireValue(mutations === 1, 'Wait for pending changes before deleting this task.', 409);
           const keyedRun = (runs) =>
@@ -793,7 +842,7 @@ export function createApp({ directory, publicDirectory, engineOptions = {} }) {
         }
         if (!operation && req.method === 'GET')
           return json(res, 200, {
-            ...task,
+            ...enrichTask(task),
             executionActive:
               engine.running.has(id) || engine.manualRuns.has(id) || followUpAgent.running.has(id),
             canSteer:
@@ -1204,6 +1253,7 @@ export function createApp({ directory, publicDirectory, engineOptions = {} }) {
     }
   });
   async function close() {
+    await automation.stop();
     await feedbackAutopilot.stop();
     for (const preview of restorePreviews.values()) {
       clearTimeout(preview.timer);

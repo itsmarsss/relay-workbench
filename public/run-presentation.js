@@ -1,7 +1,11 @@
 import { e, duration } from './ui.js';
 import { timer } from './live-progress.js';
 export function harnessName(id) {
-  return { codex: 'Codex', claude: 'Claude', pi: 'Pi', checks: 'Checks' }[id] ?? id ?? 'Agent';
+  return (
+    { codex: 'Codex', claude: 'Claude', pi: 'Pi', relay: 'Relay', checks: 'Checks' }[id] ??
+    id ??
+    'Agent'
+  );
 }
 export function runState(run) {
   if (!run) return { key: 'pending', label: 'Pending', mark: '○' };

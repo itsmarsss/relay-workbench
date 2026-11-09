@@ -1,3 +1,4 @@
+import { captureCheckpoint } from './workflow-checkpoints.js';
 import { applyLoopGuard } from './loop-guard.js';
 import {
   prepareCheckRunner,
@@ -107,6 +108,11 @@ export class Engine {
       'Wait for interrupted workers to stop before editing.',
       409,
     );
+    requireValue(
+      task.checkpointRestore?.status !== 'preparing',
+      'Wait for checkpoint restoration to finish',
+      409,
+    );
     const result = reconfigureTask(task, data, this.store.config);
     return this.store.save(result.task, {
       type: 'configuration',
@@ -122,6 +128,11 @@ export class Engine {
     this.actionLocks.add(id);
     try {
       const task = this.store.get(id);
+      requireValue(
+        task?.checkpointRestore?.status !== 'preparing',
+        'Wait for checkpoint restoration to finish',
+        409,
+      );
       requireValue(task, 'Task not found', 404);
       const status = task.status;
       if (action === 'follow-up') {
@@ -620,6 +631,11 @@ export class Engine {
           'Wait a few seconds for interrupted worker processes to terminate, then resume.',
           409,
         );
+        requireValue(
+          !task.checkpointRestore || task.checkpointRestore.status === 'complete',
+          'Finish restoring the checkpoint before running this continuation',
+          409,
+        );
         const budgetAttempt =
           task.blockerDecision?.kind === 'runtime_budget' ? task.attempts.at(-1) : null;
         task.loopGuardAcknowledgedAt = task.attempts.length;
@@ -689,6 +705,7 @@ export class Engine {
         task.chosenApproach = option;
         task.approvals.push({
           type: 'approach',
+          automation: data.automation,
           option,
           at: new Date().toISOString(),
           note: text(data.note ?? '', 'Note', 10000, true),
@@ -699,6 +716,7 @@ export class Engine {
         task.error = null;
         this.store.save(task, {
           type: 'approval',
+          source: data.automation ? 'relay' : 'user',
           summary: `Approach approved: ${option.title}`,
           details: data.note ?? '',
         });
@@ -746,12 +764,14 @@ export class Engine {
         task.status = 'completed';
         task.approvals.push({
           type: 'final',
+          automation: data.automation,
           at: new Date().toISOString(),
           fingerprint: task.reviewedFingerprint,
         });
         this.releaseReservation(id);
         this.store.save(task, {
           type: 'accepted',
+          source: data.automation ? 'relay' : 'user',
           summary: 'Final result accepted. Workspace and branch retained.',
         });
       } else if (action === 'pause' || action === 'cancel') {
@@ -1230,34 +1250,38 @@ export class Engine {
       }
     }
     const parentAttempt = task.attempts.at(-1);
+    const firstForkRun = task.fork && !task.attempts.some((a) => !a.inherited);
     const firstFollowUp =
       task.followUpContext &&
       !task.attempts.some((run) => run.followUpId === task.followUpContext.id);
     const attempt = {
       followUpId: task.followUpContext?.id,
-      parentAttemptId:
-        firstFollowUp && task.followUpContext.sourceFeedbackId
+      parentAttemptId: firstForkRun
+        ? task.fork.nodeId
+        : firstFollowUp && task.followUpContext.sourceFeedbackId
           ? task.followUpContext.sourceFeedbackId
           : (parentAttempt?.id ?? null),
-      relation: firstFollowUp
-        ? task.followUpContext.sourceFeedbackId
-          ? 'PR feedback repair'
-          : 'Follow-up request'
-        : task.verificationReportRepair && agentVerification && !debugging
-          ? task.verificationReportRepair.mode === 'check_recovery'
-            ? 'Resolve failed check'
-            : 'Report correction'
-          : trustedVerification
-            ? 'Trusted verification'
-            : debugging
-              ? 'Diagnosis'
-              : task.recovery?.phase === 'continue'
-                ? 'Continue after diagnosis'
-                : parentAttempt && task.round > parentAttempt.round
-                  ? 'Repair / backtrack'
-                  : parentAttempt?.stage === stage
-                    ? 'Retry / next repository'
-                    : 'Handoff',
+      relation: firstForkRun
+        ? 'Continue from checkpoint'
+        : firstFollowUp
+          ? task.followUpContext.sourceFeedbackId
+            ? 'PR feedback repair'
+            : 'Follow-up request'
+          : task.verificationReportRepair && agentVerification && !debugging
+            ? task.verificationReportRepair.mode === 'check_recovery'
+              ? 'Resolve failed check'
+              : 'Report correction'
+            : trustedVerification
+              ? 'Trusted verification'
+              : debugging
+                ? 'Diagnosis'
+                : task.recovery?.phase === 'continue'
+                  ? 'Continue after diagnosis'
+                  : parentAttempt && task.round > parentAttempt.round
+                    ? 'Repair / backtrack'
+                    : parentAttempt?.stage === stage
+                      ? 'Retry / next repository'
+                      : 'Handoff',
       id: randomUUID(),
       stage,
       role: debugging
@@ -1895,6 +1919,23 @@ export class Engine {
     else if (task.recovery) {
       task.recovery.active = false;
       this.store.save(task);
+    }
+    if (
+      !debugging &&
+      !trustedVerification &&
+      handoff.verdict === 'complete' &&
+      !handoff.findings.length &&
+      !['blocked', 'paused', 'cancelled'].includes(task.status)
+    ) {
+      try {
+        await captureCheckpoint(this.store, task, savedAttempt, { expectedFingerprint: after });
+      } catch (error) {
+        this.store.event(id, {
+          type: 'checkpoint_failed',
+          attemptId: attempt.id,
+          summary: `Checkpoint unavailable: ${error.message}`,
+        });
+      }
     }
     if (['awaiting_plan', 'awaiting_final'].includes(task.status))
       this.store.event(id, {

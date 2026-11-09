@@ -61,7 +61,8 @@ export function activityRunHeader(attempt, events) {
 
 // Harness metadata identifies the run; only agent output identifies its speaker.
 export function activityEventIdentity(event) {
-  const human = ['feedback', 'approval', 'accepted'].includes(event.type);
+  const human =
+    event.source !== 'relay' && ['feedback', 'approval', 'accepted'].includes(event.type);
   const agent =
     !human &&
     ['activity', 'handoff'].includes(event.type) &&
