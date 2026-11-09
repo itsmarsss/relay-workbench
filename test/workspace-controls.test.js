@@ -362,3 +362,98 @@ test('invalid options, hidden directions and design retries cannot become approv
   assert.throws(() => proposeTaskChanges(store, [null], 'Invalid'), /Invalid task/);
   assert.throws(() => propose(task, { operation: '__proto__' }), /Unsupported task change/);
 });
+
+test('retention never evicts an applying request when settled history grows', async (t) => {
+  const { store, engine, propose, decide } = await fixture(t);
+  const task = engine.create({ title: 'Slow publication', demo: true });
+  task.demo = false;
+  task.status = 'completed';
+  store.save(task);
+  let begin, release;
+  const began = new Promise((resolve) => (begin = resolve));
+  const waiting = new Promise((resolve) => (release = resolve));
+  const proposal = propose(task, { operation: 'publish', repositoryId: task.repository.id });
+  const applying = decide(proposal.id, 'approve', {
+    publication: {
+      start: async () => {
+        begin();
+        await waiting;
+      },
+    },
+  });
+  await began;
+  const other = engine.create({ title: 'Independent task', demo: true });
+  try {
+    for (let i = 0; i < 85; i++) {
+      const settled = propose(other, {
+        operation: 'automation',
+        enabled: false,
+        scope: 'reviewed',
+      });
+      await decide(settled.id, 'reject');
+    }
+    assert.equal(taskProposals(store).find((p) => p.id === proposal.id)?.status, 'applying');
+  } finally {
+    release();
+    await applying;
+  }
+  assert.equal(taskProposals(store).find((p) => p.id === proposal.id)?.status, 'approved');
+  assert.ok(taskProposals(store).length <= 81);
+});
+
+test('inherited run inspection exposes the actual origin for saved activity', async (t) => {
+  const { store, engine, agent } = await fixture(t);
+  const origin = engine.create({ title: 'Original findings', demo: true });
+  store.event(origin.id, {
+    type: 'activity',
+    attemptId: 'original-run',
+    summary: 'Original evidence',
+  });
+  const fork = engine.create({ title: 'Nested continuation', demo: true });
+  fork.fork = { sourceTaskId: 'intermediate-task' };
+  fork.attempts = [
+    {
+      id: 'original-run',
+      inherited: true,
+      originTaskId: origin.id,
+      parentAttemptId: 'earlier-run',
+      followUpId: 'follow-up',
+      stage: 'investigate',
+      status: 'complete',
+    },
+  ];
+  store.save(fork);
+  const details = await agent.tool('get_task', { id: fork.id });
+  assert.equal(details.attempts[0].inherited, true);
+  assert.equal(details.attempts[0].originTaskId, origin.id);
+  assert.equal(details.attempts[0].parentAttemptId, 'earlier-run');
+  const activity = await agent.tool('read_task_activity', { id: details.attempts[0].originTaskId });
+  assert.ok(activity.events.some((e) => e.summary === 'Original evidence'));
+});
+
+test('large activity pages are bounded with explicit excerpts and lossless cursors', async (t) => {
+  const { store, engine, agent } = await fixture(t);
+  const task = engine.create({ title: 'Large diagnostic output', demo: true });
+  for (let i = 0; i < 100; i++)
+    store.event(task.id, {
+      type: 'activity',
+      attemptId: 'run',
+      summary: `Operation ${i}`,
+      details: 'BEGIN OUTPUT ' + 'Long output '.repeat(10000) + ' FINAL FAILURE',
+    });
+  const page = await agent.tool('read_task_activity', { id: task.id, limit: 100 });
+  assert.equal(page.events.length, 100);
+  assert.equal(page.truncated, true);
+  assert.ok(page.events.every((e) => e.truncated && e.originalCharacters > 100000));
+  assert.ok(
+    page.events.every(
+      (e) => e.details.startsWith('BEGIN OUTPUT') && e.details.endsWith('FINAL FAILURE'),
+    ),
+  );
+  assert.ok(JSON.stringify(page).length < 96000);
+  assert.equal(page.nextAfter, page.events.at(-1).seq);
+  const saved = store.events(task.id, page.events[0].seq - 1, 1)[0];
+  assert.ok(saved.details.length > 100000);
+  const next = await agent.tool('read_task_activity', { id: task.id, after: page.nextAfter });
+  assert.deepEqual(next.events, []);
+});

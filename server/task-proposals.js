@@ -221,8 +221,8 @@ export function proposeTaskChanges(store, changes, reason, messageId) {
     createdAt: new Date().toISOString(),
   };
   save(store, [
-    ...all.filter((p) => p.status === 'pending'),
-    ...all.filter((p) => p.status !== 'pending').slice(-79),
+    ...all.filter((p) => ['pending', 'applying'].includes(p.status)),
+    ...all.filter((p) => !['pending', 'applying'].includes(p.status)).slice(-79),
     proposal,
   ]);
   return {

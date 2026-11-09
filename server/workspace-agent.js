@@ -19,6 +19,34 @@ import { requireValue, text, DEFAULT_CONFIG } from './domain.js';
 import { MEMORY_CONTEXT_RULES, selectMemories } from './memory.js';
 import { proposeConfiguration, configurationProposals } from './workspace-permissions.js';
 import { effortArgs, effortLevels } from '../public/agent-options.js';
+function activityExcerpts(events) {
+  const budget = Math.floor(48000 / Math.max(1, events.length));
+  return events.map((event) => {
+    const encoded = JSON.stringify(event);
+    if (encoded.length <= budget) return event;
+    const { seq, at, type, stage, attemptId, harness, repositoryId, kind } = event;
+    const detail = typeof event.details === 'string' ? event.details : encoded;
+    const detailBudget = Math.floor(budget / 2);
+    const half = Math.floor(detailBudget / 2);
+    return {
+      seq,
+      at,
+      type,
+      stage,
+      attemptId,
+      harness,
+      repositoryId,
+      kind,
+      summary: String(event.summary ?? '').slice(0, Math.min(512, Math.floor(budget / 4))),
+      details:
+        detail.length <= detailBudget
+          ? detail
+          : `${detail.slice(0, half)}\n[… omitted …]\n${detail.slice(-half)}`,
+      truncated: true,
+      originalCharacters: encoded.length,
+    };
+  });
+}
 export const workspaceTools = [
   {
     name: 'propose_task_changes',
@@ -173,7 +201,8 @@ export const workspaceTools = [
   },
   {
     name: 'get_task',
-    description: 'Read a task and its latest recorded findings, blockers and approvals.',
+    description:
+      'Read a task and its latest recorded findings, blockers and approvals. Inherited runs are historical; use originTaskId to read their original activity.',
     inputSchema: {
       type: 'object',
       properties: { id: { type: 'string' } },
@@ -184,7 +213,7 @@ export const workspaceTools = [
   {
     name: 'read_task_activity',
     description:
-      'Read recent recorded agent output, tool activity, handoffs and workflow events. Omitting after returns the latest page. Pass after=0 to start full history, then nextAfter for pagination. No shell access.',
+      'Read recent recorded agent output, tool activity, handoffs and workflow events. Omitting after returns the latest page. Pass after=0 to start full history, then nextAfter for pagination. Oversized entries return explicitly marked excerpts; full saved logs remain in task Activity. No shell access.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -448,7 +477,13 @@ export class WorkspaceAgent {
               .reverse()
               .map((row) => ({ ...JSON.parse(row.body), seq: Number(row.seq) }))
           : this.store.events(task.id, after, limit);
-      return { taskId: task.id, events, nextAfter: events.at(-1)?.seq ?? after };
+      const excerpts = activityExcerpts(events);
+      return {
+        taskId: task.id,
+        events: excerpts,
+        truncated: excerpts.some((event) => event.truncated),
+        nextAfter: events.at(-1)?.seq ?? after,
+      };
     }
     if (name === 'list_tasks')
       return {
@@ -535,6 +570,10 @@ export class WorkspaceAgent {
         attempts: task.attempts.slice(-5).map((a) => ({
           id: a.id,
           role: a.role,
+          inherited: a.inherited ?? false,
+          originTaskId: a.originTaskId ?? (a.inherited ? task.fork?.sourceTaskId : undefined),
+          parentAttemptId: a.parentAttemptId,
+          followUpId: a.followUpId,
           repositoryId: a.repositoryId,
           stage: a.stage,
           status: a.status,

@@ -114,6 +114,11 @@ export function decideConfiguration(store, id, decision) {
   requireValue(proposal.status === 'pending', 'This request has already been reviewed', 409);
   if (decision === 'approve') {
     requireValue(
+      store.config.workspaceAgent.permissions.readSettings,
+      'Read settings permission is required',
+      403,
+    );
+    requireValue(
       store.config.workspaceAgent.permissions.proposeSettings,
       'Settings proposals are disabled',
       403,

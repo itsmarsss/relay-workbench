@@ -297,3 +297,20 @@ test('partial task routing proposals preserve unrelated overrides', async (t) =>
   assert.equal(store.get(task.id).routing.implement, 'claude');
   assert.equal(store.get(task.id).models.review, 'custom-review');
 });
+
+test('configuration approval explicitly rechecks read permission', async (t) => {
+  const { store } = await fixture(t);
+  const proposal = proposeConfiguration(
+    store,
+    [{ path: ['concurrency'], value: 3 }],
+    'More parallel work',
+  );
+  store.config.workspaceAgent.permissions.readSettings = false;
+  assert.throws(
+    () => decideConfiguration(store, proposal.id, 'approve'),
+    (error) => error.status === 403 && /Read settings permission/.test(error.message),
+  );
+  assert.equal(store.config.concurrency, 2);
+  assert.equal(configurationProposals(store).find((p) => p.id === proposal.id).status, 'pending');
+  decideConfiguration(store, proposal.id, 'reject');
+});
