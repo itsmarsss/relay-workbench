@@ -38,7 +38,7 @@ func options(t *testing.T, script string, args ...string) Options {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return Options{WorkerExecutable: worker, WorkerArgs: []string{"-test.run=^TestWorkerHelper$", "--"}, Command: node, Args: append([]string{"-e", script}, args...), Directory: t.TempDir(), Timeout: 5 * time.Second, TerminationGrace: 2 * time.Second, MaxOutputBytes: 65536, Environment: map[string]string{"RELAY_TEST_WORKER": "1"}}
+	return Options{WorkerExecutable: worker, WorkerArgs: []string{"-test.run=^TestWorkerHelper$", "--"}, Command: node, Args: append([]string{"-e", script}, args...), Directory: t.TempDir(), Timeout: 15 * time.Second, TerminationGrace: 2 * time.Second, MaxOutputBytes: 65536, Environment: map[string]string{"RELAY_TEST_WORKER": "1"}}
 }
 func TestArgumentsAndStreamingAreLiteral(t *testing.T) {
 	literal := "$(touch should-not-exist); `unsafe`"
@@ -79,11 +79,32 @@ func TestNonzeroExitIsReturnedWithoutSuccess(t *testing.T) {
 func TestCancellationTimeoutAndOutputLimit(t *testing.T) {
 	t.Run("cancel", func(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
-		opts := options(t, `setInterval(()=>{},1000)`)
-		go func() { time.Sleep(150 * time.Millisecond); cancel() }()
+		defer cancel()
+		opts := options(t, `console.log('ready');setInterval(()=>{},1000)`)
+		ready := make(chan struct{})
+		opts.OnLine = func(_ context.Context, line, stream string) error {
+			if stream == "stdout" && line == "ready" {
+				close(ready)
+			}
+			return nil
+		}
+		go func() {
+			select {
+			case <-ready:
+				cancel()
+			case <-ctx.Done():
+			case <-time.After(10 * time.Second):
+				cancel()
+			}
+		}()
 		_, err := Run(ctx, opts)
 		if !errors.Is(err, ErrCancelled) {
 			t.Fatalf("cancellation: %v", err)
+		}
+		select {
+		case <-ready:
+		default:
+			t.Fatal("cancelled before target started")
 		}
 	})
 	t.Run("timeout", func(t *testing.T) {

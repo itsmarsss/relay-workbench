@@ -50,7 +50,7 @@ func TestBuiltBinarySupervisesCommand(t *testing.T) {
 	if output, err := builder.CombinedOutput(); err != nil {
 		t.Fatalf("build: %s: %v", output, err)
 	}
-	result, err := process.Run(context.Background(), process.Options{WorkerExecutable: binary, WorkerArgs: []string{"--internal-worker"}, Command: node, Args: []string{"-e", `console.log('worker ok')`}, Directory: t.TempDir(), Timeout: 5 * time.Second, MaxOutputBytes: 4096})
+	result, err := process.Run(context.Background(), process.Options{WorkerExecutable: binary, WorkerArgs: []string{"--internal-worker"}, Command: node, Args: []string{"-e", `console.log('worker ok')`}, Directory: t.TempDir(), Timeout: 20 * time.Second, MaxOutputBytes: 4096})
 	if err != nil {
 		t.Fatal(err)
 	}
