@@ -42,9 +42,12 @@ export function activityRunNavigation(task, selected, selection) {
       '',
     )}</div><button class="activity-run-all ${selection === 'all' ? 'selected' : ''}" data-action="activity-run" data-run="all" aria-pressed="${selection === 'all'}">All activity</button></nav>`;
 }
-export function activityRunHeader(attempt, events) {
+export function activityRunHeader(attempt, events, task) {
   if (!attempt)
     return '<header class="activity-run-header"><div><h2>All activity</h2><p>The complete task history, in order.</p></div></header>';
+  const originTaskId = attempt.inherited
+    ? (attempt.originTaskId ?? task?.fork?.sourceTaskId)
+    : null;
   const host = attempt.role === 'verifier' || attempt.harness === 'checks';
   const title = runLabel(attempt);
   const output =
@@ -56,7 +59,7 @@ export function activityRunHeader(attempt, events) {
           .join('\n')
           .slice(-2400)
       : '';
-  return `<header class="activity-run-header"><div class="activity-run-title">${harnessBadge(attempt.harness)}<div><h2>${e(title)}</h2><p>${e(runState(attempt).label)} · ${ago(attempt.startedAt)}</p></div></div>${host ? (isVerificationAgent(attempt) ? '<p>An agent discovers checks from repository guidance, runs them on the host and investigates failures.</p>' : '<p>Configured checks run on the Relay host. Results return to the agent. All workflow agents use host execution.</p>') : attempt.handoff ? `<p>${e(concise(attempt.handoff.summary))}</p>` : ''}</header>${output ? `<section class="host-output" aria-label="Recent check output"><div>Recent output <span>${attempt.status === 'running' ? 'Live' : 'Saved'}</span></div><pre>${e(output)}</pre></section>` : ''}`;
+  return `<header class="activity-run-header"><div class="activity-run-title">${harnessBadge(attempt.harness)}<div><h2>${e(title)}</h2><p>${e(runState(attempt).label)} · ${ago(attempt.startedAt)}</p></div></div>${originTaskId ? `<p><a class="btn text small" href="#task/${e(originTaskId)}/thread" data-action="graph-open-activity" data-task-id="${e(originTaskId)}" data-id="${e(attempt.id)}">View original activity ↗</a></p>` : ''}${host ? (isVerificationAgent(attempt) ? '<p>An agent discovers checks from repository guidance, runs them on the host and investigates failures.</p>' : '<p>Configured checks run on the Relay host. Results return to the agent. All workflow agents use host execution.</p>') : attempt.handoff ? `<p>${e(concise(attempt.handoff.summary))}</p>` : ''}</header>${output ? `<section class="host-output" aria-label="Recent check output"><div>Recent output <span>${attempt.status === 'running' ? 'Live' : 'Saved'}</span></div><pre>${e(output)}</pre></section>` : ''}`;
 }
 
 // Harness metadata identifies the run; only agent output identifies its speaker.

@@ -210,6 +210,7 @@ export async function forkCheckpoint(
       handoff,
       fingerprint: savedFingerprint,
       inherited: true,
+      originTaskId: a.originTaskId ?? sourceId,
     };
   });
   task.loopGuardAcknowledgedAt = task.attempts.length;

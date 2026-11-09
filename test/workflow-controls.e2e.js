@@ -73,6 +73,15 @@ try {
   assert.ok(approachFork);
   assert.equal(approachFork.attempts.filter((attempt) => !attempt.inherited).length, 0);
   assert.equal(await page.locator('#approve-form .approach-option').count(), 2);
+  await page.locator('[data-action="tab"][data-tab="thread"]').click();
+  await page.getByRole('link', { name: 'View original activity ↗' }).waitFor();
+  assert.equal(
+    await page.getByRole('link', { name: 'View original activity ↗' }).getAttribute('href'),
+    `#task/${task.id}/thread`,
+  );
+  await page.getByRole('link', { name: 'View original activity ↗' }).click();
+  await page.waitForURL((url) => url.hash === `#task/${task.id}/thread`);
+  assert.equal(await page.locator('.graph-dialog').count(), 0);
   await page.goto(`${base}/#task/${task.id}/overview`);
   await page.locator('[data-action="open-execution-map"]').click();
   await page.locator('.graph-node[data-id^="checkpoint-"]').first().click();

@@ -275,6 +275,7 @@ test('checkpoint forks preserve HEAD, staging and untracked files without touchi
   assert.equal(fork.verifiedFingerprint, null);
   assert.equal(fork.reviewedFingerprint, null);
   assert.equal(fork.attempts[0].sessionId, undefined);
+  assert.equal(fork.attempts[0].originTaskId, task.id);
   assert.equal(fork.status, 'paused');
   assert.equal(automationState(store, fork.id).enabled, false);
   const graphTask = { ...task, history: workflowHistory(store, task.id) };
