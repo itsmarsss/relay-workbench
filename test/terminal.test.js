@@ -262,7 +262,7 @@ test(
       ['-e', 'console.log("startup diagnostic retained");process.exit(7)'],
       { cwd, terminal: { name: 'retained-manual', interactive: true } },
     );
-    assert.equal(result.code, 7);
+    assert.equal(result.code, 7, JSON.stringify(result));
     assert.match(result.stdout, /startup diagnostic retained/);
   },
 );

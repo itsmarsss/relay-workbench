@@ -82,7 +82,7 @@ try {
     [{ taskId: draft.id, operation: 'settings', settings: { preset: 'small' } }],
     'Use the focused workflow',
   );
-  await page.getByRole('button', { name: 'Review 1 tasks' }).click();
+  await page.getByRole('button', { name: 'Review action' }).click();
   await dialog.getByRole('heading', { name: 'Configure this draft' }).waitFor();
   assert.notEqual(app.store.get(draft.id).preset, 'small');
   await dialog.getByRole('button', { name: 'Approve changes' }).click();

@@ -68,3 +68,29 @@ export function withoutMention(question, label) {
   }
   return output + question.slice(cursor);
 }
+
+// Link plain task references in prose while preserving code and existing Markdown links.
+export function mentionAnswerHTML(html, mentions = []) {
+  if (typeof document === 'undefined') return html;
+  const root = document.createElement('div');
+  root.innerHTML = html;
+  const unique = new Map();
+  for (const m of mentions)
+    if (m && typeof m.label === 'string' && /^[a-f0-9-]{36}$/.test(m.id)) {
+      if (!unique.has(m.label)) unique.set(m.label, m);
+      else if (unique.get(m.label)?.id !== m.id) unique.set(m.label, null);
+    }
+  const candidates = [...unique.values()].filter(Boolean);
+  const walker = document.createTreeWalker(root, 4),
+    nodes = [];
+  while (walker.nextNode())
+    if (!walker.currentNode.parentElement.closest('a,pre,code,button'))
+      nodes.push(walker.currentNode);
+  for (const node of nodes)
+    if (activeMentions(node.textContent, candidates).length) {
+      const replacement = document.createElement('span');
+      replacement.innerHTML = mentionQuestion(node.textContent, candidates);
+      node.replaceWith(...replacement.childNodes);
+    }
+  return root.innerHTML;
+}
