@@ -227,6 +227,28 @@ func TestStageRunnerPreservesDirectionAddedDuringExecution(t *testing.T) {
 	}
 }
 
+func TestStageRunnerMarksOnlyIncludedDirectionDelivered(t *testing.T) {
+	line := stageFinal()
+	runner, options, db := stageFixture(t, "plan", 1, "cat >/dev/null\nprintf '%s\\n' '"+line+"'")
+	value := readStageTask(t, db)
+	value["messages"] = []any{map[string]any{"id": "message-1", "role": "user", "text": "Review this", "delivery": "pending"}}
+	body, _ := json.Marshal(value)
+	if err := db.Save(body, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := runner.Run(context.Background(), stageTaskID, options); err != nil {
+		t.Fatal(err)
+	}
+	value = readStageTask(t, db)
+	message := object(array(value["messages"])[0])
+	if message["delivery"] != "delivered" || text(message["attemptId"]) == "" {
+		t.Fatalf("included direction not recorded: %#v", message)
+	}
+	if _, err := (Service{Store: db}).Approve(stageTaskID, "a", "", Authorization{Human: true}); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestAdvanceStageChecksEveryReviewAndTriageRoute(t *testing.T) {
 	task := map[string]any{"status": "running", "stage": "review", "verifiedFingerprint": "same", "repositoryCursor": 0}
 	guard := workspace.GuardResult{Before: workspace.FingerprintSnapshot{Combined: "same"}, After: workspace.FingerprintSnapshot{Combined: "same"}}

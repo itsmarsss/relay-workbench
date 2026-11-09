@@ -96,6 +96,82 @@ func (r Runner) Inspect(ctx context.Context, profile Profile) (Info, error) {
 	}
 	return Info{root, cwd, rel}, nil
 }
+
+// CommonDirectory resolves the shared Git directory for all linked worktrees,
+// so separate paths belonging to one repository can share a writer reservation.
+func (r Runner) CommonDirectory(ctx context.Context, profile Profile) (string, error) {
+	info, err := r.Inspect(ctx, profile)
+	if err != nil {
+		return "", err
+	}
+	output, err := r.git(ctx, info.Root, "rev-parse", "--path-format=absolute", "--git-common-dir")
+	if err != nil {
+		return "", err
+	}
+	path, err := filepath.EvalSymlinks(strings.TrimSpace(output))
+	if err != nil {
+		return "", err
+	}
+	stat, err := os.Stat(path)
+	if err != nil || !stat.IsDir() {
+		return "", errors.New("Git common directory is unavailable")
+	}
+	return filepath.Abs(path)
+}
+
+// VerifyExisting checks a retained task checkout without resetting or cleaning
+// it. It is safe to inspect dirty work when resuming a read-only stage.
+func (r Runner) VerifyExisting(ctx context.Context, source Profile, root, cwd, branch, baseCommit string) error {
+	if !filepath.IsAbs(root) || !filepath.IsAbs(cwd) || branch == "" || !commitPattern.MatchString(baseCommit) {
+		return errors.New("retained workspace metadata is incomplete")
+	}
+	sourceInfo, err := r.Inspect(ctx, source)
+	if err != nil {
+		return err
+	}
+	targetInfo, err := r.Inspect(ctx, Profile{Path: root, Cwd: cwd})
+	if err != nil {
+		return err
+	}
+	resolved, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		return err
+	}
+	resolvedInfo, resolvedErr := os.Stat(resolved)
+	targetRootInfo, targetErr := os.Stat(targetInfo.Root)
+	sourceRootInfo, sourceErr := os.Stat(sourceInfo.Root)
+	if resolvedErr != nil || targetErr != nil || sourceErr != nil || !os.SameFile(resolvedInfo, targetRootInfo) || os.SameFile(targetRootInfo, sourceRootInfo) {
+		return errors.New("retained workspace is not a separate checkout")
+	}
+	sourceCommon, err := r.CommonDirectory(ctx, source)
+	if err != nil {
+		return err
+	}
+	targetCommon, err := r.CommonDirectory(ctx, Profile{Path: root, Cwd: cwd})
+	if err != nil {
+		return err
+	}
+	sourceCommonInfo, sourceErr := os.Stat(sourceCommon)
+	targetCommonInfo, targetErr := os.Stat(targetCommon)
+	if sourceErr != nil || targetErr != nil || !os.SameFile(sourceCommonInfo, targetCommonInfo) {
+		return errors.New("retained workspace belongs to a different repository")
+	}
+	actualBranch, err := r.git(ctx, targetInfo.Root, "symbolic-ref", "--short", "HEAD")
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(actualBranch) != branch {
+		return errors.New("retained workspace branch changed")
+	}
+	head, err := r.git(ctx, targetInfo.Root, "rev-parse", "HEAD")
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(head) != baseCommit {
+		return errors.New("retained workspace base changed; inspect it before resuming")
+	}
+	return ctx.Err()
+}
 func jsLess(a, b string) bool {
 	x, y := utf16.Encode([]rune(a)), utf16.Encode([]rune(b))
 	for i := 0; i < len(x) && i < len(y); i++ {

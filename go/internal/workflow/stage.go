@@ -76,7 +76,7 @@ func stageWorkspaces(task map[string]any) ([]stageWorkspace, error) {
 	return result, nil
 }
 
-func stagePrompt(task map[string]any, stage string, active stageWorkspace) (string, error) {
+func stagePrompt(task map[string]any, stage string, active stageWorkspace, enabled map[string]bool) (string, error) {
 	attempts := array(task["attempts"])
 	if len(attempts) > 12 {
 		attempts = attempts[len(attempts)-12:]
@@ -87,7 +87,8 @@ func stagePrompt(task map[string]any, stage string, active stageWorkspace) (stri
 		"workflowGuidance": task["workflowGuidance"], "repositories": task["repositories"],
 		"repository": task["repository"], "dependencies": task["dependencies"],
 		"chosenApproach": task["chosenApproach"], "attempts": attempts,
-		"activeRepositoryId": active.id, "workspace": active.cwd,
+		"activeRepositoryId": active.id, "workspace": active.cwd, "routing": task["routing"],
+		"models": task["models"], "availableProviders": enabled,
 	}
 	data, err := json.Marshal(context)
 	if err != nil || len(data) > 7*1024*1024 {
@@ -171,7 +172,7 @@ func (s *StageRunner) Run(ctx context.Context, taskID string, options StageOptio
 		return err
 	}
 	defer lease.Release()
-	prompt, err := stagePrompt(task, stage, active)
+	prompt, err := stagePrompt(task, stage, active, options.EnabledProviders)
 	if err != nil {
 		return err
 	}
@@ -184,6 +185,16 @@ func (s *StageRunner) Run(ctx context.Context, taskID string, options StageOptio
 	}
 	started := timestamp(time.Now())
 	attempt := map[string]any{"id": id, "stage": stage, "harness": provider, "status": "running", "startedAt": started}
+	messageIDs := []string{}
+	for _, value := range array(task["messages"]) {
+		message := object(value)
+		if text(message["delivery"]) == "pending" && text(message["id"]) != "" {
+			messageIDs = append(messageIDs, text(message["id"]))
+		}
+	}
+	if len(messageIDs) > 0 {
+		attempt["messageIds"] = messageIDs
+	}
 	if len(entries) > 1 && (stage == "investigate" || stage == "implement" || stage == "review") {
 		attempt["repositoryId"] = active.id
 	}
@@ -258,6 +269,16 @@ func (s *StageRunner) finish(taskID, attemptID, stage, provider string, count, c
 			task["status"], task["error"] = "blocked", runErr.Error()
 		} else {
 			attempt["handoff"], attempt["status"] = handoff, "complete"
+			included := map[string]bool{}
+			for _, value := range array(attempt["messageIds"]) {
+				included[text(value)] = true
+			}
+			for _, value := range array(task["messages"]) {
+				message := object(value)
+				if included[text(message["id"])] && text(message["delivery"]) == "pending" {
+					message["delivery"], message["attemptId"] = "delivered", attemptID
+				}
+			}
 			if err := advanceStage(task, stage, handoff, count, cursor, result.Guard, enabled); err != nil {
 				runErr = err
 				attempt["status"], attempt["error"] = "failed", err.Error()
