@@ -52,8 +52,13 @@ try {
   await input.press('ArrowDown');
   await input.press('Enter');
   assert.equal(prompts.length, 0);
-  assert.match(await input.inputValue(), /Repair empty results · /);
-  const selected = (await input.inputValue()).includes(first.id.slice(0, 8)) ? first : second;
+  assert.equal(await page.locator('.composer-task-chip').count(), 1);
+  assert.doesNotMatch(await input.inputValue(), /Repair empty results/);
+  const selected = (await page.locator('.composer-task-chip').innerText()).includes(
+    first.id.slice(0, 8),
+  )
+    ? first
+    : second;
   await input.press('End');
   await input.press('Space');
   await input.pressSequentially('@Validation');
@@ -99,6 +104,11 @@ try {
   assert.equal(await page.locator('.task-mention-picker').count(), 0);
   await page.setViewportSize({ width: 390, height: 844 });
   await page.evaluate(() => window.RelayTheme.set('dark'));
+  await input.fill(Array(25).fill('A line of direction').join('\n'));
+  assert.ok((await input.boundingBox()).height <= 181);
+  assert.equal(await input.evaluate((el) => getComputedStyle(el).overflowY), 'auto');
+  await input.fill('');
+  assert.ok((await input.boundingBox()).height <= 40);
   await input.fill('@Validation');
   await page.getByRole('option', { name: /Validation boundary/ }).waitFor();
   const bounds = await page.locator('.task-mention-picker').evaluate((el) => {
@@ -120,8 +130,12 @@ try {
     JSON.stringify(bounds),
   );
   await mkdir('docs/screenshots', { recursive: true });
-  await page.screenshot({ path: 'docs/screenshots/task-mentions-mobile.png' });
   await page.getByRole('option', { name: /Validation boundary/ }).click();
+  assert.equal(await page.locator('#relay-orchestrator .composer-task-chip').count(), 1);
+  await page.waitForTimeout(300);
+  await page.screenshot({ path: 'docs/screenshots/task-mentions-mobile.png' });
+  await page.getByRole('button', { name: 'Remove task Validation boundary', exact: true }).click();
+  assert.equal(await page.locator('#relay-orchestrator .composer-task-chip').count(), 0);
   assert.equal(prompts.length, 2);
   assert.deepEqual(errors, []);
   console.log(

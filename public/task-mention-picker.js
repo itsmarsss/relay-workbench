@@ -1,4 +1,4 @@
-import { activeMentions } from './task-mentions.js';
+import { mentionPresent, withoutMention } from './task-mentions.js';
 import { escapeHTML as e } from './escape.js';
 import { animateSurface } from './motion-preferences.js';
 const key = 'relay-workspace-mentions';
@@ -29,10 +29,64 @@ export function clearComposerMentions(input) {
   save(input, []);
 }
 export function submittedMentions(input) {
-  return activeMentions(input.value, composerMentions(input)).map(({ id, label }) => ({
-    id,
-    label,
-  }));
+  return composerMentions(input)
+    .filter((m) => m.attached || mentionPresent(input.value, m.label))
+    .map(({ id, label }) => ({ id, label }));
+}
+export function composedQuestion(input) {
+  const extra = submittedMentions(input).filter((m) => !mentionPresent(input.value, m.label));
+  return [input.value.trim(), extra.map((m) => '@' + m.label).join(' ')]
+    .filter(Boolean)
+    .join('\n\n');
+}
+const hydrated = new WeakSet();
+export function syncTaskComposer(input) {
+  if (!input) return;
+  if (!hydrated.has(input)) {
+    hydrated.add(input);
+    const mentions = composerMentions(input).filter(
+      (m) => m.attached || mentionPresent(input.value, m.label),
+    );
+    let migrated = false;
+    for (const m of mentions) {
+      if (!m.attached) {
+        migrated = true;
+        input.value = withoutMention(input.value, m.label);
+      }
+      m.attached = true;
+    }
+    save(input, mentions);
+    if (migrated) input.value = input.value.trim();
+    if (input.id === 'workspace-request')
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+  }
+  const mentions = composerMentions(input).filter((m) => m.attached);
+  let row = input.parentElement.querySelector(':scope > .composer-task-chips');
+  if (!row) {
+    row = document.createElement('div');
+    row.className = 'composer-task-chips';
+    row.setAttribute('aria-label', 'Referenced tasks');
+    input.before(row);
+  }
+  const markup = mentions
+    .map(
+      (m) =>
+        `<span class="composer-task-chip" title="${e(m.label)}"><span aria-hidden="true">@</span><span>${e(m.label)}</span><button type="button" data-remove-mention="${e(m.id)}" aria-label="Remove task ${e(m.label)}">×</button></span>`,
+    )
+    .join('');
+  const signature = JSON.stringify(mentions);
+  if (row.dataset.mentions !== signature) {
+    row.dataset.mentions = signature;
+    row.innerHTML = markup;
+  }
+  row.hidden = !mentions.length;
+  input.required = !mentions.length;
+  if (input.id === 'workspace-request') {
+    input.style.height = '0px';
+    const height = Math.max(30, Math.min(180, input.scrollHeight));
+    input.style.height = height + 'px';
+    input.style.overflowY = input.scrollHeight > 180 ? 'auto' : 'hidden';
+  }
 }
 export function installTaskMentions(getTasks) {
   let panel,
@@ -87,11 +141,12 @@ export function installTaskMentions(getTasks) {
     if (!task) return;
     const existing = getTasks().filter((t) => t.title === task.title);
     const label = task.title + (existing.length > 1 ? ' · ' + task.id.slice(0, 8) : '');
-    const values = composerMentions(input).filter((m) => m.id !== task.id || m.label !== label);
-    values.push({ id: task.id, label });
+    const values = composerMentions(input).filter((m) => m.id !== task.id);
+    values.push({ id: task.id, label, attached: true });
     save(input, values);
     const target = input;
-    target.setRangeText('@' + label + ' ', trigger.start, target.selectionStart, 'end');
+    target.setRangeText('', trigger.start, target.selectionStart, 'end');
+    syncTaskComposer(target);
     close();
     target.focus({ preventScroll: true });
     suppress = true;
@@ -151,9 +206,23 @@ export function installTaskMentions(getTasks) {
     if (fresh) animateSurface(panel, 'dropdown');
   }
   document.addEventListener('input', (event) => {
-    if (accepts(event.target)) update(event.target);
+    if (accepts(event.target)) {
+      syncTaskComposer(event.target);
+      update(event.target);
+    }
   });
   document.addEventListener('click', (event) => {
+    const remove = event.target.closest('[data-remove-mention]');
+    if (remove) {
+      const target = remove.closest('form').querySelector('textarea');
+      save(
+        target,
+        composerMentions(target).filter((m) => m.id !== remove.dataset.removeMention),
+      );
+      syncTaskComposer(target);
+      target.focus();
+      return;
+    }
     if (accepts(event.target)) update(event.target);
     else if (panel && !panel.contains(event.target)) close();
   });
@@ -196,7 +265,15 @@ export function installTaskMentions(getTasks) {
     true,
   );
   document.addEventListener('scroll', position, true);
-  window.addEventListener('resize', position);
+  window.addEventListener('resize', () => {
+    document.querySelectorAll('#workspace-request').forEach(syncTaskComposer);
+    position();
+  });
+  new MutationObserver(() =>
+    document
+      .querySelectorAll('#workspace-request,#chat-edit-question[data-task-mentions]')
+      .forEach(syncTaskComposer),
+  ).observe(document.body, { childList: true, subtree: true });
   window.addEventListener('hashchange', close);
   document.addEventListener('focusin', (event) => {
     if (panel && event.target !== input && !panel.contains(event.target)) close();

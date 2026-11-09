@@ -1,5 +1,7 @@
 import {
   installTaskMentions,
+  composedQuestion,
+  syncTaskComposer,
   submittedMentions,
   clearComposerMentions,
 } from './task-mention-picker.js';
@@ -255,7 +257,10 @@ function renderMain() {
   main.dataset.motionScope = `${state.view}:${state.selected ?? ''}:${state.tab}`;
   updateLiveDOM(main, markup, `${state.view}:${state.selected ?? ''}`);
   const composer = main.querySelector('#workspace-request');
-  if (composer) composer.value = state.orchestratorDraft ?? '';
+  if (composer) {
+    composer.value = state.orchestratorDraft ?? '';
+    syncTaskComposer(composer);
+  }
   for (const draft of modelDrafts) {
     const select = document.getElementById(draft.id);
     if (!select || select.dataset.modelProvider !== draft.provider) continue;
@@ -1925,7 +1930,10 @@ document.addEventListener('submit', async (event) => {
         chatScope === 'workspace' ? '/workspace-agent' : `/tasks/${taskId}/question`,
         'POST',
         {
-          question: values.question,
+          question:
+            chatScope === 'workspace'
+              ? composedQuestion(form.querySelector('textarea'))
+              : values.question,
           revisionOf: messageId,
           ...(chatScope === 'workspace'
             ? { mentions: submittedMentions(form.querySelector('textarea')) }
@@ -2285,7 +2293,7 @@ document.addEventListener('submit', async (event) => {
   button.disabled = true;
   try {
     await api('/workspace-agent', 'POST', {
-      question: new FormData(form).get('question'),
+      question: composedQuestion(form.querySelector('textarea')),
       mentions: submittedMentions(form.querySelector('textarea')),
     });
     clearComposerMentions(form.querySelector('textarea'));
@@ -2376,6 +2384,7 @@ function syncOrchestrator() {
   );
   const next = body.querySelector('#workspace-request');
   next.value = draft;
+  syncTaskComposer(next);
   if (focused) {
     next.focus({ preventScroll: true });
     next.setSelectionRange(start, end);

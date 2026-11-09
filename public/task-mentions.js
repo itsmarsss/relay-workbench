@@ -45,9 +45,26 @@ export function mentionQuestion(question, mentions = []) {
     }
     output += e(question.slice(cursor, found.index));
     output += /^[a-f0-9-]{36}$/.test(found.id)
-      ? `<a class="task-mention" href="#task/${e(found.id)}/overview">@${e(found.label)}</a>`
+      ? `<a class="task-mention" title="${e(found.label)}" href="#task/${e(found.id)}/overview">@${e(found.label)}</a>`
       : e('@' + found.label);
     cursor = found.index + found.label.length + 1;
   }
   return output;
+}
+
+export function withoutMention(question, label) {
+  const needle = '@' + label;
+  let cursor = 0,
+    output = '',
+    index = question.indexOf(needle);
+  while (index !== -1) {
+    const before = question[index - 1],
+      after = question[index + needle.length];
+    const valid =
+      (!before || !/[\p{L}\p{N}_@]/u.test(before)) && (!after || !/[\p{L}\p{N}_]/u.test(after));
+    output += question.slice(cursor, index) + (valid ? '' : needle);
+    cursor = index + needle.length;
+    index = question.indexOf(needle, cursor);
+  }
+  return output + question.slice(cursor);
 }

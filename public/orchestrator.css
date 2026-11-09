@@ -102,9 +102,9 @@
 .orchestrator-layout .workspace-conversation textarea {
   border: 0;
   padding: 2px 2px 8px;
-  min-height: 64px;
-  max-height: 220px;
-  resize: vertical;
+  min-height: 30px;
+  max-height: 180px;
+  resize: none;
   background: none;
   box-shadow: none;
   outline: none;

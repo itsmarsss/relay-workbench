@@ -741,3 +741,75 @@ summary::before {
     display: none;
   }
 }
+
+.composer-task-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0 0 8px;
+}
+.composer-task-chips[hidden] {
+  display: none;
+}
+.composer-task-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: min(100%, 320px);
+  padding: 3px 6px 3px 8px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--mint);
+  color: var(--green-dark);
+  font-size: 12px;
+  line-height: 20px;
+  font-weight: 500;
+}
+.composer-task-chip > span:nth-child(2) {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.composer-task-chip > span:first-child {
+  opacity: 0.7;
+}
+.composer-task-chip button {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 4px;
+  padding: 0;
+  background: transparent;
+  color: inherit;
+  font-size: 16px;
+  cursor: pointer;
+}
+.composer-task-chip button:hover {
+  background: var(--surface);
+}
+#workspace-request {
+  min-height: 30px;
+  max-height: 180px;
+  resize: none;
+  overflow-y: hidden;
+}
+
+.workspace-messages .task-mention {
+  display: inline-block;
+  max-width: min(100%, 280px);
+  margin: 2px 3px 2px 0;
+  padding: 2px 7px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  vertical-align: middle;
+  font-size: 12px;
+  line-height: 20px;
+  font-weight: 500;
+  text-decoration: none;
+}

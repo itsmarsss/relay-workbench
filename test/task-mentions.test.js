@@ -79,3 +79,12 @@ test('mentioned task identities, fresh facts and revisions reach Relay without e
     /20 tasks/,
   );
 });
+
+test('turning references into chips preserves similar text in the message', async () => {
+  const { withoutMention } = await import('../public/task-mentions.js');
+  assert.equal(withoutMention('@Foo and @Foobar and mail@Foo', 'Foo'), ' and @Foobar and mail@Foo');
+  assert.equal(
+    withoutMention('Read @Fix [parser] (then continue)', 'Fix [parser]'),
+    'Read  (then continue)',
+  );
+});
