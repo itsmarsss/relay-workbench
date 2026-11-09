@@ -1,0 +1,351 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { mkdtemp, rm, writeFile, readFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { Store } from '../server/store.js';
+import { Engine } from '../server/engine.js';
+import { DEFAULT_CONFIG, newTask, validateHandoff } from '../server/domain.js';
+import { git, fingerprint, prepareWorkspace } from '../server/workspace.js';
+import {
+  captureCheckpoint,
+  checkpoints,
+  forkCheckpoint,
+  workflowHistory,
+} from '../server/workflow-checkpoints.js';
+import { WorkflowAutomation, automationState } from '../server/workflow-automation.js';
+import { workflowHealth } from '../server/workflow-health.js';
+import { demoHandoff } from '../server/harness.js';
+import { inbox } from '../server/inbox.js';
+import { executionNodes, graphLayout } from '../public/execution-map.js';
+
+async function fixture(t) {
+  const root = await mkdtemp(join(tmpdir(), 'relay-controls-'));
+  const store = new Store(join(root, 'state'));
+  t.after(async () => {
+    store.close();
+    await rm(root, { recursive: true, force: true });
+  });
+  return { root, store };
+}
+async function until(predicate) {
+  for (let i = 0; i < 500; i++) {
+    if (predicate()) return;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  throw new Error('Workflow did not reach expected state');
+}
+
+test('Auto follows a structured recommendation and completes a reviewed demo', async (t) => {
+  const { store } = await fixture(t);
+  const engine = new Engine(store, { demoDelay: 1 });
+  const auto = new WorkflowAutomation(store, engine, {}, { interval: 60000 });
+  t.after(async () => {
+    await auto.stop();
+    await engine.stop();
+  });
+  const task = engine.create({ title: 'Auto demonstration', demo: true });
+  assert.equal(automationState(store, task.id).enabled, false);
+  await engine.action(task.id, 'start');
+  await until(() => store.get(task.id).status === 'awaiting_plan' && !engine.running.has(task.id));
+  await auto.tick();
+  assert.equal(store.get(task.id).status, 'awaiting_plan');
+  auto.configure(task.id, { enabled: true, scope: 'reviewed' });
+  await auto.tick();
+  await until(() => store.get(task.id).status === 'awaiting_final' && !engine.running.has(task.id));
+  assert.equal(store.get(task.id).chosenApproach.id, 'shared-boundary');
+  await auto.tick();
+  assert.equal(store.get(task.id).status, 'completed');
+  assert.equal(workflowHistory(store, task.id).decisions.length, 2);
+  assert.ok(checkpoints(store, task.id).length >= 5);
+  const graph = executionNodes({ ...store.get(task.id), history: workflowHistory(store, task.id) });
+  assert.ok(graph.some((node) => node.stage === 'auto'));
+  assert.ok(graph.some((node) => node.stage === 'checkpoint'));
+});
+
+test('Auto refuses ambiguous plans, pending direction and review findings', async (t) => {
+  const { store } = await fixture(t);
+  let actions = 0;
+  const engine = {
+    running: new Map(),
+    manualRuns: new Map(),
+    actionLocks: new Set(),
+    action: async () => {
+      actions++;
+      throw new Error('Pending direction requires a new plan');
+    },
+  };
+  const auto = new WorkflowAutomation(store, engine, {}, { interval: 60000 });
+  t.after(() => auto.stop());
+  const task = newTask({ title: 'Manual choice', demo: true }, DEFAULT_CONFIG);
+  task.status = 'awaiting_plan';
+  const handoff = demoHandoff(task, 'plan');
+  delete handoff.recommendedOptionId;
+  task.attempts = [{ id: 'plan', stage: 'plan', status: 'complete', handoff }];
+  store.save(task);
+  auto.configure(task.id, { enabled: true });
+  await auto.tick();
+  assert.equal(actions, 0);
+  assert.match(automationState(store, task.id).error, /structured planner/);
+  task.attempts[0].handoff.recommendedOptionId = 'shared-boundary';
+  store.save(task);
+  auto.configure(task.id, { enabled: true });
+  await auto.tick();
+  assert.equal(actions, 1);
+  assert.match(automationState(store, task.id).error, /Pending direction/);
+  task.status = 'awaiting_final';
+  const review = demoHandoff(task, 'review');
+  review.findings = [{ severity: 'major', file: 'a', description: 'Bug' }];
+  task.attempts.push({ id: 'review', stage: 'review', status: 'complete', handoff: review });
+  store.save(task);
+  auto.configure(task.id, { enabled: true });
+  await auto.tick();
+  assert.equal(actions, 1);
+  assert.match(automationState(store, task.id).error, /clean independent review/);
+  assert.equal(inbox(store)[0].action, 'Review Auto decision');
+});
+
+test('Auto runtime continuation is bounded across delegation toggles', async (t) => {
+  const { store } = await fixture(t);
+  let actions = 0;
+  const engine = {
+    running: new Map(),
+    manualRuns: new Map(),
+    actionLocks: new Set(),
+    action: async () => {
+      actions++;
+    },
+  };
+  const auto = new WorkflowAutomation(store, engine, {}, { interval: 60000 });
+  t.after(() => auto.stop());
+  const task = newTask({ title: 'Budget', demo: true }, DEFAULT_CONFIG);
+  task.status = 'blocked';
+  task.blockerDecision = { kind: 'runtime_budget' };
+  store.save(task);
+  auto.configure(task.id, { enabled: true });
+  await auto.tick();
+  auto.configure(task.id, { enabled: false });
+  auto.configure(task.id, { enabled: true });
+  await auto.tick();
+  assert.equal(actions, 1);
+  task.status = 'paused';
+  store.save(task);
+  await auto.tick();
+  assert.equal(actions, 1);
+});
+
+test('health excludes stale attempts, heartbeats and repeated check polls', async (t) => {
+  const { store } = await fixture(t);
+  const start = Date.now() - 11 * 60000;
+  const task = newTask({ title: 'Quiet work', demo: true }, DEFAULT_CONFIG);
+  task.status = 'running';
+  task.attempts = [
+    {
+      id: 'current',
+      status: 'running',
+      stage: 'implement',
+      startedAt: new Date(start).toISOString(),
+    },
+  ];
+  const event = {
+    type: 'activity',
+    attemptId: 'current',
+    at: new Date(start + 1000).toISOString(),
+    kind: 'tool',
+    summary: 'Running focused tests',
+  };
+  const events = [
+    event,
+    { ...event, at: new Date().toISOString() },
+    { ...event, summary: 'Check progress: running 1', at: new Date().toISOString() },
+    { ...event, attemptId: 'old', summary: 'Old output', at: new Date().toISOString() },
+  ];
+  assert.equal(workflowHealth(task, events).quiet, true);
+  assert.equal(workflowHealth(task, events).operation, 'Running focused tests');
+  store.save(task);
+  for (const event of events) store.event(task.id, event);
+  assert.equal(inbox(store)[0].action, 'Inspect quiet agent');
+  store.event(task.id, { ...event, summary: 'Tests finished', at: new Date().toISOString() });
+  assert.equal(inbox(store).length, 0);
+});
+
+test('checkpoint forks preserve HEAD, staging and untracked files without touching source', async (t) => {
+  const { root, store } = await fixture(t);
+  const repo = join(root, 'repo');
+  await git(root, ['init', repo]);
+  await writeFile(join(repo, 'tracked'), 'base\n');
+  await writeFile(join(repo, '.gitignore'), 'ignored\n');
+  await git(repo, ['add', '.']);
+  await git(repo, [
+    '-c',
+    'user.name=Fixture',
+    '-c',
+    'user.email=fixture@example.test',
+    'commit',
+    '-m',
+    'test: fixture',
+  ]);
+  const profile = {
+    id: 'repo',
+    name: 'Fixture',
+    path: repo,
+    cwd: '.',
+    strategy: 'worktree',
+    checks: [],
+    setup: [],
+    instructions: '',
+    verificationMode: 'agent',
+  };
+  const config = { ...structuredClone(DEFAULT_CONFIG), repositories: [profile] };
+  const task = newTask({ title: 'Saved work', repositoryId: 'repo' }, config);
+  await prepareWorkspace(task, store.directory, []);
+  const workspace = task.workspaceRoot;
+  await writeFile(join(workspace, 'tracked'), 'staged\n');
+  await git(workspace, ['add', 'tracked']);
+  await writeFile(join(workspace, 'tracked'), 'unstaged\n');
+  await writeFile(join(workspace, 'new-file'), 'untracked\n');
+  await writeFile(join(workspace, 'ignored'), 'environment\n');
+  const handoff = demoHandoff(task, 'implement');
+  const attempt = {
+    id: 'implemented',
+    stage: 'implement',
+    harness: 'codex',
+    status: 'complete',
+    startedAt: new Date().toISOString(),
+    finishedAt: new Date().toISOString(),
+    sessionId: 'must-not-reuse',
+    handoff,
+  };
+  task.attempts = [attempt];
+  task.stage = 'verify';
+  task.status = 'queued';
+  task.chosenApproach = { id: 'chosen', title: 'Chosen' };
+  store.save(task);
+  const before = await fingerprint(task);
+  const record = await captureCheckpoint(store, task, attempt);
+  const staged = await git(workspace, ['diff', '--cached']);
+  await writeFile(join(workspace, 'tracked'), 'newer work\n');
+  const current = await fingerprint(task);
+  const fork = await forkCheckpoint(store, task.id, record.id);
+  assert.equal(await fingerprint(task), current);
+  assert.equal(await fingerprint(fork), before);
+  assert.equal(await git(fork.workspaceRoot, ['diff', '--cached']), staged);
+  assert.equal(await readFile(join(fork.workspaceRoot, 'new-file'), 'utf8'), 'untracked\n');
+  await assert.rejects(readFile(join(fork.workspaceRoot, 'ignored')), { code: 'ENOENT' });
+  assert.notEqual(fork.workspaceRoot, workspace);
+  assert.equal(fork.verifiedFingerprint, null);
+  assert.equal(fork.reviewedFingerprint, null);
+  assert.equal(fork.attempts[0].sessionId, undefined);
+  assert.equal(fork.status, 'paused');
+  assert.equal(automationState(store, fork.id).enabled, false);
+  const graphTask = { ...task, history: workflowHistory(store, task.id) };
+  const layout = graphLayout(graphTask);
+  const child = layout.nodes.find((n) => n.targetTaskId === fork.id);
+  const parent = layout.nodes.find((n) => n.number === child.parentNumber);
+  assert.equal(parent.checkpointId, record.id);
+  assert.ok(layout.edges.some((e) => e.from === parent.number && e.to === child.number));
+});
+
+test('invalid plan recommendation is rejected rather than guessed', () => {
+  const handoff = demoHandoff({ routing: DEFAULT_CONFIG.routing }, 'plan');
+  handoff.recommendedOptionId = 'invented';
+  assert.throws(() => validateHandoff(handoff, 'plan'), /proposed option/);
+});
+
+test('Auto publishing requires explicit draft scope and never repeats uncertain publication', async (t) => {
+  const { store } = await fixture(t);
+  let starts = 0;
+  const engine = { running: new Map(), manualRuns: new Map(), actionLocks: new Set() };
+  const auto = new WorkflowAutomation(
+    store,
+    engine,
+    {
+      start: async () => {
+        starts++;
+      },
+    },
+    { interval: 60000 },
+  );
+  t.after(() => auto.stop());
+  const task = newTask({ title: 'Publish scope', demo: true }, DEFAULT_CONFIG);
+  task.demo = false;
+  task.status = 'completed';
+  store.save(task);
+  auto.configure(task.id, { enabled: true, scope: 'reviewed' });
+  await auto.tick();
+  assert.equal(starts, 0);
+  auto.configure(task.id, { enabled: true, scope: 'draft_pr' });
+  await auto.tick();
+  await auto.tick();
+  assert.equal(starts, 1);
+});
+
+test('multi-repository checkpoints restore the whole workspace together', async (t) => {
+  const { root, store } = await fixture(t);
+  const repositories = [];
+  for (const name of ['service', 'client']) {
+    const path = join(root, name);
+    await git(root, ['init', path]);
+    await writeFile(join(path, 'code'), `${name} base\n`);
+    await git(path, ['add', '.']);
+    await git(path, [
+      '-c',
+      'user.name=Fixture',
+      '-c',
+      'user.email=fixture@example.test',
+      'commit',
+      '-m',
+      'test: fixture',
+    ]);
+    repositories.push({
+      id: name,
+      name,
+      path,
+      cwd: '.',
+      strategy: 'attach',
+      checks: [],
+      setup: [],
+      instructions: '',
+      verificationMode: 'agent',
+    });
+  }
+  const task = newTask(
+    { title: 'Cross-repo edits', repositoryIds: ['service', 'client'] },
+    { ...DEFAULT_CONFIG, repositories },
+  );
+  // Use already assigned isolated source workspaces to exercise attached-profile fork conversion.
+  for (const entry of task.repositories) {
+    entry.workspace = entry.workspaceRoot = entry.repository.path;
+    entry.baseCommit = await git(entry.workspaceRoot, ['rev-parse', 'HEAD']);
+    await writeFile(join(entry.workspaceRoot, 'code'), `${entry.repository.id} changed\n`);
+  }
+  Object.assign(task, {
+    workspace: task.repositories[0].workspace,
+    workspaceRoot: task.repositories[0].workspaceRoot,
+    baseCommit: task.repositories[0].baseCommit,
+  });
+  const attempt = {
+    id: 'cross-repo',
+    stage: 'implement',
+    status: 'complete',
+    handoff: demoHandoff(task, 'implement'),
+  };
+  task.attempts = [attempt];
+  task.stage = 'verify';
+  task.status = 'queued';
+  store.save(task);
+  const record = await captureCheckpoint(store, task, attempt);
+  const fork = await forkCheckpoint(store, task.id, record.id);
+  assert.equal(await fingerprint(fork), record.fingerprint);
+  assert.ok(fork.repositories.every((entry) => entry.repository.strategy === 'worktree'));
+  assert.ok(
+    fork.repositories.every(
+      (entry) => !repositories.some((profile) => profile.path === entry.workspaceRoot),
+    ),
+  );
+  for (const entry of task.repositories)
+    assert.equal(
+      await readFile(join(entry.workspaceRoot, 'code'), 'utf8'),
+      `${entry.repository.id} changed\n`,
+    );
+});

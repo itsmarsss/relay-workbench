@@ -5558,3 +5558,47 @@ dialog,
   flex-basis: 100%;
   width: 100%;
 }
+
+.automation-choices {
+  display: grid;
+  gap: 12px;
+  margin-block: 20px;
+}
+.automation-choices .btn {
+  display: grid;
+  gap: 6px;
+  height: auto;
+  padding: 16px;
+  text-align: left;
+  white-space: normal;
+  justify-items: start;
+}
+.automation-choices small {
+  font-weight: 400;
+  line-height: 1.5;
+}
+.checkpoint-list {
+  display: grid;
+  gap: 12px;
+}
+.checkpoint-list article {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  justify-content: space-between;
+  padding-block: 12px;
+  border-bottom: 1px solid var(--border);
+}
+.checkpoint-list small {
+  display: block;
+  margin-top: 4px;
+}
+.checkpoint-list p {
+  margin-block: 8px 0;
+}
+.workflow-operation {
+  max-width: 48ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

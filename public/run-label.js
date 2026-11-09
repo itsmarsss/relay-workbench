@@ -3,6 +3,9 @@ export function isVerificationAgent(attempt) {
   return attempt?.role === 'verifier' && ['codex', 'claude', 'pi'].includes(attempt.harness);
 }
 export function runLabel(attempt) {
+  if (attempt.stage === 'checkpoint') return 'Saved checkpoint';
+  if (attempt.stage === 'fork') return 'Workflow continuation';
+  if (attempt.stage === 'auto') return 'Auto decision';
   if (attempt.auxiliary && attempt.stage === 'verify') return 'Publish · verification';
   if (attempt.auxiliary && attempt.stage === 'review') return 'Publish · review';
   if (attempt.role === 'debug') return 'Debugger';

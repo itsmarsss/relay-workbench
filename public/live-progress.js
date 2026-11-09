@@ -19,7 +19,7 @@ export function liveProgress(task, events = []) {
   )
     return '';
   const activity = events.findLast((e) => e.attemptId === attempt.id && e.type === 'activity');
-  return `<div class="live-progress" aria-label="Live task progress">${harnessBadge(attempt.harness)}<span class="pulse-dot"></span><strong>${e(runLabel(attempt))}</strong><span>${e(attempt.harness)}</span>${timer(attempt.startedAt)}${attempt.runtimeBudget?.extensions ? `<small>Progress extended the budget · limit ${e(new Date(attempt.runtimeBudget.hardDeadlineAt).toLocaleTimeString())}</small>` : ''}${activity?.at ? `<small>Last activity ${timer(activity.at)} ago</small>` : '<small>Waiting for first output</small>'}</div>`;
+  return `<div class="live-progress" aria-label="Live task progress">${harnessBadge(attempt.harness)}<span class="pulse-dot"></span><strong>${e(runLabel(attempt))}</strong><span>${e(attempt.harness)}</span>${timer(attempt.startedAt)}${attempt.runtimeBudget?.extensions ? `<small>Progress extended the budget · limit ${e(new Date(attempt.runtimeBudget.hardDeadlineAt).toLocaleTimeString())}</small>` : ''}${task.health?.summary ? `<small class="workflow-operation" title="${e(task.health.summary)}">${e(task.health.summary)}</small>` : ''}${task.health?.lastAt ? `<small>Last progress ${timer(task.health.lastAt)} ago</small>` : activity?.at ? `<small>Last activity ${timer(activity.at)} ago</small>` : '<small>Waiting for first output</small>'}</div>`;
 }
 export function updateTimers(root = document, now = Date.now()) {
   for (const node of root.querySelectorAll('[data-live-start]'))
