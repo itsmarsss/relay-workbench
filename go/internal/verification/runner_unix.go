@@ -16,6 +16,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"relay.local/relay/internal/process"
@@ -75,7 +76,22 @@ func StartRunner(ctx context.Context, options RunnerOptions) (*Runner, error) {
 		if err != nil || !info.IsDir() {
 			return nil, errors.New("verification repository is unavailable")
 		}
-		entry.Root, seen[entry.ID], identities[entry.ID] = root, true, info
+		cwd := entry.Cwd
+		if cwd == "" {
+			cwd = root
+		}
+		if !filepath.IsAbs(cwd) {
+			return nil, errors.New("verification working directory must be absolute")
+		}
+		cwd, err = filepath.EvalSymlinks(cwd)
+		if err != nil || !withinRoot(root, cwd) {
+			return nil, errors.New("verification working directory is outside its repository")
+		}
+		cwdInfo, err := os.Stat(cwd)
+		if err != nil || !cwdInfo.IsDir() {
+			return nil, errors.New("verification working directory is unavailable")
+		}
+		entry.Root, entry.Cwd, seen[entry.ID], identities[entry.ID] = root, cwd, true, info
 	}
 	directory, err := os.MkdirTemp("", "relay-check-")
 	if err != nil {
@@ -257,9 +273,32 @@ func (r *Runner) handle(conn net.Conn) {
 		_ = send(checkFrame{Type: "error", Error: err.Error()})
 		return
 	}
-	result, runErr := process.Run(ctx, process.Options{WorkerExecutable: r.options.WorkerExecutable, WorkerArgs: r.options.WorkerArgs, Environment: r.options.Environment, Command: request.Command, Args: request.Args, Directory: request.Cwd, Timeout: r.options.Timeout, MaxOutputBytes: 8 * 1024 * 1024, OnLine: func(lineCtx context.Context, line, stream string) error {
+	environment := map[string]string{}
+	for key, value := range r.options.Environment {
+		environment[key] = value
+	}
+	workspaceDirs := map[string]string{}
+	for _, entry := range r.options.Repositories {
+		workspaceDirs[entry.ID] = entry.Cwd
+		if entry.ID == request.RepositoryID {
+			environment["RELAY_BASE_COMMIT"] = entry.BaseCommit
+		}
+	}
+	encodedDirs, err := json.Marshal(workspaceDirs)
+	if err != nil {
+		_ = send(checkFrame{Type: "error", Error: "Could not prepare workspace context"})
+		return
+	}
+	environment["RELAY_REPOSITORY_ID"], environment["RELAY_WORKSPACES_JSON"] = request.RepositoryID, string(encodedDirs)
+	var progress atomic.Int64
+	lastLine := ""
+	result, runErr := process.Run(ctx, process.Options{WorkerExecutable: r.options.WorkerExecutable, WorkerArgs: r.options.WorkerArgs, Environment: environment, Command: request.Command, Args: request.Args, Directory: request.Cwd, Timeout: r.options.Timeout, Progress: &process.ProgressPolicy{LastProgressUnixMillis: &progress}, MaxOutputBytes: 8 * 1024 * 1024, OnLine: func(lineCtx context.Context, line, stream string) error {
 		if len(line) > 40000 {
 			line = line[:40000]
+		}
+		if strings.TrimSpace(line) != "" && line != lastLine {
+			lastLine = line
+			progress.Store(time.Now().UnixMilli())
 		}
 		if err := r.emit(lineCtx, map[string]any{"type": "transcript", "stream": stream, "text": line, "repositoryId": request.RepositoryID}); err != nil {
 			return err

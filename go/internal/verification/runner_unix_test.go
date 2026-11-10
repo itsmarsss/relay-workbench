@@ -28,7 +28,7 @@ func TestCheckWorker(t *testing.T) {
 	os.Exit(127)
 }
 
-func checkFixture(t *testing.T, onEvent func(context.Context, map[string]any) error) (*Runner, string) {
+func checkFixture(t *testing.T, onEvent func(context.Context, map[string]any) error, timeouts ...time.Duration) (*Runner, string) {
 	t.Helper()
 	root := t.TempDir()
 	worker, err := os.Executable()
@@ -38,12 +38,26 @@ func checkFixture(t *testing.T, onEvent func(context.Context, map[string]any) er
 	if onEvent == nil {
 		onEvent = func(context.Context, map[string]any) error { return nil }
 	}
-	runner, err := StartRunner(context.Background(), RunnerOptions{WorkerExecutable: worker, WorkerArgs: []string{"-test.run=^TestCheckWorker$", "--"}, Environment: map[string]string{"RELAY_CHECK_WORKER": "1"}, Repositories: []Repository{{ID: "repo", Root: root}}, SourceFingerprint: "source-fingerprint", Timeout: 10 * time.Second, OnEvent: onEvent})
+	timeout := 10 * time.Second
+	if len(timeouts) > 0 {
+		timeout = timeouts[0]
+	}
+	runner, err := StartRunner(context.Background(), RunnerOptions{WorkerExecutable: worker, WorkerArgs: []string{"-test.run=^TestCheckWorker$", "--"}, Environment: map[string]string{"RELAY_CHECK_WORKER": "1"}, Repositories: []Repository{{ID: "repo", Root: root, Cwd: root, BaseCommit: "fixture-base"}}, SourceFingerprint: "source-fingerprint", Timeout: timeout, OnEvent: onEvent})
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = runner.Close() })
 	return runner, root
+}
+
+func TestSupervisedCheckReceivesWorkspaceContext(t *testing.T) {
+	runner, root := checkFixture(t, nil)
+	var output, stderr bytes.Buffer
+	code := RunClient(checkArgs(runner, root, "/bin/sh", "-c", `printf '%s\n%s\n%s\n' "$RELAY_REPOSITORY_ID" "$RELAY_BASE_COMMIT" "$RELAY_WORKSPACES_JSON"`), &output, &stderr)
+	resolved, _ := filepath.EvalSymlinks(root)
+	if code != 0 || !strings.Contains(output.String(), "repo\nfixture-base\n") || !strings.Contains(output.String(), resolved) {
+		t.Fatalf("workspace context missing: %d %s %s", code, output.String(), stderr.String())
+	}
 }
 
 func checkArgs(r *Runner, cwd string, command ...string) []string {
@@ -164,6 +178,31 @@ func TestSupervisedCheckReportsFailureAndDoesNotInventEvidence(t *testing.T) {
 	records := runner.Records()
 	if len(records) != 1 || records[0].Status != "complete" || records[0].Code == nil || *records[0].Code != 7 {
 		t.Fatalf("failed check was not recorded: %#v", records)
+	}
+}
+
+func TestSupervisedCheckExtendsOnlyWhileOutputProgresses(t *testing.T) {
+	runner, root := checkFixture(t, nil, 2*time.Second)
+	var output, stderr bytes.Buffer
+	script := `i=0; while [ "$i" -lt 9 ]; do echo "$i"; i=$((i+1)); sleep 0.3; done`
+	if code := RunClient(checkArgs(runner, root, "/bin/sh", "-c", script), &output, &stderr); code != 0 {
+		t.Fatalf("progressing check timed out: %d %s", code, stderr.String())
+	}
+	records := runner.Records()
+	if len(records) != 1 || records[0].Status != "complete" || records[0].Code == nil || *records[0].Code != 0 {
+		t.Fatalf("progressing check evidence missing: %#v", records)
+	}
+}
+
+func TestSupervisedCheckTimeoutIsNotAPassingResult(t *testing.T) {
+	runner, root := checkFixture(t, nil, 200*time.Millisecond)
+	var output, stderr bytes.Buffer
+	if code := RunClient(checkArgs(runner, root, "/bin/sh", "-c", "sleep 5"), &output, &stderr); code == 0 {
+		t.Fatal("timed out check succeeded")
+	}
+	records := runner.Records()
+	if len(records) != 1 || records[0].Status != "interrupted" || records[0].Code != nil || !strings.Contains(records[0].Error, "budget") {
+		t.Fatalf("timeout was misclassified: %#v", records)
 	}
 }
 

@@ -5,7 +5,7 @@ import (
 	"time"
 )
 
-type Repository struct{ ID, Root string }
+type Repository struct{ ID, Root, Cwd, BaseCommit string }
 
 type RunnerOptions struct {
 	WorkerExecutable  string

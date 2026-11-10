@@ -110,7 +110,7 @@ func finalHandoff(raw json.RawMessage, stage string) (json.RawMessage, error) {
 	return append(json.RawMessage(nil), value...), nil
 }
 
-func approvedApproach(task map[string]any) bool {
+func HasApprovedApproach(task map[string]any) bool {
 	choice, ok := task["chosenApproach"].(map[string]any)
 	if !ok {
 		return false
@@ -148,7 +148,7 @@ func Execute(ctx context.Context, request RunRequest) (RunResult, error) {
 		return RunResult{}, errors.New("invalid harness prompt")
 	}
 	switch request.Stage {
-	case "triage", "investigate", "plan", "implement", "review":
+	case "triage", "investigate", "plan", "implement", "verify", "review":
 	default:
 		return RunResult{}, errors.New("stage execution is not yet supported")
 	}
@@ -167,10 +167,14 @@ func Execute(ctx context.Context, request RunRequest) (RunResult, error) {
 		return RunResult{}, errors.New("task is not running this stage")
 	}
 	routing, _ := task["routing"].(map[string]any)
-	if routing[request.Stage] != request.Provider {
+	routeStage := request.Stage
+	if routeStage == "verify" {
+		routeStage = "implement"
+	}
+	if routing[routeStage] != request.Provider {
 		return RunResult{}, errors.New("selected harness does not match task routing")
 	}
-	if (request.Stage == "implement" || request.Stage == "review") && !approvedApproach(task) {
+	if (request.Stage == "implement" || request.Stage == "verify" || request.Stage == "review") && !HasApprovedApproach(task) {
 		return RunResult{}, errors.New("implementation requires an approved approach")
 	}
 	var active workspace.Workspace
