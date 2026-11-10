@@ -7,6 +7,7 @@ import {
   fetchTasks,
   saveConfig,
   taskAction,
+  resolveBlocker,
 } from './api';
 import type { Bootstrap, RelayConfig, Task } from './types';
 
@@ -137,6 +138,29 @@ export function useRelay() {
       void refreshRef.current();
     }
   }
+  async function resolve(
+    id: string,
+    taskRevision: string,
+    decisionId: string,
+    resolution: 'retry' | 'replan' | 'pause',
+    optionId: string,
+    note: string,
+  ): Promise<Task> {
+    if (!bootstrap?.debugRecoveryPreview) throw new Error('Debugger recovery is unavailable.');
+    try {
+      return await resolveBlocker(
+        bootstrap.token,
+        id,
+        taskRevision,
+        decisionId,
+        resolution,
+        optionId,
+        note,
+      );
+    } finally {
+      void refreshRef.current();
+    }
+  }
   return {
     tasks,
     bootstrap,
@@ -147,6 +171,7 @@ export function useRelay() {
     act,
     approve,
     accept,
+    resolve,
     refresh: () => refreshRef.current(),
   };
 }

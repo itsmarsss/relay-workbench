@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react';
 import { Markdown } from './Markdown';
 import { TaskPanel } from './TaskPanel';
-import { latestPlan } from './task-data';
+import { currentBlocker, latestPlan } from './task-data';
 import { isTask, statusLabel, taskViews, type Task, type TaskView } from './types';
-type Details = Task & { description?: string; ticket?: string; demo?: boolean };
+type Details = Task & { description?: string; ticket?: string; demo?: boolean; preset?: string };
 function ticketURL(value: string): string | null {
   try {
     const url = new URL(value);
@@ -19,9 +19,11 @@ export function TaskPage({
   tab,
   workflowPreview,
   implementationPreview,
+  debugRecoveryPreview,
   onAction,
   onApprove,
   onAccept,
+  onResolve,
   onTab,
   onBack,
   onDeck,
@@ -30,6 +32,7 @@ export function TaskPage({
   tab: TaskView;
   workflowPreview: boolean;
   implementationPreview: boolean;
+  debugRecoveryPreview: boolean;
   onAction: (id: string, action: 'start' | 'resume' | 'pause') => Promise<Task>;
   onApprove: (
     id: string,
@@ -39,6 +42,14 @@ export function TaskPage({
     taskRevision: string,
   ) => Promise<Task>;
   onAccept: (id: string, taskRevision: string) => Promise<Task>;
+  onResolve: (
+    id: string,
+    taskRevision: string,
+    decisionId: string,
+    resolution: 'retry' | 'replan' | 'pause',
+    optionId: string,
+    note: string,
+  ) => Promise<Task>;
   onTab: (tab: TaskView) => void;
   onBack: () => void;
   onDeck: () => void;
@@ -48,10 +59,13 @@ export function TaskPage({
     [actionError, setActionError] = useState(''),
     [busy, setBusy] = useState(false),
     [selectedOption, setSelectedOption] = useState(''),
-    [approvalNote, setApprovalNote] = useState('');
+    [approvalNote, setApprovalNote] = useState(''),
+    [blockerOption, setBlockerOption] = useState(''),
+    [blockerNote, setBlockerNote] = useState('');
   const planRevision = task ? latestPlan(task)?.attemptId : undefined;
   useEffect(() => {
     setSelectedOption('');
+    setBlockerOption('');
   }, [planRevision, task?.taskRevision]);
   useEffect(() => {
     let active = true,
@@ -163,6 +177,28 @@ export function TaskPage({
       setBusy(false);
     }
   }
+  async function resolveDecision(resolution: 'retry' | 'replan' | 'pause') {
+    const blocker = task ? currentBlocker(task) : null;
+    if (!task || !task.taskRevision || !blocker || busy) return;
+    setBusy(true);
+    setActionError('');
+    try {
+      const updated = await onResolve(
+        task.id,
+        task.taskRevision,
+        blocker.id,
+        resolution,
+        blockerOption,
+        blockerNote,
+      );
+      setTask((current) => (current ? { ...current, ...updated } : current));
+      window.dispatchEvent(new Event('relay-data-change'));
+    } catch (failure) {
+      setActionError(failure instanceof Error ? failure.message : 'Could not record the decision.');
+    } finally {
+      setBusy(false);
+    }
+  }
   if (!task)
     return (
       <section className="task-page">
@@ -174,6 +210,7 @@ export function TaskPage({
     );
   const url = task.ticket ? ticketURL(task.ticket) : null;
   const plan = task.status === 'awaiting_plan' && tab === 'overview' ? latestPlan(task) : null;
+  const blocker = currentBlocker(task);
   return (
     <section className="task-page">
       <button className="back" onClick={onBack}>
@@ -186,6 +223,12 @@ export function TaskPage({
             <span className={`task-status status-${task.status}`}>{statusLabel(task.status)}</span>
             <span>{task.repository?.name || 'Unspecified'}</span>
             <span>{task.id.slice(0, 8)}</span>
+            {task.currentRun?.role === 'debug' && task.currentRun.status === 'running' && (
+              <span>
+                Debugger running · {task.currentRun.harness || 'Agent'} ·{' '}
+                {task.currentRun.actualModel || task.currentRun.model || 'CLI default'}
+              </span>
+            )}
             {task.demo && <span>Demo</span>}
           </div>
           {task.ticket &&
@@ -211,6 +254,7 @@ export function TaskPage({
           {workflowPreview &&
             !task.demo &&
             ['paused', 'interrupted', 'blocked'].includes(task.status) &&
+            !blocker &&
             ['triage', 'investigate', 'plan', 'implement', 'verify', 'review'].includes(
               task.stage || '',
             ) && (
@@ -237,6 +281,86 @@ export function TaskPage({
         <p className="error" role="status">
           {error}
         </p>
+      )}
+      {blocker && (
+        <section className="blocker-panel" aria-label="Blocker decision">
+          <h2>Needs your decision</h2>
+          <p>{blocker.summary || 'The debugger needs direction.'}</p>
+          {blocker.explanation && <Markdown text={blocker.explanation} />}
+          {(blocker.evidence.length > 0 || blocker.required.length > 0) && (
+            <details>
+              <summary>Evidence and required help</summary>
+              <ul>
+                {[...blocker.evidence, ...blocker.required].map((item, index) => (
+                  <li key={index}>{item}</li>
+                ))}
+              </ul>
+            </details>
+          )}
+          {blocker.options.length > 0 && (
+            <div className="plan-options">
+              {blocker.options.map((option) => (
+                <article
+                  key={option.id}
+                  className={blockerOption === option.id ? 'selectable selected' : 'selectable'}
+                  onClick={() => setBlockerOption(option.id)}
+                >
+                  <h3>
+                    <input
+                      type="radio"
+                      name="blocker-option"
+                      aria-label={`Select ${option.title}`}
+                      checked={blockerOption === option.id}
+                      onChange={() => setBlockerOption(option.id)}
+                    />
+                    {option.title}
+                  </h3>
+                  <Markdown text={option.description} />
+                  <h4>Tradeoffs</h4>
+                  <Markdown text={option.tradeoffs} />
+                </article>
+              ))}
+            </div>
+          )}
+          {debugRecoveryPreview ? (
+            <div className="blocker-actions">
+              <label>
+                Direction (optional)
+                <textarea
+                  value={blockerNote}
+                  onChange={(event) => setBlockerNote(event.target.value)}
+                  maxLength={10000}
+                  rows={2}
+                />
+              </label>
+              <div className="task-page-actions">
+                <button
+                  className="primary"
+                  disabled={busy || !task.taskRevision}
+                  onClick={() => void resolveDecision('retry')}
+                >
+                  Retry debugger
+                </button>
+                {task.preset !== 'investigate' && (
+                  <button
+                    disabled={busy || !task.taskRevision}
+                    onClick={() => void resolveDecision('replan')}
+                  >
+                    Revise approach
+                  </button>
+                )}
+                <button
+                  disabled={busy || !task.taskRevision}
+                  onClick={() => void resolveDecision('pause')}
+                >
+                  Pause
+                </button>
+              </div>
+            </div>
+          ) : (
+            <p>Debugger actions are not available in this preview yet.</p>
+          )}
+        </section>
       )}
       {plan && (
         <section className="plan-preview" aria-label="Proposed approaches">

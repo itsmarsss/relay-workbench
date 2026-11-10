@@ -41,6 +41,8 @@ func coordinatorFixture(t *testing.T, script string) (*Coordinator, *store.Store
 		t.Fatal(err)
 	}
 	object(object(config.Value["harnesses"])["codex"])["command"] = program
+	object(object(config.Value["harnesses"])["claude"])["enabled"] = false
+	object(object(config.Value["harnesses"])["pi"])["enabled"] = false
 	config.Value["repositories"] = []any{map[string]any{"id": "repo", "name": "Fixture", "path": source, "cwd": ".", "strategy": "worktree", "setup": []any{map[string]any{"command": "/bin/sh", "args": []any{"-c", "printf setup > setup.txt"}}}}}
 	if _, err = configService.Replace(config.Revision, config.Value); err != nil {
 		t.Fatal(err)
@@ -373,5 +375,65 @@ func TestCoordinatorQueuesTasksSharingRepository(t *testing.T) {
 	one, two := coordinatorTask(t, db, first), coordinatorTask(t, db, second)
 	if one["status"] != "awaiting_plan" || two["status"] != "awaiting_plan" || one["workspaceRoot"] == two["workspaceRoot"] {
 		t.Fatalf("queued workflows did not finish in separate workspaces: %#v %#v", one, two)
+	}
+}
+
+func TestCoordinatorResolvesBlockerWithoutRestartingTask(t *testing.T) {
+	blocked := stageHandoff("blocked")
+	c, db, id, _ := coordinatorFixture(t, "cat >/dev/null\nprintf '%s\\n' '"+blocked+"'")
+	if _, err := c.Start(id); err != nil {
+		t.Fatal(err)
+	}
+	waitCoordinator(t, c, id)
+	value := coordinatorTask(t, db, id)
+	decision := object(value["blockerDecision"])
+	if value["status"] != "blocked" || decision == nil {
+		t.Fatalf("missing blocker: %#v", value)
+	}
+	raw, _ := db.Get(id)
+	revision := store.TaskRevision(raw)
+	decisionID := text(decision["id"])
+	if _, err := c.Resolve(context.Background(), id, strings.Repeat("0", 64), decisionID, "retry", "a", ""); err == nil {
+		t.Fatal("stale blocker was accepted")
+	}
+	if _, err := c.Resolve(context.Background(), id, revision, decisionID, "retry", "missing", ""); err == nil {
+		t.Fatal("unknown debugger option was accepted")
+	}
+	config, err := (task.ConfigurationService{Store: db}).Read()
+	if err != nil {
+		t.Fatal(err)
+	}
+	program := text(object(object(config.Value["harnesses"])["codex"])["command"])
+	if err = os.WriteFile(program, []byte("#!/bin/sh\ncat >/dev/null\nprintf '%s\\n' '"+stageFinal()+"'\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = c.Resolve(context.Background(), id, revision, decisionID, "retry", "a", "Try another diagnostic"); err != nil {
+		t.Fatal(err)
+	}
+	waitCoordinator(t, c, id)
+	value = coordinatorTask(t, db, id)
+	if value["status"] != "awaiting_plan" || value["stage"] != "plan" || len(array(value["attempts"])) < 5 {
+		t.Fatalf("targeted recovery did not continue: %#v", value)
+	}
+	messages := array(value["messages"])
+	if len(messages) == 0 || !strings.Contains(text(object(messages[len(messages)-1])["text"]), "Try another diagnostic") || object(messages[len(messages)-1])["delivery"] != "delivered" {
+		t.Fatal("human direction was lost")
+	}
+}
+
+func TestCoordinatorCanPauseAtBlockerDecision(t *testing.T) {
+	c, db, id, _ := coordinatorFixture(t, "exit 0")
+	value := coordinatorTask(t, db, id)
+	value["status"], value["stage"] = "blocked", "investigate"
+	value["blockerDecision"] = map[string]any{"id": "decision", "summary": "Need input", "options": []any{}, "resolved": false}
+	value["debugVerificationRequests"] = map[string]any{"fingerprint": "same", "count": 2}
+	body, _ := json.Marshal(value)
+	if err := db.Save(body, nil); err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := db.Get(id)
+	result, err := c.Resolve(context.Background(), id, store.TaskRevision(raw), "decision", "pause", "", "")
+	if err != nil || result["status"] != "paused" || object(result["blockerDecision"])["resolved"] != true || result["debugVerificationRequests"] != nil || c.Running() != 0 {
+		t.Fatalf("blocker pause failed: %#v %v", result, err)
 	}
 }

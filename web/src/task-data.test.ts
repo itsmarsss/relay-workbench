@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  currentBlocker,
   diffPreviewLines,
   eventPage,
   latestHandoffs,
@@ -144,4 +145,23 @@ test('change previews retain additions, deletions, files and explicit limits', (
     () => parseDiff({ repositories: [{ repositoryId: 'a', name: 'Repo', diff: { text: 1 } }] }),
     /Invalid changes/,
   );
+});
+test('blocker details are shown only for an unresolved current decision', () => {
+  const blocker = {
+    id: 'd',
+    summary: 'Needs input',
+    explanation: 'Details',
+    evidence: ['Evidence'],
+    required: ['Direction'],
+    options: [{ id: 'a', title: 'Option', description: 'Approach', tradeoffs: 'Cost' }],
+  };
+  assert.equal(
+    currentBlocker({ status: 'blocked', blockerDecision: blocker })?.options[0]?.id,
+    'a',
+  );
+  assert.equal(
+    currentBlocker({ status: 'blocked', blockerDecision: { ...blocker, resolved: true } }),
+    null,
+  );
+  assert.equal(currentBlocker({ status: 'running', blockerDecision: blocker }), null);
 });

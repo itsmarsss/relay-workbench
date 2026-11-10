@@ -707,12 +707,26 @@ button:disabled {
   color: #465c51;
   font-size: 13px;
 }
-.plan-preview {
+.plan-preview,
+.blocker-panel {
   border: 1px solid #cfd9d0;
   border-radius: 8px;
   padding: 16px;
   margin: 18px 0;
   background: #fff;
+}
+.blocker-actions {
+  display: grid;
+  gap: 10px;
+  margin-top: 16px;
+}
+.blocker-actions label {
+  display: grid;
+  gap: 5px;
+}
+.blocker-actions textarea {
+  width: 100%;
+  font: inherit;
 }
 .plan-options {
   display: grid;
@@ -1190,6 +1204,7 @@ html:has(dialog[open]) {
   .repository-card,
   .description-card,
   .plan-preview,
+  .blocker-panel,
   .task-detail-panel {
     background: #1b2921;
     color: #e3ece6;

@@ -67,7 +67,9 @@ try {
   run('go', ['build', '-o', binary, './cmd/relay-go'], goRoot);
   const agent = join(temporary, 'fake-agent'),
     marker = join(temporary, 'started'),
-    failedOnce = join(temporary, 'failed-once');
+    failedOnce = join(temporary, 'failed-once'),
+    debugMarker = join(temporary, 'debugged'),
+    decisionRelease = join(temporary, 'decision-release');
   const handoff = {
     memorySuggestions: [],
     summary: 'Fixture investigation complete',
@@ -94,6 +96,18 @@ const fs = require('node:fs');
 const { spawnSync } = require('node:child_process');
 const prompt = fs.readFileSync(0, 'utf8');
 const handoff = ${JSON.stringify(handoff)};
+const debugging = prompt.includes('You are a debugger.');
+const diagnosis = prompt.includes('"title":"Needs diagnosis"');
+const decision = prompt.includes('"title":"Needs decision"');
+if (debugging && (diagnosis || decision)) spawnSync('/bin/sleep', ['1']);
+if (diagnosis && !debugging && !fs.existsSync(process.env.RELAY_E2E_DEBUG_MARKER)) {
+  fs.writeFileSync(process.env.RELAY_E2E_DEBUG_MARKER, 'blocked');
+  handoff.verdict = 'blocked'; handoff.summary = 'Specialist could not resolve the blocker';
+}
+if (decision && !fs.existsSync(process.env.RELAY_E2E_DECISION_RELEASE)) {
+  handoff.verdict = 'blocked'; handoff.summary = 'A decision is required';
+}
+if (debugging && diagnosis) handoff.summary = 'Debugger identified a workable path';
 if (prompt.includes('Implement the approved approach')) fs.writeFileSync('source.txt', 'implemented\\n');
 if (prompt.includes('SUPERVISED VERIFICATION:')) {
   const helper = JSON.parse(prompt.slice(prompt.lastIndexOf('\\n') + 1));
@@ -127,7 +141,13 @@ console.log(JSON.stringify({ type: 'item.completed', item: { type: 'agent_messag
     ],
     {
       cwd: goRoot,
-      env: { ...gitEnv, RELAY_E2E_MARKER: marker, RELAY_E2E_FAILED_ONCE: failedOnce },
+      env: {
+        ...gitEnv,
+        RELAY_E2E_MARKER: marker,
+        RELAY_E2E_FAILED_ONCE: failedOnce,
+        RELAY_E2E_DEBUG_MARKER: debugMarker,
+        RELAY_E2E_DECISION_RELEASE: decisionRelease,
+      },
       stdio: ['ignore', 'pipe', 'pipe'],
     },
   );
@@ -141,9 +161,12 @@ console.log(JSON.stringify({ type: 'item.completed', item: { type: 'agent_messag
   const bootstrap = await (await fetch(`${base}/api/bootstrap`)).json();
   assert.equal(bootstrap.workflowPreview, true);
   assert.equal(bootstrap.implementationPreview, true);
+  assert.equal(bootstrap.debugRecoveryPreview, true);
   const headers = { 'Content-Type': 'application/json', 'X-Relay-Token': bootstrap.token };
   const config = bootstrap.config;
   config.harnesses.codex.command = agent;
+  config.harnesses.claude.enabled = false;
+  config.harnesses.pi.enabled = false;
   config.repositories = [
     {
       id: 'fixture',
@@ -309,9 +332,38 @@ console.log(JSON.stringify({ type: 'item.completed', item: { type: 'agent_messag
     blocked.attempts.some((attempt) => attempt.role === 'debug'),
     false,
   );
+
+  const diagnosis = await draft('Needs diagnosis');
+  await page.goto(`${base}/#task/${diagnosis.id}/overview`);
+  await page.getByRole('button', { name: 'Start investigation' }).click();
+  await page.getByText(/Debugger running/).waitFor({ timeout: 20000 });
+  await page.getByRole('heading', { name: 'Proposed approaches' }).waitFor({ timeout: 45000 });
+  const diagnosed = await (await fetch(`${base}/api/tasks/${diagnosis.id}`)).json();
+  assert.equal(diagnosed.attempts[0].handoff.verdict, 'blocked');
+  assert.equal(diagnosed.attempts[1].role, 'debug');
+  assert.equal(diagnosed.attempts[2].stage, 'investigate');
+  assert.equal(diagnosed.attempts[3].stage, 'plan');
+
+  const decisionTask = await draft('Needs decision');
+  await page.goto(`${base}/#task/${decisionTask.id}/overview`);
+  await page.getByRole('button', { name: 'Start investigation' }).click();
+  await page.getByRole('heading', { name: 'Needs your decision' }).waitFor({ timeout: 45000 });
+  await page.getByRole('radio', { name: 'Select Small change' }).check();
+  await page.getByLabel('Direction (optional)').fill('Use the newly available capability.');
+  await writeFile(decisionRelease, 'ready');
+  await page.getByRole('button', { name: 'Retry debugger' }).click();
+  await page.getByRole('heading', { name: 'Proposed approaches' }).waitFor({ timeout: 45000 });
+  const resolved = await (await fetch(`${base}/api/tasks/${decisionTask.id}`)).json();
+  assert.ok(resolved.attempts.filter((attempt) => attempt.role === 'debug').length >= 3);
+  assert.ok(
+    resolved.messages.some(
+      (message) =>
+        message.text.includes('newly available capability') && message.delivery === 'delivered',
+    ),
+  );
   assert.deepEqual(errors, []);
   console.log(
-    'React/Go workflow: approval, supervised verification, bounded repair, review, diff, acceptance, pause and resume passed.',
+    'React/Go workflow: approval, verification, repair, debugger recovery, blocker decisions, review, diff, acceptance, pause and resume passed.',
   );
 } catch (error) {
   if (serverOutput) console.error(serverOutput);

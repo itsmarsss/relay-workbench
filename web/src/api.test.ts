@@ -9,6 +9,7 @@ import {
   fetchTasks,
   saveConfig,
   taskAction,
+  resolveBlocker,
 } from './api.ts';
 const token = 'a'.repeat(64),
   revision = 'b'.repeat(64);
@@ -92,6 +93,41 @@ test('approval and acceptance send explicit authenticated decisions', async () =
     assert.match(calls[1]!.url, /\/accept$/);
     assert.deepEqual(JSON.parse(String(calls[1]!.init!.body)), { taskRevision: revision });
     assert.equal((calls[1]!.init!.headers as Record<string, string>)['X-Relay-Token'], token);
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+test('blocker decisions include the inspected revision and no automation authority', async () => {
+  const original = globalThis.fetch;
+  let sent: RequestInit | undefined;
+  globalThis.fetch = async (_url, init) => {
+    sent = init;
+    return new Response(
+      JSON.stringify({
+        id: '550e8400-e29b-41d4-a716-446655440000',
+        title: 'Task',
+        status: 'queued',
+      }),
+      { status: 202 },
+    );
+  };
+  try {
+    await resolveBlocker(
+      token,
+      '550e8400-e29b-41d4-a716-446655440000',
+      revision,
+      'decision',
+      'retry',
+      'choice',
+      'Try again',
+    );
+    assert.deepEqual(JSON.parse(String(sent!.body)), {
+      taskRevision: revision,
+      decisionId: 'decision',
+      resolution: 'retry',
+      optionId: 'choice',
+      note: 'Try again',
+    });
   } finally {
     globalThis.fetch = original;
   }

@@ -250,8 +250,18 @@ function Tree({
   );
 }
 export default function App() {
-  const { tasks, bootstrap, connected, error, create, updateConfig, act, approve, accept } =
-      useRelay(),
+  const {
+      tasks,
+      bootstrap,
+      connected,
+      error,
+      create,
+      updateConfig,
+      act,
+      approve,
+      accept,
+      resolve,
+    } = useRelay(),
     [deck, setDeck] = useState(initialDeck),
     [focus, setFocus] = useState(''),
     [modal, setModal] = useState<{ kind: 'rename' | 'close'; tabId: string } | null>(null),
@@ -503,9 +513,11 @@ export default function App() {
             tab={route.tab}
             workflowPreview={bootstrap?.workflowPreview === true}
             implementationPreview={bootstrap?.implementationPreview === true}
+            debugRecoveryPreview={bootstrap?.debugRecoveryPreview === true}
             onAction={act}
             onApprove={approve}
             onAccept={accept}
+            onResolve={resolve}
             onTab={(tab) => navigate(`#task/${route.id}/${tab}`)}
             onBack={() => navigate('#tasks')}
             onDeck={() => navigate(`#deck?tab=${encodeURIComponent(deck.active)}`)}

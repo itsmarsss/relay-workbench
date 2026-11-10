@@ -11,9 +11,11 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf16"
 
 	"relay.local/relay/internal/harness"
 	"relay.local/relay/internal/process"
+	"relay.local/relay/internal/recovery"
 	"relay.local/relay/internal/storage"
 	"relay.local/relay/internal/store"
 	"relay.local/relay/internal/task"
@@ -229,6 +231,7 @@ func (c *Coordinator) enqueue(id string, resume bool) (map[string]any, error) {
 	}
 	var timeout time.Duration
 	var repairLimit int
+	var recoveryLimit int
 	result, err := c.update(id, func(value map[string]any) error {
 		status := text(value["status"])
 		if value["demo"] == true {
@@ -260,6 +263,8 @@ func (c *Coordinator) enqueue(id string, resume bool) (map[string]any, error) {
 			if decision := object(value["blockerDecision"]); decision != nil && decision["resolved"] != true {
 				return errors.New("resolve the pending decision before resuming")
 			}
+			value["loopGuardAcknowledgedAt"], value["loopGuard"] = len(array(value["attempts"])), nil
+			value["debugVerificationRequests"] = nil
 		}
 		routing := object(value["routing"])
 		needed := []string{"investigate", "plan"}
@@ -295,6 +300,10 @@ func (c *Coordinator) enqueue(id string, resume bool) (map[string]any, error) {
 		if err != nil {
 			return err
 		}
+		recoveryLimit, err = recoveryAttempts(config.Value, value)
+		if err != nil {
+			return err
+		}
 		if !resume {
 			value["stage"] = "investigate"
 			if value["smartRouting"] == true {
@@ -310,7 +319,7 @@ func (c *Coordinator) enqueue(id string, resume bool) (map[string]any, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	job := &coordinatorJob{cancel: cancel, done: make(chan struct{})}
 	c.jobs[id] = job
-	go c.run(ctx, id, limit, timeout, repairLimit, enabled, configs, job)
+	go c.run(ctx, id, limit, timeout, repairLimit, recoveryLimit, enabled, configs, job)
 	return result, nil
 }
 
@@ -325,9 +334,23 @@ func repairRounds(config, value map[string]any) (int, error) {
 	return int(limit), nil
 }
 
+func recoveryAttempts(config, value map[string]any) (int, error) {
+	limit, _ := config["maxRecoveryAttempts"].(float64)
+	if override, ok := object(value["execution"])["maxRecoveryAttempts"].(float64); ok {
+		limit = override
+	}
+	if limit < 0 || limit > 5 || limit != float64(int(limit)) {
+		return 0, errors.New("invalid recovery limit")
+	}
+	return int(limit), nil
+}
+
 func (c *Coordinator) waitAtGate(ctx context.Context, id, expected string) error {
 	if ctx == nil {
 		return errors.New("decision context is required")
+	}
+	if err := ctx.Err(); err != nil {
+		return err
 	}
 	c.mu.Lock()
 	job := c.jobs[id]
@@ -409,6 +432,13 @@ func (c *Coordinator) Approve(ctx context.Context, id, optionID, note, attemptID
 	if err != nil {
 		return nil, err
 	}
+	recoveryLimit, err := recoveryAttempts(config.Value, value)
+	if err != nil {
+		return nil, err
+	}
+	if err = ctx.Err(); err != nil {
+		return nil, err
+	}
 	approved, err := (Service{Store: c.store}).ApproveExpected(id, optionID, note, Authorization{Human: true}, attemptID, revision)
 	if err != nil {
 		return nil, err
@@ -419,7 +449,7 @@ func (c *Coordinator) Approve(ctx context.Context, id, optionID, note, attemptID
 	ctx, cancel := context.WithCancel(context.Background())
 	job := &coordinatorJob{cancel: cancel, done: make(chan struct{})}
 	c.jobs[id] = job
-	go c.run(ctx, id, int(limit), time.Duration(minutes)*time.Minute, repairs, enabled, configs, job)
+	go c.run(ctx, id, int(limit), time.Duration(minutes)*time.Minute, repairs, recoveryLimit, enabled, configs, job)
 	return value, nil
 }
 
@@ -511,6 +541,175 @@ func (c *Coordinator) Accept(ctx context.Context, id, revision string) (map[stri
 	if json.Unmarshal(accepted, &value) != nil {
 		return nil, errors.New("invalid accepted task")
 	}
+	return value, nil
+}
+
+// Resolve records a human choice against the exact blocker that was displayed.
+// Retrying starts a fresh debugger; replanning requires a new approach approval.
+func (c *Coordinator) Resolve(ctx context.Context, id, revision, decisionID, resolution, optionID, note string) (map[string]any, error) {
+	if err := c.waitAtGate(ctx, id, "blocked"); err != nil {
+		return nil, err
+	}
+	if resolution != "retry" && resolution != "replan" && resolution != "pause" {
+		return nil, errors.New("choose a valid blocker resolution")
+	}
+	if len(utf16.Encode([]rune(note))) > 10000 || strings.ContainsRune(note, '\x00') {
+		return nil, errors.New("blocker direction is too long or invalid")
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.closed || c.jobs[id] != nil || len(c.jobs) >= 256 {
+		return nil, errors.New("workflow is busy or Relay is shutting down")
+	}
+	raw, err := c.store.Get(id)
+	if err != nil {
+		return nil, err
+	}
+	if revision == "" || store.TaskRevision(raw) != revision {
+		return nil, errors.New("Blocker changed; refresh before deciding")
+	}
+	var value map[string]any
+	if json.Unmarshal(raw, &value) != nil || value == nil || text(value["status"]) != "blocked" {
+		return nil, errors.New("task is not awaiting a blocker decision")
+	}
+	decision := object(value["blockerDecision"])
+	if decision == nil || decision["resolved"] == true || decisionID == "" || text(decision["id"]) != decisionID {
+		return nil, errors.New("Blocker changed; refresh before deciding")
+	}
+	var selected map[string]any
+	if optionID != "" {
+		for _, item := range array(decision["options"]) {
+			candidate := object(item)
+			if text(candidate["id"]) == optionID {
+				if selected != nil {
+					return nil, errors.New("ambiguous blocker option")
+				}
+				selected = candidate
+			}
+		}
+		if selected == nil || text(selected["title"]) == "" || text(selected["description"]) == "" || text(selected["tradeoffs"]) == "" {
+			return nil, errors.New("choose a current debugging option")
+		}
+	}
+	var limit, repairs, recoveryLimit int
+	var timeout time.Duration
+	var enabled map[string]bool
+	var configs map[string]harness.Config
+	if resolution != "pause" {
+		entries, err := profiles(value)
+		if err != nil {
+			return nil, err
+		}
+		for _, entry := range entries {
+			if text(entry["workspaceRoot"]) == "" || entry["workspaceDraft"] != nil || entry["setupCompleted"] != true {
+				return nil, errors.New("workspace or setup is incomplete; inspect retained work before continuing")
+			}
+		}
+		config, err := (task.ConfigurationService{Store: c.store}).Read()
+		if err != nil {
+			return nil, err
+		}
+		enabled, configs = enabledAgents(config.Value)
+		routing := object(value["routing"])
+		if resolution == "replan" {
+			if value["preset"] == "investigate" || !enabled[text(routing["plan"])] {
+				return nil, errors.New("planning is unavailable for this task")
+			}
+		} else {
+			stage := text(value["stage"])
+			if stage != "triage" && stage != "investigate" && stage != "plan" && stage != "implement" && stage != "verify" && stage != "review" {
+				return nil, errors.New("debugging this stage is not supported")
+			}
+			if (stage == "implement" || stage == "verify" || stage == "review") && !harness.HasApprovedApproach(value) {
+				return nil, errors.New("implementation requires an approved approach")
+			}
+			if !enabled["codex"] && !enabled["claude"] && !enabled["pi"] {
+				return nil, errors.New("no debugger agent is available")
+			}
+		}
+		concurrency, _ := config.Value["concurrency"].(float64)
+		minutes, _ := config.Value["timeoutMinutes"].(float64)
+		if override, ok := object(value["execution"])["timeoutMinutes"].(float64); ok {
+			minutes = override
+		}
+		if concurrency < 1 || concurrency > 8 || concurrency != float64(int(concurrency)) || minutes < 1 || minutes > 240 || minutes != float64(int(minutes)) {
+			return nil, errors.New("invalid workflow settings")
+		}
+		limit, timeout = int(concurrency), time.Duration(minutes)*time.Minute
+		repairs, err = repairRounds(config.Value, value)
+		if err != nil {
+			return nil, err
+		}
+		recoveryLimit, err = recoveryAttempts(config.Value, value)
+		if err != nil {
+			return nil, err
+		}
+	}
+	decision["resolved"], decision["resolution"] = true, resolution
+	value["loopGuardAcknowledgedAt"], value["loopGuard"] = len(array(value["attempts"])), nil
+	value["debugVerificationRequests"] = nil
+	direction := strings.TrimSpace(note)
+	if selected != nil {
+		direction = fmt.Sprintf("Debugger direction selected: %s. %s Tradeoffs: %s. %s", text(selected["title"]), text(selected["description"]), text(selected["tradeoffs"]), direction)
+	}
+	if direction != "" {
+		messageID, err := stageUUID()
+		if err != nil {
+			return nil, err
+		}
+		value["messages"] = append(array(value["messages"]), map[string]any{"id": messageID, "at": timestamp(time.Now()), "role": "user", "text": direction, "delivery": "pending"})
+	}
+	switch resolution {
+	case "pause":
+		value["status"] = "paused"
+	case "replan":
+		value["stage"], value["status"], value["repositoryCursor"] = "plan", "queued", 0
+		value["chosenApproach"], value["verifiedFingerprint"], value["reviewedFingerprint"] = nil, nil, nil
+		value["round"], value["recovery"], value["error"] = 0, nil, nil
+	case "retry":
+		var handoff map[string]any
+		attempts := array(value["attempts"])
+		for i := len(attempts) - 1; i >= 0; i-- {
+			if handoff = object(object(attempts[i])["handoff"]); handoff != nil {
+				break
+			}
+		}
+		if handoff == nil {
+			handoff = map[string]any{"summary": text(value["error"]), "details": "", "evidence": []any{}, "risks": []any{}, "options": []any{}}
+		}
+		if text(handoff["summary"]) == "" {
+			handoff["summary"] = "Diagnose the blocked workflow."
+		}
+		value["recovery"] = nil
+		if recoveryLimit < 1 {
+			recoveryLimit = 1
+		}
+		if _, err = recovery.Blocked(value, handoff, recoveryLimit, true); err != nil {
+			return nil, err
+		}
+	}
+	next, err := json.Marshal(value)
+	if err != nil {
+		return nil, err
+	}
+	if err = ctx.Err(); err != nil {
+		return nil, err
+	}
+	event, _ := json.Marshal(map[string]any{"type": "decision", "source": "user", "summary": "Blocker decision recorded: " + resolution})
+	saved, err := c.store.CompareAndSwap(id, raw, next, event)
+	if err != nil {
+		return nil, err
+	}
+	if json.Unmarshal(saved, &value) != nil {
+		return nil, errors.New("invalid saved task")
+	}
+	if resolution == "pause" {
+		return value, nil
+	}
+	jobCtx, cancel := context.WithCancel(context.Background())
+	job := &coordinatorJob{cancel: cancel, done: make(chan struct{})}
+	c.jobs[id] = job
+	go c.run(jobCtx, id, limit, timeout, repairs, recoveryLimit, enabled, configs, job)
 	return value, nil
 }
 
@@ -660,7 +859,7 @@ func (c *Coordinator) repositoryRoots(ctx context.Context, id string) ([]string,
 	return roots, nil
 }
 
-func (c *Coordinator) run(ctx context.Context, id string, limit int, timeout time.Duration, repairLimit int, enabled map[string]bool, configs map[string]harness.Config, job *coordinatorJob) {
+func (c *Coordinator) run(ctx context.Context, id string, limit int, timeout time.Duration, repairLimit, recoveryLimit int, enabled map[string]bool, configs map[string]harness.Config, job *coordinatorJob) {
 	admitted := false
 	defer func() {
 		c.mu.Lock()
@@ -722,7 +921,7 @@ func (c *Coordinator) run(ctx context.Context, id string, limit int, timeout tim
 				break
 			}
 			inspector := workspace.Runner{WorkerExecutable: c.worker, WorkerArgs: c.args, Environment: c.env}
-			err = c.stages.Run(ctx, id, StageOptions{Config: configs[provider], EnabledProviders: enabled, Admission: guard, Inspector: inspector, WorkerExecutable: c.worker, WorkerArgs: c.args, Environment: c.env, Timeout: timeout, CheckGate: c.checks, MaxRepairRounds: repairLimit})
+			err = c.stages.Run(ctx, id, StageOptions{Config: configs[provider], Harnesses: configs, EnabledProviders: enabled, Admission: guard, Inspector: inspector, WorkerExecutable: c.worker, WorkerArgs: c.args, Environment: c.env, Timeout: timeout, CheckGate: c.checks, MaxRepairRounds: repairLimit, MaxRecoveryAttempts: recoveryLimit})
 		}
 		if err != nil {
 			return err

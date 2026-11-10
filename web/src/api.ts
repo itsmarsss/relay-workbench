@@ -53,7 +53,27 @@ export async function fetchBootstrap(signal?: AbortSignal): Promise<Bootstrap> {
     workflowPreview: 'workflowPreview' in result && result.workflowPreview === true,
     implementationPreview:
       'implementationPreview' in result && result.implementationPreview === true,
+    debugRecoveryPreview: 'debugRecoveryPreview' in result && result.debugRecoveryPreview === true,
   };
+}
+export async function resolveBlocker(
+  token: string,
+  id: string,
+  taskRevision: string,
+  decisionId: string,
+  resolution: 'retry' | 'replan' | 'pause',
+  optionId: string,
+  note: string,
+): Promise<Task> {
+  const result = await json(
+    await fetch(`/api/tasks/${encodeURIComponent(id)}/resolve-blocker`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Relay-Token': token },
+      body: JSON.stringify({ taskRevision, decisionId, resolution, optionId, note }),
+    }),
+  );
+  if (!isTask(result)) throw new Error('Updated task data is invalid.');
+  return result;
 }
 export async function approvePlan(
   token: string,

@@ -84,10 +84,125 @@ func stageFixture(t *testing.T, stage string, count int, script string) (*StageR
 }
 
 func stageFinal() string {
-	handoff := map[string]any{"summary": "Found evidence", "details": "Relevant source", "files": []any{}, "evidence": []any{}, "risks": []any{}, "options": []any{map[string]any{"id": "a", "title": "Approach", "description": "Change", "tradeoffs": "None"}}, "findings": []any{}, "verdict": "complete"}
+	return stageHandoff("complete")
+}
+func stageHandoff(verdict string) string {
+	handoff := map[string]any{"summary": "Found evidence", "details": "Relevant source", "files": []any{}, "evidence": []any{}, "risks": []any{}, "options": []any{map[string]any{"id": "a", "title": "Approach", "description": "Change", "tradeoffs": "None"}}, "findings": []any{}, "verdict": verdict}
 	text, _ := json.Marshal(handoff)
 	line, _ := json.Marshal(map[string]any{"type": "item.completed", "item": map[string]any{"type": "agent_message", "text": string(text)}})
 	return string(line)
+}
+
+func TestBlockedSpecialistRunsDebuggerThenContinuesStage(t *testing.T) {
+	blocked := stageHandoff("blocked")
+	runner, options, db := stageFixture(t, "investigate", 1, "cat >/dev/null\nprintf '%s\\n' '"+blocked+"'")
+	options.MaxRecoveryAttempts = 1
+	options.Harnesses = map[string]harness.Config{"codex": options.Config}
+	if err := runner.Run(context.Background(), stageTaskID, options); err != nil {
+		t.Fatal(err)
+	}
+	value := readStageTask(t, db)
+	if value["status"] != "queued" || object(value["recovery"])["active"] != true {
+		t.Fatalf("debugger not scheduled: %#v", value)
+	}
+	if err := os.WriteFile(options.Config.Command, []byte("#!/bin/sh\ncat >/dev/null\nprintf '%s\\n' '"+stageFinal()+"'\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := runner.Run(context.Background(), stageTaskID, options); err != nil {
+		t.Fatal(err)
+	}
+	value = readStageTask(t, db)
+	if value["stage"] != "investigate" || value["status"] != "queued" || text(object(value["recovery"])["phase"]) != "continue" || object(array(value["attempts"])[1])["role"] != "debug" {
+		t.Fatalf("debugger did not continue the original stage: %#v", value)
+	}
+	if err := runner.Run(context.Background(), stageTaskID, options); err != nil {
+		t.Fatal(err)
+	}
+	value = readStageTask(t, db)
+	if value["stage"] != "plan" || value["status"] != "queued" || len(array(value["attempts"])) != 3 {
+		t.Fatalf("original stage did not continue: %#v", value)
+	}
+}
+
+func TestDebuggerCannotAuthorizeUnapprovedRepair(t *testing.T) {
+	blocked := stageHandoff("blocked")
+	runner, options, db := stageFixture(t, "investigate", 1, "cat >/dev/null\nprintf '%s\\n' '"+blocked+"'")
+	options.MaxRecoveryAttempts = 1
+	options.Harnesses = map[string]harness.Config{"codex": options.Config}
+	if err := runner.Run(context.Background(), stageTaskID, options); err != nil {
+		t.Fatal(err)
+	}
+	repair := stageHandoff("repair_requested")
+	if err := os.WriteFile(options.Config.Command, []byte("#!/bin/sh\ncat >/dev/null\nprintf '%s\\n' '"+repair+"'\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := runner.Run(context.Background(), stageTaskID, options); err != nil {
+		t.Fatal(err)
+	}
+	value := readStageTask(t, db)
+	if value["status"] != "blocked" || value["stage"] != "investigate" || object(value["blockerDecision"]) == nil {
+		t.Fatalf("unapproved repair was scheduled: %#v", value)
+	}
+}
+
+func TestDebuggerStopsAtRecoveryLimitWithDecision(t *testing.T) {
+	blocked := stageHandoff("blocked")
+	runner, options, db := stageFixture(t, "investigate", 1, "cat >/dev/null\nprintf '%s\\n' '"+blocked+"'")
+	options.MaxRecoveryAttempts = 1
+	options.Harnesses = map[string]harness.Config{"codex": options.Config}
+	for i := 0; i < 2; i++ {
+		if err := runner.Run(context.Background(), stageTaskID, options); err != nil {
+			t.Fatal(err)
+		}
+	}
+	value := readStageTask(t, db)
+	decision := object(value["blockerDecision"])
+	if value["status"] != "blocked" || decision == nil || decision["resolved"] != false || len(array(value["attempts"])) != 2 {
+		t.Fatalf("debugger did not stop with a clear decision: %#v", value)
+	}
+}
+
+func TestDebuggerVerificationRequestsAreBounded(t *testing.T) {
+	task := map[string]any{"stage": "implement", "status": "running", "chosenApproach": map[string]any{"id": "a"}, "approvals": []any{map[string]any{"type": "approach", "option": map[string]any{"id": "a"}}}, "attempts": []any{map[string]any{"id": "debug"}}}
+	handoff := map[string]any{"verdict": "verification_requested", "summary": "Check progress", "details": "Run a check", "evidence": []any{}, "risks": []any{}}
+	guard := workspace.GuardResult{After: workspace.FingerprintSnapshot{Combined: "same"}}
+	for i := 0; i < 2; i++ {
+		task["stage"], task["status"], task["recovery"] = "implement", "running", map[string]any{"active": true, "phase": "debug"}
+		if err := applyDebugResult(task, handoff, guard, 3, 2); err != nil || task["stage"] != "verify" || task["status"] != "queued" {
+			t.Fatalf("verification request %d: %#v %v", i, task, err)
+		}
+	}
+	task["stage"], task["status"], task["recovery"] = "implement", "running", map[string]any{"active": true, "phase": "debug"}
+	if err := applyDebugResult(task, handoff, guard, 3, 2); err != nil || task["status"] != "blocked" || object(task["blockerDecision"]) == nil {
+		t.Fatalf("repeated verification request did not stop: %#v %v", task, err)
+	}
+}
+
+func TestDebuggerVerificationReturnsToInterruptedImplementation(t *testing.T) {
+	guard := workspace.GuardResult{Before: workspace.FingerprintSnapshot{Combined: "same"}, After: workspace.FingerprintSnapshot{Combined: "same"}}
+	handoff := map[string]any{"verdict": "complete"}
+	task := map[string]any{"stage": "verify", "status": "running", "recovery": map[string]any{"phase": "verify_then_continue", "returnStage": "implement"}}
+	if err := advanceStage(task, "verify", handoff, 1, 0, guard, nil, 1); err != nil || task["stage"] != "implement" || task["verifiedFingerprint"] != nil || object(task["recovery"])["phase"] != "continue" {
+		t.Fatalf("interrupted implementation was skipped: %#v %v", task, err)
+	}
+	task["stage"], task["status"], task["recovery"] = "verify", "running", map[string]any{"phase": "verify_then_continue", "returnStage": "review"}
+	if err := advanceStage(task, "verify", handoff, 1, 0, guard, nil, 1); err != nil || task["stage"] != "review" || object(task["recovery"])["phase"] != "continued" {
+		t.Fatalf("review continuation was lost: %#v %v", task, err)
+	}
+}
+
+func TestStageTimeoutDoesNotStartDebugger(t *testing.T) {
+	runner, options, db := stageFixture(t, "investigate", 1, "sleep 5")
+	options.Timeout = 200 * time.Millisecond
+	options.MaxRecoveryAttempts = 2
+	options.Harnesses = map[string]harness.Config{"codex": options.Config}
+	if err := runner.Run(context.Background(), stageTaskID, options); err == nil {
+		t.Fatal("timed-out stage succeeded")
+	}
+	value := readStageTask(t, db)
+	if value["status"] != "blocked" || object(value["recovery"])["active"] == true || len(array(value["attempts"])) != 1 {
+		t.Fatalf("timeout triggered a debugger: %#v", value)
+	}
 }
 
 func readStageTask(t *testing.T, db *store.Store) map[string]any {
