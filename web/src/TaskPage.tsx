@@ -277,11 +277,14 @@ export function TaskPage({
               {busy ? 'Starting…' : 'Start investigation'}
             </button>
           )}
-          {workflowPreview && ['queued', 'running'].includes(task.status) && (
-            <button disabled={busy} onClick={() => void runAction('pause')}>
-              {busy ? 'Stopping…' : 'Pause'}
-            </button>
-          )}
+          {workflowPreview &&
+            (['queued', 'running'].includes(task.status) ||
+              (task.currentRun?.auxiliary &&
+                ['queued', 'running'].includes(task.currentRun.status || ''))) && (
+              <button disabled={busy} onClick={() => void runAction('pause')}>
+                {busy ? 'Stopping…' : 'Pause'}
+              </button>
+            )}
           {workflowPreview &&
             !task.demo &&
             ['paused', 'interrupted', 'blocked'].includes(task.status) &&

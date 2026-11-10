@@ -110,6 +110,7 @@ const { spawnSync } = require('node:child_process');
 const prompt = fs.readFileSync(0, 'utf8');
 const handoff = ${JSON.stringify(handoff)};
 const debugging = prompt.includes('You are a debugger.');
+if (prompt.includes('You are the follow-up working agent')) { handoff.followUpAction = 'complete'; handoff.summary = 'Follow-up answered from retained workspace'; }
 const diagnosis = prompt.includes('"title":"Needs diagnosis"');
 const decision = prompt.includes('"title":"Needs decision"');
 if (debugging && (diagnosis || decision)) spawnSync('/bin/sleep', ['1']);
@@ -177,6 +178,9 @@ console.log(JSON.stringify({ type: 'item.completed', item: { type: 'agent_messag
   assert.equal(bootstrap.debugRecoveryPreview, true);
   assert.equal(bootstrap.issueImportPreview, true);
   const headers = { 'Content-Type': 'application/json', 'X-Relay-Token': bootstrap.token };
+  const storage = await (await fetch(`${base}/api/storage/pressure`)).json();
+  const storageSave = await fetch(`${base}/api/storage/policy`, {method:'PUT', headers:{...headers,'If-Match':storage.revision}, body:JSON.stringify({...storage.policy,warningPercent:0,criticalPercent:0,warningBytes:4*1024**3,criticalBytes:2*1024**3})});
+  assert.equal(storageSave.status,200,await storageSave.text());
   const config = bootstrap.config;
   config.harnesses.codex.command = agent;
   config.harnesses.claude.enabled = false;
@@ -253,12 +257,26 @@ console.log(JSON.stringify({ type: 'item.completed', item: { type: 'agent_messag
     importedDescription,
   );
   await composer.getByLabel('Attach images', { exact: true }).setInputFiles({
-    name: 'fixture.png', mimeType: 'image/png', buffer: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jR1sAAAAASUVORK5CYII=', 'base64'),
+    name: 'fixture.png',
+    mimeType: 'image/png',
+    buffer: Buffer.from(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jR1sAAAAASUVORK5CYII=',
+      'base64',
+    ),
   });
-  await until(async () => (await composer.getByLabel('Description', { exact: true }).inputValue()).includes('/api/attachments/'), 'image upload');
+  await until(
+    async () =>
+      (await composer.getByLabel('Description', { exact: true }).inputValue()).includes(
+        '/api/attachments/',
+      ),
+    'image upload',
+  );
   await composer.getByRole('button', { name: 'Preview', exact: true }).click();
   await composer.getByRole('button', { name: 'Enlarge image: fixture.png' }).click();
-  await page.getByRole('dialog', { name: 'fixture.png', exact: true }).getByRole('button', { name: 'Close dialog' }).click();
+  await page
+    .getByRole('dialog', { name: 'fixture.png', exact: true })
+    .getByRole('button', { name: 'Close dialog' })
+    .click();
   await composer.getByRole('button', { name: 'Cancel', exact: true }).click();
   await page.goto(`${base}/#task/${first.id}/overview`);
   await page.getByRole('button', { name: 'Start investigation' }).click();
@@ -287,6 +305,7 @@ console.log(JSON.stringify({ type: 'item.completed', item: { type: 'agent_messag
   assert.equal(firstTask.status, 'awaiting_plan');
   assert.equal(firstTask.approvals.length, 0);
   assert.equal(await readFile(join(repo, 'source.txt'), 'utf8'), 'local work stays here\n');
+
   assert.ok(
     (await realpath(firstTask.workspaceRoot)).startsWith(await realpath(join(temporary, 'state'))),
   );
@@ -314,10 +333,18 @@ console.log(JSON.stringify({ type: 'item.completed', item: { type: 'agent_messag
   );
   await page.getByRole('button', { name: 'Comment on source.txt:1', exact: true }).last().click();
   const commentDialog = page.getByRole('dialog', { name: 'Comment on source.txt:1', exact: true });
-  await commentDialog.getByLabel('Review comment', { exact: true }).fill('Please confirm this changed behavior.');
+  await commentDialog
+    .getByLabel('Review comment', { exact: true })
+    .fill('Please confirm this changed behavior.');
   await commentDialog.getByRole('button', { name: 'Add comment', exact: true }).click();
-  await page.locator('.review-comment').getByRole('button', { name: 'Resolve', exact: true }).click();
-  await page.locator('.review-comment').getByRole('button', { name: 'Reopen', exact: true }).waitFor();
+  await page
+    .locator('.review-comment')
+    .getByRole('button', { name: 'Resolve', exact: true })
+    .click();
+  await page
+    .locator('.review-comment')
+    .getByRole('button', { name: 'Reopen', exact: true })
+    .waitFor();
   await page.getByRole('button', { name: 'Accept result' }).click();
   await until(
     async () =>
@@ -325,6 +352,19 @@ console.log(JSON.stringify({ type: 'item.completed', item: { type: 'agent_messag
     'final acceptance',
   );
   assert.equal(await readFile(join(repo, 'source.txt'), 'utf8'), 'local work stays here\n');
+
+  await page.getByRole('button', { name: 'Overview', exact: true }).click();
+  await page.getByRole('button', { name: 'Continue', exact: true }).click();
+  await page.getByLabel('Agent direction', { exact: true }).fill('Explain the changed behavior.');
+  await page.getByRole('button', { name: 'Run agent', exact: true }).click();
+  const followed = await until(async () => {
+    const value = await (await fetch(`${base}/api/tasks/${first.id}`)).json();
+    return value.deliveryRuns?.some((run) => run.stage === 'followup' && run.status === 'complete')
+      ? value
+      : null;
+  }, 'follow-up completion');
+  assert.equal(followed.status, 'completed');
+  assert.equal(followed.reviewedFingerprint, reviewed.reviewedFingerprint);
 
   await writeFile(agent, `#!/bin/sh\ntouch "$RELAY_E2E_MARKER"\nsleep 30\n`, {
     mode: 0o700,

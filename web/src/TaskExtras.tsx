@@ -183,6 +183,12 @@ export function ContinueWork({ task }: { task: FullTask }) {
     [model, setModel] = useState(''),
     [effort, setEffort] = useState('');
   const active = ['queued', 'running', 'manual'].includes(task.status);
+  const followupBusy =
+    Array.isArray(task.deliveryRuns) &&
+    task.deliveryRuns.some((item) => {
+      const run = asObject(item);
+      return run?.stage === 'followup' && ['queued', 'running'].includes(String(run.status));
+    });
   const uploads = useImageUpload((text) => setMessage((value) => value + text));
   return (
     <section className="surface continuation">
@@ -203,11 +209,14 @@ export function ContinueWork({ task }: { task: FullTask }) {
               e.preventDefault();
               if (uploads.busy) return;
               void mutation
-                .run(`/api/tasks/${task.id}/${active ? 'message' : 'request-changes'}`, {
-                  taskRevision: task.taskRevision,
-                  message,
-                  ...(active ? {} : { provider, model, effort }),
-                })
+                .run(
+                  `/api/tasks/${task.id}/${active ? 'message' : task.status === 'completed' ? 'followup' : 'request-changes'}`,
+                  {
+                    taskRevision: task.taskRevision,
+                    message,
+                    ...(active ? {} : { provider, model, effort }),
+                  },
+                )
                 .then(() => setMessage(''))
                 .catch(() => {});
             }}
@@ -218,7 +227,11 @@ export function ContinueWork({ task }: { task: FullTask }) {
               onDrop={uploads.onDrop}
               onDragOver={uploads.onDragOver}
               placeholder={
-                active ? 'Direction for the next turn…' : 'What should the agent change?'
+                active
+                  ? 'Direction for the next turn…'
+                  : task.status === 'completed'
+                    ? 'Ask a question, request an edit, or update the PR…'
+                    : 'What should the agent change?'
               }
               value={message}
               onChange={(e) => setMessage(e.target.value)}
@@ -265,13 +278,21 @@ export function ContinueWork({ task }: { task: FullTask }) {
               <small>
                 {active
                   ? 'Delivered at the next agent turn.'
-                  : 'Uses the approved approach, then verifies and reviews the changes.'}
+                  : task.status === 'completed'
+                    ? 'A working agent uses the retained workspace. Source changes return through checks and review.'
+                    : 'Uses the approved approach, then verifies and reviews the changes.'}
               </small>
               <button
                 className="primary"
-                disabled={mutation.busy || uploads.busy || !message.trim()}
+                disabled={mutation.busy || followupBusy || uploads.busy || !message.trim()}
               >
-                {mutation.busy ? 'Sending…' : active ? 'Send direction' : 'Run agent'}
+                {followupBusy
+                  ? 'Agent working…'
+                  : mutation.busy
+                    ? 'Sending…'
+                    : active
+                      ? 'Send direction'
+                      : 'Run agent'}
               </button>
             </div>
           </form>

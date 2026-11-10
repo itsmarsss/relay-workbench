@@ -657,6 +657,7 @@ func (c *Coordinator) publishOnce(ctx context.Context, id, repositoryID, attempt
 					delivery["status"], delivery["phase"], delivery["finishedAt"] = "complete", "prepared", timestamp(time.Now())
 					delivery["summary"], delivery["handoff"] = handoff["summary"], handoff
 					entry["baseCommit"] = newBase
+					entry["workspaceHead"] = final.Head
 					savePublicationRun(task, entry)
 					task["publicationRecovery"] = map[string]any{"active": true, "attemptId": attemptID, "repositoryId": repositoryID, "baseCommit": newBase, "content": content, "sameContent": prepared.SameContent}
 					task["stage"], task["status"], task["repositoryCursor"] = "verify", "queued", 0
@@ -704,6 +705,7 @@ func (c *Coordinator) publishOnce(ctx context.Context, id, repositoryID, attempt
 			}
 			delivery["status"], delivery["phase"], delivery["commit"], delivery["finishedAt"] = "complete", "monitoring", final.Head, timestamp(time.Now())
 			delivery["summary"], delivery["handoff"] = handoff["summary"], handoff
+			entry["workspaceHead"] = final.Head
 			entry["publication"] = observed
 			savePublicationRun(task, entry)
 			return nil

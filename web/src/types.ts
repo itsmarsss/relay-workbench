@@ -18,6 +18,7 @@ export type Task = {
   stage?: string;
   repository?: { id: string; name: string };
   currentRun?: {
+    auxiliary?: boolean;
     id: string;
     stage?: string;
     harness?: string;

@@ -78,7 +78,7 @@ func (c *Coordinator) ForkCheckpoint(ctx context.Context, sourceID string, body 
 	}
 	value["round"], value["repositoryCursor"] = float64(0), float64(0)
 	for _, entry := range append([]map[string]any{value}, taskRepositoriesForFork(value)...) {
-		for _, key := range []string{"workspaceRoot", "workspace", "branch", "baseCommit", "workspaceDraft", "setupCompleted", "acceptedFingerprint", "publication", "delivery", "publicationMonitor", "feedback", "feedbackAutomation", "feedbackHandled"} {
+		for _, key := range []string{"workspaceRoot", "workspace", "branch", "baseCommit", "workspaceHead", "workspaceDraft", "setupCompleted", "acceptedFingerprint", "publication", "delivery", "publicationMonitor", "feedback", "feedbackAutomation", "feedbackHandled"} {
 			delete(entry, key)
 		}
 		if profile := object(entry["repository"]); profile["strategy"] == "attach" {
@@ -298,7 +298,7 @@ func (c *Coordinator) restoreCheckpoint(ctx context.Context, id string, saved Ch
 			}
 			_, err = c.update(id, func(task map[string]any) error {
 				return updateWorkspace(task, repoID, func(target map[string]any) {
-					target["workspaceRoot"], target["workspace"], target["branch"], target["baseCommit"] = draft.Root, draft.Cwd, draft.Branch, originalBase
+					target["workspaceRoot"], target["workspace"], target["branch"], target["baseCommit"], target["workspaceHead"] = draft.Root, draft.Cwd, draft.Branch, originalBase, snapshot.Head
 					target["setupCompleted"] = false
 					delete(target, "workspaceDraft")
 				})

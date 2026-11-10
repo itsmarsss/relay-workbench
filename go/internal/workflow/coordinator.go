@@ -139,6 +139,12 @@ func (c *Coordinator) recoverInterrupted() error {
 		}
 		id, status := text(item["id"]), text(item["status"])
 		auxiliary := false
+		for _, item := range array(item["deliveryRuns"]) {
+			run := object(item)
+			if run["status"] == "running" || run["status"] == "queued" {
+				auxiliary = true
+			}
+		}
 		entries := array(item["repositories"])
 		if len(entries) <= 1 {
 			entries = []any{item}
@@ -186,6 +192,10 @@ func (c *Coordinator) recoverInterrupted() error {
 			for _, value := range array(current["deliveryRuns"]) {
 				run := object(value)
 				if run["status"] == "running" || run["status"] == "queued" {
+					if run["stage"] == "followup" && run["status"] == "running" {
+						current["status"], current["stage"], current["error"] = "blocked", "verify", "A follow-up was interrupted; verify retained source before accepting again."
+						current["verifiedFingerprint"], current["reviewedFingerprint"] = nil, nil
+					}
 					run["status"] = "interrupted"
 					run["finishedAt"] = timestamp(time.Now())
 				}
@@ -1202,7 +1212,11 @@ func (c *Coordinator) prepare(ctx context.Context, id string, guard storage.Guar
 			if entry["workspaceDraft"] != nil || entry["setupCompleted"] != true && object(value["checkpointRestore"])["status"] != "complete" {
 				return errors.New("workspace or setup is incomplete; inspect retained work before continuing")
 			}
-			if err = runner.VerifyExisting(ctx, workspace.Profile{Path: text(profile["path"]), Cwd: text(profile["cwd"])}, text(entry["workspaceRoot"]), text(entry["workspace"]), text(entry["branch"]), text(entry["baseCommit"])); err != nil {
+			expectedHead := text(entry["workspaceHead"])
+			if expectedHead == "" {
+				expectedHead = text(entry["baseCommit"])
+			}
+			if err = runner.VerifyExisting(ctx, workspace.Profile{Path: text(profile["path"]), Cwd: text(profile["cwd"])}, text(entry["workspaceRoot"]), text(entry["workspace"]), text(entry["branch"]), expectedHead); err != nil {
 				return err
 			}
 			continue
@@ -1278,7 +1292,7 @@ func updateWorkspace(task map[string]any, repositoryID string, apply func(map[st
 		}
 		apply(entry)
 		if text(object(task["repository"])["id"]) == repositoryID {
-			for _, key := range []string{"workspaceRoot", "workspace", "branch", "baseCommit", "workspaceDraft"} {
+			for _, key := range []string{"workspaceRoot", "workspace", "branch", "baseCommit", "workspaceHead", "workspaceDraft"} {
 				if val, ok := entry[key]; ok {
 					task[key] = val
 				} else {

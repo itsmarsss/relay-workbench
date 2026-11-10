@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"relay.local/relay/internal/storage"
 	"relay.local/relay/internal/store"
 	"relay.local/relay/internal/task"
 	"relay.local/relay/internal/workspace"
@@ -25,6 +26,17 @@ func coordinatorFixture(t *testing.T, script string) (*Coordinator, *store.Store
 	}
 	db, err := store.Open(filepath.Join(t.TempDir(), "state"))
 	if err != nil {
+		t.Fatal(err)
+	}
+	// Small disposable fixtures use byte limits, independent of the host volume size.
+	policyService := storage.PolicyService{Store: db}
+	policy, err := policyService.Read()
+	if err != nil {
+		t.Fatal(err)
+	}
+	policy.Policy.WarningPercent, policy.Policy.CriticalPercent = 0, 0
+	policy.Policy.WarningBytes, policy.Policy.CriticalBytes = 4*storage.GiB, 2*storage.GiB
+	if _, err = policyService.Replace(policy.Revision, policy.Policy); err != nil {
 		t.Fatal(err)
 	}
 	worker, err := os.Executable()

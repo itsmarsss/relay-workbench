@@ -61,6 +61,9 @@ func (c *Coordinator) control(ctx context.Context, id, operation string, body ma
 		}
 		return c.Monitor(ctx, id, text(body["taskRevision"]), text(body["repositoryId"]))
 	}
+	if operation == "followup" {
+		return c.Followup(ctx, id, body)
+	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.closed {

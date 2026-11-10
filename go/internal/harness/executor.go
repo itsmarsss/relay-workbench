@@ -164,6 +164,16 @@ func HasFinalApproval(task map[string]any) bool {
 }
 
 func auxiliaryRecord(task map[string]any, repositoryID, stage string) map[string]any {
+	if stage == "followup" {
+		runs, _ := task["deliveryRuns"].([]any)
+		for _, item := range runs {
+			run, _ := item.(map[string]any)
+			if run["stage"] == stage && run["status"] == "running" {
+				return run
+			}
+		}
+		return nil
+	}
 	entries, _ := task["repositories"].([]any)
 	if len(entries) <= 1 {
 		entries = []any{task}
@@ -236,7 +246,7 @@ func Execute(ctx context.Context, request RunRequest) (RunResult, error) {
 		return RunResult{}, errors.New("invalid harness prompt")
 	}
 	switch request.Stage {
-	case "triage", "investigate", "plan", "implement", "verify", "review", "publish", "monitor":
+	case "triage", "investigate", "plan", "implement", "verify", "review", "publish", "monitor", "followup":
 	default:
 		return RunResult{}, errors.New("stage execution is not yet supported")
 	}
@@ -255,7 +265,7 @@ func Execute(ctx context.Context, request RunRequest) (RunResult, error) {
 		return RunResult{}, err
 	}
 	if request.Auxiliary {
-		if request.Debug || (request.Stage != "publish" && request.Stage != "monitor") || !HasFinalApproval(task) {
+		if request.Debug || (request.Stage != "publish" && request.Stage != "monitor" && request.Stage != "followup") || !HasFinalApproval(task) {
 			return RunResult{}, errors.New("publication requires an accepted, verified task")
 		}
 		record := auxiliaryRecord(task, request.ActiveRepositoryID, request.Stage)
