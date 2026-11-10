@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useState } from 'react';
 import { motion } from 'motion/react';
 import { Markdown } from './Markdown';
 import { useImageUpload } from './ImageUpload';
@@ -6,10 +6,9 @@ import { Modal } from './Modal';
 import { Icon, Select } from './UI';
 import { ModelSelect, EffortSelect } from './WorkspacePages';
 import { AgentSettings, agentOptions } from './AgentSettings';
-import { Notice, useMutation, useResource, useSession, request } from './Session';
+import { Notice, useMutation, useSession, request } from './Session';
 import { asObject, asText } from './task-data';
 import type { Task } from './types';
-import { CheckpointControls, type History } from './WorkflowHistory';
 export type FullTask = Task & Record<string, unknown>;
 export function TaskMenu({ task, onDeleted }: { task: Task; onDeleted?: () => void }) {
   const mutation = useMutation(),
@@ -403,141 +402,4 @@ export function PublicationPanel({ task }: { task: FullTask }) {
     </section>
   );
 }
-export function ExecutionGraph({ task }: { task: FullTask }) {
-  const history = useResource<History>(`/api/tasks/${task.id}/history`);
-  const attempts = [
-    ...(Array.isArray(task.attempts) ? task.attempts : []),
-    ...(Array.isArray(task.deliveryRuns) ? task.deliveryRuns : []),
-  ]
-    .map(asObject)
-    .filter((row): row is Record<string, unknown> => !!row && row.stage !== 'monitor');
-  const [selected, setSelected] = useState(''),
-    [zoom, setZoom] = useState(1),
-    canvas = useRef<HTMLDivElement>(null);
-  const active = attempts.find((row) => row.id === selected) || attempts.at(-1);
-  useEffect(() => {
-    const node = canvas.current?.querySelector(
-      `[data-run-id="${selected.replace(/[^a-zA-Z0-9-]/g, '')}"]`,
-    );
-    node?.scrollIntoView({
-      behavior: document.documentElement.dataset.lowMotion === 'true' ? 'auto' : 'smooth',
-      block: 'nearest',
-      inline: 'center',
-    });
-  }, [selected]);
-  const width = Math.max(640, attempts.length * 210 + 40);
-  return (
-    <section className="surface execution-section">
-      <div className="section-heading">
-        <div>
-          <h2>Execution</h2>
-          <small className="muted">
-            {attempts.length} runs · {task.currentRun?.harness || 'No active agent'}
-          </small>
-        </div>
-        <div className="inline">
-          <CheckpointControls task={task} history={history.data} />
-          <button aria-label="Zoom out" onClick={() => setZoom(Math.max(0.5, zoom - 0.1))}>
-            −
-          </button>
-          <span className="muted">{Math.round(zoom * 100)}%</span>
-          <button aria-label="Zoom in" onClick={() => setZoom(Math.min(1.5, zoom + 0.1))}>
-            +
-          </button>
-        </div>
-      </div>
-      {attempts.length === 0 ? (
-        <p className="muted">The execution path appears when a task starts.</p>
-      ) : (
-        <>
-          <div className="execution-canvas" ref={canvas}>
-            <div className="execution-world" style={{ width: width * zoom, height: 250 * zoom }}>
-              <div
-                style={{
-                  width,
-                  height: 250,
-                  transform: `scale(${zoom})`,
-                  transformOrigin: 'top left',
-                }}
-              >
-                <svg className="graph-edges" width={width} height={250} aria-hidden="true">
-                  <defs>
-                    <marker
-                      id={`arrow-${task.id}`}
-                      markerWidth="8"
-                      markerHeight="8"
-                      refX="7"
-                      refY="4"
-                      orient="auto"
-                    >
-                      <path d="M0 0 8 4 0 8Z" fill="currentColor" />
-                    </marker>
-                  </defs>
-                  {attempts.slice(1).map((row, i) => {
-                    const a = attempts[i]!,
-                      y1 = a.role === 'debug' ? 166 : 62,
-                      y2 = row.role === 'debug' ? 166 : 62,
-                      x1 = 28 + i * 210 + 174,
-                      x2 = 28 + (i + 1) * 210;
-                    return (
-                      <path
-                        key={String(row.id)}
-                        d={`M${x1},${y1} C${x1 + 22},${y1} ${x2 - 22},${y2} ${x2},${y2}`}
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="1.5"
-                        markerEnd={`url(#arrow-${task.id})`}
-                      />
-                    );
-                  })}
-                </svg>
-                {attempts.map((row, i) => (
-                  <button
-                    data-run-id={asText(row.id)}
-                    key={asText(row.id)}
-                    className={`graph-node ${row.id === active?.id ? 'selected' : ''} ${row.status === 'running' ? 'is-running' : ''}`}
-                    style={{ left: 28 + i * 210, top: row.role === 'debug' ? 126 : 22, width: 174 }}
-                    onClick={() => setSelected(asText(row.id))}
-                  >
-                    <span className="graph-node-label">
-                      {row.role === 'debug' ? 'Debugger' : asText(row.stage)}
-                    </span>
-                    <strong>{asText(row.harness) || 'Relay'}</strong>
-                    <small>
-                      {asText(row.status)}
-                      {row.startedAt && row.finishedAt
-                        ? ` · ${Math.max(0, Math.round((Date.parse(String(row.finishedAt)) - Date.parse(String(row.startedAt))) / 1000))}s`
-                        : ''}
-                    </small>
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
-          {active && (
-            <div className="execution-detail">
-              <div className="section-heading">
-                <h3>
-                  {active.role === 'debug' ? 'Debugger' : asText(active.stage)} ·{' '}
-                  {asText(active.harness)}
-                </h3>
-                <small>{asText(active.model) || 'Provider default model'}</small>
-              </div>
-              <Markdown
-                text={asText(
-                  asObject(active.handoff)?.summary || active.error || 'Agent is working…',
-                )}
-              />
-              {!!asObject(active.handoff)?.details && (
-                <details>
-                  <summary>Run details</summary>
-                  <Markdown text={asText(asObject(active.handoff)?.details)} />
-                </details>
-              )}
-            </div>
-          )}
-        </>
-      )}
-    </section>
-  );
-}
+export { ExecutionGraph } from './ExecutionGraph';

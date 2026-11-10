@@ -297,6 +297,17 @@ func (s *StageRunner) Run(ctx context.Context, taskID string, options StageOptio
 	} else if stage == "verify" {
 		attempt["role"] = "verifier"
 	}
+	if attempt["parentAttemptId"] == nil && len(array(task["attempts"])) > 0 {
+		previous := object(array(task["attempts"])[len(array(task["attempts"]))-1])
+		attempt["parentAttemptId"], attempt["relation"] = previous["id"], "Handoff"
+		if previous["role"] == "debug" {
+			attempt["relation"] = "Continue after diagnosis"
+		} else if stage == "implement" && (previous["stage"] == "verify" || previous["stage"] == "review") {
+			attempt["relation"] = "Repair"
+		} else if previous["stage"] == stage {
+			attempt["relation"] = "Retry"
+		}
+	}
 	messageIDs := []string{}
 	if stage != "verify" {
 		for _, value := range array(task["messages"]) {
