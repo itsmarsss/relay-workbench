@@ -678,32 +678,53 @@ let input='';process.stdin.on('data',d=>input+=d);process.stdin.on('end',()=>{
 
   // Populated decks must remain usable with a keyboard and nested pane layouts.
   await page.goto(origin + '/#deck');
-  assert.ok(
-    (await page.locator('.deck-grid .pane').boundingBox()).height < 160,
-    'Empty grid stays compact',
-  );
+  await page.getByText('Add tasks to monitor.', { exact: true }).waitFor();
   assert.equal(
-    await page.locator('.deck-grid .pane').evaluate((el) => getComputedStyle(el).borderRadius),
-    '0px',
+    await page.locator('.monitor-tile').count(),
+    0,
+    'Empty monitor has no placeholder panels',
   );
   await audit('empty-task-grid');
-  let picker = page.getByRole('combobox', { name: /Task for pane/ }).first();
+  let picker = page.getByRole('combobox', { name: 'Add task to grid', exact: true });
   await picker.fill('Queue fixture 1');
   await page
     .getByRole('option')
     .filter({ has: page.getByText('Queue fixture 1', { exact: true }) })
     .click();
   await audit('populated-deck');
+  assert.equal(
+    await page.getByRole('combobox', { name: /Task for pane/ }).count(),
+    0,
+    'Monitoring hides replacement fields',
+  );
+  assert.ok(
+    (await page.locator('.monitor-tile').boundingBox()).height <= 132,
+    'Monitoring tile fits in 132 pixels',
+  );
+  await page.getByRole('button', { name: 'Queue fixture 1', exact: true }).click();
+  let detail = page.getByRole('dialog', { name: 'Queue fixture 1', exact: true });
+  await detail.waitFor();
+  await audit('expanded-monitor-task');
+  await detail.getByRole('button', { name: 'Terminal', exact: true }).click();
+  await audit('expanded-monitor-terminal');
+  await page.keyboard.press('Escape');
+  assert.ok(
+    await page
+      .getByRole('button', { name: 'Queue fixture 1', exact: true })
+      .evaluate((el) => el === document.activeElement),
+  );
   const addTask = page.getByRole('combobox', { name: 'Add task to grid', exact: true });
   await addTask.fill('Queue fixture 2');
   await page
     .getByRole('option')
     .filter({ has: page.getByText('Queue fixture 2', { exact: true }) })
     .click();
-  assert.equal(await page.locator('.deck-grid .pane').count(), 2);
+  assert.equal(await page.locator('.deck-monitor-grid .monitor-tile').count(), 2);
+  await page.getByRole('button', { name: 'Edit grid', exact: true }).click();
   await page.getByRole('button', { name: '3 columns', exact: true }).click();
   await page.reload();
-  await page.locator('.deck-grid[data-columns="3"] .pane').first().waitFor();
+  await page.locator('.deck-monitor-grid[data-columns="3"] .monitor-tile').first().waitFor();
+  await page.getByRole('button', { name: 'Edit grid', exact: true }).click();
   assert.deepEqual(
     await page
       .getByRole('combobox', { name: /Task for pane/ })
@@ -712,7 +733,7 @@ let input='';process.stdin.on('data',d=>input+=d);process.stdin.on('end',()=>{
   );
   await page
     .getByRole('button', { name: 'Reorder pane 1', exact: true })
-    .dragTo(page.locator('.deck-grid .pane').nth(1));
+    .dragTo(page.locator('.deck-monitor-grid .monitor-tile').nth(1));
   assert.deepEqual(
     await page
       .getByRole('combobox', { name: /Task for pane/ })
@@ -734,6 +755,7 @@ let input='';process.stdin.on('data',d=>input+=d);process.stdin.on('end',()=>{
   await page.setViewportSize({ width: 1512, height: 982 });
   await page.getByRole('button', { name: 'Close pane', exact: true }).nth(1).click();
   await page.getByRole('button', { name: '2 columns', exact: true }).click();
+  picker = page.getByRole('combobox', { name: /Task for pane/ }).first();
   await picker.focus();
   await picker.fill('');
   await picker.press('Tab');
@@ -779,14 +801,161 @@ let input='';process.stdin.on('data',d=>input+=d);process.stdin.on('end',()=>{
   await audit('close-workspace-dialog');
   await page.getByRole('button', { name: 'Close workspace', exact: true }).click();
 
-  // Use physical clicks: locator scrolling can move a horizontal board while opening a menu.
+  // Eight watched tasks must fit as monitoring tiles, with a single page scroll.
+  await page.getByRole('button', { name: 'Auto fit', exact: true }).click();
+  for (let i = 2; i <= 7; i++) {
+    const add = page.getByRole('combobox', { name: 'Add task to grid', exact: true });
+    await add.fill('Queue fixture ' + i);
+    await page
+      .getByRole('option')
+      .filter({ has: page.getByText('Queue fixture ' + i, { exact: true }) })
+      .click();
+  }
+  await page.getByRole('button', { name: 'Done editing', exact: true }).click();
+  assert.equal(await page.locator('.monitor-tile').count(), 8);
+  const realTasks = await (await fetch(origin + '/api/tasks')).json();
+  const startedAt = new Date(Date.now() - 65000).toISOString();
+  await page.route('**/api/tasks', (route) =>
+    route.fulfill({
+      json: realTasks.map((task) =>
+        /^Queue fixture [1-7]$/.test(task.title)
+          ? {
+              ...task,
+              status: 'running',
+              stage: 'implement',
+              currentRun: {
+                id: 'monitor-fixture',
+                stage: 'implement',
+                harness: 'codex',
+                status: 'running',
+                startedAt,
+              },
+              latestSummary: 'Focused checks pass. Finishing the selected implementation.',
+            }
+          : task,
+      ),
+    }),
+  );
+  await page.reload();
+  const counter = page.locator('.monitor-time[data-live="true"]').first();
+  await counter.waitFor();
+  const initialCounter = Number(await counter.getAttribute('data-seconds'));
+  await until(
+    async () => Number(await counter.getAttribute('data-seconds')) > initialCounter,
+    'Run counter advances without refresh',
+  );
+  for (const [width, theme] of [
+    [1512, 'light'],
+    [1512, 'dark'],
+    [390, 'dark'],
+  ]) {
+    await page.evaluate((theme) => localStorage.setItem('relay-theme', theme), theme);
+    await page.reload();
+    await page.setViewportSize({ width, height: width > 800 ? 982 : 844 });
+    await page.locator('.monitor-tile').nth(7).waitFor();
+    assert.ok(
+      await page
+        .locator('.monitor-tile')
+        .evaluateAll((els) => els.every((el) => el.getBoundingClientRect().height <= 132)),
+      'Status tiles stay under 132px',
+    );
+    const nestedScroll = await page.locator('main').evaluate((main) =>
+      [...main.querySelectorAll('*')]
+        .filter((el) => {
+          const s = getComputedStyle(el);
+          return (
+            (/auto|scroll/.test(s.overflowY) && el.scrollHeight > el.clientHeight + 1) ||
+            (/auto|scroll/.test(s.overflowX) && el.scrollWidth > el.clientWidth + 1)
+          );
+        })
+        .map((el) => el.className),
+    );
+    assert.deepEqual(nestedScroll, [], 'Monitoring has no nested scroll panes');
+    await audit(`dense-monitor-${theme}-${width}`);
+  }
+  await page.unroute('**/api/tasks');
+  // Deleted tasks leave reusable grid slots, including a previously full grid.
+  await page.route('**/api/tasks', (route) =>
+    route.fulfill({ json: realTasks.filter((task) => task.title !== 'Queue fixture 7') }),
+  );
+  await page.reload();
+  await until(
+    async () => (await page.locator('.monitor-tile').count()) === 7,
+    'Deleted task hidden',
+  );
+  const replacement = page.getByRole('combobox', { name: 'Add task to grid', exact: true });
+  await replacement.fill('Queue fixture 8');
+  await page
+    .getByRole('option')
+    .filter({ has: page.getByText('Queue fixture 8', { exact: true }) })
+    .click();
+  assert.equal(await page.locator('.monitor-tile').count(), 8, 'Deleted slot can be reused');
+  await page.getByRole('button', { name: 'Queue fixture 8', exact: true }).waitFor();
+  await page.unroute('**/api/tasks');
+  await page.evaluate(() => localStorage.setItem('relay-theme', 'light'));
+  await page.setViewportSize({ width: 1512, height: 982 });
+
+  // Empty workspaces retain a usable create action even with empty stages hidden.
+  await page.route('**/api/tasks', (route) => route.fulfill({ json: [] }));
+  await page.goto(origin + '/#tasks?view=board&empty=0');
+  await page.reload();
+  await page.getByRole('button', { name: 'Create task', exact: true }).waitFor();
+  assert.equal(await page.locator('.task-lane').count(), 10);
+  assert.equal(await page.getByText('No matching tasks', { exact: true }).count(), 0);
+  await audit('empty-task-board');
+  await page.unroute('**/api/tasks');
+
+  // Real wheel input over cards scrolls the page at every responsive board width.
+  await page.reload();
+  for (const width of [1512, 768, 390, 320]) {
+    await page.setViewportSize({ width, height: width > 800 ? 982 : 844 });
+    await page.locator('.task-board .task-card').first().waitFor();
+    await page.locator('main').evaluate((el) => {
+      el.scrollTop = 0;
+    });
+    const firstCard = await page.locator('.task-board .task-card').first().boundingBox();
+    await page.mouse.move(firstCard.x + firstCard.width / 2, firstCard.y + firstCard.height / 2);
+    await page.mouse.wheel(0, 400);
+    await until(
+      async () => (await page.locator('main').evaluate((el) => el.scrollTop)) > 100,
+      'Wheel over cards scrolls the page at ' + width,
+    );
+    assert.deepEqual(
+      await page.locator('.task-board').evaluate((board) =>
+        [board, ...board.querySelectorAll('*')]
+          .filter((el) => {
+            const style = getComputedStyle(el);
+            return (
+              (/auto|scroll/.test(style.overflowY) && el.scrollHeight > el.clientHeight + 1) ||
+              (/auto|scroll/.test(style.overflowX) && el.scrollWidth > el.clientWidth + 1)
+            );
+          })
+          .map((el) => el.className),
+      ),
+      [],
+      'Board has no nested scroll containers at ' + width,
+    );
+    await audit('single-scroll-board-' + width);
+  }
+  await page.setViewportSize({ width: 1512, height: 982 });
+
+  // Physical clicks verify menus on wrapped stages preserve the page position.
   await page.evaluate(() => localStorage.setItem('relay-low-motion', 'false'));
   await page.goto(origin + '/#tasks?view=board&scope=attention&empty=1');
   await page.reload();
   await page.locator('.task-board .task-card').waitFor();
   assert.equal(await page.locator('html').getAttribute('data-low-motion'), 'false');
   const boardLeft = await page.locator('.task-board').evaluate((el) => el.scrollLeft);
-  assert.ok(boardLeft > 0, 'Animated board opens at later populated stages');
+  assert.equal(boardLeft, 0, 'Board never scrolls sideways');
+  assert.ok(
+    await page
+      .locator('.task-board')
+      .evaluate(
+        (el) => el.scrollWidth <= el.clientWidth + 1 && el.scrollHeight <= el.clientHeight + 1,
+      ),
+    'Board has no nested scroll surface',
+  );
+  await page.locator('.task-board .card-menu').scrollIntoViewIfNeeded();
   await pointerClick(page.locator('.task-board .card-menu'));
   const columnTrigger = page.getByRole('button', { name: /^Move to column:/ });
   await columnTrigger.waitFor();

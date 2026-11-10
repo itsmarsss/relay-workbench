@@ -125,7 +125,7 @@ let input='';process.stdin.on('data',d=>input+=d);process.stdin.on('end',()=>{
   await scopes.getByRole('button', { name: /^All tasks/ }).click();
   await page.getByRole('button', { name: 'Board', exact: true }).click();
   assert.match(page.url(), /view=board/);
-  assert.equal(await page.locator('.task-lane').count(), 10, 'Board shows the complete workflow');
+  assert.equal(await page.locator('.task-lane').count(), 1, 'Board starts with populated stages');
   await page.getByRole('checkbox', { name: 'Empty stages', exact: true }).uncheck();
   assert.equal(await page.locator('.task-lane').count(), 1, 'Empty stages can be hidden');
   await page.getByRole('checkbox', { name: 'Empty stages', exact: true }).check();
@@ -223,16 +223,29 @@ let input='';process.stdin.on('data',d=>input+=d);process.stdin.on('end',()=>{
       return r.left >= region.left && r.right <= region.right;
     });
   await until(cardIsVisible, 'Board opens at populated stages');
-  const stageNav = page.getByRole('navigation', { name: 'Board stages', exact: true });
-  await stageNav.getByRole('button', { name: /^Backlog/ }).click();
-  await until(
-    async () => await page.locator('.task-board').evaluate((el) => el.scrollLeft < 10),
-    'Jump to the first stage',
+  assert.equal(
+    await page.getByRole('navigation', { name: 'Board stages', exact: true }).count(),
+    0,
+    'No duplicate stage scroll strip',
   );
-  await stageNav.getByRole('button', { name: /^Completed/ }).click();
-  await until(cardIsVisible, 'Jump back to completed work');
+  assert.ok(
+    await page
+      .locator('.task-board')
+      .evaluate(
+        (el) => el.scrollWidth <= el.clientWidth + 1 && el.scrollHeight <= el.clientHeight + 1,
+      ),
+    'Board has no internal scrollbars',
+  );
+  await page.locator('main').evaluate((el) => {
+    el.scrollTop = 100;
+  });
+  const scrollPosition = await page.locator('main').evaluate((el) => el.scrollTop);
   await page.evaluate(() => dispatchEvent(new Event('relay-data-change')));
-  await until(cardIsVisible, 'Refresh preserves board position');
+  assert.equal(
+    await page.locator('main').evaluate((el) => el.scrollTop),
+    scrollPosition,
+    'Refresh preserves page position',
+  );
   await page.goto(origin + '/#tasks?view=list');
   await page.getByRole('button', { name: 'Actions for Workspace fixture' }).click();
   await page.getByRole('button', { name: 'Delete task' }).click();

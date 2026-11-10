@@ -43,6 +43,12 @@ test('grid migration preserves pane identities, views and freeform geometry', ()
   const migrated = parseDeck(JSON.stringify(saved));
   assert.equal(migrated.tabs[0]!.layout, 'grid');
   assert.equal(migrated.tabs[0]!.columns, 2);
+  assert.equal(migrated.tabs[0]!.density, 'auto');
+  const manual = parseDeck(
+    JSON.stringify({ ...saved, tabs: [{ ...saved.tabs[0], density: 'fixed', columns: 4 }] }),
+  );
+  assert.equal(manual.tabs[0]!.columns, 4);
+  assert.equal(manual.tabs[0]!.density, 'fixed');
   assert.deepEqual(migrated.tabs[0]!.root, root);
   assert.equal(
     parseDeck(

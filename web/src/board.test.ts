@@ -17,7 +17,7 @@ test('board overrides change presentation without advancing workflow gates', () 
     scope: 'all',
     stage: '',
     sort: 'priority',
-    showEmpty: true,
+    showEmpty: false,
   });
 });
 test('task views restore preferences while explicit URLs win', () => {
