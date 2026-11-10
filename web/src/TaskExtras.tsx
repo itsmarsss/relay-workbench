@@ -1,5 +1,5 @@
 import { MarkdownEditor } from './MarkdownEditor';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { motion } from 'motion/react';
 import { Markdown } from './Markdown';
 import { useImageUpload } from './ImageUpload';
@@ -16,7 +16,30 @@ export function TaskMenu({ task, onDeleted }: { task: Task; onDeleted?: () => vo
     { bootstrap } = useSession();
   const [confirm, setConfirm] = useState(false),
     [editing, setEditing] = useState<FullTask | null>(null),
-    [loadError, setLoadError] = useState('');
+    [loadError, setLoadError] = useState(''),
+    [open, setOpen] = useState(false);
+  const root = useRef<HTMLDivElement>(null),
+    trigger = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const outside = (event: PointerEvent) => {
+      if (event.target instanceof Node && !root.current?.contains(event.target)) setOpen(false);
+    };
+    const escape = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      setOpen(false);
+      trigger.current?.focus();
+    };
+    document.addEventListener('pointerdown', outside);
+    document.addEventListener('keydown', escape);
+    root.current
+      ?.querySelector<HTMLButtonElement>('.task-more-menu button:not(:disabled)')
+      ?.focus();
+    return () => {
+      document.removeEventListener('pointerdown', outside);
+      document.removeEventListener('keydown', escape);
+    };
+  }, [open]);
   async function edit() {
     try {
       const value = await request<FullTask>(`/api/tasks/${task.id}`);
@@ -37,16 +60,40 @@ export function TaskMenu({ task, onDeleted }: { task: Task; onDeleted?: () => vo
   return (
     <>
       {loadError && <Notice>{loadError}</Notice>}
-      <button
-        onClick={() => void edit()}
-        disabled={!bootstrap || asObject((task as FullTask).migration)?.readOnly === true}
-      >
-        Edit task
-      </button>
-      <WorkspaceCleanup task={task as FullTask} />
-      <button className="text-button danger" onClick={() => setConfirm(true)}>
-        Delete
-      </button>
+      {/* Kept mounted while hidden so an item's own dialog survives the menu closing. */}
+      <div className="task-more" ref={root}>
+        <button
+          ref={trigger}
+          className="icon-button"
+          aria-label="More task actions"
+          aria-expanded={open}
+          onClick={() => setOpen((value) => !value)}
+        >
+          <Icon name="more" />
+        </button>
+        <div
+          className="task-more-menu surface"
+          role="group"
+          aria-label="More task actions"
+          hidden={!open}
+          onClick={(event) => {
+            if ((event.target as Element).closest('button')) setOpen(false);
+          }}
+        >
+          <button
+            onClick={() => void edit()}
+            disabled={!bootstrap || asObject((task as FullTask).migration)?.readOnly === true}
+          >
+            <Icon name="edit" size={15} />
+            Edit task
+          </button>
+          <WorkspaceCleanup task={task as FullTask} />
+          <button className="danger" onClick={() => setConfirm(true)}>
+            <Icon name="trash" size={15} />
+            Delete task
+          </button>
+        </div>
+      </div>
       {editing && <TaskEditor task={editing} onClose={() => setEditing(null)} />}{' '}
       {confirm && (
         <Modal

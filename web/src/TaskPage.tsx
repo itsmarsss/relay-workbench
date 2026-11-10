@@ -1,6 +1,6 @@
 import { WorkflowStatus, TaskResult } from './WorkflowInsights';
 import { TaskSidebar } from './TaskSidebar';
-import { stageNames, nextStep } from './presentation';
+import { ago, stageNames, nextStep } from './presentation';
 import { useMutation } from './Session';
 import { asObject } from './task-data';
 import { AutoControl, ForkLinks } from './WorkflowHistory';
@@ -12,6 +12,7 @@ import { TaskPanel } from './TaskPanel';
 import { currentBlocker, latestPlan } from './task-data';
 import { isTask, statusLabel, taskViews, type Task, type TaskView } from './types';
 import { Icon } from './Icons';
+import { taskLane } from './board';
 type Details = Task &
   Record<string, unknown> & {
     description?: string;
@@ -28,6 +29,23 @@ function ticketURL(value: string): string | null {
   } catch {
     return null;
   }
+}
+// GitHub-style issue URLs read better as owner/repo#number.
+function ticketLabel(url: string): string {
+  const match = /^https?:\/\/[^/]+\/([^/]+\/[^/]+)\/(?:issues|pull)\/(\d+)/.exec(url);
+  return match ? `${match[1]}#${match[2]}` : url.replace(/^https?:\/\//, '');
+}
+function bannerTone(task: Task): { tone: string; kicker: string } {
+  const lane = taskLane(task);
+  if (['approach', 'final'].includes(lane)) return { tone: 'decision', kicker: 'Needs you' };
+  if (lane === 'attention') return { tone: 'blocked', kicker: 'Needs you' };
+  if (['discovery', 'progress', 'review'].includes(lane))
+    return task.status === 'queued'
+      ? { tone: 'running', kicker: 'Queued' }
+      : { tone: 'running', kicker: 'Relay is working' };
+  if (['done', 'finished'].includes(lane))
+    return { tone: 'done', kicker: statusLabel(task.status) };
+  return { tone: 'neutral', kicker: lane === 'backlog' ? 'Not started' : statusLabel(task.status) };
 }
 export function TaskPage({
   id,
@@ -242,6 +260,15 @@ export function TaskPage({
   const url = task.ticket ? ticketURL(task.ticket) : null;
   const plan = task.status === 'awaiting_plan' && tab === 'overview' ? latestPlan(task) : null;
   const blocker = currentBlocker(task);
+  const banner = bannerTone(task);
+  const stage = stageNames[task.currentRun?.stage || task.stage || ''] || '';
+  const awaitingReview = implementationPreview && task.status === 'awaiting_final';
+  const repositories = task.repositories?.length
+    ? task.repositories
+        .map((row) => row.repository?.name)
+        .filter(Boolean)
+        .join(' + ')
+    : task.repository?.name || 'Unspecified';
   return (
     <section className="task-page">
       <button className="back" onClick={onBack}>
@@ -249,12 +276,21 @@ export function TaskPage({
         All tasks
       </button>
       <div className="task-page-heading">
-        <div>
+        <div className="task-page-title">
           <h1>{task.title}</h1>
           <div className="task-meta">
             <span className={`task-status status-${task.status}`}>{statusLabel(task.status)}</span>
-            <span>{task.repository?.name || 'Unspecified'}</span>
-            <span>{task.id.slice(0, 8)}</span>
+            <span>{repositories}</span>
+            {task.ticket &&
+              (url ? (
+                <a href={url} target="_blank" rel="noopener noreferrer" title={task.ticket}>
+                  {ticketLabel(url)} ↗
+                </a>
+              ) : (
+                <span>{task.ticket}</span>
+              ))}
+            <span className="task-id">{task.id.slice(0, 8)}</span>
+            {task.updatedAt && <span>Updated {ago(task.updatedAt).toLowerCase()}</span>}
             {task.currentRun?.role === 'debug' && task.currentRun.status === 'running' && (
               <span>
                 Debugger running · {task.currentRun.harness || 'Agent'} ·{' '}
@@ -263,14 +299,6 @@ export function TaskPage({
             )}
             {task.demo && <span>Demo</span>}
           </div>
-          {task.ticket &&
-            (url ? (
-              <a href={url} target="_blank" rel="noopener noreferrer">
-                {task.ticket} ↗
-              </a>
-            ) : (
-              <span>{task.ticket}</span>
-            ))}
         </div>
         <div className="task-page-actions">
           {workflowPreview && task.status === 'draft' && (
@@ -278,14 +306,6 @@ export function TaskPage({
               {busy ? 'Starting…' : task.demo ? 'Run demo' : 'Start investigation'}
             </button>
           )}
-          {workflowPreview &&
-            (['queued', 'running'].includes(task.status) ||
-              (task.currentRun?.auxiliary &&
-                ['queued', 'running'].includes(task.currentRun.status || ''))) && (
-              <button disabled={busy} onClick={() => void runAction('pause')}>
-                {busy ? 'Stopping…' : 'Pause'}
-              </button>
-            )}
           {workflowPreview &&
             ['paused', 'interrupted', 'blocked'].includes(task.status) &&
             !blocker &&
@@ -296,27 +316,54 @@ export function TaskPage({
                 {busy ? 'Resuming…' : 'Resume'}
               </button>
             )}
-          <TaskMenu task={task} onDeleted={onBack} />
+          {workflowPreview &&
+            (['queued', 'running'].includes(task.status) ||
+              (task.currentRun?.auxiliary &&
+                ['queued', 'running'].includes(task.currentRun.status || ''))) && (
+              <button disabled={busy} onClick={() => void runAction('pause')}>
+                <Icon name="pause" size={15} />
+                {busy ? 'Stopping…' : 'Pause'}
+              </button>
+            )}
           {asObject(task.migration)?.readOnly !== true && <AutoControl task={task as FullTask} />}
-          <button onClick={onDeck}>Open task deck</button>
+          <button onClick={onDeck}>
+            <Icon name="grid" size={15} />
+            Open task deck
+          </button>
+          <TaskMenu task={task} onDeleted={onBack} />
         </div>
       </div>
 
       <div className="task-layout">
         <div className="task-main">
-          <section className="current-status surface">
-            <div>
-              <div className="eyebrow">Current status</div>
-              <h2>
-                {stageNames[task.currentRun?.stage || task.stage || ''] || statusLabel(task.status)}
-              </h2>
-              <p>{task.latestSummary || task.error || 'Your task is ready to start.'}</p>
+          <section className={`status-banner tone-${banner.tone}`} aria-label="Current status">
+            <div className="status-banner-body">
+              <div className="status-kicker">
+                <span>{banner.kicker}</span>
+                {stage && <span>{stage}</span>}
+              </div>
+              <h2>{awaitingReview ? 'Ready for your review' : nextStep(task)}</h2>
+              <p>
+                {task.latestSummary ||
+                  task.error ||
+                  (task.status === 'draft'
+                    ? 'Relay will investigate, propose an approach and ask before implementing.'
+                    : 'No update yet.')}
+              </p>
               {task.currentRun?.status === 'running' && <WorkflowStatus task={task as FullTask} />}
             </div>
-            <div>
-              <h3>Your next step</h3>
-              <p>{nextStep(task)}</p>
-            </div>
+            {awaitingReview && (
+              <div className="task-page-actions">
+                <button onClick={() => onTab('diff')}>View changes</button>
+                <button
+                  className="primary"
+                  disabled={busy || !task.taskRevision}
+                  onClick={() => void decide('accept')}
+                >
+                  {busy ? 'Checking…' : 'Accept result'}
+                </button>
+              </div>
+            )}
           </section>
           {asObject(task.migration)?.readOnly === true && (
             <section className="surface imported-notice">
@@ -508,24 +555,6 @@ export function TaskPage({
                   Approach approval and implementation are not available in this preview yet.
                 </p>
               )}
-            </section>
-          )}
-          {implementationPreview && task.status === 'awaiting_final' && (
-            <section className="final-decision" aria-label="Final review">
-              <div>
-                <h2>Ready for your review</h2>
-                <p>Inspect the changes before accepting this result.</p>
-              </div>
-              <div className="task-page-actions">
-                <button onClick={() => onTab('diff')}>View changes</button>
-                <button
-                  className="primary"
-                  disabled={busy || !task.taskRevision}
-                  onClick={() => void decide('accept')}
-                >
-                  {busy ? 'Checking…' : 'Accept result'}
-                </button>
-              </div>
             </section>
           )}
           <nav className="detail-nav" aria-label="Task views">

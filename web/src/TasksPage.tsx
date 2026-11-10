@@ -132,6 +132,7 @@ export function TasksPage({
       layout={!dragging}
       key={task.id}
       className={`task-card ${filters.layout === 'board' ? 'board-task-card' : ''}`}
+      data-lane={taskLane(task)}
       draggable={!mutation.busy}
       onDragStartCapture={(e) => {
         e.dataTransfer.setData('text/plain', task.id);
@@ -312,9 +313,9 @@ export function TasksPage({
             label="Sort tasks"
             value={filters.sort}
             options={[
-              { value: 'priority', label: 'Next action' },
-              { value: 'recent', label: 'Recently updated' },
-              { value: 'title', label: 'Title' },
+              { value: 'priority', label: 'Sort: Needs you first' },
+              { value: 'recent', label: 'Sort: Recently updated' },
+              { value: 'title', label: 'Sort: Title' },
             ]}
             onChange={(sort) => filter({ sort })}
           />

@@ -90,7 +90,7 @@ export function TaskSidebar({ task }: { task: FullTask }) {
                   <button onClick={() => setHistory(true)}>
                     <span>
                       <strong>{stageNames[stage]}</strong>
-                      <small>
+                      <small className={state === 'complete' ? 'sr-only' : undefined}>
                         {state === 'complete'
                           ? 'Complete'
                           : current
@@ -101,7 +101,10 @@ export function TaskSidebar({ task }: { task: FullTask }) {
                               ? 'Not used'
                               : state === 'pending'
                                 ? 'Pending'
-                                : state.replaceAll('_', ' ')}
+                                : (state.charAt(0).toUpperCase() + state.slice(1)).replaceAll(
+                                    '_',
+                                    ' ',
+                                  )}
                       </small>
                     </span>
                     {run?.harness ? (

@@ -1,5 +1,7 @@
 import type { Task } from './types.ts';
+// Exceptions that need a person lead; the rest follow workflow order.
 export const columns = [
+  ['attention', 'Needs attention', 'blocked'],
   ['backlog', 'Backlog', 'draft'],
   ['discovery', 'Investigation & design', 'running'],
   ['approach', 'Approach approval', 'awaiting_plan'],
@@ -8,7 +10,6 @@ export const columns = [
   ['final', 'Final approval', 'awaiting_final'],
   ['done', 'Done', 'completed'],
   ['finished', 'Completed', 'finished'],
-  ['attention', 'Needs attention', 'blocked'],
   ['cancelled', 'Cancelled', 'cancelled'],
 ] as const;
 export const laneHints: Record<string, string> = {

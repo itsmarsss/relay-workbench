@@ -12,7 +12,7 @@ export const isLive = (task: Task) =>
   task.currentRun?.status === 'running' ||
   (task.status === 'running' &&
     !['completed', 'complete', 'failed', 'cancelled'].includes(task.currentRun?.status || ''));
-function runTime(task: Task, now: number) {
+export function runTime(task: Task, now: number) {
   const start = Date.parse(task.currentRun?.startedAt || '');
   if (!isLive(task) || !Number.isFinite(start)) return null;
   const seconds = Math.max(0, Math.floor((now - start) / 1000));
