@@ -38,6 +38,7 @@ type Coordinator struct {
 	area     *workspace.WorktreeArea
 	registry *workspace.Registry
 	repos    *workspace.Registry
+	checks   chan struct{}
 	stages   *StageRunner
 	mu       sync.Mutex
 	jobs     map[string]*coordinatorJob
@@ -56,7 +57,7 @@ func NewCoordinator(db *store.Store, worker string, args []string, env map[strin
 		return nil, err
 	}
 	registry := workspace.NewRegistry()
-	c := &Coordinator{store: db, worker: worker, args: append([]string(nil), args...), env: map[string]string{}, area: area, registry: registry, repos: workspace.NewRegistry(), jobs: map[string]*coordinatorJob{}, scans: make(chan struct{}, 4), changed: make(chan struct{})}
+	c := &Coordinator{store: db, worker: worker, args: append([]string(nil), args...), env: map[string]string{}, area: area, registry: registry, repos: workspace.NewRegistry(), checks: make(chan struct{}, 1), jobs: map[string]*coordinatorJob{}, scans: make(chan struct{}, 4), changed: make(chan struct{})}
 	for key, value := range env {
 		c.env[key] = value
 	}
@@ -227,6 +228,7 @@ func (c *Coordinator) enqueue(id string, resume bool) (map[string]any, error) {
 		return nil, errors.New("invalid concurrency setting")
 	}
 	var timeout time.Duration
+	var repairLimit int
 	result, err := c.update(id, func(value map[string]any) error {
 		status := text(value["status"])
 		if value["demo"] == true {
@@ -244,8 +246,11 @@ func (c *Coordinator) enqueue(id string, resume bool) (map[string]any, error) {
 		}
 		if resume {
 			stage := text(value["stage"])
-			if stage != "triage" && stage != "investigate" && stage != "plan" {
-				return errors.New("this stage cannot resume in the preview yet")
+			if stage != "triage" && stage != "investigate" && stage != "plan" && stage != "implement" && stage != "verify" && stage != "review" {
+				return errors.New("this stage cannot resume in the preview")
+			}
+			if (stage == "implement" || stage == "verify" || stage == "review") && !harness.HasApprovedApproach(value) {
+				return errors.New("implementation requires an approved approach")
 			}
 			for _, entry := range entries {
 				if text(entry["workspaceRoot"]) == "" || entry["workspaceDraft"] != nil || entry["setupCompleted"] != true {
@@ -264,6 +269,12 @@ func (c *Coordinator) enqueue(id string, resume bool) (map[string]any, error) {
 		if resume && text(value["stage"]) == "plan" {
 			needed = []string{"plan"}
 		}
+		if resume && (text(value["stage"]) == "implement" || text(value["stage"]) == "verify") {
+			needed = []string{"implement", "review"}
+		}
+		if resume && text(value["stage"]) == "review" {
+			needed = []string{"review"}
+		}
 		if value["smartRouting"] == true && (!resume || text(value["stage"]) == "triage") {
 			needed = append(needed, "triage")
 		}
@@ -280,6 +291,10 @@ func (c *Coordinator) enqueue(id string, resume bool) (map[string]any, error) {
 			return errors.New("invalid workflow timeout")
 		}
 		timeout = time.Duration(minutes) * time.Minute
+		repairLimit, err = repairRounds(config.Value, value)
+		if err != nil {
+			return err
+		}
 		if !resume {
 			value["stage"] = "investigate"
 			if value["smartRouting"] == true {
@@ -295,8 +310,270 @@ func (c *Coordinator) enqueue(id string, resume bool) (map[string]any, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	job := &coordinatorJob{cancel: cancel, done: make(chan struct{})}
 	c.jobs[id] = job
-	go c.run(ctx, id, limit, timeout, enabled, configs, job)
+	go c.run(ctx, id, limit, timeout, repairLimit, enabled, configs, job)
 	return result, nil
+}
+
+func repairRounds(config, value map[string]any) (int, error) {
+	limit, _ := config["maxRepairRounds"].(float64)
+	if override, ok := object(value["execution"])["maxRepairRounds"].(float64); ok {
+		limit = override
+	}
+	if limit < 1 || limit > 10 || limit != float64(int(limit)) {
+		return 0, errors.New("invalid repair limit")
+	}
+	return int(limit), nil
+}
+
+func (c *Coordinator) waitAtGate(ctx context.Context, id, expected string) error {
+	if ctx == nil {
+		return errors.New("decision context is required")
+	}
+	c.mu.Lock()
+	job := c.jobs[id]
+	c.mu.Unlock()
+	if job == nil {
+		return nil
+	}
+	raw, err := c.store.Get(id)
+	if err != nil {
+		return err
+	}
+	var value map[string]any
+	if json.Unmarshal(raw, &value) != nil || text(value["status"]) != expected {
+		return ErrStageBusy
+	}
+	waitCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	select {
+	case <-job.done:
+		return nil
+	case <-waitCtx.Done():
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		return errors.New("the previous stage is still finishing; retry the decision")
+	}
+}
+
+// Approve records an explicit human decision before scheduling any code edits.
+func (c *Coordinator) Approve(ctx context.Context, id, optionID, note, attemptID, revision string) (map[string]any, error) {
+	if err := c.waitAtGate(ctx, id, "awaiting_plan"); err != nil {
+		return nil, err
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.closed || c.jobs[id] != nil || len(c.jobs) >= 256 {
+		return nil, errors.New("workflow is busy or Relay is shutting down")
+	}
+	config, err := (task.ConfigurationService{Store: c.store}).Read()
+	if err != nil {
+		return nil, err
+	}
+	raw, err := c.store.Get(id)
+	if err != nil {
+		return nil, err
+	}
+	if revision == "" || store.TaskRevision(raw) != revision {
+		return nil, errors.New("Proposal changed; refresh before approving")
+	}
+	var value map[string]any
+	if json.Unmarshal(raw, &value) != nil || value == nil {
+		return nil, errors.New("invalid task state")
+	}
+	entries, err := profiles(value)
+	if err != nil {
+		return nil, err
+	}
+	for _, entry := range entries {
+		if text(entry["workspaceRoot"]) == "" || entry["workspaceDraft"] != nil || entry["setupCompleted"] != true {
+			return nil, errors.New("workspace or setup is incomplete; inspect retained work before continuing")
+		}
+	}
+	enabled, configs := enabledAgents(config.Value)
+	routing := object(value["routing"])
+	for _, stage := range []string{"implement", "review"} {
+		if !enabled[text(routing[stage])] {
+			return nil, fmt.Errorf("configured agent for %s is unavailable", stage)
+		}
+	}
+	limit, _ := config.Value["concurrency"].(float64)
+	minutes, _ := config.Value["timeoutMinutes"].(float64)
+	if override, ok := object(value["execution"])["timeoutMinutes"].(float64); ok {
+		minutes = override
+	}
+	if limit < 1 || limit > 8 || limit != float64(int(limit)) || minutes < 1 || minutes > 240 || minutes != float64(int(minutes)) {
+		return nil, errors.New("invalid workflow settings")
+	}
+	repairs, err := repairRounds(config.Value, value)
+	if err != nil {
+		return nil, err
+	}
+	approved, err := (Service{Store: c.store}).ApproveExpected(id, optionID, note, Authorization{Human: true}, attemptID, revision)
+	if err != nil {
+		return nil, err
+	}
+	if json.Unmarshal(approved, &value) != nil {
+		return nil, errors.New("invalid approved task")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	job := &coordinatorJob{cancel: cancel, done: make(chan struct{})}
+	c.jobs[id] = job
+	go c.run(ctx, id, int(limit), time.Duration(minutes)*time.Minute, repairs, enabled, configs, job)
+	return value, nil
+}
+
+// Accept requires an explicit human action and rechecks every workspace and
+// both kinds of reservation immediately before recording final acceptance.
+func (c *Coordinator) Accept(ctx context.Context, id, revision string) (map[string]any, error) {
+	if ctx == nil {
+		return nil, errors.New("acceptance context is required")
+	}
+	if err := c.waitAtGate(ctx, id, "awaiting_final"); err != nil {
+		return nil, err
+	}
+	c.mu.Lock()
+	if c.closed || c.jobs[id] != nil || len(c.jobs) >= 256 {
+		c.mu.Unlock()
+		return nil, errors.New("workflow is busy or Relay is shutting down")
+	}
+	jobCtx, cancel := context.WithCancel(ctx)
+	job := &coordinatorJob{cancel: cancel, done: make(chan struct{})}
+	c.jobs[id] = job
+	c.mu.Unlock()
+	var repoLease *workspace.Lease
+	admitted := false
+	defer func() {
+		cancel()
+		c.mu.Lock()
+		if repoLease != nil {
+			repoLease.Release()
+		}
+		if admitted {
+			c.active--
+		}
+		delete(c.jobs, id)
+		c.notifyLocked()
+		close(job.done)
+		c.mu.Unlock()
+	}()
+	raw, err := c.store.Get(id)
+	if err != nil {
+		return nil, err
+	}
+	if revision == "" || store.TaskRevision(raw) != revision {
+		return nil, errors.New("Task changed; refresh before accepting")
+	}
+	var value map[string]any
+	if json.Unmarshal(raw, &value) != nil || value == nil || text(value["status"]) != "awaiting_final" || value["demo"] == true {
+		return nil, errors.New("task is not awaiting a live final review")
+	}
+	entries, err := stageWorkspaces(value)
+	if err != nil {
+		return nil, err
+	}
+	roots := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		roots = append(roots, entry.root)
+	}
+	config, err := (task.ConfigurationService{Store: c.store}).Read()
+	if err != nil {
+		return nil, err
+	}
+	limit, _ := config.Value["concurrency"].(float64)
+	if limit < 1 || limit > 8 || limit != float64(int(limit)) {
+		return nil, errors.New("invalid concurrency setting")
+	}
+	var repoRoots []string
+	repoLease, repoRoots, err = c.reserveRepositories(jobCtx, id)
+	if err != nil {
+		return nil, err
+	}
+	if err = c.acquire(jobCtx, int(limit)); err != nil {
+		return nil, err
+	}
+	admitted = true
+	lease, err := c.registry.Acquire(id, roots)
+	if err != nil {
+		return nil, err
+	}
+	defer lease.Release()
+	inspector := workspace.Runner{WorkerExecutable: c.worker, WorkerArgs: c.args, Environment: c.env}
+	var accepted json.RawMessage
+	err = repoLease.Protect(id, repoRoots, func(revalidate func() error) error {
+		var acceptErr error
+		accepted, acceptErr = (Service{Store: c.store}).AcceptVerifiedExpected(jobCtx, id, Authorization{Human: true}, lease, inspector, revalidate, revision)
+		return acceptErr
+	})
+	if err != nil {
+		return nil, err
+	}
+	if json.Unmarshal(accepted, &value) != nil {
+		return nil, errors.New("invalid accepted task")
+	}
+	return value, nil
+}
+
+// Diff is a bounded read-only preview; it never serves as approval evidence.
+func (c *Coordinator) Diff(ctx context.Context, id string) (map[string]any, error) {
+	if ctx == nil {
+		return nil, errors.New("diff context is required")
+	}
+	raw, err := c.store.Get(id)
+	if err != nil {
+		return nil, err
+	}
+	var value map[string]any
+	if json.Unmarshal(raw, &value) != nil || value == nil {
+		return nil, errors.New("invalid task state")
+	}
+	entries := array(value["repositories"])
+	if len(entries) <= 1 {
+		entries = []any{value}
+	}
+	if len(entries) > 12 {
+		return nil, errors.New("too many task repositories")
+	}
+	runner := workspace.Runner{WorkerExecutable: c.worker, WorkerArgs: c.args, Environment: c.env}
+	result := make([]map[string]any, 0, len(entries))
+	remaining := 8 * 1024 * 1024
+	for _, item := range entries {
+		entry := object(item)
+		repository := object(entry["repository"])
+		id, name := text(repository["id"]), text(repository["name"])
+		if id == "" || name == "" {
+			return nil, errors.New("invalid task repository")
+		}
+		row := map[string]any{"repositoryId": id, "name": name}
+		root, base := text(entry["workspaceRoot"]), text(entry["baseCommit"])
+		if root == "" || base == "" {
+			row["message"] = "No workspace yet."
+			result = append(result, row)
+			continue
+		}
+		if remaining <= 0 {
+			row["omitted"], row["reason"] = true, "Combined diff exceeds the preview limit; inspect it locally."
+			result = append(result, row)
+			continue
+		}
+		preview, err := runner.Diff(ctx, root, base)
+		if err != nil {
+			return nil, err
+		}
+		encoded, err := json.Marshal(preview)
+		if err != nil {
+			return nil, err
+		}
+		if len(encoded) > remaining {
+			row["omitted"], row["reason"] = true, "Combined diff exceeds the preview limit; inspect it locally."
+			remaining = 0
+		} else {
+			remaining -= len(encoded)
+			row["diff"] = preview
+		}
+		result = append(result, row)
+	}
+	return map[string]any{"repositories": result}, nil
 }
 
 func (c *Coordinator) acquire(ctx context.Context, limit int) error {
@@ -383,7 +660,7 @@ func (c *Coordinator) repositoryRoots(ctx context.Context, id string) ([]string,
 	return roots, nil
 }
 
-func (c *Coordinator) run(ctx context.Context, id string, limit int, timeout time.Duration, enabled map[string]bool, configs map[string]harness.Config, job *coordinatorJob) {
+func (c *Coordinator) run(ctx context.Context, id string, limit int, timeout time.Duration, repairLimit int, enabled map[string]bool, configs map[string]harness.Config, job *coordinatorJob) {
 	admitted := false
 	defer func() {
 		c.mu.Lock()
@@ -431,17 +708,21 @@ func (c *Coordinator) run(ctx context.Context, id string, limit int, timeout tim
 				break
 			}
 			stage := text(value["stage"])
-			if stage != "triage" && stage != "investigate" && stage != "plan" {
-				err = errors.New("implementation and verification are not enabled in the preview")
+			if stage != "triage" && stage != "investigate" && stage != "plan" && stage != "implement" && stage != "verify" && stage != "review" {
+				err = errors.New("this workflow stage is not supported")
 				break
 			}
-			provider := text(object(value["routing"])[stage])
+			routeStage := stage
+			if stage == "verify" {
+				routeStage = "implement"
+			}
+			provider := text(object(value["routing"])[routeStage])
 			guard, err = c.storageGuard()
 			if err != nil {
 				break
 			}
 			inspector := workspace.Runner{WorkerExecutable: c.worker, WorkerArgs: c.args, Environment: c.env}
-			err = c.stages.Run(ctx, id, StageOptions{Config: configs[provider], EnabledProviders: enabled, Admission: guard, Inspector: inspector, WorkerExecutable: c.worker, WorkerArgs: c.args, Environment: c.env, Timeout: timeout})
+			err = c.stages.Run(ctx, id, StageOptions{Config: configs[provider], EnabledProviders: enabled, Admission: guard, Inspector: inspector, WorkerExecutable: c.worker, WorkerArgs: c.args, Environment: c.env, Timeout: timeout, CheckGate: c.checks, MaxRepairRounds: repairLimit})
 		}
 		if err != nil {
 			return err

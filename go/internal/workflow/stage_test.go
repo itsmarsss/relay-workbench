@@ -253,18 +253,31 @@ func TestAdvanceStageChecksEveryReviewAndTriageRoute(t *testing.T) {
 	task := map[string]any{"status": "running", "stage": "review", "verifiedFingerprint": "same", "repositoryCursor": 0}
 	guard := workspace.GuardResult{Before: workspace.FingerprintSnapshot{Combined: "same"}, After: workspace.FingerprintSnapshot{Combined: "same"}}
 	handoff := map[string]any{"verdict": "complete", "findings": []any{map[string]any{"description": "bug"}}}
-	if err := advanceStage(task, "review", handoff, 2, 0, guard, nil); err != nil || task["status"] != "blocked" || task["error"] == nil {
+	if err := advanceStage(task, "review", handoff, 2, 0, guard, nil, 0); err != nil || task["status"] != "blocked" || task["error"] == nil {
 		t.Fatalf("first repository finding ignored: %#v %v", task, err)
 	}
 	task = map[string]any{"status": "running", "stage": "review", "verifiedFingerprint": "different"}
 	handoff["findings"] = []any{}
-	if err := advanceStage(task, "review", handoff, 2, 0, guard, nil); err == nil {
+	if err := advanceStage(task, "review", handoff, 2, 0, guard, nil, 0); err == nil {
 		t.Fatal("stale verification accepted")
 	}
 	routing := map[string]any{"investigate": "codex", "plan": "codex", "implement": "codex", "review": "codex"}
 	task = map[string]any{"smartRouting": true, "routing": routing}
 	handoff = map[string]any{"verdict": "complete", "routing": map[string]any{"investigate": "codex", "plan": "claude", "implement": "codex", "review": "codex"}}
-	if err := advanceStage(task, "triage", handoff, 1, 0, workspace.GuardResult{}, map[string]bool{"codex": true}); err == nil || routing["plan"] != "codex" {
+	if err := advanceStage(task, "triage", handoff, 1, 0, workspace.GuardResult{}, map[string]bool{"codex": true}, 0); err == nil || routing["plan"] != "codex" {
 		t.Fatal("unavailable routing was partially applied")
+	}
+}
+
+func TestReviewRepairIsBoundedAndInvalidatesEvidence(t *testing.T) {
+	guard := workspace.GuardResult{Before: workspace.FingerprintSnapshot{Combined: "same"}, After: workspace.FingerprintSnapshot{Combined: "same"}}
+	task := map[string]any{"status": "running", "stage": "review", "verifiedFingerprint": "same", "reviewedFingerprint": "same", "round": float64(0)}
+	handoff := map[string]any{"verdict": "changes_requested", "summary": "Fix the issue", "findings": []any{}}
+	if err := advanceStage(task, "review", handoff, 1, 0, guard, nil, 1); err != nil || task["stage"] != "implement" || task["status"] != "queued" || task["verifiedFingerprint"] != nil {
+		t.Fatalf("review did not request repair: %#v %v", task, err)
+	}
+	task["status"], task["stage"], task["verifiedFingerprint"] = "running", "review", "same"
+	if err := advanceStage(task, "review", handoff, 1, 0, guard, nil, 1); err != nil || task["status"] != "blocked" {
+		t.Fatalf("review repair limit did not stop: %#v %v", task, err)
 	}
 }

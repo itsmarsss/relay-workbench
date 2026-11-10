@@ -250,7 +250,8 @@ function Tree({
   );
 }
 export default function App() {
-  const { tasks, bootstrap, connected, error, create, updateConfig, act } = useRelay(),
+  const { tasks, bootstrap, connected, error, create, updateConfig, act, approve, accept } =
+      useRelay(),
     [deck, setDeck] = useState(initialDeck),
     [focus, setFocus] = useState(''),
     [modal, setModal] = useState<{ kind: 'rename' | 'close'; tabId: string } | null>(null),
@@ -461,9 +462,11 @@ export default function App() {
               />
             </div>
             <p className="note">
-              {bootstrap?.workflowPreview
-                ? 'Investigation and planning are available for isolated test repositories. Later workflow stages and interactive terminals are still being ported.'
-                : 'Drafts and local profiles are available. Workflow execution is still being ported.'}
+              {bootstrap?.implementationPreview
+                ? 'Development through final review is available for isolated test repositories. Publishing and interactive terminals are still being ported.'
+                : bootstrap?.workflowPreview
+                  ? 'Investigation and planning are available for isolated test repositories. Later workflow stages and interactive terminals are still being ported.'
+                  : 'Drafts and local profiles are available. Workflow execution is still being ported.'}
             </p>
           </>
         ) : route.kind === 'tasks' ? (
@@ -499,7 +502,10 @@ export default function App() {
             id={route.id}
             tab={route.tab}
             workflowPreview={bootstrap?.workflowPreview === true}
+            implementationPreview={bootstrap?.implementationPreview === true}
             onAction={act}
+            onApprove={approve}
+            onAccept={accept}
             onTab={(tab) => navigate(`#task/${route.id}/${tab}`)}
             onBack={() => navigate('#tasks')}
             onDeck={() => navigate(`#deck?tab=${encodeURIComponent(deck.active)}`)}

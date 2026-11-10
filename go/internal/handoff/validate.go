@@ -83,6 +83,9 @@ func Validate(raw json.RawMessage, stage string) error {
 				return errors.New("Invalid approach options")
 			}
 		}
+		if len(option["id"].(string)) > 100000 {
+			return errors.New("Approach ID is too long")
+		}
 	}
 	ids := map[string]struct{}{}
 	for _, item := range options {

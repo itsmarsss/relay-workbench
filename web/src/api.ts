@@ -51,7 +51,38 @@ export async function fetchBootstrap(signal?: AbortSignal): Promise<Bootstrap> {
     config: result.config,
     configRevision: result.configRevision,
     workflowPreview: 'workflowPreview' in result && result.workflowPreview === true,
+    implementationPreview:
+      'implementationPreview' in result && result.implementationPreview === true,
   };
+}
+export async function approvePlan(
+  token: string,
+  id: string,
+  optionId: string,
+  note: string,
+  planAttemptId: string,
+  taskRevision: string,
+): Promise<Task> {
+  const result = await json(
+    await fetch(`/api/tasks/${encodeURIComponent(id)}/approve-plan`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Relay-Token': token },
+      body: JSON.stringify({ optionId, note, planAttemptId, taskRevision }),
+    }),
+  );
+  if (!isTask(result)) throw new Error('Updated task data is invalid.');
+  return result;
+}
+export async function acceptResult(token: string, id: string, taskRevision: string): Promise<Task> {
+  const result = await json(
+    await fetch(`/api/tasks/${encodeURIComponent(id)}/accept`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Relay-Token': token },
+      body: JSON.stringify({ taskRevision }),
+    }),
+  );
+  if (!isTask(result)) throw new Error('Updated task data is invalid.');
+  return result;
 }
 export async function taskAction(
   token: string,

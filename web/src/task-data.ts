@@ -47,6 +47,7 @@ export function latestHandoffs(value: unknown): { title: string; text: string; k
     });
 }
 export type PlanPreview = {
+  attemptId: string;
   summary: string;
   details: string;
   recommendedId: string;
@@ -77,12 +78,14 @@ export function latestPlan(value: unknown): PlanPreview | null {
     }
     return true;
   });
-  const handoff = asObject(asObject(attempt)?.handoff);
-  if (!handoff || !Array.isArray(handoff.options)) return null;
+  const run = asObject(attempt),
+    handoff = asObject(run?.handoff);
+  if (!run || typeof run.id !== 'string' || !run.id || !handoff || !Array.isArray(handoff.options))
+    return null;
   const options = handoff.options.map((item) => {
     const option = asObject(item);
     return {
-      id: asText(option?.id, 200),
+      id: typeof option?.id === 'string' ? option.id : '',
       title: asText(option?.title, 1000),
       description: asText(option?.description, 20000),
       tradeoffs: asText(option?.tradeoffs, 20000),
@@ -95,14 +98,98 @@ export function latestPlan(value: unknown): PlanPreview | null {
     )
   )
     return null;
-  const recommendedId = asText(handoff.recommendedOptionId, 200);
+  const recommendedId =
+    typeof handoff.recommendedOptionId === 'string' ? handoff.recommendedOptionId : '';
   return {
+    attemptId: run.id,
     summary: asText(handoff.summary, 20000),
     details: asText(handoff.details, 50000),
     recommendedId: options.some((option) => option.id === recommendedId) ? recommendedId : '',
     reason: asText(handoff.recommendationReason, 20000),
     options,
   };
+}
+export type DiffRepository = {
+  id: string;
+  name: string;
+  text: string;
+  stat: string;
+  untracked: { name: string; content: string }[];
+  message: string;
+  omitted: boolean;
+  omittedCount: number;
+};
+export function parseDiff(value: unknown): DiffRepository[] {
+  const data = asObject(value);
+  if (!data || !Array.isArray(data.repositories) || data.repositories.length > 12)
+    throw new Error('Invalid changes response.');
+  return data.repositories.map((item) => {
+    const row = asObject(item),
+      diff = asObject(row?.diff);
+    if (!row || typeof row.repositoryId !== 'string' || typeof row.name !== 'string')
+      throw new Error('Invalid changes response.');
+    if (!diff)
+      return {
+        id: row.repositoryId,
+        name: row.name,
+        text: '',
+        stat: '',
+        untracked: [],
+        message: asText(row.reason || row.message, 2000),
+        omitted: row.omitted === true,
+        omittedCount: 0,
+      };
+    if (
+      typeof diff.text !== 'string' ||
+      typeof diff.stat !== 'string' ||
+      !Array.isArray(diff.untracked)
+    )
+      throw new Error('Invalid changes response.');
+    const untracked = diff.untracked.map((entry) => {
+      const file = asObject(entry);
+      if (!file || typeof file.name !== 'string' || typeof file.content !== 'string')
+        throw new Error('Invalid changes response.');
+      return { name: file.name, content: file.content };
+    });
+    return {
+      id: row.repositoryId,
+      name: row.name,
+      text: diff.text,
+      stat: diff.stat,
+      untracked,
+      message: asText(diff.reason, 2000),
+      omitted: diff.omitted === true,
+      omittedCount:
+        typeof diff.untrackedOmitted === 'number' &&
+        Number.isSafeInteger(diff.untrackedOmitted) &&
+        diff.untrackedOmitted > 0
+          ? diff.untrackedOmitted
+          : 0,
+    };
+  });
+}
+export function diffPreviewLines(
+  text: string,
+  limit = 4000,
+): { lines: { text: string; kind: string }[]; truncated: boolean } {
+  const lines: { text: string; kind: string }[] = [];
+  let cursor = 0;
+  while (cursor < text.length && lines.length < limit) {
+    const next = text.indexOf('\n', cursor),
+      end = next < 0 ? text.length : next;
+    const line = text.slice(cursor, end);
+    const kind =
+      line.startsWith('+') && !line.startsWith('+++')
+        ? 'addition'
+        : line.startsWith('-') && !line.startsWith('---')
+          ? 'deletion'
+          : line.startsWith('@@')
+            ? 'hunk'
+            : '';
+    lines.push({ text: line, kind });
+    cursor = next < 0 ? text.length : next + 1;
+  }
+  return { lines, truncated: cursor < text.length };
 }
 export function liveTerminal(value: unknown): { id: string; label: string } | null {
   const task = asObject(value);

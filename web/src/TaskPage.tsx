@@ -18,7 +18,10 @@ export function TaskPage({
   id,
   tab,
   workflowPreview,
+  implementationPreview,
   onAction,
+  onApprove,
+  onAccept,
   onTab,
   onBack,
   onDeck,
@@ -26,7 +29,16 @@ export function TaskPage({
   id: string;
   tab: TaskView;
   workflowPreview: boolean;
+  implementationPreview: boolean;
   onAction: (id: string, action: 'start' | 'resume' | 'pause') => Promise<Task>;
+  onApprove: (
+    id: string,
+    optionId: string,
+    note: string,
+    planAttemptId: string,
+    taskRevision: string,
+  ) => Promise<Task>;
+  onAccept: (id: string, taskRevision: string) => Promise<Task>;
   onTab: (tab: TaskView) => void;
   onBack: () => void;
   onDeck: () => void;
@@ -34,7 +46,13 @@ export function TaskPage({
   const [task, setTask] = useState<Details | null>(null),
     [error, setError] = useState(''),
     [actionError, setActionError] = useState(''),
-    [busy, setBusy] = useState(false);
+    [busy, setBusy] = useState(false),
+    [selectedOption, setSelectedOption] = useState(''),
+    [approvalNote, setApprovalNote] = useState('');
+  const planRevision = task ? latestPlan(task)?.attemptId : undefined;
+  useEffect(() => {
+    setSelectedOption('');
+  }, [planRevision, task?.taskRevision]);
   useEffect(() => {
     let active = true,
       running = false,
@@ -108,8 +126,39 @@ export function TaskPage({
     try {
       const updated = await onAction(task.id, action);
       setTask((current) => (current ? { ...current, ...updated } : current));
+      window.dispatchEvent(new Event('relay-data-change'));
     } catch (failure) {
       setActionError(failure instanceof Error ? failure.message : 'Could not update workflow.');
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function decide(action: 'approve' | 'accept') {
+    const currentPlan = task ? latestPlan(task) : null;
+    if (
+      !task ||
+      busy ||
+      !task.taskRevision ||
+      (action === 'approve' && (!selectedOption || !currentPlan))
+    )
+      return;
+    setBusy(true);
+    setActionError('');
+    try {
+      const updated =
+        action === 'approve'
+          ? await onApprove(
+              task.id,
+              selectedOption,
+              approvalNote,
+              currentPlan!.attemptId,
+              task.taskRevision,
+            )
+          : await onAccept(task.id, task.taskRevision);
+      setTask((current) => (current ? { ...current, ...updated } : current));
+      window.dispatchEvent(new Event('relay-data-change'));
+    } catch (failure) {
+      setActionError(failure instanceof Error ? failure.message : 'Could not record the decision.');
     } finally {
       setBusy(false);
     }
@@ -124,7 +173,7 @@ export function TaskPage({
       </section>
     );
   const url = task.ticket ? ticketURL(task.ticket) : null;
-  const plan = task.status === 'awaiting_plan' ? latestPlan(task) : null;
+  const plan = task.status === 'awaiting_plan' && tab === 'overview' ? latestPlan(task) : null;
   return (
     <section className="task-page">
       <button className="back" onClick={onBack}>
@@ -162,7 +211,9 @@ export function TaskPage({
           {workflowPreview &&
             !task.demo &&
             ['paused', 'interrupted', 'blocked'].includes(task.status) &&
-            ['triage', 'investigate', 'plan'].includes(task.stage || '') && (
+            ['triage', 'investigate', 'plan', 'implement', 'verify', 'review'].includes(
+              task.stage || '',
+            ) && (
               <button className="primary" disabled={busy} onClick={() => void runAction('resume')}>
                 {busy ? 'Resuming…' : 'Resume'}
               </button>
@@ -171,9 +222,11 @@ export function TaskPage({
         </div>
       </div>
       <p className="migration-note">
-        {workflowPreview
-          ? 'Investigation and planning are available for isolated test repositories. This preview cannot coordinate writers with the original Relay. Implementation, verification, and interactive terminals are still being ported.'
-          : 'Draft management is available. Workflow execution and interactive terminals are still being ported.'}
+        {implementationPreview
+          ? 'Use separate test repositories: this preview cannot coordinate writers with the original Relay. Publishing and interactive terminals are still being ported.'
+          : workflowPreview
+            ? 'Investigation and planning are available for isolated test repositories. This preview cannot coordinate writers with the original Relay. Implementation, verification, and interactive terminals are still being ported.'
+            : 'Draft management is available. Workflow execution and interactive terminals are still being ported.'}
       </p>
       {actionError && (
         <p className="error" role="alert">
@@ -198,8 +251,29 @@ export function TaskPage({
           )}
           <div className="plan-options">
             {plan.options.map((option) => (
-              <article key={option.id}>
+              <article
+                key={option.id}
+                className={
+                  implementationPreview
+                    ? selectedOption === option.id
+                      ? 'selectable selected'
+                      : 'selectable'
+                    : ''
+                }
+                onClick={() => {
+                  if (implementationPreview) setSelectedOption(option.id);
+                }}
+              >
                 <h3>
+                  {implementationPreview && (
+                    <input
+                      type="radio"
+                      name="approach"
+                      aria-label={`Select ${option.title}`}
+                      checked={selectedOption === option.id}
+                      onChange={() => setSelectedOption(option.id)}
+                    />
+                  )}
                   {option.title} {option.id === plan.recommendedId && <small>Recommended</small>}
                 </h3>
                 <Markdown text={option.description} />
@@ -208,9 +282,47 @@ export function TaskPage({
               </article>
             ))}
           </div>
-          <p className="form-note">
-            Approach approval and implementation are not available in this preview yet.
-          </p>
+          {implementationPreview ? (
+            <div className="plan-decision">
+              <label>
+                Approval note{' '}
+                <input
+                  value={approvalNote}
+                  onChange={(event) => setApprovalNote(event.target.value)}
+                  maxLength={10000}
+                />
+              </label>
+              <button
+                className="primary"
+                disabled={busy || !selectedOption || !task.taskRevision}
+                onClick={() => void decide('approve')}
+              >
+                {busy ? 'Approving…' : 'Approve approach'}
+              </button>
+            </div>
+          ) : (
+            <p className="form-note">
+              Approach approval and implementation are not available in this preview yet.
+            </p>
+          )}
+        </section>
+      )}
+      {implementationPreview && task.status === 'awaiting_final' && (
+        <section className="final-decision" aria-label="Final review">
+          <div>
+            <h2>Ready for your review</h2>
+            <p>Inspect the changes before accepting this result.</p>
+          </div>
+          <div className="task-page-actions">
+            <button onClick={() => onTab('diff')}>View changes</button>
+            <button
+              className="primary"
+              disabled={busy || !task.taskRevision}
+              onClick={() => void decide('accept')}
+            >
+              {busy ? 'Checking…' : 'Accept result'}
+            </button>
+          </div>
         </section>
       )}
       <nav className="detail-nav" aria-label="Task views">

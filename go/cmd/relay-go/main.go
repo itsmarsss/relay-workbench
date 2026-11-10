@@ -17,6 +17,7 @@ import (
 	"relay.local/relay/internal/httpapi"
 	"relay.local/relay/internal/process"
 	"relay.local/relay/internal/store"
+	"relay.local/relay/internal/verification"
 	"relay.local/relay/internal/workflow"
 )
 
@@ -84,6 +85,9 @@ func run(args []string) (result error) {
 func main() {
 	if len(os.Args) > 1 && os.Args[1] == "--internal-worker" {
 		os.Exit(process.Worker(os.Args[2:]))
+	}
+	if len(os.Args) > 1 && os.Args[1] == "--internal-check" {
+		os.Exit(verification.RunClient(os.Args[2:], os.Stdout, os.Stderr))
 	}
 	if err := run(os.Args[1:]); err != nil {
 		log.Print(err)

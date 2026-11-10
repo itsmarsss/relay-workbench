@@ -12,14 +12,22 @@ import (
 
 	"relay.local/relay/internal/harness"
 	"relay.local/relay/internal/store"
+	"relay.local/relay/internal/verification"
 	"relay.local/relay/internal/workspace"
 )
 
 var ErrStageBusy = errors.New("task already has an active stage")
 
+type RepairLimitError struct {
+	Message string
+	Cause   error
+}
+
+func (e *RepairLimitError) Error() string { return e.Message }
+func (e *RepairLimitError) Unwrap() error { return e.Cause }
+
 // StageRunner supervises one specialist stage against already prepared task
-// workspaces. The HTTP scheduler, verification, and debugger are separate and
-// must be connected before this can run a complete workflow.
+// workspaces. Publication and debugger scheduling remain separate.
 type StageRunner struct {
 	Store    *store.Store
 	Registry *workspace.Registry
@@ -36,10 +44,12 @@ type StageOptions struct {
 	WorkerArgs       []string
 	Environment      map[string]string
 	Timeout          time.Duration
+	CheckGate        chan struct{}
+	MaxRepairRounds  int
 }
 
 type stageWorkspace struct {
-	id, root, cwd string
+	id, root, cwd, baseCommit string
 }
 
 func stageUUID() (string, error) {
@@ -71,7 +81,7 @@ func stageWorkspaces(task map[string]any) ([]stageWorkspace, error) {
 			return nil, errors.New("task workspaces are incomplete")
 		}
 		seen[id] = true
-		result = append(result, stageWorkspace{id, root, cwd})
+		result = append(result, stageWorkspace{id, root, cwd, text(entry["baseCommit"])})
 	}
 	return result, nil
 }
@@ -98,7 +108,8 @@ func stagePrompt(task map[string]any, stage string, active stageWorkspace, enabl
 		"triage":      "Inspect the task and select appropriate configured agents for each stage. Do not change repository files.",
 		"investigate": "Investigate the issue, relevant files, evidence and risks. Do not change repository files.",
 		"plan":        "Propose concrete implementation options with tradeoffs and a recommendation. Do not change repository files.",
-		"implement":   "Implement the approved approach in the active repository. Preserve unrelated work and report checks and remaining risks.",
+		"implement":   "Implement the approved approach in the active repository. Address relevant failed checks and review findings in prior attempts, preserve unrelated work, and report checks and remaining risks. Do not commit, rebase, push, publish, change credentials or send external messages.",
+		"verify":      "Independently discover and run checks for the changed surfaces in each repository. Do not modify repository files.",
 		"review":      "Independently review the changes and verification evidence. Report concrete findings without changing repository files.",
 	}[stage]
 	if instruction == "" {
@@ -140,11 +151,15 @@ func (s *StageRunner) Run(ctx context.Context, taskID string, options StageOptio
 		return errors.New("a queued live task is required")
 	}
 	switch stage {
-	case "triage", "investigate", "plan", "implement", "review":
+	case "triage", "investigate", "plan", "implement", "verify", "review":
 	default:
 		return errors.New("stage execution is not yet supported")
 	}
-	provider := text(object(task["routing"])[stage])
+	routeStage := stage
+	if stage == "verify" {
+		routeStage = "implement"
+	}
+	provider := text(object(task["routing"])[routeStage])
 	if !options.EnabledProviders[provider] || options.Config.Command == "" {
 		return errors.New("configured stage agent is unavailable")
 	}
@@ -183,8 +198,39 @@ func (s *StageRunner) Run(ctx context.Context, taskID string, options StageOptio
 	if err != nil {
 		return err
 	}
+	onEvent := func(eventCtx context.Context, entry map[string]any) error {
+		if err := eventCtx.Err(); err != nil {
+			return err
+		}
+		entry["stage"], entry["harness"], entry["attemptId"] = stage, provider, id
+		if len(entries) > 1 && entry["repositoryId"] == nil {
+			entry["repositoryId"] = active.id
+		}
+		encoded, err := json.Marshal(entry)
+		if err != nil {
+			return err
+		}
+		_, err = s.Store.Event(taskID, encoded)
+		return err
+	}
+	var session *verificationSession
+	if stage == "verify" {
+		session, err = startVerification(ctx, task, taskID, entries, lease, options, onEvent)
+		if err != nil {
+			return err
+		}
+		defer session.runner.Close()
+		instruction, err := session.prompt(options.WorkerExecutable, entries)
+		if err != nil {
+			return err
+		}
+		prompt += instruction
+	}
 	started := timestamp(time.Now())
 	attempt := map[string]any{"id": id, "stage": stage, "harness": provider, "status": "running", "startedAt": started}
+	if stage == "verify" {
+		attempt["role"] = "verifier"
+	}
 	messageIDs := []string{}
 	for _, value := range array(task["messages"]) {
 		message := object(value)
@@ -213,29 +259,20 @@ func (s *StageRunner) Run(ctx context.Context, taskID string, options StageOptio
 		return err
 	}
 	config := options.Config
-	if model := text(object(task["models"])[stage]); model != "" {
+	if model := text(object(task["models"])[routeStage]); model != "" {
 		config.Model = model
 	}
-	result, runErr := harness.Execute(ctx, harness.RunRequest{Store: s.Store, TaskID: taskID, AttemptID: id, Stage: stage, Provider: provider, Config: config, Prompt: prompt, Cwd: active.cwd, ActiveRepositoryID: active.id, Workspaces: workspaces, Lease: lease, Admission: options.Admission, Inspector: options.Inspector, WorkerExecutable: options.WorkerExecutable, WorkerArgs: options.WorkerArgs, Environment: options.Environment, Timeout: options.Timeout, OnEvent: func(eventCtx context.Context, entry map[string]any) error {
-		if err := eventCtx.Err(); err != nil {
-			return err
-		}
-		entry["stage"], entry["harness"], entry["attemptId"] = stage, provider, id
-		if len(entries) > 1 {
-			entry["repositoryId"] = active.id
-		}
-		encoded, err := json.Marshal(entry)
-		if err != nil {
-			return err
-		}
-		_, err = s.Store.Event(taskID, encoded)
-		return err
-	}})
-	return s.finish(taskID, id, stage, provider, len(entries), cursor, result, runErr, options.EnabledProviders)
+	result, runErr := harness.Execute(ctx, harness.RunRequest{Store: s.Store, TaskID: taskID, AttemptID: id, Stage: stage, Provider: provider, Config: config, Prompt: prompt, Cwd: active.cwd, ActiveRepositoryID: active.id, Workspaces: workspaces, Lease: lease, Admission: options.Admission, Inspector: options.Inspector, WorkerExecutable: options.WorkerExecutable, WorkerArgs: options.WorkerArgs, Environment: options.Environment, Timeout: options.Timeout, OnEvent: onEvent})
+	var evidence []any
+	if session != nil {
+		evidence, runErr = session.finish(result, runErr)
+	}
+	return s.finish(taskID, id, stage, provider, len(entries), cursor, result, runErr, options.EnabledProviders, evidence, options.MaxRepairRounds)
 }
 
-func (s *StageRunner) finish(taskID, attemptID, stage, provider string, count, cursor int, result harness.RunResult, runErr error, enabled map[string]bool) error {
+func (s *StageRunner) finish(taskID, attemptID, stage, provider string, count, cursor int, result harness.RunResult, runErr error, enabled map[string]bool, evidence []any, repairLimit int) error {
 	for retry := 0; retry < 5; retry++ {
+		attemptErr := runErr
 		raw, err := s.Store.Get(taskID)
 		if err != nil {
 			return errors.Join(runErr, err)
@@ -257,16 +294,40 @@ func (s *StageRunner) finish(taskID, attemptID, stage, provider string, count, c
 			return errors.Join(runErr, errors.New("stage attempt changed during execution"))
 		}
 		attempt["finishedAt"] = timestamp(time.Now())
+		if result.Guard.Before.Combined != "" {
+			attempt["beforeFingerprint"] = result.Guard.Before.Combined
+		}
+		if result.Guard.After.Combined != "" {
+			attempt["afterFingerprint"] = result.Guard.After.Combined
+		}
+		if evidence != nil {
+			attempt["verificationEvidence"] = evidence
+		}
 		var handoff map[string]any
-		if runErr == nil && json.Unmarshal(result.Handoff, &handoff) != nil {
-			runErr = errors.New("invalid structured handoff")
+		if len(result.Handoff) > 0 {
+			if json.Unmarshal(result.Handoff, &handoff) != nil || handoff == nil {
+				attemptErr = errors.Join(attemptErr, errors.New("invalid structured handoff"))
+			} else {
+				attempt["handoff"] = handoff
+			}
+		} else if attemptErr == nil {
+			attemptErr = errors.New("invalid structured handoff")
 		}
 		status := text(task["status"])
+		scheduledRepair := false
 		if status != "running" || text(task["stage"]) != stage {
 			attempt["status"] = "interrupted"
-		} else if runErr != nil {
-			attempt["status"], attempt["error"] = "failed", runErr.Error()
-			task["status"], task["error"] = "blocked", runErr.Error()
+		} else if attemptErr != nil {
+			attempt["status"], attempt["error"] = "failed", attemptErr.Error()
+			var failure *verification.ValidationError
+			if stage == "verify" && errors.As(attemptErr, &failure) && failure.Code == "VERIFICATION_CHECK_FAILED" {
+				scheduledRepair = queueRepair(task, attemptErr.Error(), repairLimit)
+				if !scheduledRepair {
+					attemptErr = &RepairLimitError{Message: text(task["error"]), Cause: attemptErr}
+				}
+			} else {
+				task["status"], task["error"] = "blocked", attemptErr.Error()
+			}
 		} else {
 			attempt["handoff"], attempt["status"] = handoff, "complete"
 			included := map[string]bool{}
@@ -279,47 +340,72 @@ func (s *StageRunner) finish(taskID, attemptID, stage, provider string, count, c
 					message["delivery"], message["attemptId"] = "delivered", attemptID
 				}
 			}
-			if err := advanceStage(task, stage, handoff, count, cursor, result.Guard, enabled); err != nil {
-				runErr = err
+			if err := advanceStage(task, stage, handoff, count, cursor, result.Guard, enabled, repairLimit); err != nil {
+				attemptErr = err
 				attempt["status"], attempt["error"] = "failed", err.Error()
 				task["status"], task["error"] = "blocked", err.Error()
 			}
 		}
 		data, err := json.Marshal(task)
 		if err != nil {
-			return errors.Join(runErr, err)
+			return errors.Join(attemptErr, err)
 		}
 		summary := "Stage finished."
-		if runErr != nil {
-			summary = runErr.Error()
+		eventType := "handoff"
+		if attemptErr != nil {
+			summary = attemptErr.Error()
 		} else if handoff != nil {
 			summary = text(handoff["summary"])
 		}
-		event, _ := json.Marshal(map[string]any{"type": "handoff", "stage": stage, "harness": provider, "attemptId": attemptID, "summary": summary})
+		if scheduledRepair || (stage == "review" && text(task["status"]) == "queued" && text(task["stage"]) == "implement") {
+			eventType = "repair"
+			summary = "Returning to implementation to address feedback. " + summary
+		}
+		event, _ := json.Marshal(map[string]any{"type": eventType, "stage": stage, "harness": provider, "attemptId": attemptID, "summary": summary})
 		if _, err = s.Store.CompareAndSwap(taskID, raw, data, event); errors.Is(err, store.ErrTaskChanged) {
 			continue
 		} else if err != nil {
-			return errors.Join(runErr, err)
+			return errors.Join(attemptErr, err)
 		}
-		return runErr
+		if scheduledRepair {
+			return nil
+		}
+		return attemptErr
 	}
 	return errors.Join(runErr, errors.New("task changed repeatedly while saving stage"))
 }
 
-func advanceStage(task map[string]any, stage string, handoff map[string]any, count, cursor int, guard workspace.GuardResult, enabled map[string]bool) error {
-	verdict := text(handoff["verdict"])
-	if verdict != "complete" {
-		task["status"], task["error"] = "blocked", text(handoff["summary"])
-		return nil
+func queueRepair(task map[string]any, reason string, limit int) bool {
+	round, ok := task["round"].(float64)
+	if !ok && task["round"] != nil || round < 0 || round != float64(int(round)) || round > 1000 {
+		task["status"], task["error"] = "blocked", "Invalid repair history; inspect the task before continuing."
+		return false
 	}
+	round++
+	task["round"], task["repositoryCursor"] = round, 0
+	task["reviewedFingerprint"], task["verifiedFingerprint"] = nil, nil
+	if limit < 1 || limit > 10 || int(round) > limit {
+		task["status"], task["error"] = "blocked", "Repair limit reached. "+reason
+		return false
+	}
+	task["stage"], task["status"], task["error"] = "implement", "queued", nil
+	return true
+}
+
+func advanceStage(task map[string]any, stage string, handoff map[string]any, count, cursor int, guard workspace.GuardResult, enabled map[string]bool, repairLimit int) error {
+	verdict := text(handoff["verdict"])
 	if stage == "review" {
 		if guard.Before.Combined == "" || guard.Before.Combined != text(task["verifiedFingerprint"]) || guard.After.Combined != guard.Before.Combined {
 			return errors.New("workspace changed after verification; rerun verification")
 		}
-		if len(array(handoff["findings"])) > 0 {
-			task["status"], task["error"] = "blocked", "Review findings require repair."
+		if verdict == "changes_requested" || (verdict == "complete" && len(array(handoff["findings"])) > 0) {
+			queueRepair(task, text(handoff["summary"]), repairLimit)
 			return nil
 		}
+	}
+	if verdict != "complete" {
+		task["status"], task["error"] = "blocked", text(handoff["summary"])
+		return nil
 	}
 	if count > 1 && (stage == "investigate" || stage == "implement" || stage == "review") && cursor < count-1 {
 		task["repositoryCursor"], task["status"] = cursor+1, "queued"
@@ -354,6 +440,11 @@ func advanceStage(task map[string]any, stage string, handoff map[string]any, cou
 		task["status"] = "awaiting_plan"
 	case "implement":
 		task["repositoryCursor"], task["stage"], task["status"] = 0, "verify", "queued"
+	case "verify":
+		if guard.Before.Combined == "" || guard.Before.Combined != guard.After.Combined {
+			return errors.New("workspace changed during verification")
+		}
+		task["verifiedFingerprint"], task["stage"], task["status"] = guard.After.Combined, "review", "queued"
 	case "review":
 		task["reviewedFingerprint"], task["status"] = guard.After.Combined, "awaiting_final"
 	}

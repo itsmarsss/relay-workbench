@@ -724,6 +724,74 @@ button:disabled {
   border-radius: 6px;
   padding: 12px;
 }
+.plan-options article.selected {
+  border-color: #267451;
+  background: #eef7f0;
+}
+.plan-options article.selectable {
+  cursor: pointer;
+}
+.plan-options input[type='radio'] {
+  margin-right: 8px;
+}
+.plan-decision,
+.final-decision {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 16px;
+}
+.plan-decision label {
+  display: grid;
+  gap: 5px;
+  flex: 1;
+  min-width: 180px;
+}
+.final-decision {
+  border: 1px solid #aabdb0;
+  border-radius: 8px;
+  padding: 16px;
+  margin: 18px 0;
+}
+.final-decision h2,
+.final-decision p {
+  margin: 0 0 6px;
+}
+.diff-repository {
+  margin-top: 18px;
+}
+.diff-code,
+.diff-stat {
+  overflow: auto;
+  white-space: pre;
+  font:
+    12px/1.5 ui-monospace,
+    monospace;
+}
+.diff-code {
+  border: 1px solid #cfd9d0;
+  border-radius: 6px;
+  padding: 10px;
+  max-height: 600px;
+}
+.diff-code span {
+  display: block;
+  min-height: 1.5em;
+}
+.diff-code .addition,
+.diff-code.addition {
+  background: #e1f5e7;
+  color: #174d2c;
+}
+.diff-code .deletion {
+  background: #fae4e2;
+  color: #7e2824;
+}
+.diff-code .hunk {
+  color: #315e8b;
+}
 .plan-options h3,
 .plan-options h4 {
   margin: 0 0 8px;
@@ -1130,8 +1198,27 @@ html:has(dialog[open]) {
   .plan-options article {
     border-color: #506258;
   }
+  .plan-options article.selected {
+    background: #294938;
+    border-color: #9accab;
+  }
   .plan-options h3 small {
     color: #b7e2c4;
+  }
+  .diff-code {
+    border-color: #506258;
+  }
+  .diff-code .addition,
+  .diff-code.addition {
+    background: #173e28;
+    color: #c6eed1;
+  }
+  .diff-code .deletion {
+    background: #492625;
+    color: #ffd2ce;
+  }
+  .diff-code .hunk {
+    color: #a8ceee;
   }
   button.primary {
     background: #a9d7b8;

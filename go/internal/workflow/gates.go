@@ -47,6 +47,10 @@ func date(value any) (time.Time, bool) {
 
 // CompletedPlan excludes debugger handoffs and stale follow-up plans.
 func CompletedPlan(task map[string]any) map[string]any {
+	return object(completedPlanAttempt(task)["handoff"])
+}
+
+func completedPlanAttempt(task map[string]any) map[string]any {
 	attempts := array(task["attempts"])
 	follow := object(task["followUpContext"])
 	followID := presentID(follow["id"])
@@ -72,7 +76,7 @@ func CompletedPlan(task map[string]any) map[string]any {
 				}
 			}
 		}
-		return h
+		return a
 	}
 	return nil
 }

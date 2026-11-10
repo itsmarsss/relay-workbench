@@ -71,9 +71,21 @@ func (s Service) now() time.Time {
 
 // Approve requires authority already established by a future authenticated API.
 func (s Service) Approve(id, optionID, note string, auth Authorization) (json.RawMessage, error) {
+	return s.approve(id, optionID, note, auth, "", "", false)
+}
+
+// ApproveExpected prevents an old screen from approving an updated proposal.
+func (s Service) ApproveExpected(id, optionID, note string, auth Authorization, attemptID, revision string) (json.RawMessage, error) {
+	return s.approve(id, optionID, note, auth, attemptID, revision, true)
+}
+
+func (s Service) approve(id, optionID, note string, auth Authorization, attemptID, revision string, requireSnapshot bool) (json.RawMessage, error) {
 	raw, task, automation, guards, err := s.snapshot(id, auth)
 	if err != nil {
 		return nil, err
+	}
+	if requireSnapshot && (attemptID == "" || revision == "" || text(completedPlanAttempt(task)["id"]) != attemptID || store.TaskRevision(raw) != revision) {
+		return nil, errors.New("Proposal changed; refresh before approving")
 	}
 	result, err := ApprovePlan(task, optionID, note, auth, automation, s.now())
 	if err != nil {
@@ -90,6 +102,21 @@ type Inspector interface {
 // atomically commits only if the task and delegation have not changed. The
 // caller must have authenticated the human or explicit Auto authorization.
 func (s Service) AcceptVerified(ctx context.Context, id string, auth Authorization, lease *workspace.Lease, inspector Inspector) (json.RawMessage, error) {
+	return s.acceptVerified(ctx, id, auth, lease, inspector, nil, "", false)
+}
+
+// AcceptVerifiedWithGuard also checks a caller-held repository reservation
+// immediately before committing, without relying on a later cleanup check.
+func (s Service) AcceptVerifiedWithGuard(ctx context.Context, id string, auth Authorization, lease *workspace.Lease, inspector Inspector, externalGuard func() error) (json.RawMessage, error) {
+	return s.acceptVerified(ctx, id, auth, lease, inspector, externalGuard, "", false)
+}
+
+// AcceptVerifiedExpected rejects a final decision made from an outdated task.
+func (s Service) AcceptVerifiedExpected(ctx context.Context, id string, auth Authorization, lease *workspace.Lease, inspector Inspector, externalGuard func() error, revision string) (json.RawMessage, error) {
+	return s.acceptVerified(ctx, id, auth, lease, inspector, externalGuard, revision, true)
+}
+
+func (s Service) acceptVerified(ctx context.Context, id string, auth Authorization, lease *workspace.Lease, inspector Inspector, externalGuard func() error, revision string, requireSnapshot bool) (json.RawMessage, error) {
 	if ctx == nil || inspector == nil {
 		return nil, errors.New("workspace inspection is required")
 	}
@@ -100,6 +127,9 @@ func (s Service) AcceptVerified(ctx context.Context, id string, auth Authorizati
 	raw, task, automation, guards, err := s.snapshot(id, auth)
 	if err != nil {
 		return nil, err
+	}
+	if requireSnapshot && (revision == "" || store.TaskRevision(raw) != revision) {
+		return nil, errors.New("Task changed; refresh before accepting")
 	}
 	if task["demo"] == true {
 		return nil, errors.New("use demo acceptance for simulated tasks")
@@ -152,6 +182,11 @@ func (s Service) AcceptVerified(ctx context.Context, id string, auth Authorizati
 		}
 		if err = revalidate(); err != nil {
 			return err
+		}
+		if externalGuard != nil {
+			if err = externalGuard(); err != nil {
+				return err
+			}
 		}
 		if err = ctx.Err(); err != nil {
 			return err

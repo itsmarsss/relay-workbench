@@ -18,7 +18,7 @@ import (
 	"relay.local/relay/internal/store"
 )
 
-type fakeCoordinator struct{ starts, resumes, pauses int }
+type fakeCoordinator struct{ starts, resumes, pauses, approvals, accepts int }
 
 func (c *fakeCoordinator) Start(id string) (map[string]any, error) {
 	c.starts++
@@ -27,6 +27,17 @@ func (c *fakeCoordinator) Start(id string) (map[string]any, error) {
 func (c *fakeCoordinator) Resume(id string) (map[string]any, error) {
 	c.resumes++
 	return map[string]any{"id": id, "title": "Task", "status": "queued"}, nil
+}
+func (c *fakeCoordinator) Approve(_ context.Context, id, option, note, attempt, revision string) (map[string]any, error) {
+	c.approvals++
+	return map[string]any{"id": id, "title": "Task", "status": "queued"}, nil
+}
+func (c *fakeCoordinator) Accept(_ context.Context, id, revision string) (map[string]any, error) {
+	c.accepts++
+	return map[string]any{"id": id, "title": "Task", "status": "completed"}, nil
+}
+func (c *fakeCoordinator) Diff(context.Context, string) (map[string]any, error) {
+	return map[string]any{"repositories": []any{}}, nil
 }
 func (c *fakeCoordinator) Pause(string) error { c.pauses++; return nil }
 func (c *fakeCoordinator) Running() int       { return c.starts - c.pauses }
@@ -78,6 +89,23 @@ func TestWorkflowActionsRequireAuthenticationAndRejectExtraFields(t *testing.T) 
 	}
 	if result := requestAction("/api/tasks/"+id+"/resume", token, "", `{}`); result.Code != 202 || coordinator.resumes != 1 {
 		t.Fatalf("valid resume: %d %s", result.Code, result.Body.String())
+	}
+	approval := "/api/tasks/" + id + "/approve-plan"
+	if result := requestAction(approval, "", "", `{"optionId":"a"}`); result.Code != 403 || coordinator.approvals != 0 {
+		t.Fatal("unauthenticated approval accepted")
+	}
+	revision := strings.Repeat("a", 64)
+	if result := requestAction(approval, token, "", `{"optionId":"a","planAttemptId":"p","taskRevision":"`+revision+`","automation":true}`); result.Code != 400 || coordinator.approvals != 0 {
+		t.Fatal("injected approval authority accepted")
+	}
+	if result := requestAction(approval, token, "", `{"optionId":"a","planAttemptId":"p","taskRevision":"`+revision+`"}`); result.Code != 202 || coordinator.approvals != 1 {
+		t.Fatal("valid human approval rejected")
+	}
+	if result := requestAction("/api/tasks/"+id+"/accept", "", "", `{}`); result.Code != 403 || coordinator.accepts != 0 {
+		t.Fatal("unauthenticated final acceptance accepted")
+	}
+	if result := requestAction("/api/tasks/"+id+"/accept", token, "", `{"taskRevision":"`+revision+`"}`); result.Code != 200 || coordinator.accepts != 1 {
+		t.Fatal("valid final acceptance rejected")
 	}
 }
 

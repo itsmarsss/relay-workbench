@@ -1,6 +1,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { ApiError, createTask, fetchBootstrap, fetchTasks, saveConfig, taskAction } from './api.ts';
+import {
+  ApiError,
+  acceptResult,
+  approvePlan,
+  createTask,
+  fetchBootstrap,
+  fetchTasks,
+  saveConfig,
+  taskAction,
+} from './api.ts';
 const token = 'a'.repeat(64),
   revision = 'b'.repeat(64);
 test('bootstrap and draft creation validate responses and send session token', async () => {
@@ -51,6 +60,38 @@ test('workflow actions use the local session token and surface failures', async 
     globalThis.fetch = async () =>
       new Response(JSON.stringify({ error: 'Workspace is busy' }), { status: 409 });
     await assert.rejects(taskAction(token, result.id, 'resume'), /Workspace is busy/);
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+test('approval and acceptance send explicit authenticated decisions', async () => {
+  const original = globalThis.fetch;
+  const calls: { url: string; init?: RequestInit }[] = [];
+  globalThis.fetch = async (url, init) => {
+    calls.push({ url: String(url), init });
+    return new Response(
+      JSON.stringify({
+        id: '550e8400-e29b-41d4-a716-446655440000',
+        title: 'Task',
+        status: 'queued',
+      }),
+      { status: 200 },
+    );
+  };
+  try {
+    const id = '550e8400-e29b-41d4-a716-446655440000';
+    await approvePlan(token, id, 'option-a', 'Please proceed', 'plan-id', revision);
+    await acceptResult(token, id, revision);
+    assert.match(calls[0]!.url, /\/approve-plan$/);
+    assert.deepEqual(JSON.parse(String(calls[0]!.init!.body)), {
+      optionId: 'option-a',
+      note: 'Please proceed',
+      planAttemptId: 'plan-id',
+      taskRevision: revision,
+    });
+    assert.match(calls[1]!.url, /\/accept$/);
+    assert.deepEqual(JSON.parse(String(calls[1]!.init!.body)), { taskRevision: revision });
+    assert.equal((calls[1]!.init!.headers as Record<string, string>)['X-Relay-Token'], token);
   } finally {
     globalThis.fetch = original;
   }
