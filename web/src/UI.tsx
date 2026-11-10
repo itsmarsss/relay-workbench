@@ -3,6 +3,17 @@ import { createPortal } from 'react-dom';
 import { AnimatePresence, motion } from 'motion/react';
 export function Icon({ name, size = 18 }: { name: string; size?: number }) {
   const paths: Record<string, ReactNode> = {
+    send: (
+      <>
+        <path d="m3 11 18-8-8 18-2-8-8-2Z" />
+        <path d="m11 13 10-10" />
+      </>
+    ),
+    resize: (
+      <>
+        <path d="M4 4h5M4 4v5m16 11h-5m5 0v-5M4 4l6 6m10 10-6-6" />
+      </>
+    ),
     relay: (
       <>
         <path d="m4 7 8-4 8 4-8 4-8-4Zm0 5 8 4 8-4M4 17l8 4 8-4" />

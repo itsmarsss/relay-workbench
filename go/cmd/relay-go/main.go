@@ -14,6 +14,7 @@ import (
 	"syscall"
 	"time"
 
+	"relay.local/relay/internal/assistant"
 	"relay.local/relay/internal/httpapi"
 	"relay.local/relay/internal/process"
 	"relay.local/relay/internal/store"
@@ -58,6 +59,12 @@ func run(args []string) (result error) {
 		return err
 	}
 	defer coordinator.Close()
+	chats, err := assistant.New(db, worker, []string{"--internal-worker"}, nil, coordinator)
+	if err != nil {
+		return err
+	}
+	defer chats.Close()
+	handler.SetAssistant(chats)
 	handler.SetCoordinator(coordinator)
 	server := &http.Server{Handler: handler, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 16384}
 	signals := make(chan os.Signal, 1)
@@ -83,6 +90,9 @@ func run(args []string) (result error) {
 	return nil
 }
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "--internal-assistant-mcp" {
+		os.Exit(assistant.MCPClient(os.Args[2:], os.Stdin, os.Stdout, os.Stderr))
+	}
 	if len(os.Args) > 1 && os.Args[1] == "--internal-worker" {
 		os.Exit(process.Worker(os.Args[2:]))
 	}

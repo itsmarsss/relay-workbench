@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { MotionConfig, motion } from 'motion/react';
 import { SessionProvider } from './Session';
+import { RelayPage } from './Chat';
 import { Icon } from './UI';
 import { SettingsPage, MemoryPage, InboxPage } from './WorkspacePages';
 import {
@@ -589,10 +590,7 @@ export default function App() {
                 <p>Loading settings…</p>
               )
             ) : route.kind === 'relay' ? (
-              <div className="empty-state">
-                <h1>Relay</h1>
-                <p>Connecting workspace assistant…</p>
-              </div>
+              <RelayPage />
             ) : route.kind === 'repositories' ? (
               bootstrap ? (
                 <RepositoriesPage
@@ -626,7 +624,10 @@ export default function App() {
                 onApprove={approve}
                 onAccept={accept}
                 onResolve={resolve}
-                onTab={(tab) => navigate(`#task/${route.id}/${tab}`)}
+                onTab={(tab) => {
+                  const q = location.hash.split('?')[1];
+                  navigate(`#task/${route.id}/${tab}${q ? '?' + q : ''}`);
+                }}
                 onBack={() => navigate('#tasks')}
                 onDeck={() => navigate(`#deck?tab=${encodeURIComponent(deck.active)}`)}
               />

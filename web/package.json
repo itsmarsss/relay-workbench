@@ -7,7 +7,8 @@
     "build": "tsc --noEmit && node scripts/build.mjs",
     "check": "tsc --noEmit",
     "test": "node --test --experimental-strip-types src/*.test.ts && node scripts/smoke.mjs",
-    "test:e2e": "npm run build && node scripts/workflow-e2e.mjs"
+    "test:e2e": "npm run build && node scripts/workflow-e2e.mjs",
+    "test:workspace": "npm run build && node scripts/workspace-e2e.mjs"
   },
   "dependencies": {
     "@xterm/addon-fit": "^0.11.0",

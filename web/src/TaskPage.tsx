@@ -1,3 +1,4 @@
+import { SideChat } from './Chat';
 import { useEffect, useState } from 'react';
 import {
   TaskMenu,
@@ -230,6 +231,7 @@ export function TaskPage({
   const blocker = currentBlocker(task);
   return (
     <section className="task-page">
+      <SideChat taskId={task.id} />
       <button className="back" onClick={onBack}>
         ← All tasks
       </button>

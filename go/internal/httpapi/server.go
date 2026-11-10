@@ -36,6 +36,7 @@ type Server struct {
 	streams      chan struct{}
 	token        [32]byte
 	workflow     Coordinator
+	assistant    Assistant
 }
 
 // Coordinator is supplied by the local server, never by an HTTP request.

@@ -25,6 +25,9 @@ func result(w http.ResponseWriter, value any, err error, status int) {
 	}
 }
 func (s *Server) extended(w http.ResponseWriter, r *http.Request) bool {
+	if s.assistantRoute(w, r) {
+		return true
+	}
 	path := r.URL.Path
 	if path == "/api/models" || path == "/api/models/discover" || path == "/api/repositories/discover" || path == "/api/repositories/suggestions" {
 		if !s.authorized(r) {
