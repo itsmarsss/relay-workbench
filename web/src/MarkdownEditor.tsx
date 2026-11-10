@@ -7,10 +7,12 @@ export function MarkdownEditor({
   value,
   onChange,
   uploads,
+  label = 'Description',
 }: {
   value: string;
   onChange: (value: string) => void;
   uploads: ReturnType<typeof useImageUpload>;
+  label?: string;
 }) {
   const id = useId(),
     textarea = useRef<HTMLTextAreaElement>(null),
@@ -59,10 +61,10 @@ export function MarkdownEditor({
   }
   return (
     <div className="field markdown-field">
-      <label htmlFor={id}>Description</label>
+      <label htmlFor={id}>{label}</label>
       <div className="markdown-editor">
         <div className="markdown-toolbar">
-          <div className="markdown-mode" role="group" aria-label="Description editor">
+          <div className="markdown-mode" role="group" aria-label={`${label} editor`}>
             <button type="button" aria-pressed={!preview} onClick={() => setPreview(false)}>
               Write
             </button>
@@ -114,7 +116,7 @@ export function MarkdownEditor({
           <textarea
             ref={textarea}
             id={id}
-            aria-label="Description"
+            aria-label={label}
             onPaste={uploads.onPaste}
             onDrop={uploads.onDrop}
             onDragOver={uploads.onDragOver}

@@ -8,29 +8,9 @@ import { OverviewPage } from './OverviewPage';
 import { Icon, RelayMark } from './UI';
 import { Modal } from './Modal';
 import { SettingsPage, MemoryPage, InboxPage } from './WorkspacePages';
-import {
-  emptyPane,
-  newDeck,
-  minimumSize,
-  panes,
-  parseDeck,
-  removeNode,
-  splitNode,
-  updateNode,
-  type Deck,
-  type Node,
-  type Pane,
-  type Split,
-} from './deck';
-import {
-  taskViews,
-  type Task,
-  type RelayConfig,
-  type RepositoryProfile,
-  type TaskView,
-} from './types';
-import { TaskPanel } from './TaskPanel';
-import { TaskPicker } from './TaskPicker';
+import { emptyPane, newDeck, parseDeck, type Deck } from './deck';
+import { type RelayConfig, type RepositoryProfile } from './types';
+import { TaskDeck } from './TaskDeck';
 import { useRelay } from './useRelay';
 import { DraftComposer } from './DraftComposer';
 import { RepositoryEditor } from './RepositoryEditor';
@@ -70,234 +50,6 @@ function initialDeck(): Deck {
   } catch {
     return newDeck();
   }
-}
-function PaneView({
-  node,
-  number,
-  tasks,
-  onChange,
-  onSplit,
-  onRemove,
-  focus,
-  hidden,
-  onFocus,
-  onOpen,
-}: {
-  node: Pane;
-  number: number;
-  tasks: Task[];
-  onChange: (node: Pane) => void;
-  onSplit: (direction: Split['direction']) => void;
-  onRemove: () => void;
-  focus: boolean;
-  hidden: boolean;
-  onFocus: () => void;
-  onOpen: (id: string, tab: TaskView) => void;
-}) {
-  const task = tasks.find((item) => item.id === node.taskId);
-  return (
-    <section
-      ref={(element) => {
-        if (element) element.inert = hidden;
-      }}
-      className={`pane ${focus ? 'focused' : ''}`}
-      aria-label={`Pane ${number}: ${task?.title || 'Choose a task'}`}
-    >
-      <header className="pane-header">
-        <TaskPicker
-          id={node.id}
-          label={`Task for pane ${number}`}
-          tasks={tasks}
-          selected={node.taskId}
-          onChange={(taskId) => onChange({ ...node, taskId })}
-        />
-        <div className="pane-actions">
-          {task && (
-            <button
-              className="icon-button"
-              onClick={() => onOpen(task.id, node.view)}
-              aria-label="Open task page"
-              title="Open task page"
-            >
-              <Icon name="external" size={16} />
-            </button>
-          )}
-          <button onClick={onFocus}>{focus ? 'Restore' : 'Focus'}</button>
-          <button
-            className="icon-button"
-            onClick={() => onSplit('horizontal')}
-            aria-label="Split side by side"
-            title="Split side by side"
-          >
-            <Icon name="split-horizontal" size={17} />
-          </button>
-          <button
-            className="icon-button"
-            onClick={() => onSplit('vertical')}
-            aria-label="Split top and bottom"
-            title="Split top and bottom"
-          >
-            <Icon name="split-vertical" size={17} />
-          </button>
-          <button
-            className="icon-button"
-            onClick={onRemove}
-            aria-label="Close pane"
-            title="Close pane"
-          >
-            <Icon name="close" size={17} />
-          </button>
-        </div>
-      </header>
-      {task ? (
-        <>
-          <nav className="pane-tabs" aria-label={`Pane ${number} view`}>
-            {taskViews.map((item) => (
-              <button
-                key={item.id}
-                aria-pressed={node.view === item.id}
-                onClick={() => onChange({ ...node, view: item.id })}
-              >
-                {item.label}
-              </button>
-            ))}
-          </nav>
-          <TaskPanel key={`${task.id}:${node.view}`} task={task} view={node.view} />
-        </>
-      ) : (
-        <div className="pane-empty">
-          <strong>Choose a task</strong>
-          <p>Task data appears here.</p>
-        </div>
-      )}
-    </section>
-  );
-}
-function Divider({
-  node,
-  update,
-  enabled,
-}: {
-  node: Split;
-  update: (id: string, fn: (node: Node) => Node) => void;
-  enabled: boolean;
-}) {
-  const pointer = useRef<number | null>(null);
-  const horizontal = node.direction === 'horizontal';
-  function setRatio(ratio: number) {
-    update(node.id, (current) =>
-      current.type === 'split'
-        ? { ...current, ratio: Math.max(20, Math.min(80, Math.round(ratio))) }
-        : current,
-    );
-  }
-  return (
-    <div
-      className="divider"
-      role="separator"
-      tabIndex={enabled ? 0 : -1}
-      aria-label="Resize panes"
-      aria-orientation={horizontal ? 'vertical' : 'horizontal'}
-      aria-valuenow={node.ratio}
-      aria-valuemin={20}
-      aria-valuemax={80}
-      onKeyDown={(event) => {
-        const minus = horizontal ? 'ArrowLeft' : 'ArrowUp',
-          plus = horizontal ? 'ArrowRight' : 'ArrowDown';
-        if (event.key === minus || event.key === plus) {
-          event.preventDefault();
-          setRatio(node.ratio + (event.key === minus ? -5 : 5));
-        }
-      }}
-      onPointerDown={(event) => {
-        if (!enabled || event.button !== 0) return;
-        event.preventDefault();
-        pointer.current = event.pointerId;
-        event.currentTarget.setPointerCapture(event.pointerId);
-      }}
-      onPointerMove={(event) => {
-        if (pointer.current !== event.pointerId) return;
-        const rect = event.currentTarget.parentElement?.getBoundingClientRect();
-        if (!rect) return;
-        const size = horizontal ? rect.width : rect.height;
-        if (size > 0)
-          setRatio(
-            (100 * (horizontal ? event.clientX - rect.left : event.clientY - rect.top)) / size,
-          );
-      }}
-      onPointerUp={() => {
-        pointer.current = null;
-      }}
-      onPointerCancel={() => {
-        pointer.current = null;
-      }}
-      onLostPointerCapture={() => {
-        pointer.current = null;
-      }}
-    />
-  );
-}
-function Tree({
-  node,
-  paneOrder,
-  tasks,
-  focus,
-  setFocus,
-  update,
-  remove,
-  split,
-  onOpen,
-}: {
-  node: Node;
-  paneOrder: string[];
-  tasks: Task[];
-  focus: string;
-  setFocus: (id: string) => void;
-  update: (id: string, fn: (node: Node) => Node) => void;
-  remove: (id: string) => void;
-  split: (id: string, direction: Split['direction']) => void;
-  onOpen: (id: string, tab: TaskView) => void;
-}) {
-  if (node.type === 'pane')
-    return (
-      <PaneView
-        node={node}
-        number={paneOrder.indexOf(node.id) + 1}
-        tasks={tasks}
-        onChange={(pane) => update(node.id, () => pane)}
-        onSplit={(direction) => split(node.id, direction)}
-        onRemove={() => remove(node.id)}
-        focus={focus === node.id}
-        hidden={!!focus && focus !== node.id}
-        onFocus={() => setFocus(focus === node.id ? '' : node.id)}
-        onOpen={onOpen}
-      />
-    );
-  const child = { tasks, paneOrder, focus, setFocus, update, remove, split, onOpen };
-  const horizontal = node.direction === 'horizontal',
-    minimum = minimumSize(node);
-  return (
-    <div
-      className={`split ${node.direction}`}
-      style={
-        horizontal
-          ? {
-              minWidth: minimum.width,
-              minHeight: minimum.height,
-              gridTemplateColumns: `${node.ratio}fr 8px ${100 - node.ratio}fr`,
-            }
-          : {
-              minWidth: minimum.width,
-              minHeight: minimum.height,
-              gridTemplateRows: `${node.ratio}fr 8px ${100 - node.ratio}fr`,
-            }
-      }
-    >
-      <Tree node={node.first} {...child} />
-      <Divider node={node} update={update} enabled={!focus} />
-      <Tree node={node.second} {...child} />
-    </div>
-  );
 }
 export default function App() {
   const prefersReducedMotion = useReducedMotion();
@@ -402,16 +154,12 @@ export default function App() {
     main.current?.scrollTo({ top: 0, left: 0, behavior: 'instant' });
   }, [pageKey]);
   const sidebarDrag = useRef<{ x: number; width: number } | null>(null);
-  const canvas = useRef<HTMLDivElement>(null);
   const active = deck.tabs.find((tab) => tab.id === deck.active) || deck.tabs[0]!;
   useEffect(() => {
     try {
       localStorage.setItem(storageKey, JSON.stringify(deck));
     } catch {}
   }, [deck]);
-  useEffect(() => {
-    if (focus) canvas.current?.scrollTo(0, 0);
-  }, [focus]);
   useEffect(() => {
     function followURL() {
       setRoute(parseRoute(location.hash));
@@ -449,14 +197,7 @@ export default function App() {
     history.pushState(null, '', `#deck?tab=${encodeURIComponent(id)}`);
     setRoute({ kind: 'deck' });
   }
-  function modify(fn: (node: Node) => Node) {
-    setDeck((current) => ({
-      ...current,
-      tabs: current.tabs.map((tab) =>
-        tab.id === current.active ? { ...tab, root: fn(tab.root) } : tab,
-      ),
-    }));
-  }
+
   return (
     <SessionProvider value={{ bootstrap, refresh }}>
       <Appearance.Provider value={{ theme, setTheme, lowMotion, setLowMotion }}>
@@ -691,90 +432,42 @@ export default function App() {
                     onCreate={() => setDraftOpen(true)}
                   />
                 ) : route.kind === 'deck' ? (
-                  <>
-                    <header>
-                      <div>
-                        <h1>Task deck</h1>
-                        <p>Watch tasks side by side.</p>
-                      </div>
-                      <div className="page-header-actions">
-                        <span className="preview">Isolated preview</span>
-                      </div>
-                    </header>
-                    {error && (
-                      <div className="error" role="status">
-                        {error}
-                      </div>
-                    )}
-                    <nav className="workspace-tabs" aria-label="Workspaces">
-                      {deck.tabs.map((tab) => (
-                        <button
-                          key={tab.id}
-                          aria-current={tab.id === deck.active ? 'page' : undefined}
-                          onClick={() => {
-                            selectTab(tab.id);
-                          }}
-                        >
-                          {tab.name}
-                        </button>
-                      ))}
-                      <button
-                        aria-label="Add workspace"
-                        disabled={deck.tabs.length >= 10}
-                        onClick={() => {
-                          const tab = {
-                            id: crypto.randomUUID(),
-                            name: `Workspace ${deck.tabs.length + 1}`,
-                            root: emptyPane(),
-                          };
-                          setDeck((current) => ({ tabs: [...current.tabs, tab], active: tab.id }));
-                          setFocus('');
-                          history.pushState(null, '', `#deck?tab=${encodeURIComponent(tab.id)}`);
-                        }}
-                      >
-                        <Icon name="plus" size={16} />
-                      </button>
-                      <span className="workspace-controls">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setTabName(active.name);
-                            setModal({ kind: 'rename', tabId: active.id });
-                          }}
-                        >
-                          Rename
-                        </button>
-                        <button
-                          type="button"
-                          disabled={deck.tabs.length <= 1}
-                          onClick={() => setModal({ kind: 'close', tabId: active.id })}
-                        >
-                          Close tab
-                        </button>
-                      </span>
-                    </nav>
-                    <div ref={canvas} className="canvas">
-                      <Tree
-                        node={active.root}
-                        paneOrder={panes(active.root).map((pane) => pane.id)}
-                        tasks={tasks}
-                        focus={focus}
-                        setFocus={setFocus}
-                        onOpen={(id, tab) => navigate(`#task/${id}/${tab}`)}
-                        update={(id, change) => modify((root) => updateNode(root, id, change))}
-                        split={(id, direction) => {
-                          if (panes(active.root).length < 8) {
-                            modify((root) => splitNode(root, id, direction));
-                            setFocus('');
-                          }
-                        }}
-                        remove={(id) => {
-                          modify((root) => removeNode(root, id));
-                          setFocus('');
-                        }}
-                      />
-                    </div>
-                  </>
+                  <TaskDeck
+                    active={active}
+                    tabs={deck.tabs}
+                    tasks={tasks}
+                    error={error}
+                    loading={!bootstrap}
+                    focus={focus}
+                    setFocus={setFocus}
+                    onSelect={selectTab}
+                    onAdd={() => {
+                      const tab = {
+                        id: crypto.randomUUID(),
+                        name: `Workspace ${deck.tabs.length + 1}`,
+                        root: emptyPane(),
+                        layout: 'grid' as const,
+                        columns: 2 as const,
+                      };
+                      setDeck((current) => ({ tabs: [...current.tabs, tab], active: tab.id }));
+                      setFocus('');
+                      history.pushState(null, '', `#deck?tab=${encodeURIComponent(tab.id)}`);
+                    }}
+                    onRename={() => {
+                      setTabName(active.name);
+                      setModal({ kind: 'rename', tabId: active.id });
+                    }}
+                    onClose={() => setModal({ kind: 'close', tabId: active.id })}
+                    onUpdate={(patch) =>
+                      setDeck((current) => ({
+                        ...current,
+                        tabs: current.tabs.map((tab) =>
+                          tab.id === current.active ? { ...tab, ...patch } : tab,
+                        ),
+                      }))
+                    }
+                    onOpen={(id, tab) => navigate(`#task/${id}/${tab}`)}
+                  />
                 ) : route.kind === 'tasks' ? (
                   <TasksPage
                     tasks={tasks}

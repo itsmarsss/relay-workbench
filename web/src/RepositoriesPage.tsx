@@ -1,8 +1,14 @@
-import { useState } from 'react';
-import { Modal } from './Modal';
+import { useRef, useState } from 'react';
 import { Icon } from './UI';
 import { Notice, useMutation } from './Session';
 import type { RelayConfig, RepositoryProfile } from './types';
+type Discovered = { path: string; name: string; configuredId?: string };
+type DiscoveryReport = {
+  repositories: Discovered[];
+  roots: string[];
+  warnings: string[];
+  truncated: boolean;
+};
 export function RepositoriesPage({
   config,
   onEdit,
@@ -12,10 +18,20 @@ export function RepositoriesPage({
   onEdit: (profile: RepositoryProfile) => void;
   onAdd: (profile?: RepositoryProfile) => void;
 }) {
-  const [discovering, setDiscovering] = useState(false),
-    [root, setRoot] = useState(''),
-    [found, setFound] = useState<{ path: string; name: string }[]>([]);
-  const mutation = useMutation();
+  const [root, setRoot] = useState(''),
+    [report, setReport] = useState<DiscoveryReport | null>(null);
+  const panel = useRef<HTMLElement>(null),
+    search = useRef<HTMLInputElement>(null),
+    mutation = useMutation();
+  function scan(common = false) {
+    void mutation
+      .run<DiscoveryReport>('/api/repositories/discover', {
+        details: true,
+        ...(!common && root.trim() ? { roots: [root.trim()] } : {}),
+      })
+      .then(setReport)
+      .catch(() => {});
+  }
   return (
     <section className="repositories-page">
       <div className="page-title">
@@ -25,7 +41,18 @@ export function RepositoriesPage({
           <p>Repository profiles and task workspaces.</p>
         </div>
         <div className="inline">
-          <button onClick={() => setDiscovering(true)}>Find repositories</button>
+          <button
+            onClick={() => {
+              panel.current?.scrollIntoView({
+                block: 'nearest',
+                behavior:
+                  document.documentElement.dataset.lowMotion === 'true' ? 'instant' : 'smooth',
+              });
+              search.current?.focus({ preventScroll: true });
+            }}
+          >
+            Find repositories
+          </button>
           <button className="primary" onClick={() => onAdd()}>
             <Icon name="plus" size={16} />
             Add repository
@@ -70,94 +97,138 @@ export function RepositoriesPage({
                   <dd>
                     {repo.verificationMode === 'agent'
                       ? 'Agent discovers checks'
-                      : `${repo.checks.length} required commands`}
+                      : `${repo.checks.length} configured commands`}
                   </dd>
                 </div>
                 <div>
                   <dt>Working directory</dt>
                   <dd>{repo.cwd}</dd>
                 </div>
+                {repo.setup.length > 0 && (
+                  <div>
+                    <dt>Setup</dt>
+                    <dd>
+                      {repo.setup.length} {repo.setup.length === 1 ? 'command' : 'commands'}
+                    </dd>
+                  </div>
+                )}
               </dl>
             </article>
           ))}
         </div>
       ) : (
         <div className="empty-state">
-          <h2>No repository profiles</h2>
-          <p>Add a checkout path to create real task drafts.</p>
+          <h2>Connect your first repository</h2>
+          <p>Choose a local checkout to start real work.</p>
+          <button onClick={() => onAdd()}>Add a checkout</button>
         </div>
       )}
-      {discovering && (
-        <Modal
-          title="Find repositories"
-          onClose={() => setDiscovering(false)}
-          onSubmit={(e) => {
-            e.preventDefault();
-            void mutation
-              .run<{ path: string; name: string }[]>(
-                '/api/repositories/discover',
-                root.trim() ? { roots: [root.trim()] } : {},
-              )
-              .then(setFound)
-              .catch(() => {});
-          }}
-          footer={
-            <>
-              <button type="button" onClick={() => setDiscovering(false)}>
-                Close
-              </button>
-              <button className="primary" disabled={mutation.busy}>
-                {mutation.busy ? 'Searching…' : 'Scan folders'}
-              </button>
-            </>
-          }
-        >
-          <label className="field">
-            Search folder
-            <input
-              placeholder="Default development folders"
-              value={root}
-              onChange={(e) => setRoot(e.target.value)}
-            />
-          </label>
-          <p className="muted">
-            Scans up to four folders deep. Dependency folders and links are skipped.
-          </p>
-          {mutation.error && <Notice>{mutation.error}</Notice>}
-          <div className="record-list">
-            {found.map((repo) => (
-              <button
-                type="button"
-                className="repository-discovery-row"
-                key={repo.path}
-                disabled={config.repositories.some((r) => r.path === repo.path)}
-                onClick={() => {
-                  setDiscovering(false);
-                  onAdd({
-                    id: crypto.randomUUID(),
-                    name: repo.name,
-                    path: repo.path,
-                    cwd: '.',
-                    strategy: 'worktree',
-                    verificationMode: 'agent',
-                    instructions: '',
-                    checks: [],
-                    setup: [],
-                  });
-                }}
-              >
-                <span>
-                  <strong>{repo.name}</strong>
-                  <small>{repo.path}</small>
-                </span>
-                <span>
-                  {config.repositories.some((r) => r.path === repo.path) ? 'Added' : 'Add'}
-                </span>
-              </button>
-            ))}
+      <section ref={panel} className="repository-discovery" aria-label="Repository discovery">
+        <div className="section-heading">
+          <div>
+            <h2>Find repositories</h2>
+            <p>Detect local Git checkouts, then choose which to add.</p>
           </div>
-        </Modal>
-      )}
+          <button disabled={mutation.busy} onClick={() => scan(true)}>
+            {mutation.busy ? 'Scanning…' : 'Scan common folders'}
+          </button>
+        </div>
+        <form
+          onSubmit={(event) => {
+            event.preventDefault();
+            scan();
+          }}
+        >
+          <div className="field">
+            <label htmlFor="repository-search-folder">Search folder</label>
+            <div className="repository-scan-row">
+              <input
+                id="repository-search-folder"
+                ref={search}
+                required
+                value={root}
+                onChange={(event) => setRoot(event.target.value)}
+                placeholder="Absolute folder path"
+              />
+              <button disabled={mutation.busy}>Scan folder</button>
+            </div>
+          </div>
+        </form>
+        {mutation.error && <Notice>{mutation.error}</Notice>}
+        <div aria-live="polite">
+          {mutation.busy ? (
+            <p role="status" className="form-note">
+              Looking for Git checkouts…
+            </p>
+          ) : report ? (
+            <>
+              {report.repositories.length ? (
+                <ul className="discovered-repositories">
+                  {report.repositories.map((repo) => {
+                    const configured = config.repositories.some(
+                      (item) => item.path === repo.path || item.id === repo.configuredId,
+                    );
+                    return (
+                      <li key={repo.path}>
+                        <Icon name="repository" size={18} />
+                        <div>
+                          <strong>{repo.name}</strong>
+                          <code>{repo.path}</code>
+                        </div>
+                        {configured ? (
+                          <span className="discovery-added">Added</span>
+                        ) : (
+                          <button
+                            onClick={() =>
+                              onAdd({
+                                id: crypto.randomUUID(),
+                                name: repo.name,
+                                path: repo.path,
+                                cwd: '.',
+                                strategy: 'worktree',
+                                verificationMode: 'agent',
+                                instructions: '',
+                                checks: [],
+                                setup: [],
+                              })
+                            }
+                          >
+                            Add
+                          </button>
+                        )}
+                      </li>
+                    );
+                  })}
+                </ul>
+              ) : (
+                <p>No Git checkouts found. Try a specific parent folder.</p>
+              )}
+              {report.truncated && (
+                <p className="form-note">Scan limit reached. Try a narrower folder.</p>
+              )}
+              {report.warnings.map((warning, index) => (
+                <p className="form-note" key={index}>
+                  {warning}
+                </p>
+              ))}
+              <details className="discovery-scope">
+                <summary>Scanned folders ({report.roots.length})</summary>
+                <ul>
+                  {report.roots.map((path) => (
+                    <li key={path}>
+                      <code>{path}</code>
+                    </li>
+                  ))}
+                </ul>
+              </details>
+            </>
+          ) : (
+            <p className="form-note">
+              Scans four folders deep. Build caches, dependencies and links are skipped.
+            </p>
+          )}
+        </div>
+      </section>
     </section>
   );
 }

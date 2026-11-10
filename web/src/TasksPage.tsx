@@ -2,8 +2,16 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { motion, useReducedMotion } from 'motion/react';
 import { createPortal } from 'react-dom';
 import type { Task } from './types';
-import { columns, taskLane, boardFilters, filteredTasks, taskScopes, inTaskScope } from './board';
-import { Select, Icon } from './UI';
+import {
+  columns,
+  laneHints,
+  taskLane,
+  boardFilters,
+  filteredTasks,
+  taskScopes,
+  inTaskScope,
+} from './board';
+import { Select, Icon, ProviderIcon } from './UI';
 import { Notice, useMutation } from './Session';
 import { Modal } from './Modal';
 import { nextStep, ago } from './presentation';
@@ -32,7 +40,7 @@ export function TasksPage({
   const [filters, setFilters] = useState(currentFilters),
     [dragging, setDragging] = useState(''),
     [target, setTarget] = useState(''),
-    [menu, setMenu] = useState<{ task: Task; x: number; y: number } | null>(null),
+    [menu, setMenu] = useState<{ task: Task; x: number; y: number; move?: boolean } | null>(null),
     [deleting, setDeleting] = useState<Task | null>(null);
   const mutation = useMutation();
   const menuPanel = useRef<HTMLDivElement>(null),
@@ -71,7 +79,9 @@ export function TasksPage({
   }, [menu]);
   useEffect(() => {
     if (!menu) return;
-    menuPanel.current?.querySelector('button')?.focus({ preventScroll: true });
+    menuPanel.current
+      ?.querySelector<HTMLElement>(menu.move ? '.select-trigger' : 'button')
+      ?.focus({ preventScroll: true });
     const close = (event: Event) => {
       if (event.target instanceof Node && menuPanel.current?.contains(event.target)) return;
       closeMenu(false);
@@ -167,7 +177,7 @@ export function TasksPage({
     <motion.article
       layout
       key={task.id}
-      className="task-card"
+      className={`task-card ${filters.layout === 'board' ? 'board-task-card' : ''}`}
       draggable={!mutation.busy}
       onDragStartCapture={(e) => {
         e.dataTransfer.setData('text/plain', task.id);
@@ -187,30 +197,87 @@ export function TasksPage({
           y: e.clientY,
         });
       }}
+      onKeyDown={(event) => {
+        if (event.key.toLowerCase() !== 'm' || event.ctrlKey || event.metaKey || event.altKey)
+          return;
+        event.preventDefault();
+        menuTrigger.current = event.currentTarget.querySelector('.card-menu');
+        const bounds = event.currentTarget.getBoundingClientRect();
+        setMenu({ task, x: bounds.left + 20, y: bounds.top + 20, move: true });
+      }}
     >
       <button className="task-card-open" onClick={() => onOpen(task.id)}>
-        <span className="task-card-copy">
-          <strong>{task.title}</strong>
-          <small>
-            {task.repository?.name || 'Unspecified'}
-            {(task.repositories?.length || 0) > 1 && ` +${task.repositories!.length - 1}`}
-            {task.ticket &&
-              ` · ${task.ticket.match(/\/issues\/(\d+)/)?.[1] ? '#' + task.ticket.match(/\/issues\/(\d+)/)![1] : task.ticket}`}
-          </small>
-          {(task.error || task.latestSummary) && (
-            <span className="task-card-summary">{task.error || task.latestSummary}</span>
-          )}
-        </span>
-        <span className="task-card-state">
-          <span className={`task-status status-${task.statusOverride?.value || task.status}`}>
-            {columns.find((row) => row[0] === taskLane(task))?.[1]}
-          </span>
-          <strong>{nextStep(task)}</strong>
-          <time>{ago(task.updatedAt)}</time>
-        </span>
-        <span className="task-card-chevron">
-          <Icon name="chevron" size={18} />
-        </span>
+        {filters.layout === 'board' ? (
+          <>
+            <span className={`task-status status-${task.statusOverride?.value || task.status}`}>
+              {columns.find((row) => row[0] === taskLane(task))?.[1]}
+            </span>
+            <strong className="board-task-title">{task.title}</strong>
+            <span className="board-task-repository">
+              <Icon name="repository" size={14} />
+              {(task.repositories?.length
+                ? task.repositories
+                    .map((row) => row.repository?.name)
+                    .filter(Boolean)
+                    .join(' + ')
+                : task.repository?.name) || 'Unspecified'}
+            </span>
+            {(task.error || task.latestSummary) && (
+              <span className={`task-card-summary ${task.error ? 'is-error' : ''}`}>
+                {task.error || task.latestSummary}
+              </span>
+            )}
+            <span className="board-task-next">
+              <Icon
+                name={
+                  ['approach', 'final', 'attention'].includes(taskLane(task))
+                    ? 'inbox'
+                    : taskLane(task) === 'done'
+                      ? 'check'
+                      : 'arrow'
+                }
+                size={15}
+              />
+              <span>{task.statusOverride ? 'Manual status · view task' : nextStep(task)}</span>
+              {task.currentRun?.harness && (
+                <ProviderIcon provider={task.currentRun.harness} size={23} />
+              )}
+            </span>
+            <span className="board-task-footer">
+              <span>
+                {task.ticket?.match(/\/(?:issues|pull|pulls)\/(\d+)/)?.[1]
+                  ? '#' + task.ticket.match(/\/(?:issues|pull|pulls)\/(\d+)/)![1]
+                  : task.id.slice(0, 8)}
+              </span>
+              <time>{ago(task.updatedAt)}</time>
+            </span>
+          </>
+        ) : (
+          <>
+            <span className="task-card-copy">
+              <strong>{task.title}</strong>
+              <small>
+                {task.repository?.name || 'Unspecified'}
+                {(task.repositories?.length || 0) > 1 && ` +${task.repositories!.length - 1}`}
+                {task.ticket &&
+                  ` · ${task.ticket.match(/\/issues\/(\d+)/)?.[1] ? '#' + task.ticket.match(/\/issues\/(\d+)/)![1] : task.ticket}`}
+              </small>
+              {(task.error || task.latestSummary) && (
+                <span className="task-card-summary">{task.error || task.latestSummary}</span>
+              )}
+            </span>
+            <span className="task-card-state">
+              <span className={`task-status status-${task.statusOverride?.value || task.status}`}>
+                {columns.find((row) => row[0] === taskLane(task))?.[1]}
+              </span>
+              <strong>{nextStep(task)}</strong>
+              <time>{ago(task.updatedAt)}</time>
+            </span>
+            <span className="task-card-chevron">
+              <Icon name="chevron" size={18} />
+            </span>
+          </>
+        )}
       </button>
       <button
         className="icon-button card-menu"
@@ -367,6 +434,7 @@ export function TasksPage({
               const count = visible.filter((task) => taskLane(task) === lane).length;
               return (
                 <button key={lane} onClick={() => showLane(lane)}>
+                  <span className={`lane-dot lane-dot-${lane}`} aria-hidden="true" />
                   {label}
                   <span>{count}</span>
                 </button>
@@ -412,16 +480,27 @@ export function TasksPage({
                   if (task) void move(task, lane);
                 }}
               >
-                <h2>
-                  {label}
-                  <span>{visible.filter((t) => taskLane(t) === lane).length}</span>
-                </h2>
+                <header className="board-lane-heading">
+                  <h2>
+                    <span>
+                      <span className={`lane-dot lane-dot-${lane}`} aria-hidden="true" />
+                      {label}
+                    </span>
+                    <span className="lane-count">
+                      {visible.filter((t) => taskLane(t) === lane).length}
+                    </span>
+                  </h2>
+                  <p>{laneHints[lane]}</p>
+                </header>
                 {visible.filter((t) => taskLane(t) === lane).map(card)}
                 {tasks.length === 0 && lane === 'backlog' && (
                   <button className="board-create-task" onClick={onCreate}>
                     <Icon name="plus" size={16} /> Create task
                   </button>
                 )}
+                {!visible.some((task) => taskLane(task) === lane) &&
+                  tasks.length > 0 &&
+                  !dragging && <p className="board-lane-empty">No tasks in this stage</p>}
                 <div className="lane-drop-hint">{dragging ? 'Move here' : ''}</div>
               </section>
             ))}

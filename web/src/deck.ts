@@ -9,13 +9,19 @@ export type Split = {
   second: Node;
 };
 export type Node = Pane | Split;
-export type Tab = { id: string; name: string; root: Node };
+export type Tab = {
+  id: string;
+  name: string;
+  root: Node;
+  layout?: 'grid' | 'split';
+  columns?: 1 | 2 | 3;
+};
 export type Deck = { tabs: Tab[]; active: string };
 const views: TaskView[] = ['overview', 'thread', 'terminals', 'diff', 'handoffs', 'transcript'];
 const id = () => crypto.randomUUID();
 export const emptyPane = (): Pane => ({ type: 'pane', id: id(), taskId: '', view: 'overview' });
 export function newDeck(): Deck {
-  const tab = { id: id(), name: 'Workspace 1', root: emptyPane() };
+  const tab: Tab = { id: id(), name: 'Workspace 1', root: emptyPane(), layout: 'grid', columns: 2 };
   return { tabs: [tab], active: tab.id };
 }
 export function panes(node: Node): Pane[] {
@@ -56,6 +62,34 @@ export function splitNode(node: Node, target: string, direction: Split['directio
       ? child
       : { type: 'split', id: id(), direction, ratio: 50, first: child, second: emptyPane() },
   );
+}
+export function addPane(node: Node, taskId = ''): Node {
+  const empty = panes(node).find((pane) => !pane.taskId);
+  if (empty) return updateNode(node, empty.id, (pane) => ({ ...pane, taskId }) as Pane);
+  if (panes(node).length >= 8) return node;
+  return {
+    type: 'split',
+    id: id(),
+    direction: 'horizontal',
+    ratio: 50,
+    first: node,
+    second: { ...emptyPane(), taskId },
+  };
+}
+export function movePane(node: Node, from: string, to: string): Node {
+  const items = panes(node),
+    source = items.findIndex((pane) => pane.id === from),
+    target = items.findIndex((pane) => pane.id === to);
+  if (source < 0 || target < 0 || source === target) return node;
+  const [item] = items.splice(source, 1);
+  items.splice(target, 0, item!);
+  let index = 0;
+  function arrange(current: Node): Node {
+    return current.type === 'pane'
+      ? items[index++]!
+      : { ...current, first: arrange(current.first), second: arrange(current.second) };
+  }
+  return arrange(node);
 }
 function decodeNode(value: unknown, ids: Set<string>, depth = 0): Node {
   if (!value || typeof value !== 'object' || depth > 8 || ids.size >= 15)
@@ -106,6 +140,8 @@ export function parseDeck(value: string | null): Deck {
             ? tab.name.trim().slice(0, 60)
             : 'Workspace',
         root: decodeNode(tab.root, new Set()),
+        layout: tab.layout === 'split' ? 'split' : 'grid',
+        columns: tab.columns === 1 || tab.columns === 3 ? tab.columns : 2,
       };
     });
     return {

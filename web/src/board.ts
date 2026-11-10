@@ -6,11 +6,23 @@ export const columns = [
   ['progress', 'In progress', 'running'],
   ['review', 'In review', 'review'],
   ['final', 'Final approval', 'awaiting_final'],
-  ['attention', 'Needs attention', 'blocked'],
   ['done', 'Done', 'completed'],
   ['finished', 'Completed', 'finished'],
+  ['attention', 'Needs attention', 'blocked'],
   ['cancelled', 'Cancelled', 'cancelled'],
 ] as const;
+export const laneHints: Record<string, string> = {
+  backlog: 'Ready when you are',
+  discovery: 'Evidence and possible approaches',
+  approach: 'Your decision before coding',
+  progress: 'Implementation and verification',
+  review: 'Independent agent review',
+  final: 'Your final look',
+  done: 'Pipeline finished',
+  finished: 'Work is fully finished',
+  attention: 'Blocked, paused, or in your hands',
+  cancelled: 'Retained for reference',
+};
 export function taskLane(task: Task): string {
   const override = task.statusOverride;
   if (override) {

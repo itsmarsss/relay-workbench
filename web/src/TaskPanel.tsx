@@ -5,6 +5,7 @@ import { TerminalPanel } from './TerminalPanel';
 import { asObject, asText, parseDiff, type DiffRepository } from './task-data';
 import { statusLabel, taskViews, type Task, type TaskView } from './types';
 import { ProviderName } from './Icons';
+import { stageNames } from './presentation';
 
 type Data = { diffs?: DiffRepository[]; diffRevision?: string; diffFingerprint?: string };
 async function get(path: string, signal: AbortSignal): Promise<unknown> {
@@ -18,6 +19,7 @@ async function get(path: string, signal: AbortSignal): Promise<unknown> {
   return response.json() as Promise<unknown>;
 }
 export function TaskPanel({ task, view }: { task: Task; view: TaskView }) {
+  const stage = task.currentRun?.stage || task.stage || '';
   const [data, setData] = useState<Data>({}),
     [error, setError] = useState(''),
     [refreshVersion, setRefreshVersion] = useState(0);
@@ -55,7 +57,9 @@ export function TaskPanel({ task, view }: { task: Task; view: TaskView }) {
       <div className="pane-content" tabIndex={0}>
         <span className="eyebrow">{statusLabel(task.status)}</span>
         <h2>{task.title}</h2>
-        <p>{task.latestSummary || task.error || 'No recent update.'}</p>
+        <p className={task.error ? 'pane-summary-error' : undefined}>
+          {task.error || task.latestSummary || 'No recent update.'}
+        </p>
         <dl>
           <div>
             <dt>Repository</dt>
@@ -63,7 +67,7 @@ export function TaskPanel({ task, view }: { task: Task; view: TaskView }) {
           </div>
           <div>
             <dt>Stage</dt>
-            <dd>{task.currentRun?.stage || task.stage || 'Not started'}</dd>
+            <dd>{stageNames[stage] || stage || 'Not started'}</dd>
           </div>
           {task.currentRun?.harness && (
             <div>

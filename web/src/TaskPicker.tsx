@@ -13,12 +13,16 @@ export function matchTasks(tasks: Task[], query: string): Task[] {
 export function TaskPicker({
   id,
   label = 'Task for pane',
+  placeholder = 'Choose a task…',
+  disabled = false,
   tasks,
   selected,
   onChange,
 }: {
   id: string;
   label?: string;
+  placeholder?: string;
+  disabled?: boolean;
   tasks: Task[];
   selected: string;
   onChange: (value: string) => void;
@@ -74,7 +78,8 @@ export function TaskPicker({
         aria-controls={listID}
         aria-activedescendant={open && filtered[active] ? `${listID}-${active}` : undefined}
         value={open ? query : task?.title || (selected ? 'Task unavailable' : '')}
-        placeholder="Choose a task…"
+        placeholder={placeholder}
+        disabled={disabled}
         onFocus={() => {
           setOpen(true);
           setQuery('');

@@ -1,10 +1,12 @@
-import { Markdown } from './Markdown';
+import { MarkdownEditor } from './MarkdownEditor';
+import { useImageUpload } from './ImageUpload';
+import { useRepositoryDetection, type ProfileSuggestion } from './useRepositoryDetection';
 import { CommandEditor, CommandListEditor, type Command } from './CommandEditor';
 import { asObject } from './task-data';
 import { motion } from 'motion/react';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Select } from './UI';
-import { Notice, useMutation } from './Session';
+import { Notice } from './Session';
 import { Modal } from './Modal';
 import { jsonArray, jsonObject } from './forms';
 import type { RelayConfig, RepositoryProfile } from './types';
@@ -46,8 +48,18 @@ export function RepositoryEditor({
     [error, setError] = useState(''),
     [busy, setBusy] = useState(false);
   const exists = config.repositories.some((repo) => repo.id === id);
+  useEffect(() => setError(''), [name, path, cwd, strategy, mode, instructions, checks, setup]);
   const [tab, setTab] = useState('general'),
-    [preview, setPreview] = useState(false);
+    [removing, setRemoving] = useState(false);
+  const keepProfile = useRef<HTMLButtonElement>(null),
+    removeButton = useRef<HTMLButtonElement>(null),
+    removalWasOpen = useRef(false);
+  useEffect(() => {
+    if (removing) keepProfile.current?.focus();
+    else if (removalWasOpen.current) removeButton.current?.focus();
+    removalWasOpen.current = removing;
+  }, [removing]);
+  const uploads = useImageUpload((text) => setInstructions((value) => value + text));
   const tabs = [
     ['general', 'General'],
     ['workspace', 'Workspace'],
@@ -113,10 +125,48 @@ export function RepositoryEditor({
     }
   }
 
-  const discovery = useMutation();
-  const [suggestions, setSuggestions] = useState<
-    { field: string; label: string; value: unknown; evidence: string }[]
-  >([]);
+  const detection = useRepositoryDetection(path, cwd);
+  useEffect(() => {
+    const suggested = detection.result?.suggestions.filter((item) => item.field === 'name').at(-1);
+    if (suggested && typeof suggested.value === 'string')
+      setName((current) => (current.trim() ? current : String(suggested.value)));
+  }, [detection.result]);
+  function applySuggestion(item: ProfileSuggestion) {
+    if (item.field === 'name') setName(String(item.value));
+    else if (item.field === 'path' || item.field === 'cwd') {
+      if (!detection.result) return;
+      setPath(detection.result.root);
+      setCwd((item.field === 'cwd' ? String(item.value) : detection.result.cwd) || '.');
+    } else {
+      try {
+        const current = jsonArray(item.field === 'checks' ? checks : setup);
+        if (!current.some((row) => JSON.stringify(row) === JSON.stringify(item.value)))
+          (item.field === 'checks' ? setChecks : setSetup)(
+            JSON.stringify([...current, item.value], null, 2),
+          );
+        if (item.field === 'checks') setMode('commands');
+        setTab('checks');
+      } catch {
+        setError('Fix the existing command JSON before adding a suggestion.');
+      }
+    }
+  }
+  async function removeProfile() {
+    if (busy) return;
+    setBusy(true);
+    setError('');
+    try {
+      await onSave(revision, {
+        ...config,
+        repositories: config.repositories.filter((repo) => repo.id !== id),
+      });
+      onClose();
+    } catch (error) {
+      setError(error instanceof Error ? error.message : 'Could not remove repository.');
+    } finally {
+      setBusy(false);
+    }
+  }
   return (
     <Modal
       title={exists ? 'Edit repository' : 'Add repository'}
@@ -125,10 +175,28 @@ export function RepositoryEditor({
       }}
       onSubmit={async (event) => {
         event.preventDefault();
-        if (busy) return;
+        if (busy || removing) return;
         setError('');
         try {
-          const options = jsonObject(advanced);
+          if (!name.trim() || !path.trim() || !cwd.trim()) {
+            setTab('general');
+            throw new Error('Enter a name, repository path and working directory.');
+          }
+          let options: Record<string, unknown>;
+          try {
+            options = jsonObject(advanced);
+          } catch {
+            setTab('integrations');
+            throw new Error('Fix the advanced profile JSON before saving.');
+          }
+          if (
+            strategy === 'managed' &&
+            (!String(options.workspacePath || '').trim() ||
+              !asObject(options.workspaceCommand)?.command)
+          ) {
+            setTab('workspace');
+            throw new Error('Managed workspaces need a path template and creation command.');
+          }
           const allowed = new Set([
             'workspaceCommand',
             'workspacePath',
@@ -136,20 +204,49 @@ export function RepositoryEditor({
             'prCommand',
             'developmentAccess',
           ]);
-          if (Object.keys(options).some((key) => !allowed.has(key)))
+          if (Object.keys(options).some((key) => !allowed.has(key))) {
+            setTab('integrations');
             throw new Error('Advanced profile options include an unsupported key.');
+          }
+          const validCommand = (value: unknown) => {
+            const command = asObject(value);
+            return (
+              typeof command?.command === 'string' &&
+              command.command.trim() &&
+              Array.isArray(command.args) &&
+              command.args.every((arg) => typeof arg === 'string')
+            );
+          };
+          function commands(value: string, label: string) {
+            try {
+              const rows = jsonArray(value);
+              if (!rows.every(validCommand)) throw new Error();
+              return rows;
+            } catch {
+              setTab('checks');
+              throw new Error(`${label} need an executable and a list of literal arguments.`);
+            }
+          }
+          for (const key of ['workspaceCommand', 'issueCommand', 'prCommand']) {
+            if (options[key] != null && !validCommand(options[key])) {
+              setTab(key === 'workspaceCommand' ? 'workspace' : 'integrations');
+              throw new Error(
+                'Each integration command needs an executable and a list of literal arguments.',
+              );
+            }
+          }
           const next = {
             ...profile,
             ...options,
             id,
-            name,
-            path,
-            cwd,
+            name: name.trim(),
+            path: path.trim(),
+            cwd: cwd.trim(),
             strategy,
             verificationMode: mode,
             instructions,
-            checks: jsonArray(checks),
-            setup: jsonArray(setup),
+            checks: commands(checks, 'Required checks'),
+            setup: commands(setup, 'Setup commands'),
           } as RepositoryProfile;
           const updated = structuredClone(config);
           updated.repositories = exists
@@ -166,18 +263,58 @@ export function RepositoryEditor({
       }}
       footer={
         <>
-          <span className="form-note">
-            Commands are stored as argument arrays. Saving does not run them.
-          </span>
+          {exists && (
+            <button
+              ref={removeButton}
+              type="button"
+              className="danger text-button profile-remove"
+              disabled={busy || removing}
+              onClick={() => setRemoving(true)}
+            >
+              Remove profile
+            </button>
+          )}
+          <span className="form-note">Defaults for new tasks.</span>
           <button type="button" disabled={busy} onClick={onClose}>
             Cancel
           </button>
-          <button className="primary" type="submit" disabled={busy}>
+          <button className="primary" type="submit" disabled={busy || removing}>
             {busy ? 'Saving…' : 'Save repository'}
           </button>
         </>
       }
     >
+      <p className="form-note">
+        {exists
+          ? 'Existing tasks keep their saved profile.'
+          : 'Each task gets its own worktree by default.'}
+      </p>
+      {removing && (
+        <section className="profile-removal" aria-label="Remove repository profile">
+          <h3>Remove {profile?.name}?</h3>
+          <p>Existing tasks and worktrees are kept.</p>
+          <div className="inline">
+            <button
+              ref={keepProfile}
+              type="button"
+              disabled={busy}
+              onClick={() => {
+                setRemoving(false);
+              }}
+            >
+              Keep profile
+            </button>
+            <button
+              type="button"
+              className="danger"
+              disabled={busy}
+              onClick={() => void removeProfile()}
+            >
+              Confirm removal
+            </button>
+          </div>
+        </section>
+      )}
       {error && (
         <p className="error" role="status">
           {error}
@@ -241,60 +378,6 @@ export function RepositoryEditor({
                 placeholder="Absolute path to the checkout"
               />
             </label>
-            <div className="profile-suggestions">
-              <button
-                type="button"
-                disabled={discovery.busy || !path}
-                onClick={() =>
-                  void discovery
-                    .run<{ suggestions: typeof suggestions }>('/api/repositories/suggestions', {
-                      path,
-                      cwd,
-                    })
-                    .then((value) => setSuggestions(value.suggestions))
-                    .catch(() => {})
-                }
-              >
-                {discovery.busy ? 'Inspecting…' : 'Suggest profile fields'}
-              </button>
-              {discovery.error && <Notice>{discovery.error}</Notice>}
-              {suggestions.length > 0 && (
-                <div className="suggestion-list">
-                  {suggestions.map((item, i) => (
-                    <button
-                      type="button"
-                      key={i}
-                      onClick={() => {
-                        if (item.field === 'name') setName(String(item.value));
-                        if (item.field === 'cwd') setCwd(String(item.value));
-                        if (item.field === 'path') setPath(String(item.value));
-                        if (item.field === 'checks' || item.field === 'setup') {
-                          try {
-                            const current = jsonArray(item.field === 'checks' ? checks : setup);
-                            if (
-                              !current.some(
-                                (row) => JSON.stringify(row) === JSON.stringify(item.value),
-                              )
-                            )
-                              (item.field === 'checks' ? setChecks : setSetup)(
-                                JSON.stringify([...current, item.value], null, 2),
-                              );
-                          } catch {
-                            setError('Fix the checks JSON before adding suggestions.');
-                          }
-                        }
-                      }}
-                    >
-                      <span>
-                        <strong>{item.label}</strong>
-                        <small>{item.evidence}</small>
-                      </span>
-                      <span>Use</span>
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
             <label className="field">
               Working subdirectory
               <input
@@ -304,6 +387,61 @@ export function RepositoryEditor({
                 onChange={(event) => setCwd(event.target.value)}
               />
             </label>
+            <section className="profile-detection" aria-label="Repository suggestions">
+              <div className="section-heading">
+                <div>
+                  <h3>Detect settings</h3>
+                  <p className="form-note">Suggestions from repository metadata.</p>
+                </div>
+                <button
+                  type="button"
+                  disabled={!path.trim() || detection.busy}
+                  onClick={() => void detection.detect()}
+                >
+                  {detection.busy ? 'Detecting…' : 'Detect'}
+                </button>
+              </div>
+              {detection.error && <Notice>{detection.error}</Notice>}
+              {detection.busy && (
+                <p role="status" className="form-note">
+                  Reading metadata…
+                </p>
+              )}
+              {detection.result && (
+                <>
+                  {detection.result.guidance.length > 0 && (
+                    <p className="detected-guidance">
+                      Guidance found:{' '}
+                      {detection.result.guidance.map((file) => (
+                        <code key={file}>{file}</code>
+                      ))}
+                    </p>
+                  )}
+                  <ul className="profile-detected-fields">
+                    {detection.result.suggestions.map((item, index) => (
+                      <li key={index}>
+                        <div>
+                          <strong>{item.label}</strong>
+                          <code>
+                            {typeof item.value === 'string'
+                              ? item.value
+                              : JSON.stringify([item.value.command, ...item.value.args])}
+                          </code>
+                          <small>{item.evidence}</small>
+                        </div>
+                        <button type="button" onClick={() => applySuggestion(item)}>
+                          {item.field === 'checks'
+                            ? 'Add check'
+                            : item.field === 'setup'
+                              ? 'Add setup'
+                              : 'Use'}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              )}
+            </section>
           </>
         )}
         {tab === 'workspace' && (
@@ -374,37 +512,21 @@ export function RepositoryEditor({
                 ))}
               </div>
             </fieldset>
-            {commandList(checks, 'Required checks', setChecks)}
+            {mode === 'commands' ? (
+              commandList(checks, 'Required checks', setChecks)
+            ) : (
+              <p className="form-note">The agent discovers checks from repository guidance.</p>
+            )}
             {commandList(setup, 'Setup commands', setSetup)}
           </>
         )}
         {tab === 'guidance' && (
-          <>
-            <div className="section-heading">
-              <h3>Repository instructions</h3>
-              <div className="segmented">
-                <button type="button" aria-pressed={!preview} onClick={() => setPreview(false)}>
-                  Write
-                </button>
-                <button type="button" aria-pressed={preview} onClick={() => setPreview(true)}>
-                  Preview
-                </button>
-              </div>
-            </div>
-            {preview ? (
-              <Markdown text={instructions || 'Nothing to preview yet.'} />
-            ) : (
-              <label className="field">
-                <textarea
-                  aria-label="Repository instructions"
-                  rows={5}
-                  maxLength={50000}
-                  value={instructions}
-                  onChange={(event) => setInstructions(event.target.value)}
-                />
-              </label>
-            )}
-          </>
+          <MarkdownEditor
+            label="Repository instructions"
+            value={instructions}
+            onChange={setInstructions}
+            uploads={uploads}
+          />
         )}
         {tab === 'integrations' && (
           <>
@@ -414,8 +536,44 @@ export function RepositoryEditor({
               issue description and discussion.
             </p>
             {commandField('prCommand', 'Pull request command')}
+            <fieldset className="profile-access">
+              <legend>Analysis access</legend>
+              {(['analysisCommands', 'networkAccess'] as const).map((key) => (
+                <label className="check-row" key={key}>
+                  <input
+                    type="checkbox"
+                    checked={asObject(options.developmentAccess)?.[key] === true}
+                    onChange={(event) =>
+                      setOption('developmentAccess', {
+                        ...asObject(options.developmentAccess),
+                        [key]: event.target.checked,
+                      })
+                    }
+                  />
+                  {key === 'analysisCommands'
+                    ? 'Allow read-only analysis commands'
+                    : 'Allow network access'}
+                </label>
+              ))}
+              <label className="field">
+                Additional writable folders
+                <textarea
+                  rows={3}
+                  value={(Array.isArray(asObject(options.developmentAccess)?.writableRoots)
+                    ? (asObject(options.developmentAccess)!.writableRoots as string[])
+                    : []
+                  ).join('\n')}
+                  onChange={(event) =>
+                    setOption('developmentAccess', {
+                      ...asObject(options.developmentAccess),
+                      writableRoots: event.target.value.split('\n').filter((value) => value.trim()),
+                    })
+                  }
+                />
+              </label>
+            </fieldset>
             <details>
-              <summary>Advanced integration and access options</summary>
+              <summary>Advanced profile options</summary>
               <p className="form-note">
                 Configure workspaceCommand and workspacePath for managed workspaces. An issueCommand
                 must include <code>{'{ticket}'}</code> as a separate argument.
