@@ -41,6 +41,7 @@ type RunRequest struct {
 	Environment                                   map[string]string
 	Timeout                                       time.Duration
 	OnEvent                                       EventSink
+	Debug                                         bool
 }
 type RunResult struct {
 	Handoff           json.RawMessage
@@ -171,7 +172,12 @@ func Execute(ctx context.Context, request RunRequest) (RunResult, error) {
 	if routeStage == "verify" {
 		routeStage = "implement"
 	}
-	if routing[routeStage] != request.Provider {
+	if request.Debug {
+		recovery, _ := task["recovery"].(map[string]any)
+		if recovery["active"] != true || recovery["phase"] != "debug" {
+			return RunResult{}, errors.New("debugger has not been scheduled")
+		}
+	} else if routing[routeStage] != request.Provider {
 		return RunResult{}, errors.New("selected harness does not match task routing")
 	}
 	if (request.Stage == "implement" || request.Stage == "verify" || request.Stage == "review") && !HasApprovedApproach(task) {
@@ -200,8 +206,12 @@ func Execute(ctx context.Context, request RunRequest) (RunResult, error) {
 		return RunResult{}, errors.New("working directory must be inside the active workspace")
 	}
 	mode := workspace.ReadOnly
-	if request.Stage == "implement" {
+	if request.Stage == "implement" && !request.Debug {
 		mode = workspace.WriteOne
+	}
+	executionStage := request.Stage
+	if request.Debug {
+		executionStage = "investigate"
 	}
 	var result RunResult
 	err = request.Store.WithOwnership(func(stateRoot string, verify func() error) error {
@@ -242,13 +252,13 @@ func Execute(ctx context.Context, request RunRequest) (RunResult, error) {
 				return err
 			}
 			schemaPath := filepath.Join(attemptDir, "handoff.schema.json")
-			if err = writeNew(schemaPath, []byte(schemaFor(request.Stage))); err != nil {
+			if err = writeNew(schemaPath, []byte(schemaFor(executionStage))); err != nil {
 				return storageError(err)
 			}
 			if err = writeNew(filepath.Join(attemptDir, "prompt.txt"), []byte(request.Prompt)); err != nil {
 				return storageError(err)
 			}
-			invocation, err := Build(request.Provider, request.Config, schemaPath, request.Stage, request.SessionID)
+			invocation, err := Build(request.Provider, request.Config, schemaPath, executionStage, request.SessionID)
 			if err != nil {
 				return err
 			}
@@ -325,7 +335,7 @@ func Execute(ctx context.Context, request RunRequest) (RunResult, error) {
 				}
 				return errors.New(harnessError)
 			}
-			result.Handoff, err = finalHandoff(final, request.Stage)
+			result.Handoff, err = finalHandoff(final, executionStage)
 			if err != nil {
 				return err
 			}

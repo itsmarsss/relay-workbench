@@ -43,6 +43,7 @@ type Coordinator interface {
 	Resume(string) (map[string]any, error)
 	Approve(context.Context, string, string, string, string, string) (map[string]any, error)
 	Accept(context.Context, string, string) (map[string]any, error)
+	Resolve(context.Context, string, string, string, string, string, string) (map[string]any, error)
 	Diff(context.Context, string) (map[string]any, error)
 	Pause(string) error
 	Running() int
@@ -115,7 +116,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			respond(w, 500, map[string]string{"error": "Could not read configuration"})
 			return
 		}
-		respond(w, 200, map[string]any{"token": hex.EncodeToString(s.token[:]), "config": config.Value, "configRevision": config.Revision, "version": "experimental-go", "workflowPreview": s.workflow != nil, "implementationPreview": s.workflow != nil})
+		respond(w, 200, map[string]any{"token": hex.EncodeToString(s.token[:]), "config": config.Value, "configRevision": config.Revision, "version": "experimental-go", "workflowPreview": s.workflow != nil, "implementationPreview": s.workflow != nil, "debugRecoveryPreview": s.workflow != nil})
 		return
 	}
 	if path == "/api/storage/scan" {
@@ -212,6 +213,16 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			body["taskRevision"], _ = json.Marshal(store.TaskRevision(task))
+			summary, err := tasksummary.Summarize(task)
+			if err != nil {
+				respond(w, 500, map[string]string{"error": "Invalid task summary"})
+				return
+			}
+			for _, key := range []string{"currentRun", "latestSummary"} {
+				if value, exists := summary[key]; exists {
+					body[key], _ = json.Marshal(value)
+				}
+			}
 			respond(w, 200, body)
 			return
 		}
@@ -257,7 +268,7 @@ func workflowAction(path string) (string, string, bool) {
 		return "", "", false
 	}
 	parts := strings.Split(strings.TrimPrefix(path, "/api/tasks/"), "/")
-	if len(parts) != 2 || !taskID.MatchString(parts[0]) || (parts[1] != "start" && parts[1] != "resume" && parts[1] != "pause" && parts[1] != "approve-plan" && parts[1] != "accept") {
+	if len(parts) != 2 || !taskID.MatchString(parts[0]) || (parts[1] != "start" && parts[1] != "resume" && parts[1] != "pause" && parts[1] != "approve-plan" && parts[1] != "accept" && parts[1] != "resolve-blocker") {
 		return "", "", false
 	}
 	return parts[0], parts[1], true
@@ -267,6 +278,49 @@ func (s *Server) runWorkflowAction(w http.ResponseWriter, r *http.Request, id, a
 	body, err := requestObject(w, r)
 	if err != nil {
 		respond(w, 400, map[string]string{"error": "Invalid workflow action"})
+		return
+	}
+	if action == "resolve-blocker" {
+		decisionID, decisionValid := body["decisionId"].(string)
+		revision, revisionValid := body["taskRevision"].(string)
+		resolution, resolutionValid := body["resolution"].(string)
+		if !decisionValid || decisionID == "" || len(decisionID) > 200 || !revisionValid || !taskRevision.MatchString(revision) || !resolutionValid {
+			respond(w, 400, map[string]string{"error": "Refresh and choose a valid blocker decision"})
+			return
+		}
+		for key := range body {
+			if key != "decisionId" && key != "taskRevision" && key != "resolution" && key != "optionId" && key != "note" {
+				respond(w, 400, map[string]string{"error": "Blocker decisions do not accept extra fields"})
+				return
+			}
+		}
+		optionID, note := "", ""
+		if value, exists := body["optionId"]; exists {
+			var valid bool
+			optionID, valid = value.(string)
+			if !valid || len(optionID) > 100000 {
+				respond(w, 400, map[string]string{"error": "Invalid blocker option"})
+				return
+			}
+		}
+		if value, exists := body["note"]; exists {
+			var valid bool
+			note, valid = value.(string)
+			if !valid {
+				respond(w, 400, map[string]string{"error": "Invalid blocker direction"})
+				return
+			}
+		}
+		result, err := s.workflow.Resolve(r.Context(), id, revision, decisionID, resolution, optionID, note)
+		if errors.Is(err, os.ErrNotExist) {
+			respond(w, 404, map[string]string{"error": "Task not found"})
+		} else if err != nil {
+			respond(w, 409, map[string]string{"error": err.Error()})
+		} else if resolution == "pause" {
+			respond(w, 200, result)
+		} else {
+			respond(w, 202, result)
+		}
 		return
 	}
 	if action == "approve-plan" {

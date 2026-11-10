@@ -17,7 +17,15 @@ export type Task = {
   status: TaskStatus;
   stage?: string;
   repository?: { id: string; name: string };
-  currentRun?: { id: string; stage?: string; harness?: string; role?: string; status?: string };
+  currentRun?: {
+    id: string;
+    stage?: string;
+    harness?: string;
+    role?: string;
+    status?: string;
+    model?: string;
+    actualModel?: string;
+  };
   latestSummary?: string;
   error?: string | null;
   updatedAt?: string;
@@ -73,7 +81,7 @@ export function isTask(value: unknown): value is Task {
     if (typeof record.currentRun !== 'object' || Array.isArray(record.currentRun)) return false;
     const run = record.currentRun as Record<string, unknown>;
     if (typeof run.id !== 'string') return false;
-    for (const key of ['stage', 'harness', 'role', 'status'])
+    for (const key of ['stage', 'harness', 'role', 'status', 'model', 'actualModel'])
       if (run[key] != null && typeof run[key] !== 'string') return false;
   }
   return true;
@@ -98,6 +106,7 @@ export type Bootstrap = {
   configRevision: string;
   workflowPreview: boolean;
   implementationPreview: boolean;
+  debugRecoveryPreview: boolean;
 };
 export function isConfig(value: unknown): value is RelayConfig {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false;

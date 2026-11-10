@@ -18,7 +18,7 @@ import (
 	"relay.local/relay/internal/store"
 )
 
-type fakeCoordinator struct{ starts, resumes, pauses, approvals, accepts int }
+type fakeCoordinator struct{ starts, resumes, pauses, approvals, accepts, resolutions int }
 
 func (c *fakeCoordinator) Start(id string) (map[string]any, error) {
 	c.starts++
@@ -38,6 +38,10 @@ func (c *fakeCoordinator) Accept(_ context.Context, id, revision string) (map[st
 }
 func (c *fakeCoordinator) Diff(context.Context, string) (map[string]any, error) {
 	return map[string]any{"repositories": []any{}}, nil
+}
+func (c *fakeCoordinator) Resolve(_ context.Context, id, revision, decision, resolution, option, note string) (map[string]any, error) {
+	c.resolutions++
+	return map[string]any{"id": id, "title": "Task", "status": "queued"}, nil
 }
 func (c *fakeCoordinator) Pause(string) error { c.pauses++; return nil }
 func (c *fakeCoordinator) Running() int       { return c.starts - c.pauses }
@@ -106,6 +110,16 @@ func TestWorkflowActionsRequireAuthenticationAndRejectExtraFields(t *testing.T) 
 	}
 	if result := requestAction("/api/tasks/"+id+"/accept", token, "", `{"taskRevision":"`+revision+`"}`); result.Code != 200 || coordinator.accepts != 1 {
 		t.Fatal("valid final acceptance rejected")
+	}
+	blocker := "/api/tasks/" + id + "/resolve-blocker"
+	if result := requestAction(blocker, "", "", `{"decisionId":"d","taskRevision":"`+revision+`","resolution":"retry"}`); result.Code != 403 || coordinator.resolutions != 0 {
+		t.Fatal("unauthenticated blocker decision accepted")
+	}
+	if result := requestAction(blocker, token, "", `{"decisionId":"d","taskRevision":"`+revision+`","resolution":"retry","automation":true}`); result.Code != 400 || coordinator.resolutions != 0 {
+		t.Fatal("injected blocker authority accepted")
+	}
+	if result := requestAction(blocker, token, "", `{"decisionId":"d","taskRevision":"`+revision+`","resolution":"retry"}`); result.Code != 202 || coordinator.resolutions != 1 {
+		t.Fatal("valid blocker decision rejected")
 	}
 }
 

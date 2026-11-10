@@ -54,6 +54,60 @@ export type PlanPreview = {
   reason: string;
   options: { id: string; title: string; description: string; tradeoffs: string }[];
 };
+export type BlockerPreview = {
+  id: string;
+  summary: string;
+  explanation: string;
+  evidence: string[];
+  required: string[];
+  options: { id: string; title: string; description: string; tradeoffs: string }[];
+};
+export function currentBlocker(value: unknown): BlockerPreview | null {
+  const task = asObject(value),
+    blocker = asObject(task?.blockerDecision);
+  if (
+    task?.status !== 'blocked' ||
+    !blocker ||
+    blocker.resolved === true ||
+    typeof blocker.id !== 'string' ||
+    !blocker.id
+  )
+    return null;
+  const strings = (items: unknown) =>
+    Array.isArray(items)
+      ? items.filter((item): item is string => typeof item === 'string').slice(0, 100)
+      : [];
+  const options = Array.isArray(blocker.options)
+    ? blocker.options.flatMap((item) => {
+        const option = asObject(item);
+        if (
+          !option ||
+          typeof option.id !== 'string' ||
+          !option.id ||
+          typeof option.title !== 'string' ||
+          typeof option.description !== 'string' ||
+          typeof option.tradeoffs !== 'string'
+        )
+          return [];
+        return [
+          {
+            id: option.id,
+            title: asText(option.title, 1000),
+            description: asText(option.description, 20000),
+            tradeoffs: asText(option.tradeoffs, 20000),
+          },
+        ];
+      })
+    : [];
+  return {
+    id: blocker.id,
+    summary: asText(blocker.summary, 20000),
+    explanation: asText(blocker.explanation, 50000),
+    evidence: strings(blocker.evidence),
+    required: strings(blocker.required),
+    options,
+  };
+}
 export function latestPlan(value: unknown): PlanPreview | null {
   const task = asObject(value);
   if (!task || !Array.isArray(task.attempts)) return null;

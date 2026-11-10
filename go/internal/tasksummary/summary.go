@@ -133,7 +133,7 @@ func Summarize(raw json.RawMessage) (map[string]any, error) {
 	}
 	if current != nil {
 		safe := map[string]any{}
-		for _, key := range []string{"id", "stage", "role", "auxiliary", "status", "harness", "startedAt"} {
+		for _, key := range []string{"id", "stage", "role", "auxiliary", "status", "harness", "model", "actualModel", "startedAt"} {
 			if v, ok := current[key]; ok {
 				safe[key] = v
 			}
