@@ -13,7 +13,7 @@ import (
 )
 
 func (c *Coordinator) Discover(ctx context.Context, operation string, body map[string]any) (any, error) {
-	allowed := map[string]map[string]bool{"models": {"force": true}, "repositories": {"roots": true}, "suggestions": {"path": true, "cwd": true}}
+	allowed := map[string]map[string]bool{"models": {"force": true}, "repositories": {"roots": true, "details": true}, "suggestions": {"path": true, "cwd": true}}
 	valid, ok := allowed[operation]
 	if !ok {
 		return nil, errors.New("unknown discovery operation")
@@ -21,6 +21,11 @@ func (c *Coordinator) Discover(ctx context.Context, operation string, body map[s
 	for key := range body {
 		if !valid[key] {
 			return nil, errors.New("unexpected discovery field: " + key)
+		}
+	}
+	if value, exists := body["details"]; exists {
+		if _, ok := value.(bool); !ok {
+			return nil, errors.New("details must be a boolean")
 		}
 	}
 	if value, exists := body["force"]; exists {
@@ -83,6 +88,30 @@ func (c *Coordinator) Discover(ctx context.Context, operation string, body map[s
 					roots = append(roots, path)
 				}
 			}
+		}
+		if body["details"] == true {
+			if len(roots) == 0 {
+				return discovery.Report{Repositories: []discovery.Repository{}, Roots: []string{}, Warnings: []string{"No default development folders found. Choose a search folder."}}, nil
+			}
+			report, err := discovery.ScanRepositories(ctx, roots)
+			if err != nil {
+				return nil, err
+			}
+			config, err := (task.ConfigurationService{Store: c.store}).Read()
+			if err != nil {
+				return nil, err
+			}
+			configured := map[string]string{}
+			for _, value := range array(config.Value["repositories"]) {
+				profile := object(value)
+				if path, err := filepath.EvalSymlinks(text(profile["path"])); err == nil {
+					configured[path] = text(profile["id"])
+				}
+			}
+			for i := range report.Repositories {
+				report.Repositories[i].ConfiguredID = configured[report.Repositories[i].Path]
+			}
+			return report, nil
 		}
 		return discovery.Repositories(ctx, roots)
 	default:

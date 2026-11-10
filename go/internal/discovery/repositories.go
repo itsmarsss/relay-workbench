@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"relay.local/relay/internal/workspace"
@@ -12,13 +13,27 @@ import (
 )
 
 type Repository struct {
-	Path string `json:"path"`
-	Name string `json:"name"`
+	Path         string `json:"path"`
+	Name         string `json:"name"`
+	ConfiguredID string `json:"configuredId,omitempty"`
+}
+
+type Report struct {
+	Repositories []Repository `json:"repositories"`
+	Roots        []string     `json:"roots"`
+	Warnings     []string     `json:"warnings"`
+	Truncated    bool         `json:"truncated"`
 }
 
 func Repositories(ctx context.Context, roots []string) ([]Repository, error) {
+	report, err := ScanRepositories(ctx, roots)
+	return report.Repositories, err
+}
+func ScanRepositories(ctx context.Context, roots []string) (Report, error) {
+	report := Report{Repositories: []Repository{}, Roots: []string{}, Warnings: []string{}}
+
 	if len(roots) == 0 || len(roots) > 20 {
-		return nil, errors.New("select one to twenty search roots")
+		return report, errors.New("select one to twenty search roots")
 	}
 	result := []Repository{}
 	seen := map[string]bool{}
@@ -28,8 +43,13 @@ func Repositories(ctx context.Context, roots []string) ([]Repository, error) {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
+		if len(result) >= 200 || visited >= 10000 {
+			report.Truncated = true
+			return nil
+		}
 		visited++
 		if visited > 10000 {
+			report.Truncated = true
 			return nil
 		}
 		info, err := os.Lstat(path)
@@ -49,6 +69,9 @@ func Repositories(ctx context.Context, roots []string) ([]Repository, error) {
 		}
 		entries, err := os.ReadDir(path)
 		if err != nil {
+			if len(report.Warnings) < 20 {
+				report.Warnings = append(report.Warnings, "Could not read folder: "+path)
+			}
 			return nil
 		}
 		for _, entry := range entries {
@@ -60,6 +83,7 @@ func Repositories(ctx context.Context, roots []string) ([]Repository, error) {
 				continue
 			}
 			if len(result) >= 200 || visited >= 10000 {
+				report.Truncated = true
 				break
 			}
 			if err = scan(filepath.Join(path, entry.Name()), depth+1); err != nil {
@@ -69,14 +93,25 @@ func Repositories(ctx context.Context, roots []string) ([]Repository, error) {
 		return nil
 	}
 	for _, root := range roots {
-		if !filepath.IsAbs(root) {
-			return nil, errors.New("search roots must be absolute")
+		if ctx.Err() != nil {
+			return report, ctx.Err()
 		}
-		if err := scan(filepath.Clean(root), 0); err != nil {
-			return nil, err
+		if !filepath.IsAbs(root) {
+			return report, errors.New("search roots must be absolute")
+		}
+		root = filepath.Clean(root)
+		report.Roots = append(report.Roots, root)
+		info, err := os.Lstat(root)
+		if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+			report.Warnings = append(report.Warnings, "Skipped unavailable folder or link: "+root)
+			continue
+		}
+		if err := scan(root, 0); err != nil {
+			return report, err
 		}
 	}
-	return result, nil
+	report.Repositories = result
+	return report, nil
 }
 func Suggestions(ctx context.Context, runner workspace.Runner, path, cwd string) (map[string]any, error) {
 	info, err := runner.Inspect(ctx, workspace.Profile{Path: path, Cwd: cwd})
@@ -97,6 +132,30 @@ func Suggestions(ctx context.Context, runner workspace.Runner, path, cwd string)
 		}
 		return workspace.ReadFile(info.Root, relative, 256*1024)
 	}
+	metadataExists := func(folder, name string) bool {
+		relative, err := filepath.Rel(info.Root, filepath.Join(folder, name))
+		if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+			return false
+		}
+		// Presence detection never reads or executes metadata contents. Reject
+		// links in every component, including large dependency lockfiles.
+		parts := strings.Split(relative, string(filepath.Separator))
+		path := info.Root
+		for index, part := range parts {
+			path = filepath.Join(path, part)
+			file, err := os.Lstat(path)
+			if err != nil || file.Mode()&os.ModeSymlink != 0 {
+				return false
+			}
+			if index == len(parts)-1 {
+				return file.Mode().IsRegular()
+			}
+			if !file.IsDir() {
+				return false
+			}
+		}
+		return false
+	}
 	if data, err := read("package.json"); err == nil {
 		var pkg map[string]any
 		if json.Unmarshal(data, &pkg) == nil {
@@ -104,11 +163,40 @@ func Suggestions(ctx context.Context, runner workspace.Runner, path, cwd string)
 				add("name", "Package name", name, "package.json")
 			}
 			manager := "npm"
+			declared := false
 			if value, ok := pkg["packageManager"].(string); ok {
 				candidate := strings.Split(value, "@")[0]
-				if candidate == "pnpm" || candidate == "yarn" || candidate == "bun" {
+				if candidate == "npm" || candidate == "pnpm" || candidate == "yarn" || candidate == "bun" {
 					manager = candidate
+					declared = true
 				}
+			}
+			lock := ""
+			for _, folder := range []string{info.Cwd, info.Root} {
+				for _, candidate := range []struct{ file, tool string }{{"pnpm-lock.yaml", "pnpm"}, {"package-lock.json", "npm"}, {"yarn.lock", "yarn"}, {"bun.lock", "bun"}, {"bun.lockb", "bun"}} {
+					if metadataExists(folder, candidate.file) && (!declared || manager == candidate.tool) {
+						if !declared {
+							manager = candidate.tool
+						}
+						// An inherited lock chooses the check runner. Installation is
+						// suggested only when the selected working directory owns it.
+						if folder == info.Cwd {
+							lock = candidate.file
+						}
+						declared = true
+						break
+					}
+				}
+			}
+			if lock != "" {
+				args := []string{"install", "--frozen-lockfile"}
+				if manager == "npm" {
+					args = []string{"ci"}
+				}
+				if manager == "yarn" && strings.HasPrefix(fmt.Sprint(pkg["packageManager"]), "yarn@") && !strings.HasPrefix(fmt.Sprint(pkg["packageManager"]), "yarn@1.") {
+					args = []string{"install", "--immutable"}
+				}
+				add("setup", "Install dependencies", map[string]any{"command": manager, "args": args}, lock)
 			}
 			if scripts, ok := pkg["scripts"].(map[string]any); ok {
 				for _, script := range []string{"test", "lint", "typecheck", "check"} {
@@ -127,5 +215,51 @@ func Suggestions(ctx context.Context, runner workspace.Runner, path, cwd string)
 			add("checks", "Suggested test command", map[string]any{"command": entry.command, "args": entry.args}, entry.file)
 		}
 	}
-	return map[string]any{"root": info.Root, "cwd": info.RelativeCwd, "suggestions": values}, nil
+	guidance := []string{}
+	seenGuidance := map[string]bool{}
+	for _, folder := range []string{info.Root, info.Cwd} {
+		for _, file := range []string{"AGENTS.md", "CLAUDE.md", "README.md"} {
+			relative, _ := filepath.Rel(info.Root, filepath.Join(folder, file))
+			if _, err := workspace.ReadFile(info.Root, relative, 256*1024); err == nil && !seenGuidance[relative] {
+				guidance = append(guidance, relative)
+				seenGuidance[relative] = true
+			}
+		}
+	}
+	checked := 0
+	for _, parent := range []string{info.Cwd, filepath.Join(info.Cwd, "packages"), filepath.Join(info.Cwd, "apps"), filepath.Join(info.Cwd, "services")} {
+		canonical, err := filepath.EvalSymlinks(parent)
+		if err != nil {
+			continue
+		}
+		relative, err := filepath.Rel(info.Root, canonical)
+		if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+			continue
+		}
+		entries, err := os.ReadDir(canonical)
+		if err != nil {
+			continue
+		}
+		for _, entry := range entries {
+			if checked >= 150 {
+				break
+			}
+			checked++
+			if !entry.IsDir() || strings.HasPrefix(entry.Name(), ".") {
+				continue
+			}
+			switch entry.Name() {
+			case "node_modules", "vendor", "target", "dist", "build":
+				continue
+			}
+			for _, file := range []string{"package.json", "go.mod", "Cargo.toml", "pyproject.toml"} {
+				metadata := filepath.Join(relative, entry.Name(), file)
+				if _, err := workspace.ReadFile(info.Root, metadata, 256*1024); err == nil {
+					add("cwd", "Use package "+entry.Name(), filepath.Join(relative, entry.Name()), metadata)
+					break
+				}
+			}
+		}
+	}
+	return map[string]any{"root": info.Root, "cwd": info.RelativeCwd, "guidance": guidance, "suggestions": values}, nil
 }
