@@ -235,13 +235,71 @@ let input='';process.stdin.on('data',d=>input+=d);process.stdin.on('end',()=>{
   await page.getByRole('button', { name: 'Save settings', exact: true }).click();
   await page.getByText('Settings saved.', { exact: true }).waitFor();
   await page.getByRole('heading', { name: 'Notifications', exact: true }).waitFor();
+  // Appearance lives in Settings, persists, and follows the OS in System mode.
+  await page.getByRole('checkbox', { name: 'Low motion', exact: true }).check();
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await until(
+    async () => (await page.locator('html').getAttribute('data-theme')) === 'dark',
+    'system dark theme',
+  );
+  await page.getByRole('button', { name: /^Theme:/ }).click();
+  await page.getByRole('option', { name: 'Light', exact: true }).click();
+  await page.reload();
+  await page.getByRole('heading', { name: 'Appearance', exact: true }).waitFor();
+  assert.equal(await page.locator('html').getAttribute('data-theme'), 'light');
+  assert.ok(await page.getByRole('checkbox', { name: 'Low motion', exact: true }).isChecked());
+  await page.getByRole('button', { name: /^Theme:/ }).click();
+  await page.getByRole('option', { name: 'System', exact: true }).click();
+  await until(
+    async () => (await page.locator('html').getAttribute('data-theme')) === 'dark',
+    'restored system theme',
+  );
+  await page.emulateMedia({ colorScheme: 'light' });
+  await until(
+    async () => (await page.locator('html').getAttribute('data-theme')) === 'light',
+    'system light theme',
+  );
+  await capture(page, 'settings');
+  await page.goto(origin + '/#agents');
+  await page.getByRole('heading', { name: 'Agents', exact: true }).waitFor();
+  await page.getByRole('button', { name: 'Save agent settings', exact: true }).click();
+  await page.getByText('Settings saved.', { exact: true }).waitFor();
   await page.getByText('Routing evidence', { exact: true }).click();
   await page
     .getByText('Run workflows to collect evidence. No routing changes are automatic.', {
       exact: true,
     })
     .waitFor();
-  await capture(page, 'settings');
+  await capture(page, 'agents');
+  await page.goto(origin + '/#overview');
+  await page.getByRole('heading', { name: /Let’s make progress/ }).waitFor();
+  await page.locator('.stat-card.attention').click();
+  assert.match(page.url(), /scope=attention/);
+  const workspaceURL = page.url();
+  await page.getByRole('button', { name: 'Open Relay agent', exact: true }).click();
+  const orchestrator = page.getByRole('dialog', { name: 'Relay orchestrator', exact: true });
+  await orchestrator
+    .getByRole('textbox', { name: 'Message Relay', exact: true })
+    .fill('Keep this as a draft');
+  await page.keyboard.press('Control+k');
+  await orchestrator.waitFor({ state: 'hidden' });
+  assert.equal(
+    page.url(),
+    workspaceURL,
+    'Workspace chat leaves the underlying page and selection intact',
+  );
+  await page.keyboard.press('Control+k');
+  await orchestrator.waitFor();
+  await page.keyboard.press('Escape');
+  await orchestrator.waitFor({ state: 'hidden' });
+  await page.locator('main').click({ position: { x: 8, y: 8 } });
+  await page.keyboard.press('n');
+  const shortcutDraft = page.getByRole('dialog', { name: 'New task', exact: true });
+  await shortcutDraft.waitFor();
+  await page.keyboard.press('Control+k');
+  assert.equal(await orchestrator.count(), 0, 'Shortcut does not open behind another dialog');
+  await page.keyboard.press('Escape');
+  await shortcutDraft.waitFor({ state: 'hidden' });
   const demo = await api('/api/tasks', { title: 'Workflow demo', demo: true });
   await page.goto(origin + '/#task/' + demo.id + '/overview');
   await page.getByRole('button', { name: 'Edit task', exact: true }).click();
@@ -282,6 +340,7 @@ let input='';process.stdin.on('data',d=>input+=d);process.stdin.on('end',()=>{
     'Demos cannot start live follow-ups',
   );
   await capture(page, 'task-overview');
+  await page.getByRole('button', { name: 'Execution history', exact: true }).click();
   await page.getByRole('heading', { name: 'Execution', exact: true }).waitFor();
   await page.getByRole('heading', { name: 'Execution', exact: true }).scrollIntoViewIfNeeded();
   await capture(page, 'execution');
@@ -292,11 +351,19 @@ let input='';process.stdin.on('data',d=>input+=d);process.stdin.on('end',()=>{
     assert.ok(box.x >= 0 && box.x + box.width <= 390, 'Graph controls remain accessible on mobile');
   }
   await capture(page, 'execution-mobile');
+  await page
+    .getByRole('dialog', { name: 'Execution history', exact: true })
+    .getByRole('button', { name: 'Close dialog', exact: true })
+    .click();
   await page.setViewportSize({ width: 1440, height: 950 });
   await page.goto(origin + '/#relay');
   await capture(page, 'relay-light');
   await page.screenshot({ path: join(directory, 'light.png') });
-  await page.getByRole('button', { name: 'Use dark theme' }).click();
+  await page.goto(origin + '/#settings');
+  await page.getByRole('button', { name: /^Theme:/ }).click();
+  await page.getByRole('option', { name: 'Dark', exact: true }).click();
+  await page.goto(origin + '/#relay');
+  await page.getByText('Finished answer', { exact: true }).waitFor();
   const unreadable = await page.evaluate(() => {
     const luminance = (color) => {
       const values = color

@@ -171,9 +171,11 @@ let input='';process.stdin.on('data',d=>input+=d);process.stdin.on('end',()=>{
     await new Promise((resolve) => setTimeout(resolve, 200));
     await route.continue();
   });
-  await page.goto(origin + '/#tasks');
-  await page.getByRole('heading', { name: 'All tasks', exact: true }).waitFor();
+  await page.goto(origin + '/#settings');
+  await page.getByRole('heading', { name: 'Settings', exact: true }).waitFor();
   await page.getByRole('checkbox', { name: 'Low motion', exact: true }).check();
+  await page.goto(origin + '/#tasks');
+  await page.getByRole('heading', { name: 'Tasks', exact: true }).waitFor();
   await until(
     async () => (await page.locator('.task-list .task-card').count()) === 16,
     'loaded task queue',
@@ -196,6 +198,11 @@ let input='';process.stdin.on('data',d=>input+=d);process.stdin.on('end',()=>{
   await page.getByRole('heading', { name: 'Settings', exact: true }).waitFor();
   if (await page.locator('main').evaluate((el) => el.scrollTop > 0))
     failures.push({ name: 'navigation', issue: 'New page retains old scroll position' });
+
+  await page.getByRole('button', { name: 'Open Relay agent', exact: true }).click();
+  await page.getByRole('dialog', { name: 'Relay orchestrator', exact: true }).waitFor();
+  await audit('relay-orchestrator');
+  await page.keyboard.press('Escape');
 
   // Searchable selects: keyboard selection, empty results and focus restoration.
   await page
@@ -228,8 +235,15 @@ let input='';process.stdin.on('data',d=>input+=d);process.stdin.on('end',()=>{
   await dialog
     .getByRole('textbox', { name: 'Description', exact: true })
     .fill('Paragraph with **emphasis**.\n\n- One\n- Two');
+  const description = dialog.getByRole('textbox', { name: 'Description', exact: true });
+  await description.evaluate((el) => el.setSelectionRange(0, 9));
+  await dialog.getByRole('button', { name: 'Bold', exact: true }).click();
+  assert.match(await description.inputValue(), /^\*\*Paragraph\*\* with/);
   await dialog.getByRole('button', { name: 'Preview', exact: true }).click();
-  assert.equal(await dialog.locator('.markdown-preview strong').textContent(), 'emphasis');
+  assert.deepEqual(await dialog.locator('.markdown-preview strong').allTextContents(), [
+    'Paragraph',
+    'emphasis',
+  ]);
   await dialog.getByRole('checkbox', { name: /Demo/ }).check();
   await audit('new-task-dialog');
   await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
@@ -381,6 +395,28 @@ let input='';process.stdin.on('data',d=>input+=d);process.stdin.on('end',()=>{
   await page.getByRole('button', { name: 'Add repository', exact: true }).click();
   await audit('mobile-repository-dialog');
   await page.keyboard.press('Escape');
+  await page.goto(origin + '/#relay');
+  await page.getByText('Audit answer', { exact: true }).waitFor();
+  const chatsToggle = page.getByRole('button', { name: 'Chats', exact: true });
+  await chatsToggle.click();
+  await audit('mobile-chat-list');
+  await page.keyboard.press('Escape');
+  assert.equal(await chatsToggle.getAttribute('aria-expanded'), 'false');
+  assert.ok(await chatsToggle.evaluate((el) => el === document.activeElement));
+  await chatsToggle.click();
+  await page.mouse.click(310, 220);
+  assert.equal(
+    await chatsToggle.getAttribute('aria-expanded'),
+    'false',
+    'Clicking outside dismisses chat navigation',
+  );
+  await chatsToggle.click();
+  await page.locator('.chat-list > div > button:first-child').first().click();
+  assert.equal(
+    await chatsToggle.getAttribute('aria-expanded'),
+    'false',
+    'Choosing a conversation closes the mobile list',
+  );
 
   await page.setViewportSize({ width: 844, height: 390 });
   await page.getByRole('button', { name: 'New task', exact: true }).click();
@@ -452,9 +488,11 @@ let input='';process.stdin.on('data',d=>input+=d);process.stdin.on('end',()=>{
   await page.getByRole('button', { name: 'Close workspace', exact: true }).click();
 
   const routes = [
+    'overview',
     'tasks',
     'repositories',
     'settings',
+    'agents',
     'storage',
     'memory',
     'inbox',

@@ -78,3 +78,9 @@ test('task routes retain selected tab and reject malformed IDs', () => {
   assert.deepEqual(parseRoute('#task/not-a-task/diff'), { kind: 'deck' });
   assert.deepEqual(parseRoute('#repositories'), { kind: 'repositories' });
 });
+test('home and original workspace links open matching pages', () => {
+  assert.deepEqual(parseRoute(''), { kind: 'overview' });
+  assert.deepEqual(parseRoute('#overview'), { kind: 'overview' });
+  assert.deepEqual(parseRoute('#assistant?chat=workspace'), { kind: 'relay' });
+  assert.deepEqual(parseRoute('#harnesses'), { kind: 'agents' });
+});

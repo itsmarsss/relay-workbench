@@ -325,11 +325,11 @@ console.log(JSON.stringify({ type: 'item.completed', item: { type: 'agent_messag
     (await realpath(firstTask.workspaceRoot)).startsWith(await realpath(join(temporary, 'state'))),
   );
   await page.getByRole('button', { name: 'Activity', exact: true }).click();
-  await page
+  const activity = page.getByLabel('Task activity', { exact: true });
+  await activity
     .getByText('Fixture investigation complete', { exact: true })
     .first()
     .waitFor({ timeout: 10000 });
-  const activity = page.getByLabel('Task activity', { exact: true });
   const validatedHandoffs = firstTask.attempts.filter((attempt) => attempt.handoff).length;
   assert.equal(
     await activity.getByText('Fixture investigation complete', { exact: true }).count(),
@@ -341,7 +341,10 @@ console.log(JSON.stringify({ type: 'item.completed', item: { type: 'agent_messag
     .first()
     .waitFor();
 
-  await page.getByRole('button', { name: 'Overview', exact: true }).click();
+  await page
+    .getByRole('navigation', { name: 'Task views', exact: true })
+    .getByRole('button', { name: 'Overview', exact: true })
+    .click();
   await page.getByRole('radio', { name: 'Select Small change' }).check();
   await page.getByRole('button', { name: 'Approve approach' }).click();
   await page.getByRole('heading', { name: 'Ready for your review' }).waitFor({ timeout: 45000 });
@@ -379,7 +382,10 @@ console.log(JSON.stringify({ type: 'item.completed', item: { type: 'agent_messag
   );
   assert.equal(await readFile(join(repo, 'source.txt'), 'utf8'), 'local work stays here\n');
 
-  await page.getByRole('button', { name: 'Overview', exact: true }).click();
+  await page
+    .getByRole('navigation', { name: 'Task views', exact: true })
+    .getByRole('button', { name: 'Overview', exact: true })
+    .click();
   await page.getByRole('button', { name: 'Continue', exact: true }).click();
   await page.getByLabel('Agent direction', { exact: true }).fill('Explain the changed behavior.');
   await page.getByRole('button', { name: 'Run agent', exact: true }).click();
@@ -537,6 +543,7 @@ console.log(JSON.stringify({ type: 'item.completed', item: { type: 'agent_messag
   await page.goto(`${base}/#task/${first.id}/overview`);
   const originalFinal = await (await fetch(`${base}/api/tasks/${first.id}`)).json();
   await writeFile(join(originalFinal.workspaceRoot, 'source.txt'), 'preserve later edits\n');
+  await page.getByRole('button', { name: 'Execution history', exact: true }).click();
   await page.getByRole('button', { name: /^Checkpoints/ }).click();
   const checkpointDialog = page.getByRole('dialog', { name: 'Continue from a checkpoint' });
   await checkpointDialog.getByRole('button', { name: /^Continue with:/ }).click();
