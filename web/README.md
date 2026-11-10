@@ -11,7 +11,7 @@ npm run build
 
 The Go service serves `dist`. Build tooling requires Node 24+. The browser uses React, TypeScript, Motion, xterm and pinned Markdown sanitization. Tabs/filters and side-chat visibility have URL state; task deck layouts, appearance and motion preferences persist in the browser. Workspace conversations and task side chats persist on the server.
 
-`npm run test:e2e` exercises the workflow through approvals, repairs, debugger decisions, review, continuations, Auto and interactive terminal takeover. `npm run test:workspace` covers chats, mentions, proposals, settings, board controls, demos and navigation. Both create isolated Go servers and disposable fixture repositories. Install Playwright Chromium or set `RELAY_CHROME` to an existing compatible browser.
+`npm run test:e2e` exercises the workflow through approvals, repairs, debugger decisions, review, continuations, Auto and interactive terminal takeover. `npm run test:workspace` covers chats, mentions, proposals, settings, board controls, demos and navigation. `npm run test:ui` audits desktop, tablet and phone layouts in both themes, including axe accessibility checks, keyboard navigation, focus, chat, split decks, modals and storage warnings. These suites create isolated Go servers and disposable fixture repositories. They require Go and either Playwright Chromium or `RELAY_CHROME` pointing to an existing compatible browser.
 
 State export is in Settings. Imported tasks display an explicit read-only-history banner and can create a fresh draft. Clean up accepted/published worktrees from the task menu; checkpoint history stays accessible from the workflow graph.
 
