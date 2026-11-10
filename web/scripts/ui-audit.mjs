@@ -32,6 +32,39 @@ async function capture(name) {
   await mkdir(artifacts, { recursive: true });
   await page.screenshot({ path: join(artifacts, name + '.png') });
 }
+async function anchored(trigger, popup, label) {
+  await until(async () => {
+    const field = await trigger.boundingBox(),
+      menu = await popup.boundingBox();
+    return (
+      field &&
+      menu &&
+      (Math.abs(menu.y - field.y - field.height - 6) <= 1 ||
+        Math.abs(field.y - menu.y - menu.height - 6) <= 1 ||
+        Math.abs(menu.y - field.y - field.height - 5) <= 1 ||
+        Math.abs(field.y - menu.y - menu.height - 5) <= 1)
+    );
+  }, label + ' stays attached to its field');
+  const bounds = await popup.boundingBox(),
+    viewport = page.viewportSize();
+  assert.ok(
+    bounds.x >= 0 &&
+      bounds.y >= 0 &&
+      bounds.x + bounds.width <= viewport.width + 1 &&
+      bounds.y + bounds.height <= viewport.height + 1,
+    label + ' fits the viewport',
+  );
+  assert.ok(
+    await popup.evaluate((el) => {
+      const r = el.getBoundingClientRect();
+      return [
+        [r.left + 4, r.top + 4],
+        [r.right - 4, r.bottom - 4],
+      ].every(([x, y]) => el.contains(document.elementFromPoint(x, y)));
+    }),
+    label + ' is not clipped or covered',
+  );
+}
 async function audit(name, accessibility = true) {
   await until(
     () => page.locator('.topbar-actions [aria-label="New task"]').isEnabled(),
@@ -219,8 +252,72 @@ let input='';process.stdin.on('data',d=>input+=d);process.stdin.on('end',()=>{
   await sort.click();
   await search.fill('no-such-sort');
   await page.getByText('No matches.', { exact: true }).waitFor();
+  await anchored(sort, page.locator('.select-popover'), 'Filtered sort menu');
   await audit('select-no-results');
   await search.press('Escape');
+  await sort.click();
+  await search.press('Shift+Tab');
+  assert.ok(
+    await page
+      .getByRole('button', { name: /^Filter stage:/ })
+      .evaluate((el) => el === document.activeElement),
+    'Shift+Tab returns to the previous field',
+  );
+  await page.getByRole('button', { name: /^Filter stage:/ }).click();
+  await page.getByRole('combobox', { name: 'Search Filter stage', exact: true }).press('Tab');
+  assert.ok(
+    await sort.evaluate((el) => el === document.activeElement),
+    'Tab moves to the next field',
+  );
+  await sort.click();
+  await page.locator('main').evaluate((el) => {
+    el.scrollTop = 600;
+  });
+  await page.locator('.select-popover').waitFor({ state: 'hidden' });
+  await page.locator('main').evaluate((el) => {
+    el.scrollTop = 0;
+  });
+  const contextCard = page.locator('.task-card').first();
+  const cardSize = await contextCard.boundingBox();
+  await contextCard.click({
+    button: 'right',
+    position: { x: cardSize.width - 12, y: cardSize.height - 12 },
+  });
+  const taskActions = page.getByRole('dialog', { name: 'Task actions', exact: true });
+  await taskActions.waitFor();
+  const actionsBounds = await taskActions.boundingBox();
+  assert.ok(
+    actionsBounds.x >= 0 &&
+      actionsBounds.y >= 0 &&
+      actionsBounds.x + actionsBounds.width <= 1512 &&
+      actionsBounds.y + actionsBounds.height <= 982,
+    'Task actions fit the viewport',
+  );
+  const moveColumn = page.getByRole('button', { name: /^Move to column:/ });
+  await moveColumn.click();
+  await anchored(moveColumn, page.locator('.select-popover'), 'Task action menu');
+  await audit('task-action-dropdown');
+  await page.keyboard.press('Escape');
+  assert.ok(await taskActions.isVisible(), 'Escape preserves the parent task menu');
+  await page.keyboard.press('Escape');
+  await taskActions.waitFor({ state: 'hidden' });
+
+  // Short menus opening upward must use their real height, including after filtering.
+  await page.goto(origin + '/#agents');
+  const reviewProvider = page.getByRole('button', { name: /^review provider:/ });
+  await reviewProvider.click();
+  await anchored(reviewProvider, page.locator('.select-popover'), 'Upward provider menu');
+  assert.equal(await page.locator('.select-popover').getAttribute('data-side'), 'top');
+  await page.getByRole('combobox', { name: 'Search review provider', exact: true }).fill('Claude');
+  await anchored(reviewProvider, page.locator('.select-popover'), 'Shortened provider menu');
+  await page.getByRole('combobox', { name: 'Search review provider', exact: true }).fill('');
+  await page.locator('main').evaluate((el) => {
+    el.scrollTop += 60;
+  });
+  await anchored(reviewProvider, page.locator('.select-popover'), 'Scrolled provider menu');
+  await audit('provider-menu-placement');
+  await page.keyboard.press('Escape');
+  await page.goto(origin + '/#tasks?view=list');
 
   // Native validation, Markdown preview, focus trapping and nested modal selects.
   await page.getByRole('button', { name: 'New task', exact: true }).click();
@@ -268,9 +365,24 @@ let input='';process.stdin.on('data',d=>input+=d);process.stdin.on('end',()=>{
   await page.getByRole('button', { name: 'Add memory', exact: true }).click();
   dialog = page.getByRole('dialog', { name: 'Add memory', exact: true });
   await page.getByRole('button', { name: /^Memory kind:/ }).click();
+  await anchored(
+    page.getByRole('button', { name: /^Memory kind:/ }),
+    page.locator('.select-popover'),
+    'Modal memory menu',
+  );
   await audit('repository-select-dialog');
   await page.getByRole('combobox', { name: 'Search Memory kind', exact: true }).press('Escape');
   assert.ok(await dialog.isVisible(), 'Escape closes the dropdown before the dialog');
+  await page.getByRole('button', { name: /^Memory kind:/ }).click();
+  await page.setViewportSize({ width: 390, height: 500 });
+  await anchored(
+    page.getByRole('button', { name: /^Memory kind:/ }),
+    page.locator('.select-popover'),
+    'Resized modal menu',
+  );
+  await audit('small-modal-menu-placement');
+  await page.keyboard.press('Escape');
+  await page.setViewportSize({ width: 1512, height: 982 });
   await page.keyboard.press('Escape');
   await dialog.waitFor({ state: 'hidden' });
 
@@ -307,6 +419,7 @@ let input='';process.stdin.on('data',d=>input+=d);process.stdin.on('end',()=>{
   await page.goto(origin + '/#relay');
   const composer = page.getByRole('textbox', { name: 'Message Relay', exact: true });
   await composer.fill('@Queue fixture 1');
+  await anchored(composer, page.locator('.mention-suggestions'), 'Chat task mentions');
   await audit('chat-mentions');
   await composer.press('Escape');
   assert.equal(await page.getByRole('listbox', { name: 'Mention a task', exact: true }).count(), 0);
@@ -475,6 +588,11 @@ let input='';process.stdin.on('data',d=>input+=d);process.stdin.on('end',()=>{
     .filter({ has: page.getByText('Queue fixture 1', { exact: true }) })
     .click();
   await audit('split-deck');
+  const lowerPicker = page.getByRole('combobox', { name: /Task for pane/ }).nth(1);
+  await lowerPicker.click();
+  await anchored(lowerPicker, page.locator('.picker-popover'), 'Lower pane task picker');
+  await audit('lower-pane-task-picker');
+  await lowerPicker.press('Escape');
   await page.getByRole('separator', { name: 'Resize panes', exact: true }).press('ArrowUp');
   await page.getByRole('button', { name: 'Focus', exact: true }).nth(1).click();
   await audit('focused-deck');
@@ -489,7 +607,8 @@ let input='';process.stdin.on('data',d=>input+=d);process.stdin.on('end',()=>{
 
   const routes = [
     'overview',
-    'tasks',
+    'tasks?view=list',
+    'tasks?view=board',
     'repositories',
     'settings',
     'agents',

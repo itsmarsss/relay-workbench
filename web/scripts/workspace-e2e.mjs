@@ -125,12 +125,57 @@ let input='';process.stdin.on('data',d=>input+=d);process.stdin.on('end',()=>{
   await scopes.getByRole('button', { name: /^All tasks/ }).click();
   await page.getByRole('button', { name: 'Board', exact: true }).click();
   assert.match(page.url(), /view=board/);
-  assert.equal(await page.locator('.task-lane').count(), 1, 'Board opens on populated stages');
+  assert.equal(await page.locator('.task-lane').count(), 10, 'Board shows the complete workflow');
+  await page.getByRole('checkbox', { name: 'Empty stages', exact: true }).uncheck();
+  assert.equal(await page.locator('.task-lane').count(), 1, 'Empty stages can be hidden');
   await page.getByRole('checkbox', { name: 'Empty stages', exact: true }).check();
   assert.equal(await page.locator('.task-lane').count(), 10);
   await page.reload();
   await page.getByRole('checkbox', { name: 'Empty stages', exact: true }).waitFor();
   assert.ok(await page.getByRole('checkbox', { name: 'Empty stages', exact: true }).isChecked());
+  await page
+    .locator('.task-board .task-card')
+    .first()
+    .dragTo(page.getByLabel('Investigation & design column', { exact: true }));
+  await until(
+    async () =>
+      (await (await fetch(origin + '/api/tasks/' + task.id)).json()).statusOverride?.lane ===
+      'discovery',
+    'drag between workflow columns',
+  );
+  assert.equal(
+    (await (await fetch(origin + '/api/tasks/' + task.id)).json()).status,
+    'draft',
+    'Dragging never advances workflow approval',
+  );
+  await page.getByRole('button', { name: 'Actions for Workspace fixture', exact: true }).click();
+  await page.getByRole('button', { name: 'Follow workflow status', exact: true }).click();
+  await until(
+    async () => !(await (await fetch(origin + '/api/tasks/' + task.id)).json()).statusOverride,
+    'restore workflow presentation',
+  );
+  await page.locator('.task-board .task-card-open').first().click();
+  await page.getByRole('button', { name: 'All tasks', exact: true }).click();
+  await page.getByRole('region', { name: 'Task board', exact: true }).waitFor();
+  // Explicit bookmarks also become the remembered view without a filter click.
+  await page.goto(origin + '/#tasks?view=list');
+  await page.getByRole('button', { name: 'List', exact: true }).waitFor();
+  await page.goto(origin + '/#tasks?view=board');
+  await capture(page, 'completed-board');
+  await page.locator('.task-board .task-card-open').first().click();
+  await page.getByRole('button', { name: 'All tasks', exact: true }).click();
+  await page.getByRole('region', { name: 'Task board', exact: true }).waitFor();
+  assert.equal(
+    await page.getByRole('button', { name: 'Board', exact: true }).getAttribute('aria-pressed'),
+    'true',
+    'Returning from a task keeps the board',
+  );
+  await page.goto(origin + '/#repositories');
+  await page
+    .getByRole('navigation', { name: 'Workspace', exact: true })
+    .getByRole('button', { name: /^All tasks/ })
+    .click();
+  await page.getByRole('region', { name: 'Task board', exact: true }).waitFor();
   await page.getByRole('button', { name: 'List', exact: true }).click();
   const sidebarResize = page.getByRole('separator', { name: 'Resize sidebar' });
   await sidebarResize.focus();
@@ -170,6 +215,25 @@ let input='';process.stdin.on('data',d=>input+=d);process.stdin.on('end',()=>{
     'board override',
   );
   assert.equal((await (await fetch(origin + '/api/tasks/' + task.id)).json()).status, 'draft');
+  await page.goto(origin + '/#tasks?view=board');
+  const cardIsVisible = () =>
+    page.locator('.task-board .task-card').evaluate((card) => {
+      const region = card.closest('.task-board').getBoundingClientRect(),
+        r = card.getBoundingClientRect();
+      return r.left >= region.left && r.right <= region.right;
+    });
+  await until(cardIsVisible, 'Board opens at populated stages');
+  const stageNav = page.getByRole('navigation', { name: 'Board stages', exact: true });
+  await stageNav.getByRole('button', { name: /^Backlog/ }).click();
+  await until(
+    async () => await page.locator('.task-board').evaluate((el) => el.scrollLeft < 10),
+    'Jump to the first stage',
+  );
+  await stageNav.getByRole('button', { name: /^Completed/ }).click();
+  await until(cardIsVisible, 'Jump back to completed work');
+  await page.evaluate(() => dispatchEvent(new Event('relay-data-change')));
+  await until(cardIsVisible, 'Refresh preserves board position');
+  await page.goto(origin + '/#tasks?view=list');
   await page.getByRole('button', { name: 'Actions for Workspace fixture' }).click();
   await page.getByRole('button', { name: 'Delete task' }).click();
   await page.getByRole('dialog', { name: 'Delete task?' }).waitFor();
