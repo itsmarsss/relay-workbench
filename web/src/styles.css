@@ -728,6 +728,20 @@ button:disabled {
   width: 100%;
   font: inherit;
 }
+.issue-import {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0 0 14px;
+}
+.issue-import small {
+  color: #465c51;
+}
+.issue-import p {
+  flex-basis: 100%;
+  margin: 0;
+}
 .plan-options {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr));
@@ -1195,6 +1209,9 @@ html:has(dialog[open]) {
   .migration-note,
   .form-note,
   .repository-choice small {
+    color: #b7cbbd;
+  }
+  .issue-import small {
     color: #b7cbbd;
   }
   .page-main button,

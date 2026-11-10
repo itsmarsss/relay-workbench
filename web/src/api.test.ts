@@ -7,6 +7,7 @@ import {
   createTask,
   fetchBootstrap,
   fetchTasks,
+  importIssue,
   saveConfig,
   taskAction,
   resolveBlocker,
@@ -128,6 +129,40 @@ test('blocker decisions include the inspected revision and no automation authori
       optionId: 'choice',
       note: 'Try again',
     });
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+test('issue import sends the selected profile and validates complete context', async () => {
+  const original = globalThis.fetch;
+  let sent: RequestInit | undefined;
+  globalThis.fetch = async (_url, init) => {
+    sent = init;
+    return new Response(
+      JSON.stringify({
+        title: 'Issue',
+        description: 'Body and discussion',
+        ticket: '42',
+        warnings: [],
+      }),
+      { status: 200 },
+    );
+  };
+  try {
+    const result = await importIssue(token, 'repo', revision, '42');
+    assert.equal(result.description, 'Body and discussion');
+    assert.deepEqual(JSON.parse(String(sent!.body)), {
+      repositoryId: 'repo',
+      configRevision: revision,
+      ticket: '42',
+    });
+    assert.equal((sent!.headers as Record<string, string>)['X-Relay-Token'], token);
+    globalThis.fetch = async () =>
+      new Response(
+        JSON.stringify({ title: 'Issue', description: 'Body', ticket: '42', warnings: [1] }),
+        { status: 200 },
+      );
+    await assert.rejects(importIssue(token, 'repo', revision, '42'), /invalid/);
   } finally {
     globalThis.fetch = original;
   }

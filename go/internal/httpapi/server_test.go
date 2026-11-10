@@ -14,11 +14,12 @@ import (
 	"testing"
 	"time"
 
+	"relay.local/relay/internal/issue"
 	"relay.local/relay/internal/storage"
 	"relay.local/relay/internal/store"
 )
 
-type fakeCoordinator struct{ starts, resumes, pauses, approvals, accepts, resolutions int }
+type fakeCoordinator struct{ starts, resumes, pauses, approvals, accepts, resolutions, imports int }
 
 func (c *fakeCoordinator) Start(id string) (map[string]any, error) {
 	c.starts++
@@ -42,6 +43,10 @@ func (c *fakeCoordinator) Diff(context.Context, string) (map[string]any, error) 
 func (c *fakeCoordinator) Resolve(_ context.Context, id, revision, decision, resolution, option, note string) (map[string]any, error) {
 	c.resolutions++
 	return map[string]any{"id": id, "title": "Task", "status": "queued"}, nil
+}
+func (c *fakeCoordinator) ImportIssue(_ context.Context, repository, revision, ticket string) (issue.Result, error) {
+	c.imports++
+	return issue.Result{Title: "Issue", Description: "Context", Ticket: ticket, Warnings: []string{}}, nil
 }
 func (c *fakeCoordinator) Pause(string) error { c.pauses++; return nil }
 func (c *fakeCoordinator) Running() int       { return c.starts - c.pauses }
@@ -120,6 +125,33 @@ func TestWorkflowActionsRequireAuthenticationAndRejectExtraFields(t *testing.T) 
 	}
 	if result := requestAction(blocker, token, "", `{"decisionId":"d","taskRevision":"`+revision+`","resolution":"retry"}`); result.Code != 202 || coordinator.resolutions != 1 {
 		t.Fatal("valid blocker decision rejected")
+	}
+}
+
+func TestIssueImportRequiresAuthenticatedConfiguredRequest(t *testing.T) {
+	app, _ := setup(t)
+	coordinator := &fakeCoordinator{}
+	app.SetCoordinator(coordinator)
+	requestImport := func(token, body string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest("POST", "http://127.0.0.1:4311/api/issues/import", bytes.NewBufferString(body))
+		req.Host = "127.0.0.1:4311"
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-Relay-Token", token)
+		out := httptest.NewRecorder()
+		app.ServeHTTP(out, req)
+		return out
+	}
+	revision := strings.Repeat("a", 64)
+	body := `{"repositoryId":"repo","configRevision":"` + revision + `","ticket":"123"}`
+	if result := requestImport("", body); result.Code != 403 || coordinator.imports != 0 {
+		t.Fatal("unauthenticated import accepted")
+	}
+	token := hex.EncodeToString(app.token[:])
+	if result := requestImport(token, `{"repositoryId":"repo","configRevision":"`+revision+`","ticket":"123","command":"bad"}`); result.Code != 400 || coordinator.imports != 0 {
+		t.Fatal("injected import command accepted")
+	}
+	if result := requestImport(token, body); result.Code != 200 || coordinator.imports != 1 || !strings.Contains(result.Body.String(), "Context") {
+		t.Fatalf("valid import rejected: %d %s", result.Code, result.Body.String())
 	}
 }
 

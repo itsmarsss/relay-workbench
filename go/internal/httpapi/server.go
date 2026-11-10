@@ -20,6 +20,7 @@ import (
 	"strings"
 	"time"
 
+	"relay.local/relay/internal/issue"
 	"relay.local/relay/internal/storage"
 	"relay.local/relay/internal/store"
 	"relay.local/relay/internal/task"
@@ -45,6 +46,7 @@ type Coordinator interface {
 	Accept(context.Context, string, string) (map[string]any, error)
 	Resolve(context.Context, string, string, string, string, string, string) (map[string]any, error)
 	Diff(context.Context, string) (map[string]any, error)
+	ImportIssue(context.Context, string, string, string) (issue.Result, error)
 	Pause(string) error
 	Running() int
 }
@@ -90,6 +92,14 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	path := r.URL.Path
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		if path == "/api/issues/import" && r.Method == http.MethodPost && s.workflow != nil {
+			if !s.authorized(r) {
+				respond(w, 403, map[string]string{"error": "Session token required"})
+				return
+			}
+			s.importIssue(w, r)
+			return
+		}
 		if id, action, ok := workflowAction(path); ok && r.Method == http.MethodPost && s.workflow != nil {
 			if !s.authorized(r) {
 				respond(w, 403, map[string]string{"error": "Session token required"})
@@ -116,7 +126,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			respond(w, 500, map[string]string{"error": "Could not read configuration"})
 			return
 		}
-		respond(w, 200, map[string]any{"token": hex.EncodeToString(s.token[:]), "config": config.Value, "configRevision": config.Revision, "version": "experimental-go", "workflowPreview": s.workflow != nil, "implementationPreview": s.workflow != nil, "debugRecoveryPreview": s.workflow != nil})
+		respond(w, 200, map[string]any{"token": hex.EncodeToString(s.token[:]), "config": config.Value, "configRevision": config.Revision, "version": "experimental-go", "workflowPreview": s.workflow != nil, "implementationPreview": s.workflow != nil, "debugRecoveryPreview": s.workflow != nil, "issueImportPreview": s.workflow != nil})
 		return
 	}
 	if path == "/api/storage/scan" {
@@ -261,6 +271,32 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.asset(w, r)
+}
+
+func (s *Server) importIssue(w http.ResponseWriter, r *http.Request) {
+	body, err := requestObject(w, r)
+	if err != nil || len(body) != 3 {
+		respond(w, 400, map[string]string{"error": "Provide repository, configuration revision and ticket"})
+		return
+	}
+	repositoryID, idOK := body["repositoryId"].(string)
+	revision, revisionOK := body["configRevision"].(string)
+	ticket, ticketOK := body["ticket"].(string)
+	if !idOK || repositoryID == "" || len(repositoryID) > 400 || !revisionOK || !taskRevision.MatchString(revision) || !ticketOK {
+		respond(w, 400, map[string]string{"error": "Provide repository, configuration revision and ticket"})
+		return
+	}
+	result, err := s.workflow.ImportIssue(r.Context(), repositoryID, revision, ticket)
+	var importError *issue.ImportError
+	if errors.Is(err, store.ErrConfigChanged) {
+		respond(w, 409, map[string]string{"error": "Repository settings changed; refresh before importing"})
+	} else if errors.As(err, &importError) {
+		respond(w, importError.Status, map[string]string{"error": importError.Message})
+	} else if err != nil {
+		respond(w, 502, map[string]string{"error": err.Error()})
+	} else {
+		respond(w, 200, result)
+	}
 }
 
 func workflowAction(path string) (string, string, bool) {

@@ -70,6 +70,19 @@ try {
     failedOnce = join(temporary, 'failed-once'),
     debugMarker = join(temporary, 'debugged'),
     decisionRelease = join(temporary, 'decision-release');
+  const issueProvider = join(temporary, 'issue-provider');
+  const importedIssue = {
+    title: 'Imported title',
+    body: 'Imported issue body',
+    url: 'https://example.test/issues/42',
+    author: { login: 'reporter' },
+    comments: [{ body: 'Full discussion context', author: { login: 'reviewer' } }],
+  };
+  await writeFile(
+    issueProvider,
+    `#!/usr/bin/env node\nrequire('node:child_process').spawnSync('/bin/sleep', ['0.2']);\nprocess.stdout.write(${JSON.stringify(JSON.stringify(importedIssue))});\n`,
+    { mode: 0o700 },
+  );
   const handoff = {
     memorySuggestions: [],
     summary: 'Fixture investigation complete',
@@ -162,6 +175,7 @@ console.log(JSON.stringify({ type: 'item.completed', item: { type: 'agent_messag
   assert.equal(bootstrap.workflowPreview, true);
   assert.equal(bootstrap.implementationPreview, true);
   assert.equal(bootstrap.debugRecoveryPreview, true);
+  assert.equal(bootstrap.issueImportPreview, true);
   const headers = { 'Content-Type': 'application/json', 'X-Relay-Token': bootstrap.token };
   const config = bootstrap.config;
   config.harnesses.codex.command = agent;
@@ -178,6 +192,7 @@ console.log(JSON.stringify({ type: 'item.completed', item: { type: 'agent_messag
       checks: [],
       setup: [{ command: '/bin/sh', args: ['-c', 'printf setup > setup.txt'] }],
       instructions: '',
+      issueCommand: { command: issueProvider, args: ['{ticket}'] },
     },
   ];
   let response = await fetch(`${base}/api/config`, {
@@ -207,6 +222,37 @@ console.log(JSON.stringify({ type: 'item.completed', item: { type: 'agent_messag
   const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
   const errors = [];
   page.on('pageerror', (error) => errors.push(error.message));
+  await page.goto(`${base}/#tasks`);
+  await page.getByRole('button', { name: 'New task', exact: true }).click();
+  const composer = page.getByRole('dialog', { name: 'New task' });
+  await composer.getByLabel('Title', { exact: true }).fill('Keep my title');
+  await composer.getByLabel('Description', { exact: true }).fill('Keep my note');
+  await composer.getByLabel('Issue link or reference').fill('42');
+  await composer.getByRole('checkbox', { name: /Fixture/ }).check();
+  await composer.getByRole('button', { name: 'Import issue context' }).click();
+  await until(
+    async () =>
+      (await composer.getByLabel('Description', { exact: true }).inputValue()).includes(
+        'Full discussion context',
+      ),
+    'issue context import',
+  );
+  const importedDescription = await composer
+    .getByLabel('Description', { exact: true })
+    .inputValue();
+  assert.ok(
+    importedDescription.includes('Keep my note') &&
+      importedDescription.includes('Filed by: **reporter**'),
+  );
+  assert.equal(await composer.getByLabel('Title', { exact: true }).inputValue(), 'Keep my title');
+  await composer.getByRole('button', { name: 'Import issue context' }).click();
+  await composer.getByRole('button', { name: 'Importing…' }).waitFor();
+  await composer.getByRole('button', { name: 'Import issue context' }).waitFor();
+  assert.equal(
+    await composer.getByLabel('Description', { exact: true }).inputValue(),
+    importedDescription,
+  );
+  await composer.getByRole('button', { name: 'Cancel', exact: true }).click();
   await page.goto(`${base}/#task/${first.id}/overview`);
   await page.getByRole('button', { name: 'Start investigation' }).click();
   await page.getByRole('heading', { name: 'Proposed approaches' }).waitFor({ timeout: 45000 });
@@ -363,7 +409,7 @@ console.log(JSON.stringify({ type: 'item.completed', item: { type: 'agent_messag
   );
   assert.deepEqual(errors, []);
   console.log(
-    'React/Go workflow: approval, verification, repair, debugger recovery, blocker decisions, review, diff, acceptance, pause and resume passed.',
+    'React/Go workflow: issue import, approval, verification, repair, debugger recovery, blocker decisions, review, diff, acceptance, pause and resume passed.',
   );
 } catch (error) {
   if (serverOutput) console.error(serverOutput);
