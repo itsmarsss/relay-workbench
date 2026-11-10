@@ -236,7 +236,7 @@ func AcceptFinal(task map[string]any, fingerprints Fingerprints, auth Authorizat
 		return GateResult{}, err
 	}
 	for _, value := range array(task["reviewComments"]) {
-		if text(object(value)["status"]) == "open" {
+		if text(object(value)["status"]) == "open" || object(value)["resolved"] == false {
 			return GateResult{}, errors.New("Resolve inline comments or request focused repairs before acceptance")
 		}
 	}

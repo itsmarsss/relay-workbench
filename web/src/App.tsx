@@ -1,4 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
+import { MotionConfig, motion } from 'motion/react';
+import { SessionProvider } from './Session';
+import { Icon } from './UI';
+import { SettingsPage, MemoryPage, InboxPage } from './WorkspacePages';
 import {
   emptyPane,
   newDeck,
@@ -32,6 +36,13 @@ import { StoragePage } from './StoragePage';
 import { useStorage } from './useStorage';
 import { parseRoute } from './route';
 
+function preference(key: string) {
+  try {
+    return localStorage.getItem(key) || '';
+  } catch {
+    return '';
+  }
+}
 const storageKey = 'relay-react-deck-v1';
 function initialDeck(): Deck {
   try {
@@ -262,8 +273,12 @@ export default function App() {
       accept,
       resolve,
       importTicket,
+      refresh,
     } = useRelay(),
     [deck, setDeck] = useState(initialDeck),
+    [collapsed, setCollapsed] = useState(() => preference('relay-sidebar-collapsed') === 'true'),
+    [dark, setDark] = useState(() => preference('relay-theme') === 'dark'),
+    [lowMotion, setLowMotion] = useState(() => preference('relay-low-motion') === 'true'),
     [focus, setFocus] = useState(''),
     [modal, setModal] = useState<{ kind: 'rename' | 'close'; tabId: string } | null>(null),
     [tabName, setTabName] = useState(''),
@@ -276,6 +291,23 @@ export default function App() {
       revision: string;
       profile?: RepositoryProfile;
     } | null>(null);
+  useEffect(() => {
+    document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+    try {
+      localStorage.setItem('relay-theme', dark ? 'dark' : 'light');
+    } catch {}
+  }, [dark]);
+  useEffect(() => {
+    document.documentElement.dataset.lowMotion = String(lowMotion);
+    try {
+      localStorage.setItem('relay-low-motion', String(lowMotion));
+    } catch {}
+  }, [lowMotion]);
+  useEffect(() => {
+    try {
+      localStorage.setItem('relay-sidebar-collapsed', String(collapsed));
+    } catch {}
+  }, [collapsed]);
   const storage = useStorage();
   const dialog = useRef<HTMLDialogElement>(null);
   const canvas = useRef<HTMLDivElement>(null);
@@ -339,284 +371,367 @@ export default function App() {
     }));
   }
   return (
-    <div className="app">
-      <aside>
-        <div className="brand">relay</div>
-        <p>Experimental migration</p>
-        <nav className="app-nav">
-          <button
-            aria-current={route.kind === 'deck' ? 'page' : undefined}
-            onClick={() => navigate(`#deck?tab=${encodeURIComponent(deck.active)}`)}
-          >
-            Task deck
-          </button>
-          <button
-            aria-current={route.kind === 'tasks' || route.kind === 'task' ? 'page' : undefined}
-            onClick={() => navigate('#tasks')}
-          >
-            All tasks <span>{tasks.length}</span>
-          </button>
-          <button
-            aria-current={route.kind === 'repositories' ? 'page' : undefined}
-            onClick={() => navigate('#repositories')}
-          >
-            Repositories
-          </button>
-          <button
-            aria-current={route.kind === 'storage' ? 'page' : undefined}
-            onClick={() => navigate('#storage')}
-          >
-            Storage
-          </button>
-        </nav>
-        {storage.report && ['warning', 'critical'].includes(storage.report.pressure.state) && (
-          <button className="storage-alert" onClick={() => navigate('#storage')}>
-            Low disk space
-          </button>
-        )}
-        <div className="connection">● {connected ? 'Connected' : 'Reconnecting'}</div>
-      </aside>
-      <main className={route.kind === 'deck' ? 'deck-main' : 'page-main'}>
-        {storage.report && ['warning', 'critical'].includes(storage.report.pressure.state) && (
-          <button className="mobile-storage-alert" onClick={() => navigate('#storage')}>
-            Low disk space · Review storage
-          </button>
-        )}
-        {route.kind === 'deck' ? (
-          <>
-            <header>
-              <div>
-                <h1>Task deck</h1>
-                <p>Watch tasks side by side.</p>
-              </div>
-              <div className="page-header-actions">
-                <span className="preview">Migration in progress</span>
+    <SessionProvider value={{ bootstrap, refresh }}>
+      <MotionConfig reducedMotion={lowMotion ? 'always' : 'user'} transition={{ duration: 0.18 }}>
+        <div className={`app ${collapsed ? 'sidebar-collapsed' : ''}`}>
+          <motion.aside animate={{ width: collapsed ? 72 : 224 }} className="sidebar">
+            <div className="brand">
+              <Icon name="relay" size={26} />
+              {!collapsed && <span>Relay</span>}
+              <button
+                className="icon-button"
+                aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+                onClick={() => setCollapsed(!collapsed)}
+              >
+                <Icon name="chevron" size={14} />
+              </button>
+            </div>
+            {!collapsed && <p className="preview-label">React + Go preview</p>}
+            <nav className="app-nav">
+              {[
+                ['inbox', 'Inbox', 'inbox'],
+                ['relay', 'Relay', 'chat'],
+              ].map(([kind, label, icon]) => (
                 <button
-                  className="primary"
-                  disabled={!bootstrap}
-                  onClick={() => setDraftOpen(true)}
+                  title={label}
+                  aria-current={route.kind === kind ? 'page' : undefined}
+                  key={kind}
+                  onClick={() => navigate('#' + kind)}
                 >
-                  New task
-                </button>
-              </div>
-            </header>
-            {error && (
-              <div className="error" role="status">
-                {error}
-              </div>
-            )}
-            <nav className="workspace-tabs" aria-label="Workspaces">
-              {deck.tabs.map((tab) => (
-                <button
-                  key={tab.id}
-                  aria-current={tab.id === deck.active ? 'page' : undefined}
-                  onClick={() => {
-                    selectTab(tab.id);
-                  }}
-                >
-                  {tab.name}
+                  <Icon name={icon!} />
+                  {!collapsed && label}
                 </button>
               ))}
               <button
-                aria-label="Add workspace"
-                disabled={deck.tabs.length >= 10}
-                onClick={() => {
-                  const tab = {
-                    id: crypto.randomUUID(),
-                    name: `Workspace ${deck.tabs.length + 1}`,
-                    root: emptyPane(),
-                  };
-                  setDeck((current) => ({ tabs: [...current.tabs, tab], active: tab.id }));
-                  setFocus('');
-                  history.pushState(null, '', `#deck?tab=${encodeURIComponent(tab.id)}`);
-                }}
+                aria-current={route.kind === 'deck' ? 'page' : undefined}
+                onClick={() => navigate(`#deck?tab=${encodeURIComponent(deck.active)}`)}
               >
-                ＋
-              </button>
-              <span className="workspace-controls">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setTabName(active.name);
-                    setModal({ kind: 'rename', tabId: active.id });
-                  }}
-                >
-                  Rename
-                </button>
-                <button
-                  type="button"
-                  disabled={deck.tabs.length <= 1}
-                  onClick={() => setModal({ kind: 'close', tabId: active.id })}
-                >
-                  Close tab
-                </button>
-              </span>
-            </nav>
-            <div ref={canvas} className="canvas">
-              <Tree
-                node={active.root}
-                tasks={tasks}
-                focus={focus}
-                setFocus={setFocus}
-                onOpen={(id, tab) => navigate(`#task/${id}/${tab}`)}
-                update={(id, change) => modify((root) => updateNode(root, id, change))}
-                split={(id, direction) => {
-                  if (panes(active.root).length < 8) {
-                    modify((root) => splitNode(root, id, direction));
-                    setFocus('');
-                  }
-                }}
-                remove={(id) => {
-                  modify((root) => removeNode(root, id));
-                  setFocus('');
-                }}
-              />
-            </div>
-            <p className="note">
-              {bootstrap?.implementationPreview
-                ? 'Development through final review is available for isolated test repositories. Publishing and interactive terminals are still being ported.'
-                : bootstrap?.workflowPreview
-                  ? 'Investigation and planning are available for isolated test repositories. Later workflow stages and interactive terminals are still being ported.'
-                  : 'Drafts and local profiles are available. Workflow execution is still being ported.'}
-            </p>
-          </>
-        ) : route.kind === 'tasks' ? (
-          <TasksPage
-            tasks={tasks}
-            onOpen={(id) => navigate(`#task/${id}/overview`)}
-            onCreate={() => setDraftOpen(true)}
-          />
-        ) : route.kind === 'repositories' ? (
-          bootstrap ? (
-            <RepositoriesPage
-              config={bootstrap.config}
-              onAdd={() => editRepository()}
-              onEdit={editRepository}
-            />
-          ) : (
-            <p role="status">{error || 'Loading repository profiles…'}</p>
-          )
-        ) : route.kind === 'storage' ? (
-          bootstrap ? (
-            <StoragePage
-              token={bootstrap.token}
-              report={storage.report}
-              loadError={storage.error}
-              refresh={storage.refresh}
-            />
-          ) : (
-            <p role="status">{error || 'Loading storage…'}</p>
-          )
-        ) : (
-          <TaskPage
-            key={route.id}
-            id={route.id}
-            tab={route.tab}
-            workflowPreview={bootstrap?.workflowPreview === true}
-            implementationPreview={bootstrap?.implementationPreview === true}
-            debugRecoveryPreview={bootstrap?.debugRecoveryPreview === true}
-            onAction={act}
-            onApprove={approve}
-            onAccept={accept}
-            onResolve={resolve}
-            onTab={(tab) => navigate(`#task/${route.id}/${tab}`)}
-            onBack={() => navigate('#tasks')}
-            onDeck={() => navigate(`#deck?tab=${encodeURIComponent(deck.active)}`)}
-          />
-        )}
-        {route.kind !== 'deck' && error && (
-          <p className="error" role="status">
-            {error}
-          </p>
-        )}
-      </main>
-      {draftOpen && bootstrap && (
-        <DraftComposer
-          config={bootstrap.config}
-          workflowPreview={bootstrap.workflowPreview}
-          issueImportPreview={bootstrap.issueImportPreview}
-          onImport={importTicket}
-          onCreate={create}
-          onClose={() => setDraftOpen(false)}
-          onCreated={(task) => {
-            setDraftOpen(false);
-            navigate(`#task/${task.id}/overview`);
-          }}
-        />
-      )}
-      {repoEditor && (
-        <RepositoryEditor
-          config={repoEditor.config}
-          revision={repoEditor.revision}
-          profile={repoEditor.profile}
-          onSave={updateConfig}
-          onClose={() => setRepoEditor(null)}
-        />
-      )}
-      <dialog
-        ref={dialog}
-        className="workspace-dialog"
-        onCancel={(event) => {
-          event.preventDefault();
-          setModal(null);
-        }}
-        onClose={() => setModal(null)}
-      >
-        {modal?.kind === 'rename' ? (
-          <form
-            onSubmit={(event) => {
-              event.preventDefault();
-              const name = tabName.trim();
-              if (!name) return;
-              setDeck((current) => ({
-                ...current,
-                tabs: current.tabs.map((tab) => (tab.id === modal.tabId ? { ...tab, name } : tab)),
-              }));
-              setModal(null);
-            }}
-          >
-            <h2>Rename workspace</h2>
-            <label htmlFor="workspace-name">Workspace name</label>
-            <input
-              id="workspace-name"
-              value={tabName}
-              onChange={(event) => setTabName(event.target.value)}
-              maxLength={60}
-              required
-              autoFocus
-            />
-            <div>
-              <button type="button" onClick={() => setModal(null)}>
-                Cancel
-              </button>
-              <button type="submit">Save name</button>
-            </div>
-          </form>
-        ) : modal?.kind === 'close' ? (
-          <div>
-            <h2>Close workspace?</h2>
-            <p>Its layout will be removed. Tasks and agents keep running.</p>
-            <div>
-              <button type="button" onClick={() => setModal(null)}>
-                Cancel
+                <Icon name="terminal" />
+                {!collapsed && 'Task deck'}
               </button>
               <button
-                type="button"
-                onClick={() => {
-                  const remaining = deck.tabs.filter((tab) => tab.id !== modal.tabId);
-                  if (!remaining.length) return;
-                  setDeck({ tabs: remaining, active: remaining[0]!.id });
-                  setFocus('');
-                  history.pushState(null, '', `#deck?tab=${encodeURIComponent(remaining[0]!.id)}`);
+                aria-current={route.kind === 'tasks' || route.kind === 'task' ? 'page' : undefined}
+                onClick={() => navigate('#tasks')}
+              >
+                <Icon name="tasks" />
+                {!collapsed && (
+                  <>
+                    All tasks <span>{tasks.length}</span>
+                  </>
+                )}
+              </button>
+              <button
+                aria-current={route.kind === 'repositories' ? 'page' : undefined}
+                onClick={() => navigate('#repositories')}
+              >
+                <Icon name="repository" />
+                {!collapsed && 'Repositories'}
+              </button>
+              <button
+                aria-current={route.kind === 'storage' ? 'page' : undefined}
+                onClick={() => navigate('#storage')}
+              >
+                <Icon name="memory" />
+                {!collapsed && 'Storage'}
+              </button>
+              {[
+                ['memory', 'Memory', 'memory'],
+                ['settings', 'Settings', 'settings'],
+              ].map(([kind, label, icon]) => (
+                <button
+                  title={label}
+                  key={kind}
+                  aria-current={route.kind === kind ? 'page' : undefined}
+                  onClick={() => navigate('#' + kind)}
+                >
+                  <Icon name={icon!} />
+                  {!collapsed && label}
+                </button>
+              ))}
+            </nav>
+            <div className="sidebar-preferences">
+              <button
+                className="icon-button"
+                aria-label={dark ? 'Use light theme' : 'Use dark theme'}
+                onClick={() => setDark(!dark)}
+              >
+                <Icon name={dark ? 'sun' : 'moon'} />
+              </button>
+              {!collapsed && (
+                <label className="inline">
+                  <input
+                    type="checkbox"
+                    checked={lowMotion}
+                    onChange={(e) => setLowMotion(e.target.checked)}
+                  />
+                  Low motion
+                </label>
+              )}
+            </div>
+            {storage.report && ['warning', 'critical'].includes(storage.report.pressure.state) && (
+              <button className="storage-alert" onClick={() => navigate('#storage')}>
+                Low disk space
+              </button>
+            )}
+            <div className="connection">● {connected ? 'Connected' : 'Reconnecting'}</div>
+          </motion.aside>
+          <motion.main layout className={route.kind === 'deck' ? 'deck-main' : 'page-main'}>
+            {storage.report && ['warning', 'critical'].includes(storage.report.pressure.state) && (
+              <button className="mobile-storage-alert" onClick={() => navigate('#storage')}>
+                Low disk space · Review storage
+              </button>
+            )}
+            {route.kind === 'deck' ? (
+              <>
+                <header>
+                  <div>
+                    <h1>Task deck</h1>
+                    <p>Watch tasks side by side.</p>
+                  </div>
+                  <div className="page-header-actions">
+                    <span className="preview">Migration in progress</span>
+                    <button
+                      className="primary"
+                      disabled={!bootstrap}
+                      onClick={() => setDraftOpen(true)}
+                    >
+                      New task
+                    </button>
+                  </div>
+                </header>
+                {error && (
+                  <div className="error" role="status">
+                    {error}
+                  </div>
+                )}
+                <nav className="workspace-tabs" aria-label="Workspaces">
+                  {deck.tabs.map((tab) => (
+                    <button
+                      key={tab.id}
+                      aria-current={tab.id === deck.active ? 'page' : undefined}
+                      onClick={() => {
+                        selectTab(tab.id);
+                      }}
+                    >
+                      {tab.name}
+                    </button>
+                  ))}
+                  <button
+                    aria-label="Add workspace"
+                    disabled={deck.tabs.length >= 10}
+                    onClick={() => {
+                      const tab = {
+                        id: crypto.randomUUID(),
+                        name: `Workspace ${deck.tabs.length + 1}`,
+                        root: emptyPane(),
+                      };
+                      setDeck((current) => ({ tabs: [...current.tabs, tab], active: tab.id }));
+                      setFocus('');
+                      history.pushState(null, '', `#deck?tab=${encodeURIComponent(tab.id)}`);
+                    }}
+                  >
+                    ＋
+                  </button>
+                  <span className="workspace-controls">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setTabName(active.name);
+                        setModal({ kind: 'rename', tabId: active.id });
+                      }}
+                    >
+                      Rename
+                    </button>
+                    <button
+                      type="button"
+                      disabled={deck.tabs.length <= 1}
+                      onClick={() => setModal({ kind: 'close', tabId: active.id })}
+                    >
+                      Close tab
+                    </button>
+                  </span>
+                </nav>
+                <div ref={canvas} className="canvas">
+                  <Tree
+                    node={active.root}
+                    tasks={tasks}
+                    focus={focus}
+                    setFocus={setFocus}
+                    onOpen={(id, tab) => navigate(`#task/${id}/${tab}`)}
+                    update={(id, change) => modify((root) => updateNode(root, id, change))}
+                    split={(id, direction) => {
+                      if (panes(active.root).length < 8) {
+                        modify((root) => splitNode(root, id, direction));
+                        setFocus('');
+                      }
+                    }}
+                    remove={(id) => {
+                      modify((root) => removeNode(root, id));
+                      setFocus('');
+                    }}
+                  />
+                </div>
+              </>
+            ) : route.kind === 'tasks' ? (
+              <TasksPage
+                tasks={tasks}
+                onOpen={(id) => navigate(`#task/${id}/overview`)}
+                onCreate={() => setDraftOpen(true)}
+              />
+            ) : route.kind === 'inbox' ? (
+              <InboxPage onOpen={(id) => navigate(`#task/${id}/overview`)} />
+            ) : route.kind === 'memory' ? (
+              <MemoryPage />
+            ) : route.kind === 'settings' ? (
+              bootstrap ? (
+                <SettingsPage onSave={updateConfig} />
+              ) : (
+                <p>Loading settings…</p>
+              )
+            ) : route.kind === 'relay' ? (
+              <div className="empty-state">
+                <h1>Relay</h1>
+                <p>Connecting workspace assistant…</p>
+              </div>
+            ) : route.kind === 'repositories' ? (
+              bootstrap ? (
+                <RepositoriesPage
+                  config={bootstrap.config}
+                  onAdd={editRepository}
+                  onEdit={editRepository}
+                />
+              ) : (
+                <p role="status">{error || 'Loading repository profiles…'}</p>
+              )
+            ) : route.kind === 'storage' ? (
+              bootstrap ? (
+                <StoragePage
+                  token={bootstrap.token}
+                  report={storage.report}
+                  loadError={storage.error}
+                  refresh={storage.refresh}
+                />
+              ) : (
+                <p role="status">{error || 'Loading storage…'}</p>
+              )
+            ) : (
+              <TaskPage
+                key={route.id}
+                id={route.id}
+                tab={route.tab}
+                workflowPreview={bootstrap?.workflowPreview === true}
+                implementationPreview={bootstrap?.implementationPreview === true}
+                debugRecoveryPreview={bootstrap?.debugRecoveryPreview === true}
+                onAction={act}
+                onApprove={approve}
+                onAccept={accept}
+                onResolve={resolve}
+                onTab={(tab) => navigate(`#task/${route.id}/${tab}`)}
+                onBack={() => navigate('#tasks')}
+                onDeck={() => navigate(`#deck?tab=${encodeURIComponent(deck.active)}`)}
+              />
+            )}
+            {route.kind !== 'deck' && error && (
+              <p className="error" role="status">
+                {error}
+              </p>
+            )}
+          </motion.main>
+          {draftOpen && bootstrap && (
+            <DraftComposer
+              config={bootstrap.config}
+              workflowPreview={bootstrap.workflowPreview}
+              issueImportPreview={bootstrap.issueImportPreview}
+              onImport={importTicket}
+              onCreate={create}
+              onClose={() => setDraftOpen(false)}
+              onCreated={(task) => {
+                setDraftOpen(false);
+                navigate(`#task/${task.id}/overview`);
+              }}
+            />
+          )}
+          {repoEditor && (
+            <RepositoryEditor
+              config={repoEditor.config}
+              revision={repoEditor.revision}
+              profile={repoEditor.profile}
+              onSave={updateConfig}
+              onClose={() => setRepoEditor(null)}
+            />
+          )}
+          <dialog
+            ref={dialog}
+            className="workspace-dialog"
+            onCancel={(event) => {
+              event.preventDefault();
+              setModal(null);
+            }}
+            onClose={() => setModal(null)}
+          >
+            {modal?.kind === 'rename' ? (
+              <form
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  const name = tabName.trim();
+                  if (!name) return;
+                  setDeck((current) => ({
+                    ...current,
+                    tabs: current.tabs.map((tab) =>
+                      tab.id === modal.tabId ? { ...tab, name } : tab,
+                    ),
+                  }));
                   setModal(null);
                 }}
               >
-                Close workspace
-              </button>
-            </div>
-          </div>
-        ) : null}
-      </dialog>
-    </div>
+                <h2>Rename workspace</h2>
+                <label htmlFor="workspace-name">Workspace name</label>
+                <input
+                  id="workspace-name"
+                  value={tabName}
+                  onChange={(event) => setTabName(event.target.value)}
+                  maxLength={60}
+                  required
+                  autoFocus
+                />
+                <div>
+                  <button type="button" onClick={() => setModal(null)}>
+                    Cancel
+                  </button>
+                  <button type="submit">Save name</button>
+                </div>
+              </form>
+            ) : modal?.kind === 'close' ? (
+              <div>
+                <h2>Close workspace?</h2>
+                <p>Its layout will be removed. Tasks and agents keep running.</p>
+                <div>
+                  <button type="button" onClick={() => setModal(null)}>
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const remaining = deck.tabs.filter((tab) => tab.id !== modal.tabId);
+                      if (!remaining.length) return;
+                      setDeck({ tabs: remaining, active: remaining[0]!.id });
+                      setFocus('');
+                      history.pushState(
+                        null,
+                        '',
+                        `#deck?tab=${encodeURIComponent(remaining[0]!.id)}`,
+                      );
+                      setModal(null);
+                    }}
+                  >
+                    Close workspace
+                  </button>
+                </div>
+              </div>
+            ) : null}
+          </dialog>
+        </div>
+      </MotionConfig>
+    </SessionProvider>
   );
 }

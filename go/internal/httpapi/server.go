@@ -86,9 +86,12 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("X-Frame-Options", "DENY")
 	w.Header().Set("Referrer-Policy", "no-referrer")
 	w.Header().Set("Cache-Control", "no-store")
-	w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' https:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'")
+	w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data: blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'")
 	if r.Host != s.host || (r.Header.Get("Origin") != "" && r.Header.Get("Origin") != "http://"+s.host) || r.Header.Get("Sec-Fetch-Site") == "cross-site" {
 		respond(w, http.StatusForbidden, map[string]string{"error": "Invalid local origin"})
+		return
+	}
+	if s.extended(w, r) {
 		return
 	}
 	path := r.URL.Path
@@ -191,6 +194,15 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			}
 			if id, ok := summary["id"].(string); !ok || !taskID.MatchString(id) {
 				return errors.New("invalid task ID")
+			}
+			summary["taskRevision"] = store.TaskRevision(row)
+			var value map[string]any
+			if json.Unmarshal(row, &value) == nil {
+				for _, key := range []string{"statusOverride", "ticket", "repositories"} {
+					if item, ok := value[key]; ok {
+						summary[key] = item
+					}
+				}
 			}
 			result = append(result, summary)
 			return nil

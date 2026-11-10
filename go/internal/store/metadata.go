@@ -85,10 +85,25 @@ func (s *Store) UpdateMeta(key string, update func(string, bool) (string, error)
 	return s.setMeta(key, next)
 }
 func (s *Store) DeleteMeta(key string) error {
+	return s.DeleteMetaChecked(key, nil)
+}
+
+// DeleteMetaChecked validates and deletes under the same store lock.
+// The validator must not call Store.
+func (s *Store) DeleteMetaChecked(key string, validate func(string, bool) error) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if err := s.ready(); err != nil {
 		return err
+	}
+	if validate != nil {
+		old, exists, err := s.getMeta(key)
+		if err != nil {
+			return err
+		}
+		if err = validate(old, exists); err != nil {
+			return err
+		}
 	}
 	stmt, err := s.prepare("DELETE FROM meta WHERE key=?")
 	if err != nil {

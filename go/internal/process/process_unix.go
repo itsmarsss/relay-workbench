@@ -192,6 +192,9 @@ func Run(ctx context.Context, options Options) (Result, error) {
 	cmd.Dir = options.Directory
 	cmd.Env = env
 	cmd.Stdin = bytes.NewReader(options.Input)
+	if options.InputFile != nil {
+		cmd.Stdin = options.InputFile
+	}
 	cmd.ExtraFiles = []*os.File{aliveRead, statusWrite}
 	c := newCollector(ctx, options.MaxOutputBytes, options.OnLine)
 	cmd.Stdout = streamWriter{c, "stdout"}

@@ -339,3 +339,31 @@ func TestInvalidProgressPolicyIsRejected(t *testing.T) {
 		t.Fatal("submillisecond budget accepted")
 	}
 }
+
+func TestProtocolInputFileSupportsBidirectionalConversation(t *testing.T) {
+	opts := options(t, `process.stdin.setEncoding('utf8');process.stdin.on('data',d=>{console.log(d.trim());if(d.includes('finish'))process.exit(0)})`)
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reader.Close()
+	defer writer.Close()
+	opts.InputFile = reader
+	opts.OnLine = func(ctx context.Context, line, stream string) error {
+		if line == "hello" {
+			_, err := writer.Write([]byte("finish\n"))
+			return err
+		}
+		return nil
+	}
+	if _, err = writer.Write([]byte("hello\n")); err != nil {
+		t.Fatal(err)
+	}
+	result, err := Run(context.Background(), opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.ExitCode != 0 || !strings.Contains(result.Stdout, "finish") {
+		t.Fatalf("protocol stalled: %#v", result)
+	}
+}

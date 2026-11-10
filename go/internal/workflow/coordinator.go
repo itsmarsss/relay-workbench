@@ -13,6 +13,7 @@ import (
 	"time"
 	"unicode/utf16"
 
+	"relay.local/relay/internal/catalog"
 	"relay.local/relay/internal/harness"
 	"relay.local/relay/internal/issue"
 	"relay.local/relay/internal/process"
@@ -32,21 +33,24 @@ var errTaskNoLongerActive = errors.New("task no longer active")
 
 // Coordinator supervises workflow and publication jobs in isolated workspaces.
 type Coordinator struct {
-	store    *store.Store
-	worker   string
-	args     []string
-	env      map[string]string
-	area     *workspace.WorktreeArea
-	registry *workspace.Registry
-	repos    *workspace.Registry
-	checks   chan struct{}
-	stages   *StageRunner
-	mu       sync.Mutex
-	jobs     map[string]*coordinatorJob
-	scans    chan struct{}
-	active   int
-	changed  chan struct{}
-	closed   bool
+	store       *store.Store
+	worker      string
+	args        []string
+	env         map[string]string
+	area        *workspace.WorktreeArea
+	registry    *workspace.Registry
+	repos       *workspace.Registry
+	checks      chan struct{}
+	stages      *StageRunner
+	mu          sync.Mutex
+	jobs        map[string]*coordinatorJob
+	scans       chan struct{}
+	active      int
+	changed     chan struct{}
+	closed      bool
+	catalog     *catalog.Catalog
+	monitorStop chan struct{}
+	monitorDone chan struct{}
 }
 
 func NewCoordinator(db *store.Store, worker string, args []string, env map[string]string) (*Coordinator, error) {
@@ -66,6 +70,10 @@ func NewCoordinator(db *store.Store, worker string, args []string, env map[strin
 	if err = c.recoverInterrupted(); err != nil {
 		return nil, err
 	}
+	c.catalog = &catalog.Catalog{Worker: c.worker, Args: c.args, Environment: c.env}
+	c.monitorStop = make(chan struct{})
+	c.monitorDone = make(chan struct{})
+	go c.monitorLoop()
 	return c, nil
 }
 
@@ -129,15 +137,50 @@ func (c *Coordinator) recoverInterrupted() error {
 			return errors.New("invalid stored task")
 		}
 		id, status := text(item["id"]), text(item["status"])
-		if status != "running" && status != "queued" {
+		auxiliary := false
+		entries := array(item["repositories"])
+		if len(entries) <= 1 {
+			entries = []any{item}
+		}
+		for _, value := range entries {
+			entry := object(value)
+			for _, key := range []string{"delivery", "publicationMonitor"} {
+				state := object(entry[key])
+				if state["status"] == "running" || state["status"] == "queued" {
+					auxiliary = true
+				}
+			}
+		}
+		if status != "running" && status != "queued" && !auxiliary {
 			continue
 		}
 		_, err = c.update(id, func(current map[string]any) error {
-			if text(current["status"]) != "running" && text(current["status"]) != "queued" {
-				return errors.New("task changed during startup recovery")
+			if current["status"] == "running" || current["status"] == "queued" {
+				current["status"] = "interrupted"
+				current["error"] = "Relay stopped before this stage finished. Inspect the retained workspace before resuming."
 			}
-			current["status"] = "interrupted"
-			current["error"] = "Relay stopped before this stage finished. Inspect the retained workspace before resuming."
+			entries := array(current["repositories"])
+			if len(entries) <= 1 {
+				entries = []any{current}
+			}
+			for _, value := range entries {
+				entry := object(value)
+				for _, key := range []string{"delivery", "publicationMonitor"} {
+					state := object(entry[key])
+					if state["status"] == "running" || state["status"] == "queued" {
+						state["status"] = "interrupted"
+						state["finishedAt"] = timestamp(time.Now())
+						state["summary"] = "Relay stopped during this operation; workspace and evidence retained."
+					}
+				}
+			}
+			for _, value := range array(current["deliveryRuns"]) {
+				run := object(value)
+				if run["status"] == "running" || run["status"] == "queued" {
+					run["status"] = "interrupted"
+					run["finishedAt"] = timestamp(time.Now())
+				}
+			}
 			for _, value := range array(current["attempts"]) {
 				attempt := object(value)
 				if text(attempt["status"]) == "running" {
@@ -1080,6 +1123,7 @@ func (c *Coordinator) Close() {
 		return
 	}
 	c.closed = true
+	close(c.monitorStop)
 	jobs := make([]*coordinatorJob, 0, len(c.jobs))
 	for _, job := range c.jobs {
 		job.cancel()
@@ -1090,6 +1134,7 @@ func (c *Coordinator) Close() {
 	for _, job := range jobs {
 		<-job.done
 	}
+	<-c.monitorDone
 }
 
 // prepare and setup intentionally operate only on task-owned isolated

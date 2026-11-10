@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"path/filepath"
+	"relay.local/relay/internal/harness"
 	"strings"
 	"unicode/utf16"
 )
@@ -89,6 +90,17 @@ func ValidateConfig(raw map[string]any) (map[string]any, error) {
 			return nil, err
 		}
 		harnesses[id] = map[string]any{"command": cmd, "model": model, "enabled": h["enabled"] != false}
+		if value, exists := h["effort"]; exists {
+			effort, ok := value.(string)
+			if !ok {
+				return nil, errors.New("invalid agent effort")
+			}
+			_, effort, err = harness.Options(id, model, effort)
+			if err != nil {
+				return nil, err
+			}
+			object(harnesses[id])["effort"] = effort
+		}
 	}
 	assistant := object(raw["workspaceAgent"])
 	if raw["workspaceAgent"] == nil {
@@ -118,6 +130,13 @@ func ValidateConfig(raw map[string]any) (map[string]any, error) {
 		permissions[key] = value
 	}
 	config["workspaceAgent"] = map[string]any{"model": model, "effort": effort, "permissions": permissions}
+	if value, exists := assistant["provider"]; exists {
+		provider, ok := value.(string)
+		if !ok || (provider != "codex" && provider != "claude" && provider != "pi") {
+			return nil, errors.New("invalid Relay provider")
+		}
+		object(config["workspaceAgent"])["provider"] = provider
+	}
 	routing := object(config["routing"])
 	incomingRouting := object(raw["routing"])
 	for _, stage := range []string{"triage", "investigate", "plan", "implement", "review"} {

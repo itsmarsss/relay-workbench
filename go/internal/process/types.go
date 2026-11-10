@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"relay.local/relay/internal/runtimebudget"
 	"sync/atomic"
 	"time"
@@ -44,6 +45,7 @@ type Options struct {
 	Args             []string
 	Directory        string
 	Input            []byte
+	InputFile        *os.File
 	Environment      map[string]string
 	Timeout          time.Duration
 	Progress         *ProgressPolicy

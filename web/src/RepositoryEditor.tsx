@@ -1,4 +1,6 @@
 import { useState } from 'react';
+import { Select } from './UI';
+import { Notice, useMutation } from './Session';
 import { Modal } from './Modal';
 import { jsonArray, jsonObject } from './forms';
 import type { RelayConfig, RepositoryProfile } from './types';
@@ -39,9 +41,14 @@ export function RepositoryEditor({
     ),
     [error, setError] = useState(''),
     [busy, setBusy] = useState(false);
+  const exists = config.repositories.some((repo) => repo.id === id);
+  const discovery = useMutation();
+  const [suggestions, setSuggestions] = useState<
+    { field: string; label: string; value: unknown; evidence: string }[]
+  >([]);
   return (
     <Modal
-      title={profile ? 'Edit repository' : 'Add repository'}
+      title={exists ? 'Edit repository' : 'Add repository'}
       onClose={() => {
         if (!busy) onClose();
       }}
@@ -74,8 +81,8 @@ export function RepositoryEditor({
             setup: jsonArray(setup),
           } as RepositoryProfile;
           const updated = structuredClone(config);
-          updated.repositories = profile
-            ? updated.repositories.map((repo) => (repo.id === profile.id ? next : repo))
+          updated.repositories = exists
+            ? updated.repositories.map((repo) => (repo.id === id ? next : repo))
             : [...updated.repositories, next];
           setBusy(true);
           await onSave(revision, updated);
@@ -125,6 +132,56 @@ export function RepositoryEditor({
           placeholder="Absolute path to the checkout"
         />
       </label>
+      <div className="profile-suggestions">
+        <button
+          type="button"
+          disabled={discovery.busy || !path}
+          onClick={() =>
+            void discovery
+              .run<{ suggestions: typeof suggestions }>('/api/repositories/suggestions', {
+                path,
+                cwd,
+              })
+              .then((value) => setSuggestions(value.suggestions))
+              .catch(() => {})
+          }
+        >
+          {discovery.busy ? 'Inspecting…' : 'Suggest profile fields'}
+        </button>
+        {discovery.error && <Notice>{discovery.error}</Notice>}
+        {suggestions.length > 0 && (
+          <div className="suggestion-list">
+            {suggestions.map((item, i) => (
+              <button
+                type="button"
+                key={i}
+                onClick={() => {
+                  if (item.field === 'name') setName(String(item.value));
+                  if (item.field === 'cwd') setCwd(String(item.value));
+                  if (item.field === 'path') setPath(String(item.value));
+                  if (item.field === 'checks') {
+                    try {
+                      const current = jsonArray(checks);
+                      if (
+                        !current.some((row) => JSON.stringify(row) === JSON.stringify(item.value))
+                      )
+                        setChecks(JSON.stringify([...current, item.value], null, 2));
+                    } catch {
+                      setError('Fix the checks JSON before adding suggestions.');
+                    }
+                  }
+                }}
+              >
+                <span>
+                  <strong>{item.label}</strong>
+                  <small>{item.evidence}</small>
+                </span>
+                <span>Use</span>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
       <label className="field">
         Working subdirectory
         <input

@@ -30,6 +30,9 @@ export type Task = {
   error?: string | null;
   updatedAt?: string;
   taskRevision?: string;
+  ticket?: string;
+  statusOverride?: { value: string; lane?: string } | null;
+  repositories?: { repository?: { id: string; name: string } }[];
 };
 export type TaskView = 'overview' | 'thread' | 'terminals' | 'diff' | 'handoffs' | 'transcript';
 export const taskViews: { id: TaskView; label: string }[] = [
@@ -48,6 +51,7 @@ export const statusLabel = (status: TaskStatus): string =>
     awaiting_plan: 'Choose an approach',
     awaiting_final: 'Final approval',
     completed: 'Done',
+    finished: 'Completed',
     paused: 'Paused',
     manual: 'Manual control',
     blocked: 'Needs attention',

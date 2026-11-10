@@ -1,9 +1,23 @@
 import { useEffect, useState } from 'react';
+import {
+  TaskMenu,
+  ContinueWork,
+  PublicationPanel,
+  ExecutionGraph,
+  type FullTask,
+} from './TaskExtras';
+import { motion } from 'motion/react';
 import { Markdown } from './Markdown';
 import { TaskPanel } from './TaskPanel';
 import { currentBlocker, latestPlan } from './task-data';
 import { isTask, statusLabel, taskViews, type Task, type TaskView } from './types';
-type Details = Task & { description?: string; ticket?: string; demo?: boolean; preset?: string };
+type Details = Task &
+  Record<string, unknown> & {
+    description?: string;
+    ticket?: string;
+    demo?: boolean;
+    preset?: string;
+  };
 function ticketURL(value: string): string | null {
   try {
     const url = new URL(value);
@@ -66,7 +80,7 @@ export function TaskPage({
   useEffect(() => {
     setSelectedOption('');
     setBlockerOption('');
-  }, [planRevision, task?.taskRevision]);
+  }, [planRevision]);
   useEffect(() => {
     let active = true,
       running = false,
@@ -265,16 +279,11 @@ export function TaskPage({
                 {busy ? 'Resuming…' : 'Resume'}
               </button>
             )}
+          <TaskMenu task={task} onDeleted={onBack} />
           <button onClick={onDeck}>Open task deck</button>
         </div>
       </div>
-      <p className="migration-note">
-        {implementationPreview
-          ? 'Use separate test repositories: this preview cannot coordinate writers with the original Relay. Publishing and interactive terminals are still being ported.'
-          : workflowPreview
-            ? 'Investigation and planning are available for isolated test repositories. This preview cannot coordinate writers with the original Relay. Implementation, verification, and interactive terminals are still being ported.'
-            : 'Draft management is available. Workflow execution and interactive terminals are still being ported.'}
-      </p>
+
       {actionError && (
         <p className="error" role="alert">
           {actionError}
@@ -463,23 +472,33 @@ export function TaskPage({
           </button>
         ))}
       </nav>
-      {tab === 'overview' ? (
-        <div className="task-overview">
-          <TaskPanel task={task} view="overview" />
-          <section className="description-card">
-            <h2>Description &amp; requirements</h2>
-            {task.description ? (
-              <Markdown text={task.description} />
-            ) : (
-              <p>No description provided.</p>
-            )}
-          </section>
-        </div>
-      ) : (
-        <div className="task-detail-panel">
-          <TaskPanel key={`${id}:${tab}`} task={task} view={tab} />
-        </div>
-      )}
+      <motion.div
+        key={tab}
+        initial={{ opacity: 0, y: 4 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.16 }}
+      >
+        {tab === 'overview' ? (
+          <div className="task-overview">
+            <ExecutionGraph task={task as FullTask} />
+            <PublicationPanel task={task as FullTask} />
+            <TaskPanel task={task} view="overview" />
+            <section className="description-card">
+              <h2>Description &amp; requirements</h2>
+              {task.description ? (
+                <Markdown text={task.description} />
+              ) : (
+                <p>No description provided.</p>
+              )}
+            </section>
+            <ContinueWork task={task as FullTask} />
+          </div>
+        ) : (
+          <div className="task-detail-panel">
+            <TaskPanel key={`${id}:${tab}`} task={task} view={tab} />
+          </div>
+        )}
+      </motion.div>
     </section>
   );
 }

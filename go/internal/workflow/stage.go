@@ -12,6 +12,7 @@ import (
 
 	"relay.local/relay/internal/harness"
 	"relay.local/relay/internal/loopguard"
+	"relay.local/relay/internal/memory"
 	"relay.local/relay/internal/recovery"
 	"relay.local/relay/internal/store"
 	"relay.local/relay/internal/verification"
@@ -101,6 +102,7 @@ func stagePrompt(task map[string]any, stage string, active stageWorkspace, enabl
 	}
 	context := map[string]any{
 		"title": task["title"], "description": task["description"], "ticket": task["ticket"],
+		"memoryRules": memory.Rules, "memorySnapshot": task["memorySnapshot"], "reviewComments": task["reviewComments"],
 		"issue": task["issue"], "messages": task["messages"], "preset": task["preset"],
 		"workflowGuidance": task["workflowGuidance"], "repositories": task["repositories"],
 		"repository": task["repository"], "dependencies": task["dependencies"],
@@ -224,6 +226,15 @@ func (s *StageRunner) Run(ctx context.Context, taskID string, options StageOptio
 		return err
 	}
 	defer lease.Release()
+	repoIDs := []string{}
+	for _, entry := range entries {
+		repoIDs = append(repoIDs, entry.id)
+	}
+	memories, memoryErr := memory.Select(s.Store, taskID, repoIDs)
+	if memoryErr != nil {
+		return memoryErr
+	}
+	task["memorySnapshot"] = memories
 	prompt, err := stagePrompt(task, stage, active, options.EnabledProviders, debugging)
 	if err != nil {
 		return err
