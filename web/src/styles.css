@@ -814,7 +814,8 @@ html:has(dialog[open]) {
   background: #12251d70;
   backdrop-filter: blur(3px);
 }
-.editor-modal > form {
+.editor-modal > form,
+.editor-modal > .modal-content {
   display: flex;
   flex-direction: column;
   min-height: 0;
@@ -1466,7 +1467,7 @@ html:has(dialog[open]) {
   align-items: center;
   gap: 10px;
 }
-.topbar-actions > button {
+.topbar-actions button {
   min-height: 36px;
   padding: 7px 12px;
 }
@@ -1926,13 +1927,6 @@ main {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   gap: 20px;
-}
-.agent-settings article {
-  padding-right: 16px;
-  border-right: 1px solid var(--line);
-}
-.agent-settings article:last-child {
-  border: 0;
 }
 .agent-settings h3 {
   text-transform: capitalize;
@@ -3875,7 +3869,7 @@ select {
     padding-inline: 12px;
     gap: 10px;
   }
-  .topbar-actions > button {
+  .topbar-actions button {
     font-size: 12px;
     padding-inline: 10px;
   }

@@ -1,3 +1,4 @@
+import { MarkdownEditor } from './MarkdownEditor';
 import { useState } from 'react';
 import { motion } from 'motion/react';
 import { Markdown } from './Markdown';
@@ -77,7 +78,6 @@ function TaskEditor({ task, onClose }: { task: FullTask; onClose: () => void }) 
   const [title, setTitle] = useState(task.title),
     [description, setDescription] = useState(asText(task.description, 50000)),
     [ticket, setTicket] = useState(asText(task.ticket, 2000)),
-    [preview, setPreview] = useState(false),
     [agents, setAgents] = useState(() => agentOptions(task));
   const { bootstrap } = useSession();
   const entries = (
@@ -157,32 +157,7 @@ function TaskEditor({ task, onClose }: { task: FullTask; onClose: () => void }) 
         Issue reference
         <input value={ticket} maxLength={2000} onChange={(e) => setTicket(e.target.value)} />
       </label>
-      <div className="section-heading">
-        <h3>Description</h3>
-        <div className="segmented">
-          <button type="button" aria-pressed={!preview} onClick={() => setPreview(false)}>
-            Write
-          </button>
-          <button type="button" aria-pressed={preview} onClick={() => setPreview(true)}>
-            Preview
-          </button>
-        </div>
-      </div>
-      {preview ? (
-        <Markdown text={description} />
-      ) : (
-        <textarea
-          aria-label="Description"
-          onPaste={uploads.onPaste}
-          onDrop={uploads.onDrop}
-          onDragOver={uploads.onDragOver}
-          rows={7}
-          maxLength={50000}
-          value={description}
-          onChange={(e) => setDescription(e.target.value)}
-        />
-      )}
-      {uploads.control}
+      <MarkdownEditor value={description} onChange={setDescription} uploads={uploads} />
       {!scopeFixed && (
         <>
           <label className="field">

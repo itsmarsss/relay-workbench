@@ -5,6 +5,7 @@ import { columns, taskLane, boardFilters, filteredTasks, taskScopes, inTaskScope
 import { Select, Icon, ProviderName } from './UI';
 import { Notice, useMutation } from './Session';
 import { Modal } from './Modal';
+import { nextStep, ago } from './presentation';
 export { taskLane } from './board';
 export function TasksPage({
   tasks,
@@ -128,10 +129,8 @@ export function TasksPage({
           <span className={`task-status status-${task.statusOverride?.value || task.status}`}>
             {columns.find((row) => row[0] === taskLane(task))?.[1]}
           </span>
-          {task.currentRun?.harness && (
-            <ProviderName provider={task.currentRun.harness} size={20} />
-          )}
-          <span className="task-reference">{task.id.slice(0, 8)}</span>
+          <strong>{nextStep(task)}</strong>
+          <time>{ago(task.updatedAt)}</time>
         </span>
         <span className="task-card-chevron">
           <Icon name="chevron" size={18} />
@@ -158,8 +157,9 @@ export function TasksPage({
     <section className="tasks-page" aria-busy={loading}>
       <div className="page-title">
         <div>
-          <h1>All tasks</h1>
-          <p>Your work, from investigation to final approval.</p>
+          <div className="eyebrow">Your work queue</div>
+          <h1>Tasks</h1>
+          <p>Your work, from first investigation to final approval.</p>
         </div>
       </div>
       <nav className="task-scopes" aria-label="Task status filters">

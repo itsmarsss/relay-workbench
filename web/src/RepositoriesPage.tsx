@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Modal } from './Modal';
+import { Icon } from './UI';
 import { Notice, useMutation } from './Session';
 import type { RelayConfig, RepositoryProfile } from './types';
 export function RepositoriesPage({
@@ -19,37 +20,46 @@ export function RepositoriesPage({
     <section className="repositories-page">
       <div className="page-title">
         <div>
+          <div className="eyebrow">Workspace</div>
           <h1>Repositories</h1>
-          <p>Local profiles for task workspaces and required checks.</p>
+          <p>Repository profiles and task workspaces.</p>
         </div>
         <div className="inline">
           <button onClick={() => setDiscovering(true)}>Find repositories</button>
           <button className="primary" onClick={() => onAdd()}>
+            <Icon name="plus" size={16} />
             Add repository
           </button>
         </div>
+      </div>
+      <div className="repository-section-heading">
+        <h2>Connected repositories</h2>
+        <span>
+          {config.repositories.length} {config.repositories.length === 1 ? 'profile' : 'profiles'}
+        </span>
       </div>
       {config.repositories.length ? (
         <div className="repository-grid">
           {config.repositories.map((repo) => (
             <article className="repository-card" key={repo.id}>
               <header>
+                <span className="repo-icon">
+                  <Icon name="repository" size={22} />
+                </span>
                 <h2>{repo.name}</h2>
-                <button onClick={() => onEdit(repo)}>Edit</button>
+                <button className="text-button" onClick={() => onEdit(repo)}>
+                  Edit profile
+                </button>
               </header>
               <code>{repo.path}</code>
               <dl>
-                <div>
-                  <dt>Working directory</dt>
-                  <dd>{repo.cwd}</dd>
-                </div>
                 <div>
                   <dt>Workspace</dt>
                   <dd>
                     {
                       {
-                        worktree: 'New worktree',
-                        managed: 'Repository-managed',
+                        worktree: 'New worktree per task',
+                        managed: 'Managed task worktree',
                         attach: 'Attached checkout',
                       }[repo.strategy]
                     }
@@ -59,9 +69,13 @@ export function RepositoriesPage({
                   <dt>Verification</dt>
                   <dd>
                     {repo.verificationMode === 'agent'
-                      ? 'Agent-discovered checks'
+                      ? 'Agent discovers checks'
                       : `${repo.checks.length} required commands`}
                   </dd>
+                </div>
+                <div>
+                  <dt>Working directory</dt>
+                  <dd>{repo.cwd}</dd>
                 </div>
               </dl>
             </article>

@@ -98,7 +98,7 @@ export function NotificationSettings() {
     }
   }
   return (
-    <section className="surface">
+    <section className="surface notification-settings">
       <div className="section-heading">
         <div>
           <h2>Notifications</h2>

@@ -1,7 +1,10 @@
 // Apply local appearance before paint; all assets remain available offline.
 try {
+  const theme = localStorage.getItem('relay-theme') || 'system';
   document.documentElement.dataset.theme =
-    localStorage.getItem('relay-theme') === 'dark' ? 'dark' : 'light';
+    theme === 'dark' || (theme === 'system' && matchMedia('(prefers-color-scheme: dark)').matches)
+      ? 'dark'
+      : 'light';
   document.documentElement.dataset.lowMotion = String(
     localStorage.getItem('relay-low-motion') === 'true',
   );

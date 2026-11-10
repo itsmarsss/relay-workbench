@@ -8,7 +8,9 @@ import { useImageUpload } from './ImageUpload';
 import { Modal } from './Modal';
 import { ModelSelect, EffortSelect } from './WorkspacePages';
 import { asObject } from './task-data';
-import type { Task } from './types';
+import { statusLabel, type Task } from './types';
+import { inTaskScope } from './board';
+import { ago } from './presentation';
 type Call = { id: string; name: string; status: string; input: unknown };
 type Message = {
   id: string;
@@ -39,6 +41,7 @@ type Chat = {
   name: string;
   taskId?: string;
   revision: number;
+  updatedAt?: string;
   messages: Message[];
   proposals?: Proposal[];
 };
@@ -59,9 +62,11 @@ function setChatURL(id: string) {
 export function ChatPanel({
   taskId = '',
   compact = false,
+  persistSelection = true,
 }: {
   taskId?: string;
   compact?: boolean;
+  persistSelection?: boolean;
 }) {
   const { bootstrap } = useSession(),
     list = useResource<Chat[]>(
@@ -69,12 +74,14 @@ export function ChatPanel({
     ),
     tasks = useResource<Task[]>('/api/tasks'),
     mutation = useMutation();
-  const [selected, setSelected] = useState(requestedChat),
+  const [selected, setSelected] = useState(() => (persistSelection ? requestedChat() : '')),
     [draft, setDraft] = useState(''),
     [editing, setEditing] = useState(''),
     [cursor, setCursor] = useState(0),
     [activeMention, setActiveMention] = useState(0),
     [mentionOpen, setMentionOpen] = useState(false),
+    [chatQuery, setChatQuery] = useState(''),
+    [chatListOpen, setChatListOpen] = useState(false),
     [settings, setSettings] = useState(false),
     [renaming, setRenaming] = useState<Chat | null>(null),
     [rename, setRename] = useState(''),
@@ -103,6 +110,28 @@ export function ChatPanel({
     running = current?.messages?.some((m) => m.status === 'running');
   const uploads = useImageUpload((text) => setDraft((value) => value + text));
   const mentionID = useId();
+  const chatNavigationID = useId();
+  const chatListToggle = useRef<HTMLButtonElement>(null);
+  const chatNavigation = useRef<HTMLElement>(null);
+  useEffect(() => {
+    if (!chatListOpen) return;
+    function outside(event: PointerEvent) {
+      const target = event.target as Node;
+      if (!chatNavigation.current?.contains(target) && !chatListToggle.current?.contains(target))
+        setChatListOpen(false);
+    }
+    function escape(event: KeyboardEvent) {
+      if (event.key !== 'Escape' || document.querySelector('dialog[open]')) return;
+      setChatListOpen(false);
+      chatListToggle.current?.focus();
+    }
+    document.addEventListener('pointerdown', outside);
+    document.addEventListener('keydown', escape);
+    return () => {
+      document.removeEventListener('pointerdown', outside);
+      document.removeEventListener('keydown', escape);
+    };
+  }, [chatListOpen]);
   const mentionMatch = mentionOpen
       ? draft.slice(0, cursor).match(/(?:^|\s)@([^@\n]{0,60})$/)
       : null,
@@ -118,6 +147,7 @@ export function ChatPanel({
             )
             .slice(0, 7);
   useEffect(() => {
+    if (!persistSelection) return;
     const followURL = () => setSelected(requestedChat());
     window.addEventListener('popstate', followURL);
     window.addEventListener('hashchange', followURL);
@@ -125,19 +155,19 @@ export function ChatPanel({
       window.removeEventListener('popstate', followURL);
       window.removeEventListener('hashchange', followURL);
     };
-  }, []);
+  }, [persistSelection]);
   useEffect(() => {
     if (list.data && !list.data.some((c) => c.id === selected)) {
       const id = list.data[0]?.id || '';
       setSelected(id);
-      setChatURL(id);
+      if (persistSelection) setChatURL(id);
     }
-  }, [list.data, selected]);
+  }, [list.data, selected, persistSelection]);
   useEffect(() => {
     const el = textarea.current;
     if (el) {
       el.style.height = 'auto';
-      el.style.height = Math.max(36, Math.min(el.scrollHeight, 160)) + 'px';
+      el.style.height = Math.max(32, Math.min(el.scrollHeight, 160)) + 'px';
     }
   }, [draft]);
   useEffect(() => {
@@ -156,7 +186,8 @@ export function ChatPanel({
   }, [selected]);
   function choose(id: string) {
     setSelected(id);
-    setChatURL(id);
+    if (persistSelection) setChatURL(id);
+    setChatListOpen(false);
   }
   async function create() {
     try {
@@ -211,42 +242,89 @@ export function ChatPanel({
   }
   return (
     <section
-      className={`relay-conversations ${compact ? 'compact' : ''}`}
+      className={`relay-conversations ${compact ? 'compact' : ''} ${chatListOpen ? 'chat-list-open' : ''} ${!current?.messages.length ? 'empty-conversation' : ''} ${!compact && (tasks.data || []).some((t) => inTaskScope(t, 'attention')) ? 'has-attention-queue' : ''}`}
       aria-label={taskId ? 'Ask Relay' : 'Relay conversations'}
     >
       {!compact && (
-        <aside className="chat-navigation">
+        <div className="chat-mobile-bar">
+          <button
+            type="button"
+            ref={chatListToggle}
+            onClick={() => setChatListOpen(!chatListOpen)}
+            aria-expanded={chatListOpen}
+            aria-controls={chatNavigationID}
+          >
+            <Icon name="chat" size={16} />
+            Chats
+          </button>
+          <button
+            className="icon-button"
+            aria-label="New mobile conversation"
+            onClick={() => void create()}
+          >
+            <Icon name="plus" size={16} />
+          </button>
+        </div>
+      )}
+      {!compact && (
+        <aside
+          className="chat-navigation"
+          ref={chatNavigation}
+          id={chatNavigationID}
+          aria-label="Chats"
+        >
           <div className="section-heading">
-            <h1>Relay</h1>
-            <button
-              className="icon-button"
-              aria-label="New conversation"
-              disabled={mutation.busy}
-              onClick={() => void create()}
-            >
-              <Icon name="plus" />
-            </button>
+            <strong>
+              Chats <span>{list.data?.length || 0}</span>
+            </strong>
           </div>
+          <button
+            type="button"
+            className="new-chat-button"
+            disabled={mutation.busy}
+            onClick={() => void create()}
+          >
+            <Icon name="plus" size={16} />
+            New chat
+          </button>
+          <label className="chat-search">
+            <Icon name="search" size={16} />
+            <input
+              aria-label="Search chats"
+              placeholder="Search chats"
+              value={chatQuery}
+              onChange={(event) => setChatQuery(event.target.value)}
+            />
+          </label>
           <div className="chat-list">
-            {list.data?.map((row) => (
-              <div key={row.id} className={row.id === selected ? 'active' : ''}>
-                <button onClick={() => choose(row.id)}>
-                  <Icon name="chat" size={16} />
-                  <span>{row.name}</span>
-                </button>
-                <button
-                  className="icon-button"
-                  aria-label={`Conversation settings: ${row.name}`}
-                  title="Conversation settings"
-                  onClick={() => {
-                    setRenaming(row);
-                    setRename(row.name);
-                  }}
-                >
-                  <Icon name="more" size={15} />
-                </button>
-              </div>
-            ))}
+            {list.data
+              ?.filter((row) => row.name.toLowerCase().includes(chatQuery.toLowerCase()))
+              .map((row) => (
+                <div key={row.id} className={row.id === selected ? 'active' : ''}>
+                  <button
+                    onClick={() => {
+                      choose(row.id);
+                      setChatListOpen(false);
+                    }}
+                  >
+                    <span>
+                      <strong>{row.name}</strong>
+                      <small>{ago(row.updatedAt)}</small>
+                    </span>
+                  </button>
+                  <button
+                    className="icon-button"
+                    aria-label={`Conversation settings: ${row.name}`}
+                    title="Conversation settings"
+                    onClick={() => {
+                      setRenaming(row);
+                      setRename(row.name);
+                    }}
+                  >
+                    <Icon name="more" size={15} />
+                  </button>
+                </div>
+              ))}
           </div>
           <button className="text-button" onClick={() => setSettings(true)}>
             <Icon name="settings" size={16} />
@@ -257,15 +335,18 @@ export function ChatPanel({
       <div className="chat-conversation">
         <header className="chat-header">
           <div>
-            <RelayMark size={28} />
-            <strong>{current?.name || (taskId ? 'Ask Relay' : 'New conversation')}</strong>
+            {compact ? (
+              <h2>{current?.name || (taskId ? 'Ask Relay' : 'Relay')}</h2>
+            ) : (
+              <h1>{current?.name || 'Relay'}</h1>
+            )}
             {taskId && <span className="task-status">Read only</span>}
           </div>
           <div className="inline">
             {compact && (
               <button
                 className="icon-button"
-                aria-label="New side conversation"
+                aria-label={taskId ? 'New side conversation' : 'New conversation'}
                 onClick={() => void create()}
               >
                 <Icon name="plus" size={16} />
@@ -278,7 +359,7 @@ export function ChatPanel({
             >
               <ProviderIcon provider={selectedProvider} size={20} />
               <span>{displayModel}</span>
-              <Icon name="settings" size={14} />
+              <Icon name="chevron" size={14} />
             </button>
           </div>
         </header>
@@ -292,13 +373,10 @@ export function ChatPanel({
         >
           {(!current || current.messages.length === 0) && (
             <div className="chat-welcome">
-              <RelayMark size={48} />
               <h2>{taskId ? 'Ask about this task' : 'What are we working on?'}</h2>
-              <p>
-                {taskId
-                  ? 'Inspect the task and its worktree without interrupting the pipeline.'
-                  : 'Inspect tasks, read issue context, create drafts, and propose workflow changes.'}
-              </p>
+              {taskId && (
+                <p>Inspect the task and its worktree without interrupting the pipeline.</p>
+              )}
               {!taskId && (
                 <div className="chat-starters">
                   {[
@@ -579,6 +657,27 @@ export function ChatPanel({
           </small>
         </form>
       </div>
+      {!compact && (tasks.data || []).some((t) => inTaskScope(t, 'attention')) && (
+        <aside className="chat-attention-queue" aria-label="Tasks needing attention">
+          <h2>
+            Needs you{' '}
+            <span>{(tasks.data || []).filter((t) => inTaskScope(t, 'attention')).length}</span>
+          </h2>
+          {(tasks.data || [])
+            .filter((t) => inTaskScope(t, 'attention'))
+            .slice(0, 5)
+            .map((t) => (
+              <a key={t.id} href={`#task/${t.id}/overview`}>
+                <strong>{t.title}</strong>
+                <span className={`task-status status-${t.status}`}>{statusLabel(t.status)}</span>
+              </a>
+            ))}
+          <a href="#tasks?scope=attention">
+            All tasks
+            <Icon name="arrow" size={14} />
+          </a>
+        </aside>
+      )}
       {settings && (
         <Modal
           title="Relay agent"

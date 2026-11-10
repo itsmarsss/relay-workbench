@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Modal } from './Modal';
-import { Markdown } from './Markdown';
+import { MarkdownEditor } from './MarkdownEditor';
 import { useImageUpload } from './ImageUpload';
 import { draftRequest } from './forms';
 import { AgentSettings, agentOptions } from './AgentSettings';
@@ -39,7 +39,6 @@ export function DraftComposer({
     [preset, setPreset] = useState('bugfix'),
     [advanced, setAdvanced] = useState('{}'),
     [agents, setAgents] = useState(agentOptions),
-    [preview, setPreview] = useState(false),
     [error, setError] = useState(''),
     [busy, setBusy] = useState(false),
     [importing, setImporting] = useState(false),
@@ -177,37 +176,7 @@ export function DraftComposer({
           autoFocus
         />
       </label>
-      <div className="field">
-        <div className="field-heading">
-          <label htmlFor="draft-description">Description</label>
-          <div role="group" aria-label="Description editor">
-            <button type="button" aria-pressed={!preview} onClick={() => setPreview(false)}>
-              Write
-            </button>
-            <button type="button" aria-pressed={preview} onClick={() => setPreview(true)}>
-              Preview
-            </button>
-          </div>
-        </div>
-        {preview ? (
-          <div className="markdown-preview">
-            <Markdown text={description || 'Nothing to preview yet.'} />
-          </div>
-        ) : (
-          <textarea
-            id="draft-description"
-            onPaste={uploads.onPaste}
-            onDrop={uploads.onDrop}
-            onDragOver={uploads.onDragOver}
-            rows={5}
-            value={description}
-            maxLength={50000}
-            onChange={(event) => setDescription(event.target.value)}
-            placeholder="Requirements, context, and links. Markdown is supported."
-          />
-        )}
-      </div>
-      {uploads.control}
+      <MarkdownEditor value={description} onChange={setDescription} uploads={uploads} />
       <label className="field">
         Issue link or reference
         <input

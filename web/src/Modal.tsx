@@ -8,6 +8,7 @@ export function Modal({
   children,
   footer,
   returnFocus,
+  className = '',
 }: {
   title: string;
   onClose: () => void;
@@ -15,6 +16,7 @@ export function Modal({
   children: ReactNode;
   footer?: ReactNode;
   returnFocus?: HTMLElement | null;
+  className?: string;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
   useEffect(() => {
@@ -28,10 +30,22 @@ export function Modal({
       if (previous?.isConnected) previous.focus({ preventScroll: true });
     };
   }, []);
+  const body = (
+    <>
+      <header>
+        <h2>{title}</h2>
+        <button type="button" aria-label="Close dialog" onClick={onClose}>
+          <Icon name="close" size={18} />
+        </button>
+      </header>
+      <div className="editor-modal-body">{children}</div>
+      {footer && <footer>{footer}</footer>}
+    </>
+  );
   const content = (
     <dialog
       ref={dialog}
-      className="editor-modal"
+      className={`editor-modal ${className}`.trim()}
       onKeyDown={(event) => {
         if (
           event.key !== 'Tab' ||
@@ -66,22 +80,19 @@ export function Modal({
       }}
       aria-label={title}
     >
-      <form
-        onSubmit={(event) => {
-          event.preventDefault();
-          event.stopPropagation();
-          onSubmit?.(event);
-        }}
-      >
-        <header>
-          <h2>{title}</h2>
-          <button type="button" aria-label="Close dialog" onClick={onClose}>
-            <Icon name="close" size={18} />
-          </button>
-        </header>
-        <div className="editor-modal-body">{children}</div>
-        {footer && <footer>{footer}</footer>}
-      </form>
+      {onSubmit ? (
+        <form
+          onSubmit={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            onSubmit?.(event);
+          }}
+        >
+          {body}
+        </form>
+      ) : (
+        <div className="modal-content">{body}</div>
+      )}
     </dialog>
   );
   return typeof document === 'undefined' ? content : createPortal(content, document.body);

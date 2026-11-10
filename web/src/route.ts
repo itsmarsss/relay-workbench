@@ -1,5 +1,7 @@
 import { taskViews, type TaskView } from './types.ts';
 export type Route =
+  | { kind: 'overview' }
+  | { kind: 'agents' }
   | { kind: 'deck' }
   | { kind: 'tasks' }
   | { kind: 'repositories' }
@@ -10,7 +12,9 @@ export type Route =
   | { kind: 'relay' }
   | { kind: 'task'; id: string; tab: TaskView };
 export function parseRoute(hash: string): Route {
-  const path = hash.replace(/^#/, '').split('?')[0] || 'deck';
+  const path = hash.replace(/^#/, '').split('?')[0] || 'overview';
+  if (path === 'assistant') return { kind: 'relay' };
+  if (path === 'harnesses') return { kind: 'agents' };
   const match = path.match(/^task\/([a-f0-9-]{36})(?:\/([a-z]+))?$/);
   if (match)
     return {
@@ -20,6 +24,8 @@ export function parseRoute(hash: string): Route {
     };
   if (
     path === 'tasks' ||
+    path === 'overview' ||
+    path === 'agents' ||
     path === 'repositories' ||
     path === 'storage' ||
     path === 'settings' ||

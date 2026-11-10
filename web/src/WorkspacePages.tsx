@@ -1,3 +1,4 @@
+import { AppearanceSettings } from './Appearance';
 import { NotificationSettings } from './Notifications';
 import { RoutingEvidence } from './WorkflowInsights';
 import { useState } from 'react';
@@ -7,10 +8,13 @@ import { Select, ProviderIcon, ProviderName, providerName } from './UI';
 import { Notice, useMutation, useResource, useSession, request } from './Session';
 import type { RelayConfig, Bootstrap } from './types';
 import { asObject } from './task-data';
+import { stageNames } from './presentation';
 const providers = ['codex', 'claude', 'pi'];
 export function SettingsPage({
   onSave,
+  mode = 'settings',
 }: {
+  mode?: 'settings' | 'agents';
   onSave: (revision: string, config: RelayConfig) => Promise<void>;
 }) {
   const { bootstrap } = useSession();
@@ -25,11 +29,16 @@ export function SettingsPage({
   const agents = asObject(config.harnesses) || {},
     routing = asObject(config.routing) || {};
   return (
-    <section className="settings-page">
+    <section className={`settings-page ${mode}-page`}>
       <div className="page-title">
         <div>
-          <h1>Settings</h1>
-          <p>Providers, routing, and execution limits.</p>
+          <div className="eyebrow">{mode === 'agents' ? 'Workspace' : 'Make it yours'}</div>
+          <h1>{mode === 'agents' ? 'Agents' : 'Settings'}</h1>
+          <p>
+            {mode === 'agents'
+              ? 'Configure providers and defaults for new tasks.'
+              : 'Local configuration, execution limits, and private integration profiles.'}
+          </p>
         </div>
         <button
           className="primary"
@@ -48,178 +57,230 @@ export function SettingsPage({
               .finally(() => setBusy(false));
           }}
         >
-          {busy ? 'Saving…' : 'Save settings'}
+          {busy ? 'Saving…' : mode === 'agents' ? 'Save agent settings' : 'Save settings'}
         </button>
       </div>
       {message && <p role="status">{message}</p>}
-      <NotificationSettings />
-      <StateTransfer />
-      <section className="surface">
-        <h2>Agents</h2>
-        <div className="agent-settings">
-          {providers.map((id) => {
-            const agent = asObject(agents[id]) || {};
-            function field(key: string, value: unknown) {
-              update('harnesses', { ...agents, [id]: { ...agent, [key]: value } });
-            }
-            return (
-              <article key={id}>
-                <div className="section-heading">
-                  <h3>
-                    <ProviderName provider={id} size={30} />
-                  </h3>
-                  <label className="inline">
-                    <input
-                      type="checkbox"
-                      checked={agent.enabled !== false}
-                      onChange={(e) => field('enabled', e.target.checked)}
-                    />
-                    Enabled
-                  </label>
-                </div>
-                <label className="field">
-                  Executable
-                  <input
-                    value={String(agent.command || id)}
-                    onChange={(e) => field('command', e.target.value)}
-                    spellCheck={false}
-                  />
-                </label>
-                <label className="field">
-                  Default model
-                  <ModelSelect
-                    provider={id}
-                    value={String(agent.model || '')}
-                    onChange={(value) => field('model', value)}
-                  />
-                </label>
-                <label className="field">
-                  Effort
-                  <EffortSelect
-                    provider={id}
-                    value={String(agent.effort || '')}
-                    onChange={(value) => field('effort', value)}
-                  />
-                </label>
-              </article>
-            );
-          })}
-        </div>
-      </section>
-      <section className="surface">
-        <h2>Routing</h2>
-        <div className="form-grid">
-          {['triage', 'investigate', 'plan', 'implement', 'review'].map((stage) => (
-            <label className="field" key={stage}>
-              {stage}
-              <Select
-                label={`${stage} provider`}
-                value={String(routing[stage] || 'codex')}
-                options={providers.map((value) => ({
-                  value,
-                  label: providerName(value),
-                  icon: <ProviderIcon provider={value} size={22} />,
-                }))}
-                onChange={(value) => update('routing', { ...routing, [stage]: value })}
-              />
-            </label>
-          ))}
-        </div>
-      </section>
-      <section className="surface">
-        <RoutingEvidence
-          config={config}
-          onApply={(stage, provider) => update('routing', { ...routing, [stage]: provider })}
-        />
-      </section>
-      <section className="surface">
-        <h2>Workflow limits</h2>
-        <div className="form-grid">
-          {[
-            ['concurrency', 'Concurrent tasks', 1, 8],
-            ['timeoutMinutes', 'Agent minutes', 1, 240],
-            ['maxRepairRounds', 'Repair rounds', 1, 10],
-            ['maxRecoveryAttempts', 'Debugger attempts', 0, 5],
-          ].map(([key, label, min, max]) => (
-            <label className="field" key={key}>
-              {label}
-              <input
-                type="number"
-                min={min}
-                max={max}
-                value={Number(config[String(key)] || min)}
-                onChange={(e) => update(String(key), Number(e.target.value))}
-              />
-            </label>
-          ))}
-        </div>
-      </section>
-      <section className="surface">
-        <h2>Relay agent</h2>
-        <div className="form-grid">
-          <label className="field">
-            Agent
-            <Select
-              label="Default Relay agent"
-              value={String(asObject(config.workspaceAgent)?.provider || 'claude')}
-              options={providers.map((value) => ({
-                value,
-                label: providerName(value),
-                icon: <ProviderIcon provider={value} size={22} />,
-              }))}
-              onChange={(provider) =>
-                update('workspaceAgent', {
-                  ...asObject(config.workspaceAgent),
-                  provider,
-                  model: '',
-                  effort: '',
-                })
-              }
-            />
-          </label>
-          <label className="field">
-            Model
-            <ModelSelect
-              provider={String(asObject(config.workspaceAgent)?.provider || 'claude')}
-              value={String(asObject(config.workspaceAgent)?.model || '')}
-              onChange={(model) =>
-                update('workspaceAgent', { ...asObject(config.workspaceAgent), model })
-              }
-            />
-          </label>
-          <label className="field">
-            Effort
-            <EffortSelect
-              provider={String(asObject(config.workspaceAgent)?.provider || 'claude')}
-              value={String(asObject(config.workspaceAgent)?.effort || '')}
-              onChange={(effort) =>
-                update('workspaceAgent', { ...asObject(config.workspaceAgent), effort })
-              }
-            />
-          </label>
-        </div>
-        <p className="muted">Execution and settings proposals always need your approval.</p>
-        {Object.entries(asObject(asObject(config.workspaceAgent)?.permissions) || {}).map(
-          ([key, value]) => (
-            <label className="check-row" key={key}>
-              <input
-                type="checkbox"
-                checked={value === true}
-                onChange={(e) =>
-                  update('workspaceAgent', {
-                    ...asObject(config.workspaceAgent),
-                    permissions: {
-                      ...asObject(asObject(config.workspaceAgent)?.permissions),
-                      [key]: e.target.checked,
-                    },
-                  })
+      {mode === 'settings' && (
+        <>
+          <AppearanceSettings />
+          <NotificationSettings />
+        </>
+      )}
+      {mode === 'agents' && (
+        <>
+          <section className="agent-profiles">
+            <div className="agent-settings">
+              {providers.map((id) => {
+                const agent = asObject(agents[id]) || {};
+                function field(key: string, value: unknown) {
+                  update('harnesses', { ...agents, [id]: { ...agent, [key]: value } });
                 }
-              />
-              <span>{key.replace(/([A-Z])/g, ' $1').toLowerCase()}</span>
-            </label>
-          ),
-        )}
-      </section>
+                return (
+                  <article className="surface agent-profile" key={id}>
+                    <div className="agent-profile-heading">
+                      <h2>
+                        <ProviderName provider={id} size={30} />
+                      </h2>
+                      <p>{agent.enabled !== false ? 'Enabled' : 'Disabled'}</p>
+                    </div>
+                    <label className="field">
+                      Executable
+                      <input
+                        value={String(agent.command || id)}
+                        onChange={(e) => field('command', e.target.value)}
+                        spellCheck={false}
+                      />
+                    </label>
+                    <label className="field">
+                      Default model
+                      <ModelSelect
+                        provider={id}
+                        value={String(agent.model || '')}
+                        onChange={(value) => field('model', value)}
+                      />
+                    </label>
+                    <label className="field">
+                      Effort
+                      <EffortSelect
+                        provider={id}
+                        value={String(agent.effort || '')}
+                        onChange={(value) => field('effort', value)}
+                      />
+                    </label>
+                    <label className="inline">
+                      <input
+                        type="checkbox"
+                        checked={agent.enabled !== false}
+                        onChange={(e) => field('enabled', e.target.checked)}
+                        aria-label={`Enable ${providerName(id)} for routing`}
+                      />
+                      Enabled for routing
+                    </label>
+                  </article>
+                );
+              })}
+            </div>
+          </section>
+          <section className="surface">
+            <h2>Specialist routing</h2>
+            <p className="form-note">Defaults for new tasks. Each task keeps its own routing.</p>
+            <div className="form-grid">
+              {['triage', 'investigate', 'plan', 'implement', 'review'].map((stage) => (
+                <label className="field" key={stage}>
+                  {stageNames[stage]}
+                  <Select
+                    label={`${stage} provider`}
+                    value={String(routing[stage] || 'codex')}
+                    options={providers.map((value) => ({
+                      value,
+                      label: providerName(value),
+                      icon: <ProviderIcon provider={value} size={22} />,
+                    }))}
+                    onChange={(value) => update('routing', { ...routing, [stage]: value })}
+                  />
+                </label>
+              ))}
+            </div>
+          </section>
+          <section className="surface">
+            <RoutingEvidence
+              config={config}
+              onApply={(stage, provider) => update('routing', { ...routing, [stage]: provider })}
+            />
+          </section>
+        </>
+      )}
+      {mode === 'settings' && (
+        <>
+          <section className="surface">
+            <h2>Execution</h2>
+            <p className="form-note">Control concurrency, retries, and run duration.</p>
+            <div className="form-grid">
+              {[
+                [
+                  'concurrency',
+                  'Concurrent tasks',
+                  1,
+                  8,
+                  'Work in different repositories concurrently.',
+                ],
+                [
+                  'maxRepairRounds',
+                  'Automatic repair rounds',
+                  1,
+                  10,
+                  'Pause for your input after repeated failures.',
+                ],
+                [
+                  'maxRecoveryAttempts',
+                  'Blocker recovery attempts',
+                  0,
+                  5,
+                  'Agents try to resolve blockers before asking you.',
+                ],
+                [
+                  'timeoutMinutes',
+                  'Stage budget (minutes)',
+                  1,
+                  240,
+                  'Time available for each stage before it pauses.',
+                ],
+              ].map(([key, label, min, max, hint]) => (
+                <label className="field" key={key}>
+                  {label}
+                  <input
+                    type="number"
+                    min={Number(min)}
+                    max={Number(max)}
+                    value={Number(config[String(key)] || min)}
+                    onChange={(e) => update(String(key), Number(e.target.value))}
+                  />
+                  <small className="form-note">{hint}</small>
+                </label>
+              ))}
+            </div>
+          </section>
+          <section className="surface">
+            <h2>Relay agent</h2>
+            <div className="form-grid">
+              <label className="field">
+                Agent
+                <Select
+                  label="Default Relay agent"
+                  value={String(asObject(config.workspaceAgent)?.provider || 'claude')}
+                  options={providers.map((value) => ({
+                    value,
+                    label: providerName(value),
+                    icon: <ProviderIcon provider={value} size={22} />,
+                  }))}
+                  onChange={(provider) =>
+                    update('workspaceAgent', {
+                      ...asObject(config.workspaceAgent),
+                      provider,
+                      model: '',
+                      effort: '',
+                    })
+                  }
+                />
+              </label>
+              <label className="field">
+                Model
+                <ModelSelect
+                  provider={String(asObject(config.workspaceAgent)?.provider || 'claude')}
+                  value={String(asObject(config.workspaceAgent)?.model || '')}
+                  onChange={(model) =>
+                    update('workspaceAgent', { ...asObject(config.workspaceAgent), model })
+                  }
+                />
+              </label>
+              <label className="field">
+                Effort
+                <EffortSelect
+                  provider={String(asObject(config.workspaceAgent)?.provider || 'claude')}
+                  value={String(asObject(config.workspaceAgent)?.effort || '')}
+                  onChange={(effort) =>
+                    update('workspaceAgent', { ...asObject(config.workspaceAgent), effort })
+                  }
+                />
+              </label>
+            </div>
+            <p className="muted">Execution and settings proposals always need your approval.</p>
+            {Object.entries(asObject(asObject(config.workspaceAgent)?.permissions) || {}).map(
+              ([key, value]) => (
+                <label className="check-row" key={key}>
+                  <input
+                    type="checkbox"
+                    checked={value === true}
+                    onChange={(e) =>
+                      update('workspaceAgent', {
+                        ...asObject(config.workspaceAgent),
+                        permissions: {
+                          ...asObject(asObject(config.workspaceAgent)?.permissions),
+                          [key]: e.target.checked,
+                        },
+                      })
+                    }
+                  />
+                  <span>{key.replace(/([A-Z])/g, ' $1').toLowerCase()}</span>
+                </label>
+              ),
+            )}
+          </section>
+          <section className="surface">
+            <div className="section-heading">
+              <div>
+                <h2>Storage and worktrees</h2>
+                <p>Monitor free space, warning thresholds and rebuildable files.</p>
+              </div>
+              <a className="button-link" href="#storage">
+                Manage storage
+              </a>
+            </div>
+          </section>
+          <StateTransfer />
+        </>
+      )}
     </section>
   );
 }
@@ -291,6 +352,7 @@ export function MemoryPage() {
     <section>
       <div className="page-title">
         <div>
+          <div className="eyebrow">Workspace knowledge</div>
           <h1>Memory</h1>
           <p>Approved knowledge, scoped to where it applies.</p>
         </div>
@@ -623,7 +685,7 @@ function StateTransfer() {
     <section className="surface">
       <div className="section-heading">
         <div>
-          <h2>State transfer</h2>
+          <h2>Backup and restore</h2>
           <p className="muted">
             Save tasks, activity, chats, memory and images. Worktrees and build files stay on disk.
           </p>

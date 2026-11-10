@@ -1,16 +1,11 @@
 import { WorkflowStatus, TaskResult } from './WorkflowInsights';
-import { SideChat } from './Chat';
+import { TaskSidebar } from './TaskSidebar';
+import { stageNames, nextStep } from './presentation';
 import { useMutation } from './Session';
 import { asObject } from './task-data';
 import { AutoControl, ForkLinks } from './WorkflowHistory';
 import { useEffect, useState } from 'react';
-import {
-  TaskMenu,
-  ContinueWork,
-  PublicationPanel,
-  ExecutionGraph,
-  type FullTask,
-} from './TaskExtras';
+import { TaskMenu, ContinueWork, PublicationPanel, type FullTask } from './TaskExtras';
 import { motion } from 'motion/react';
 import { Markdown } from './Markdown';
 import { TaskPanel } from './TaskPanel';
@@ -249,7 +244,6 @@ export function TaskPage({
   const blocker = currentBlocker(task);
   return (
     <section className="task-page">
-      <SideChat taskId={task.id} />
       <button className="back" onClick={onBack}>
         <Icon name="back" size={16} />
         All tasks
@@ -308,271 +302,291 @@ export function TaskPage({
         </div>
       </div>
 
-      {asObject(task.migration)?.readOnly === true && (
-        <section className="surface imported-notice">
-          <div>
-            <h2>Imported history</h2>
-            <p>
-              This snapshot cannot run against another instance’s worktrees. Create a draft to start
-              in a new workspace.
-            </p>
-          </div>
-          <button
-            className="primary"
-            disabled={migrationMutation.busy}
-            onClick={() =>
-              void migrationMutation
-                .run<Task>(`/api/tasks/${task.id}/recreate`, { taskRevision: task.taskRevision })
-                .then((created) => {
-                  location.hash = `task/${created.id}/overview`;
-                })
-                .catch(() => {})
-            }
-          >
-            Create fresh draft
-          </button>
-          {migrationMutation.error && (
-            <p className="error" role="alert">
-              {migrationMutation.error}
-            </p>
-          )}
-        </section>
-      )}
-      {actionError && (
-        <p className="error" role="alert">
-          {actionError}
-        </p>
-      )}
-      {error && (
-        <p className="error" role="status">
-          {error}
-        </p>
-      )}
-      {blocker && (
-        <section className="blocker-panel" aria-label="Blocker decision">
-          <h2>Needs your decision</h2>
-          <p>{blocker.summary || 'The debugger needs direction.'}</p>
-          {blocker.explanation && <Markdown text={blocker.explanation} />}
-          {(blocker.evidence.length > 0 || blocker.required.length > 0) && (
-            <details>
-              <summary>Evidence and required help</summary>
-              <ul>
-                {[...blocker.evidence, ...blocker.required].map((item, index) => (
-                  <li key={index}>{item}</li>
-                ))}
-              </ul>
-            </details>
-          )}
-          {blocker.options.length > 0 && (
-            <div className="plan-options">
-              {blocker.options.map((option) => (
-                <article
-                  key={option.id}
-                  className={blockerOption === option.id ? 'selectable selected' : 'selectable'}
-                  onClick={() => setBlockerOption(option.id)}
-                >
-                  <h3>
-                    <input
-                      type="radio"
-                      name="blocker-option"
-                      aria-label={`Select ${option.title}`}
-                      checked={blockerOption === option.id}
-                      onChange={() => setBlockerOption(option.id)}
-                    />
-                    {option.title}
-                  </h3>
-                  <Markdown text={option.description} />
-                  <h4>Tradeoffs</h4>
-                  <Markdown text={option.tradeoffs} />
-                </article>
-              ))}
+      <div className="task-layout">
+        <div className="task-main">
+          <section className="current-status surface">
+            <div>
+              <div className="eyebrow">Current status</div>
+              <h2>
+                {stageNames[task.currentRun?.stage || task.stage || ''] || statusLabel(task.status)}
+              </h2>
+              <p>{task.latestSummary || task.error || 'Your task is ready to start.'}</p>
+              {task.currentRun?.status === 'running' && <WorkflowStatus task={task as FullTask} />}
             </div>
+            <div>
+              <h3>Your next step</h3>
+              <p>{nextStep(task)}</p>
+            </div>
+          </section>
+          {asObject(task.migration)?.readOnly === true && (
+            <section className="surface imported-notice">
+              <div>
+                <h2>Imported history</h2>
+                <p>
+                  This snapshot cannot run against another instance’s worktrees. Create a draft to
+                  start in a new workspace.
+                </p>
+              </div>
+              <button
+                className="primary"
+                disabled={migrationMutation.busy}
+                onClick={() =>
+                  void migrationMutation
+                    .run<Task>(`/api/tasks/${task.id}/recreate`, {
+                      taskRevision: task.taskRevision,
+                    })
+                    .then((created) => {
+                      location.hash = `task/${created.id}/overview`;
+                    })
+                    .catch(() => {})
+                }
+              >
+                Create fresh draft
+              </button>
+              {migrationMutation.error && (
+                <p className="error" role="alert">
+                  {migrationMutation.error}
+                </p>
+              )}
+            </section>
           )}
-          {debugRecoveryPreview ? (
-            <div className="blocker-actions">
-              <label>
-                Direction (optional)
-                <textarea
-                  value={blockerNote}
-                  onChange={(event) => setBlockerNote(event.target.value)}
-                  maxLength={10000}
-                  rows={2}
-                />
-              </label>
+          {actionError && (
+            <p className="error" role="alert">
+              {actionError}
+            </p>
+          )}
+          {error && (
+            <p className="error" role="status">
+              {error}
+            </p>
+          )}
+          {blocker && (
+            <section className="blocker-panel" aria-label="Blocker decision">
+              <h2>Needs your decision</h2>
+              <p>{blocker.summary || 'The debugger needs direction.'}</p>
+              {blocker.explanation && <Markdown text={blocker.explanation} />}
+              {(blocker.evidence.length > 0 || blocker.required.length > 0) && (
+                <details>
+                  <summary>Evidence and required help</summary>
+                  <ul>
+                    {[...blocker.evidence, ...blocker.required].map((item, index) => (
+                      <li key={index}>{item}</li>
+                    ))}
+                  </ul>
+                </details>
+              )}
+              {blocker.options.length > 0 && (
+                <div className="plan-options">
+                  {blocker.options.map((option) => (
+                    <article
+                      key={option.id}
+                      className={blockerOption === option.id ? 'selectable selected' : 'selectable'}
+                      onClick={() => setBlockerOption(option.id)}
+                    >
+                      <h3>
+                        <input
+                          type="radio"
+                          name="blocker-option"
+                          aria-label={`Select ${option.title}`}
+                          checked={blockerOption === option.id}
+                          onChange={() => setBlockerOption(option.id)}
+                        />
+                        {option.title}
+                      </h3>
+                      <Markdown text={option.description} />
+                      <h4>Tradeoffs</h4>
+                      <Markdown text={option.tradeoffs} />
+                    </article>
+                  ))}
+                </div>
+              )}
+              {debugRecoveryPreview ? (
+                <div className="blocker-actions">
+                  <label>
+                    Direction (optional)
+                    <textarea
+                      value={blockerNote}
+                      onChange={(event) => setBlockerNote(event.target.value)}
+                      maxLength={10000}
+                      rows={2}
+                    />
+                  </label>
+                  <div className="task-page-actions">
+                    <button
+                      className="primary"
+                      disabled={busy || !task.taskRevision}
+                      onClick={() => void resolveDecision('retry')}
+                    >
+                      Retry debugger
+                    </button>
+                    {task.preset !== 'investigate' && (
+                      <button
+                        disabled={busy || !task.taskRevision}
+                        onClick={() => void resolveDecision('replan')}
+                      >
+                        Revise approach
+                      </button>
+                    )}
+                    <button
+                      disabled={busy || !task.taskRevision}
+                      onClick={() => void resolveDecision('pause')}
+                    >
+                      Pause
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <p>Debugger actions are not available in this preview yet.</p>
+              )}
+            </section>
+          )}
+          {plan && (
+            <section className="plan-preview" aria-label="Proposed approaches">
+              <h2>Proposed approaches</h2>
+              {plan.summary && <p>{plan.summary}</p>}
+              {plan.reason && <Markdown text={plan.reason} />}
+              {plan.details && (
+                <details>
+                  <summary>Full proposal</summary>
+                  <Markdown text={plan.details} />
+                </details>
+              )}
+              <div className="plan-options">
+                {plan.options.map((option) => (
+                  <article
+                    key={option.id}
+                    className={
+                      implementationPreview
+                        ? selectedOption === option.id
+                          ? 'selectable selected'
+                          : 'selectable'
+                        : ''
+                    }
+                    onClick={() => {
+                      if (implementationPreview) setSelectedOption(option.id);
+                    }}
+                  >
+                    <h3>
+                      {implementationPreview && (
+                        <input
+                          type="radio"
+                          name="approach"
+                          aria-label={`Select ${option.title}`}
+                          checked={selectedOption === option.id}
+                          onChange={() => setSelectedOption(option.id)}
+                        />
+                      )}
+                      {option.title}{' '}
+                      {option.id === plan.recommendedId && <small>Recommended</small>}
+                    </h3>
+                    <Markdown text={option.description} />
+                    <h4>Tradeoffs</h4>
+                    <Markdown text={option.tradeoffs} />
+                  </article>
+                ))}
+              </div>
+              {implementationPreview ? (
+                <div className="plan-decision">
+                  <label>
+                    Approval note{' '}
+                    <input
+                      value={approvalNote}
+                      onChange={(event) => setApprovalNote(event.target.value)}
+                      maxLength={10000}
+                    />
+                  </label>
+                  <button
+                    className="primary"
+                    disabled={busy || !selectedOption || !task.taskRevision}
+                    onClick={() => void decide('approve')}
+                  >
+                    {busy ? 'Approving…' : 'Approve approach'}
+                  </button>
+                </div>
+              ) : (
+                <p className="form-note">
+                  Approach approval and implementation are not available in this preview yet.
+                </p>
+              )}
+            </section>
+          )}
+          {implementationPreview && task.status === 'awaiting_final' && (
+            <section className="final-decision" aria-label="Final review">
+              <div>
+                <h2>Ready for your review</h2>
+                <p>Inspect the changes before accepting this result.</p>
+              </div>
               <div className="task-page-actions">
+                <button onClick={() => onTab('diff')}>View changes</button>
                 <button
                   className="primary"
                   disabled={busy || !task.taskRevision}
-                  onClick={() => void resolveDecision('retry')}
+                  onClick={() => void decide('accept')}
                 >
-                  Retry debugger
-                </button>
-                {task.preset !== 'investigate' && (
-                  <button
-                    disabled={busy || !task.taskRevision}
-                    onClick={() => void resolveDecision('replan')}
-                  >
-                    Revise approach
-                  </button>
-                )}
-                <button
-                  disabled={busy || !task.taskRevision}
-                  onClick={() => void resolveDecision('pause')}
-                >
-                  Pause
+                  {busy ? 'Checking…' : 'Accept result'}
                 </button>
               </div>
-            </div>
-          ) : (
-            <p>Debugger actions are not available in this preview yet.</p>
-          )}
-        </section>
-      )}
-      {plan && (
-        <section className="plan-preview" aria-label="Proposed approaches">
-          <h2>Proposed approaches</h2>
-          {plan.summary && <p>{plan.summary}</p>}
-          {plan.reason && <Markdown text={plan.reason} />}
-          {plan.details && (
-            <details>
-              <summary>Full proposal</summary>
-              <Markdown text={plan.details} />
-            </details>
-          )}
-          <div className="plan-options">
-            {plan.options.map((option) => (
-              <article
-                key={option.id}
-                className={
-                  implementationPreview
-                    ? selectedOption === option.id
-                      ? 'selectable selected'
-                      : 'selectable'
-                    : ''
-                }
-                onClick={() => {
-                  if (implementationPreview) setSelectedOption(option.id);
-                }}
-              >
-                <h3>
-                  {implementationPreview && (
-                    <input
-                      type="radio"
-                      name="approach"
-                      aria-label={`Select ${option.title}`}
-                      checked={selectedOption === option.id}
-                      onChange={() => setSelectedOption(option.id)}
-                    />
-                  )}
-                  {option.title} {option.id === plan.recommendedId && <small>Recommended</small>}
-                </h3>
-                <Markdown text={option.description} />
-                <h4>Tradeoffs</h4>
-                <Markdown text={option.tradeoffs} />
-              </article>
-            ))}
-          </div>
-          {implementationPreview ? (
-            <div className="plan-decision">
-              <label>
-                Approval note{' '}
-                <input
-                  value={approvalNote}
-                  onChange={(event) => setApprovalNote(event.target.value)}
-                  maxLength={10000}
-                />
-              </label>
-              <button
-                className="primary"
-                disabled={busy || !selectedOption || !task.taskRevision}
-                onClick={() => void decide('approve')}
-              >
-                {busy ? 'Approving…' : 'Approve approach'}
-              </button>
-            </div>
-          ) : (
-            <p className="form-note">
-              Approach approval and implementation are not available in this preview yet.
-            </p>
-          )}
-        </section>
-      )}
-      {implementationPreview && task.status === 'awaiting_final' && (
-        <section className="final-decision" aria-label="Final review">
-          <div>
-            <h2>Ready for your review</h2>
-            <p>Inspect the changes before accepting this result.</p>
-          </div>
-          <div className="task-page-actions">
-            <button onClick={() => onTab('diff')}>View changes</button>
-            <button
-              className="primary"
-              disabled={busy || !task.taskRevision}
-              onClick={() => void decide('accept')}
-            >
-              {busy ? 'Checking…' : 'Accept result'}
-            </button>
-          </div>
-        </section>
-      )}
-      <nav className="detail-nav" aria-label="Task views">
-        {taskViews.map((view) => (
-          <button
-            key={view.id}
-            aria-current={tab === view.id ? 'page' : undefined}
-            onClick={() => onTab(view.id)}
-          >
-            <Icon
-              name={
-                {
-                  overview: 'grid',
-                  thread: 'clock',
-                  terminals: 'terminal',
-                  diff: 'code',
-                  handoffs: 'git',
-                  transcript: 'list',
-                }[view.id]
-              }
-              size={16}
-            />
-            {view.label}
-            {tab === view.id && (
-              <motion.span className="scope-indicator" layoutId={`task-view-${task.id}`} />
-            )}
-          </button>
-        ))}
-      </nav>
-      <WorkflowStatus task={task as FullTask} />
-      <motion.div
-        key={tab}
-        initial={{ opacity: 0, y: 4 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.16 }}
-      >
-        {tab === 'overview' ? (
-          <div className="task-overview">
-            <ExecutionGraph task={task as FullTask} />
-            <ForkLinks task={task as FullTask} />
-            <PublicationPanel task={task as FullTask} />
-            <TaskResult task={task as FullTask} />
-            <section className="description-card">
-              <h2>Description &amp; requirements</h2>
-              {task.description ? (
-                <Markdown text={task.description} />
-              ) : (
-                <p>No description provided.</p>
-              )}
             </section>
-            {asObject(task.migration)?.readOnly !== true && !task.demo && (
-              <ContinueWork task={task as FullTask} />
+          )}
+          <nav className="detail-nav" aria-label="Task views">
+            {taskViews.map((view) => (
+              <button
+                key={view.id}
+                aria-current={tab === view.id ? 'page' : undefined}
+                onClick={() => onTab(view.id)}
+              >
+                <Icon
+                  name={
+                    {
+                      overview: 'grid',
+                      thread: 'clock',
+                      terminals: 'terminal',
+                      diff: 'code',
+                      handoffs: 'git',
+                      transcript: 'list',
+                    }[view.id]
+                  }
+                  size={16}
+                />
+                {view.label}
+                {tab === view.id && (
+                  <motion.span className="scope-indicator" layoutId={`task-view-${task.id}`} />
+                )}
+              </button>
+            ))}
+          </nav>
+          <motion.div
+            key={tab}
+            initial={{ opacity: 0, y: 4 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.16 }}
+          >
+            {tab === 'overview' ? (
+              <div className="task-overview">
+                <ForkLinks task={task as FullTask} />
+                <PublicationPanel task={task as FullTask} />
+                <TaskResult task={task as FullTask} />
+                <section className="description-card">
+                  <h2>Description &amp; requirements</h2>
+                  {task.description ? (
+                    <Markdown text={task.description} />
+                  ) : (
+                    <p>No description provided.</p>
+                  )}
+                </section>
+                {asObject(task.migration)?.readOnly !== true && !task.demo && (
+                  <ContinueWork task={task as FullTask} />
+                )}
+              </div>
+            ) : (
+              <div className="task-detail-panel">
+                <TaskPanel key={`${id}:${tab}`} task={task} view={tab} />
+              </div>
             )}
-          </div>
-        ) : (
-          <div className="task-detail-panel">
-            <TaskPanel key={`${id}:${tab}`} task={task} view={tab} />
-          </div>
-        )}
-      </motion.div>
+          </motion.div>
+        </div>
+        <TaskSidebar task={task as FullTask} />
+      </div>
     </section>
   );
 }
