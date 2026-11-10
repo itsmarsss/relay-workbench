@@ -73,7 +73,7 @@ export function ExecutionGraph({ task }: { task: FullTask }) {
           </button>
           <button
             className="text-button graph-zoom"
-            aria-label="Reset graph zoom"
+            aria-label={`Reset graph zoom: ${Math.round(zoom * 100)}%`}
             onClick={() => setZoom(1)}
           >
             {Math.round(zoom * 100)}%

@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { markdown } from './render-markdown';
 import { Modal } from './Modal';
-export function Markdown({ text }: { text: string }) {
+export function Markdown({ text, breaks = false }: { text: string; breaks?: boolean }) {
   const [image, setImage] = useState<{ src: string; alt: string } | null>(null);
   return (
     <>
@@ -15,7 +15,7 @@ export function Markdown({ text }: { text: string }) {
             setImage({ src: img.src, alt: img.alt });
           }
         }}
-        dangerouslySetInnerHTML={{ __html: markdown(text) }}
+        dangerouslySetInnerHTML={{ __html: markdown(text, breaks) }}
       />
       {image && (
         <Modal title={image.alt || 'Image'} onClose={() => setImage(null)}>

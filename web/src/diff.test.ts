@@ -1,6 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { splitDiff } from './diff.ts';
+test('empty diffs do not create fictitious files or comment anchors', () => {
+  assert.deepEqual(splitDiff(''), []);
+  assert.deepEqual(splitDiff('  \n\t\n'), []);
+});
 test('diff anchors preserve old/new line numbers and file boundaries', () => {
   const files = splitDiff(
     'diff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n@@ -7,2 +7,3 @@\n old\n-before\n+after\n+extra\ndiff --git a/deleted.txt b/deleted.txt\n--- a/deleted.txt\n+++ /dev/null\n@@ -1 +0,0 @@\n-deleted',

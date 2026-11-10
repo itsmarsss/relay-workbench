@@ -1,9 +1,10 @@
 import { useTaskNotifications } from './Notifications';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { MotionConfig, motion, useReducedMotion } from 'motion/react';
 import { SessionProvider } from './Session';
 import { RelayPage } from './Chat';
 import { Icon, RelayMark } from './UI';
+import { Modal } from './Modal';
 import { SettingsPage, MemoryPage, InboxPage } from './WorkspacePages';
 import {
   emptyPane,
@@ -38,6 +39,17 @@ import { StoragePage } from './StoragePage';
 import { useStorage } from './useStorage';
 import { parseRoute } from './route';
 
+const usePageLayoutEffect = typeof window === 'undefined' ? useEffect : useLayoutEffect;
+const workspaceNavigation = [
+  ['deck', 'Task deck', 'grid'],
+  ['relay', 'Relay agent', 'relay'],
+  ['tasks', 'All tasks', 'tasks'],
+  ['inbox', 'Approval inbox', 'inbox'],
+  ['repositories', 'Repositories', 'repository'],
+  ['storage', 'Storage', 'storage'],
+  ['memory', 'Memory', 'memory'],
+] as const;
+
 function preference(key: string) {
   try {
     return localStorage.getItem(key) || '';
@@ -58,6 +70,7 @@ function initialDeck(): Deck {
 }
 function PaneView({
   node,
+  number,
   tasks,
   onChange,
   onSplit,
@@ -68,6 +81,7 @@ function PaneView({
   onOpen,
 }: {
   node: Pane;
+  number: number;
   tasks: Task[];
   onChange: (node: Pane) => void;
   onSplit: (direction: Split['direction']) => void;
@@ -84,11 +98,12 @@ function PaneView({
         if (element) element.inert = hidden;
       }}
       className={`pane ${focus ? 'focused' : ''}`}
-      aria-label={task?.title || 'Empty pane'}
+      aria-label={`Pane ${number}: ${task?.title || 'Choose a task'}`}
     >
       <header className="pane-header">
         <TaskPicker
           id={node.id}
+          label={`Task for pane ${number}`}
           tasks={tasks}
           selected={node.taskId}
           onChange={(taskId) => onChange({ ...node, taskId })}
@@ -96,28 +111,44 @@ function PaneView({
         <div className="pane-actions">
           {task && (
             <button
+              className="icon-button"
               onClick={() => onOpen(task.id, node.view)}
               aria-label="Open task page"
               title="Open task page"
             >
-              ↗
+              <Icon name="external" size={16} />
             </button>
           )}
           <button onClick={onFocus}>{focus ? 'Restore' : 'Focus'}</button>
-          <button onClick={() => onSplit('horizontal')} aria-label="Split side by side">
-            ◫
+          <button
+            className="icon-button"
+            onClick={() => onSplit('horizontal')}
+            aria-label="Split side by side"
+            title="Split side by side"
+          >
+            <Icon name="split-horizontal" size={17} />
           </button>
-          <button onClick={() => onSplit('vertical')} aria-label="Split top and bottom">
-            ⊟
+          <button
+            className="icon-button"
+            onClick={() => onSplit('vertical')}
+            aria-label="Split top and bottom"
+            title="Split top and bottom"
+          >
+            <Icon name="split-vertical" size={17} />
           </button>
-          <button onClick={onRemove} aria-label="Close pane">
-            ×
+          <button
+            className="icon-button"
+            onClick={onRemove}
+            aria-label="Close pane"
+            title="Close pane"
+          >
+            <Icon name="close" size={17} />
           </button>
         </div>
       </header>
       {task ? (
         <>
-          <nav className="pane-tabs" aria-label="Pane view">
+          <nav className="pane-tabs" aria-label={`Pane ${number} view`}>
             {taskViews.map((item) => (
               <button
                 key={item.id}
@@ -205,6 +236,7 @@ function Divider({
 }
 function Tree({
   node,
+  paneOrder,
   tasks,
   focus,
   setFocus,
@@ -214,6 +246,7 @@ function Tree({
   onOpen,
 }: {
   node: Node;
+  paneOrder: string[];
   tasks: Task[];
   focus: string;
   setFocus: (id: string) => void;
@@ -226,6 +259,7 @@ function Tree({
     return (
       <PaneView
         node={node}
+        number={paneOrder.indexOf(node.id) + 1}
         tasks={tasks}
         onChange={(pane) => update(node.id, () => pane)}
         onSplit={(direction) => split(node.id, direction)}
@@ -236,7 +270,7 @@ function Tree({
         onOpen={onOpen}
       />
     );
-  const child = { tasks, focus, setFocus, update, remove, split, onOpen };
+  const child = { tasks, paneOrder, focus, setFocus, update, remove, split, onOpen };
   const horizontal = node.direction === 'horizontal',
     minimum = minimumSize(node);
   return (
@@ -284,6 +318,7 @@ export default function App() {
       Math.max(208, Math.min(340, Number(preference('relay-sidebar-width')) || 232)),
     ),
     [resizingSidebar, setResizingSidebar] = useState(false),
+    [mobileNavOpen, setMobileNavOpen] = useState(false),
     [dark, setDark] = useState(() => preference('relay-theme') === 'dark'),
     [lowMotion, setLowMotion] = useState(() => preference('relay-low-motion') === 'true'),
     [focus, setFocus] = useState(''),
@@ -319,8 +354,12 @@ export default function App() {
     } catch {}
   }, [collapsed, sidebarWidth]);
   const storage = useStorage();
+  const main = useRef<HTMLElement>(null);
+  const pageKey = route.kind === 'task' ? `${route.kind}/${route.id}/${route.tab}` : route.kind;
+  usePageLayoutEffect(() => {
+    main.current?.scrollTo({ top: 0, left: 0, behavior: 'instant' });
+  }, [pageKey]);
   const sidebarDrag = useRef<{ x: number; width: number } | null>(null);
-  const dialog = useRef<HTMLDialogElement>(null);
   const canvas = useRef<HTMLDivElement>(null);
   const active = deck.tabs.find((tab) => tab.id === deck.active) || deck.tabs[0]!;
   useEffect(() => {
@@ -331,11 +370,6 @@ export default function App() {
   useEffect(() => {
     if (focus) canvas.current?.scrollTo(0, 0);
   }, [focus]);
-  useEffect(() => {
-    const element = dialog.current;
-    if (modal && element && !element.open) element.showModal();
-    if (!modal && element?.open) element.close();
-  }, [modal]);
   useEffect(() => {
     function followURL() {
       setRoute(parseRoute(location.hash));
@@ -384,6 +418,7 @@ export default function App() {
   return (
     <SessionProvider value={{ bootstrap, refresh }}>
       <MotionConfig
+        skipAnimations={!!motionDisabled}
         reducedMotion={lowMotion ? 'always' : 'user'}
         transition={{ duration: motionDisabled ? 0 : 0.18 }}
       >
@@ -413,18 +448,19 @@ export default function App() {
               </button>
             </div>
             <div className="sidebar-section-label">Workspace</div>
+            <button
+              className="mobile-nav-toggle"
+              onClick={() => setMobileNavOpen(true)}
+              aria-haspopup="dialog"
+              aria-expanded={mobileNavOpen}
+            >
+              <Icon name="menu" size={18} />
+              Menu
+            </button>
             <nav className="app-nav" aria-label="Workspace">
-              {[
-                ['deck', 'Task deck', 'grid'],
-                ['relay', 'Relay agent', 'relay'],
-                ['tasks', 'All tasks', 'tasks'],
-                ['inbox', 'Approval inbox', 'inbox'],
-                ['repositories', 'Repositories', 'repository'],
-                ['storage', 'Storage', 'storage'],
-                ['memory', 'Memory', 'memory'],
-              ].map(([kind, label, icon]) => (
+              {workspaceNavigation.map(([kind, label, icon]) => (
                 <button
-                  aria-label={label}
+                  aria-label={kind === 'tasks' && !collapsed ? `${label} ${tasks.length}` : label}
                   title={label}
                   aria-current={
                     route.kind === kind || (kind === 'tasks' && route.kind === 'task')
@@ -441,8 +477,12 @@ export default function App() {
                   <Icon name={icon!} />
                   {!collapsed && (
                     <>
-                      {label}
-                      {kind === 'tasks' && <span className="nav-count">{tasks.length}</span>}
+                      {label}{' '}
+                      {kind === 'tasks' && (
+                        <span className="nav-count" aria-hidden="true">
+                          {tasks.length}
+                        </span>
+                      )}
                     </>
                   )}
                 </button>
@@ -586,6 +626,7 @@ export default function App() {
               </div>
             </header>
             <motion.main
+              ref={main}
               layout={!resizingSidebar}
               className={route.kind === 'deck' ? 'deck-main' : 'page-main'}
             >
@@ -637,7 +678,7 @@ export default function App() {
                         history.pushState(null, '', `#deck?tab=${encodeURIComponent(tab.id)}`);
                       }}
                     >
-                      ＋
+                      <Icon name="plus" size={16} />
                     </button>
                     <span className="workspace-controls">
                       <button
@@ -661,6 +702,7 @@ export default function App() {
                   <div ref={canvas} className="canvas">
                     <Tree
                       node={active.root}
+                      paneOrder={panes(active.root).map((pane) => pane.id)}
                       tasks={tasks}
                       focus={focus}
                       setFocus={setFocus}
@@ -682,6 +724,7 @@ export default function App() {
               ) : route.kind === 'tasks' ? (
                 <TasksPage
                   tasks={tasks}
+                  loading={!bootstrap}
                   onOpen={(id) => navigate(`#task/${id}/overview`)}
                   onCreate={() => setDraftOpen(true)}
                 />
@@ -745,6 +788,36 @@ export default function App() {
               )}
             </motion.main>
           </div>
+          {mobileNavOpen && (
+            <Modal title="Workspace" onClose={() => setMobileNavOpen(false)}>
+              <nav className="mobile-workspace-menu" aria-label="Mobile workspace">
+                {[...workspaceNavigation, ['settings', 'Settings', 'settings']].map(
+                  ([kind, label, icon]) => (
+                    <button
+                      type="button"
+                      key={kind}
+                      aria-current={
+                        route.kind === kind || (kind === 'tasks' && route.kind === 'task')
+                          ? 'page'
+                          : undefined
+                      }
+                      onClick={() => {
+                        setMobileNavOpen(false);
+                        navigate(
+                          kind === 'deck'
+                            ? `#deck?tab=${encodeURIComponent(deck.active)}`
+                            : '#' + kind,
+                        );
+                      }}
+                    >
+                      <Icon name={icon!} />
+                      {label}
+                    </button>
+                  ),
+                )}
+              </nav>
+            </Modal>
+          )}
           {draftOpen && bootstrap && (
             <DraftComposer
               config={bootstrap.config}
@@ -768,76 +841,75 @@ export default function App() {
               onClose={() => setRepoEditor(null)}
             />
           )}
-          <dialog
-            ref={dialog}
-            className="workspace-dialog"
-            onCancel={(event) => {
-              event.preventDefault();
-              setModal(null);
-            }}
-            onClose={() => setModal(null)}
-          >
-            {modal?.kind === 'rename' ? (
-              <form
-                onSubmit={(event) => {
-                  event.preventDefault();
-                  const name = tabName.trim();
-                  if (!name) return;
-                  setDeck((current) => ({
-                    ...current,
-                    tabs: current.tabs.map((tab) =>
-                      tab.id === modal.tabId ? { ...tab, name } : tab,
-                    ),
-                  }));
-                  setModal(null);
-                }}
-              >
-                <h2>Rename workspace</h2>
-                <label htmlFor="workspace-name">Workspace name</label>
-                <input
-                  id="workspace-name"
-                  value={tabName}
-                  onChange={(event) => setTabName(event.target.value)}
-                  maxLength={60}
-                  required
-                  autoFocus
-                />
-                <div>
-                  <button type="button" onClick={() => setModal(null)}>
-                    Cancel
-                  </button>
-                  <button type="submit">Save name</button>
-                </div>
-              </form>
-            ) : modal?.kind === 'close' ? (
-              <div>
-                <h2>Close workspace?</h2>
-                <p>Its layout will be removed. Tasks and agents keep running.</p>
-                <div>
-                  <button type="button" onClick={() => setModal(null)}>
-                    Cancel
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const remaining = deck.tabs.filter((tab) => tab.id !== modal.tabId);
-                      if (!remaining.length) return;
-                      setDeck({ tabs: remaining, active: remaining[0]!.id });
-                      setFocus('');
-                      history.pushState(
-                        null,
-                        '',
-                        `#deck?tab=${encodeURIComponent(remaining[0]!.id)}`,
-                      );
+          {modal && (
+            <Modal
+              title={modal.kind === 'rename' ? 'Rename workspace' : 'Close workspace?'}
+              onClose={() => setModal(null)}
+              onSubmit={
+                modal.kind === 'rename'
+                  ? (event) => {
+                      event.preventDefault();
+                      const name = tabName.trim();
+                      if (!name) return;
+                      setDeck((current) => ({
+                        ...current,
+                        tabs: current.tabs.map((tab) =>
+                          tab.id === modal.tabId ? { ...tab, name } : tab,
+                        ),
+                      }));
                       setModal(null);
-                    }}
-                  >
-                    Close workspace
+                    }
+                  : undefined
+              }
+              footer={
+                <>
+                  <button type="button" onClick={() => setModal(null)}>
+                    Cancel
                   </button>
-                </div>
-              </div>
-            ) : null}
-          </dialog>
+                  {modal.kind === 'rename' ? (
+                    <button className="primary" type="submit">
+                      Save name
+                    </button>
+                  ) : (
+                    <button
+                      className="danger"
+                      type="button"
+                      onClick={() => {
+                        const remaining = deck.tabs.filter((tab) => tab.id !== modal.tabId);
+                        if (!remaining.length) return;
+                        setDeck({ tabs: remaining, active: remaining[0]!.id });
+                        setFocus('');
+                        history.pushState(
+                          null,
+                          '',
+                          `#deck?tab=${encodeURIComponent(remaining[0]!.id)}`,
+                        );
+                        setModal(null);
+                      }}
+                    >
+                      Close workspace
+                    </button>
+                  )}
+                </>
+              }
+            >
+              {modal.kind === 'rename' ? (
+                <label className="field" htmlFor="workspace-name">
+                  Workspace name
+                  <input
+                    id="workspace-name"
+                    value={tabName}
+                    onChange={(event) => setTabName(event.target.value)}
+                    maxLength={60}
+                    required
+                    autoFocus
+                  />
+                </label>
+              ) : (
+                <p>Its layout will be removed. Tasks and agents keep running.</p>
+              )}
+            </Modal>
+          )}
         </div>
       </MotionConfig>
     </SessionProvider>

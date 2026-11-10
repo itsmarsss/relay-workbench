@@ -2,6 +2,7 @@ import type { CSSProperties, ReactNode } from 'react';
 
 // The same SVG marks and stroke weight as the original Relay workbench.
 const paths: Record<string, ReactNode> = {
+  menu: <path d="M4 6h16M4 12h16M4 18h16" />,
   relay: <path d="M5 5h7a4 4 0 0 1 0 8H5V5Zm7 8 7 6M5 13v6M17 5h2v2" />,
   tasks: <path d="m12 3 10 5-10 5L2 8l10-5Zm-9 9 9 5 9-5M3 16l9 5 9-5" />,
   repository: (
@@ -104,6 +105,21 @@ const paths: Record<string, ReactNode> = {
     </>
   ),
   expand: <path d="M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5" />,
+  external: (
+    <path d="M14 3h7v7m0-7L10 14M10 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-5" />
+  ),
+  'split-horizontal': (
+    <>
+      <rect x="3" y="4" width="18" height="16" rx="2" />
+      <path d="M12 4v16" />
+    </>
+  ),
+  'split-vertical': (
+    <>
+      <rect x="3" y="4" width="18" height="16" rx="2" />
+      <path d="M3 12h18" />
+    </>
+  ),
   sun: (
     <>
       <circle cx="12" cy="12" r="4" />

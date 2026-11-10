@@ -35,6 +35,8 @@ export function Select({
   const items = options.filter(
     (o) => !o.disabled && `${o.label} ${o.value}`.toLowerCase().includes(query.toLowerCase()),
   );
+  const selected = options.find((option) => option.value === value),
+    displayLabel = selected?.label || value || 'Default';
   function close(focus = false) {
     setOpen(false);
     if (focus) trigger.current?.focus();
@@ -93,7 +95,7 @@ export function Select({
         ref={trigger}
         type="button"
         className="select-trigger"
-        aria-label={label}
+        aria-label={`${label}: ${displayLabel}`}
         aria-haspopup="listbox"
         aria-expanded={open}
         aria-controls={open ? id : undefined}
@@ -107,8 +109,8 @@ export function Select({
         onClick={() => (open ? close() : show())}
       >
         <span className="select-value">
-          {options.find((o) => o.value === value)?.icon}
-          {options.find((o) => o.value === value)?.label || value || 'Default'}
+          {selected?.icon}
+          {displayLabel}
         </span>
         <span className={`select-caret ${open ? 'is-open' : ''}`}>
           <Icon name="chevron" size={14} />
@@ -121,6 +123,8 @@ export function Select({
               <motion.div
                 ref={popover}
                 className="select-popover"
+                role="region"
+                aria-label={`${label} options`}
                 style={{ position: 'fixed', ...position, zIndex: 1100 }}
                 initial={{ opacity: 0, y: -4 }}
                 animate={{ opacity: 1, y: 0 }}
@@ -197,12 +201,17 @@ export function Select({
                     </button>
                   ))}
                   {!items.length && (
-                    <p className="muted">
+                    <p className="muted" role="option" aria-disabled="true">
                       {custom ? 'Press Enter to use this value.' : 'No matches.'}
                     </p>
                   )}
                   {custom && query.trim() && !options.some((o) => o.value === query.trim()) && (
-                    <button type="button" onClick={() => choose(query.trim())}>
+                    <button
+                      type="button"
+                      role="option"
+                      aria-selected="false"
+                      onClick={() => choose(query.trim())}
+                    >
                       Use “{query.trim()}”
                     </button>
                   )}
@@ -219,6 +228,7 @@ export function CopyButton({ text }: { text: string }) {
   const [done, setDone] = useState(false);
   return (
     <button
+      type="button"
       className="icon-button"
       title={done ? 'Copied' : 'Copy'}
       aria-label={done ? 'Copied' : 'Copy'}

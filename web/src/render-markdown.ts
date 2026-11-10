@@ -54,10 +54,10 @@ const parser = new Marked({
       imageMarkup(token.href, token.text, token.title) ?? e(token.text || 'Image unavailable'),
   },
 });
-export function markdown(value: unknown): string {
+export function markdown(value: unknown, breaks = false): string {
   const source = String(value ?? '');
   if (!DOMPurify.isSupported) return `<p>${e(source)}</p>`;
-  const fragment = DOMPurify.sanitize(parser.parse(source, { async: false }), {
+  const fragment = DOMPurify.sanitize(parser.parse(source, { async: false, breaks }), {
     RETURN_DOM_FRAGMENT: true,
     ALLOWED_TAGS: [
       'p',

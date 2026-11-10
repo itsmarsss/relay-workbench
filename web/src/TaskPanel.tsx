@@ -52,9 +52,9 @@ export function TaskPanel({ task, view }: { task: Task; view: TaskView }) {
   if (view === 'terminals') return <TerminalPanel taskId={task.id} />;
   if (view === 'overview')
     return (
-      <div className="pane-content">
+      <div className="pane-content" tabIndex={0}>
         <span className="eyebrow">{statusLabel(task.status)}</span>
-        <h3>{task.title}</h3>
+        <h2>{task.title}</h2>
         <p>{task.latestSummary || task.error || 'No recent update.'}</p>
         <dl>
           <div>

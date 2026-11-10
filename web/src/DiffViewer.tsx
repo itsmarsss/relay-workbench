@@ -80,7 +80,11 @@ export function DiffViewer({
       {repositories.map((repo) => (
         <section key={repo.id} className="diff-repository">
           <h3>{repo.name}</h3>
-          {repo.message && <Notice>{repo.message}</Notice>}
+          {repo.message && (
+            <p className="diff-notice" role="status">
+              {repo.message}
+            </p>
+          )}
           {repo.stat && (
             <details>
               <summary>Change summary</summary>
@@ -94,7 +98,7 @@ export function DiffViewer({
                 className="diff-code"
                 role="region"
                 tabIndex={0}
-                aria-label={`Changes in ${repo.name}`}
+                aria-label={`Changes in ${repo.name}: ${file.path}`}
               >
                 {file.lines.map((row, i) => line(row, i, file.path, repo.id))}
               </div>

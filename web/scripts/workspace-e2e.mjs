@@ -161,7 +161,7 @@ let input='';process.stdin.on('data',d=>input+=d);process.stdin.on('end',()=>{
   );
   await capture(page, 'task-list');
   await page.getByRole('button', { name: 'Actions for Workspace fixture' }).click();
-  await page.getByRole('button', { name: 'Move to column', exact: true }).click();
+  await page.getByRole('button', { name: /^Move to column:/ }).click();
   await page.getByRole('option', { name: 'Completed', exact: true }).click();
   await until(
     async () =>
@@ -171,14 +171,14 @@ let input='';process.stdin.on('data',d=>input+=d);process.stdin.on('end',()=>{
   );
   assert.equal((await (await fetch(origin + '/api/tasks/' + task.id)).json()).status, 'draft');
   await page.getByRole('button', { name: 'Actions for Workspace fixture' }).click();
-  await page.getByRole('menuitem', { name: 'Delete task' }).click();
+  await page.getByRole('button', { name: 'Delete task' }).click();
   await page.getByRole('dialog', { name: 'Delete task?' }).waitFor();
   assert.match(page.url(), /#tasks/);
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
   await page.goto(origin + '/#memory');
   await page.getByRole('button', { name: 'Add memory', exact: true }).click();
   await page.getByRole('textbox', { name: 'Title', exact: true }).fill('Scope memory');
-  await page.getByRole('button', { name: 'Memory kind', exact: true }).click();
+  await page.getByRole('button', { name: /^Memory kind:/ }).click();
   await page.getByRole('option', { name: 'preference', exact: true }).click();
   await page.getByRole('textbox', { name: 'Content', exact: true }).fill('Prefer focused tests');
   await page.getByRole('button', { name: 'Save memory', exact: true }).click();
@@ -253,7 +253,7 @@ let input='';process.stdin.on('data',d=>input+=d);process.stdin.on('end',()=>{
     ),
     'hidden',
   );
-  await editor.getByRole('button', { name: 'Workflow preset', exact: true }).click();
+  await editor.getByRole('button', { name: /^Workflow preset:/ }).click();
   await page.getByRole('option', { name: 'Small change', exact: true }).click();
   await editor.getByRole('button', { name: 'Save changes', exact: true }).click();
   await until(

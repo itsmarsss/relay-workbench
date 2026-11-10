@@ -217,9 +217,8 @@ export function StoragePage({
                     placeholder="One absolute path per line"
                   />
                   <span className="form-note">
-                    For external build or cache directories. Once execution is ported, every listed
-                    volume is checked before new work. Missing paths will block that work. Relay
-                    never deletes these paths automatically.
+                    Relay checks these volumes before starting work. Missing paths block new work.
+                    These paths are never deleted automatically.
                   </span>
                 </label>
                 <div className="inline-actions">

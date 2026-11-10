@@ -52,7 +52,16 @@ export function useResource<T>(path: string | null) {
   useEffect(() => {
     if (!path) {
       setData(null);
+      setError('');
       setLoading(false);
+      refreshRef.current = async () => {};
+      return;
+    }
+    if (!token) {
+      setData(null);
+      setError('');
+      setLoading(true);
+      refreshRef.current = async () => {};
       return;
     }
     let alive = true,

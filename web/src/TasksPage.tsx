@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { motion } from 'motion/react';
 import type { Task } from './types';
 import { columns, taskLane, boardFilters, filteredTasks, taskScopes, inTaskScope } from './board';
@@ -10,10 +10,12 @@ export function TasksPage({
   tasks,
   onOpen,
   onCreate,
+  loading = false,
 }: {
   tasks: Task[];
   onOpen: (id: string) => void;
   onCreate: () => void;
+  loading?: boolean;
 }) {
   const [filters, setFilters] = useState(() =>
       boardFilters(typeof location === 'undefined' ? '' : location.hash),
@@ -23,6 +25,12 @@ export function TasksPage({
     [menu, setMenu] = useState<{ task: Task; x: number; y: number } | null>(null),
     [deleting, setDeleting] = useState<Task | null>(null);
   const mutation = useMutation();
+  const menuPanel = useRef<HTMLDivElement>(null),
+    menuTrigger = useRef<HTMLElement | null>(null);
+  function closeMenu(restoreFocus = true) {
+    setMenu(null);
+    if (restoreFocus) menuTrigger.current?.focus({ preventScroll: true });
+  }
   useEffect(() => {
     const follow = () => setFilters(boardFilters(location.hash));
     window.addEventListener('hashchange', follow);
@@ -34,9 +42,10 @@ export function TasksPage({
   }, []);
   useEffect(() => {
     if (!menu) return;
-    const close = () => setMenu(null);
+    menuPanel.current?.querySelector('button')?.focus({ preventScroll: true });
+    const close = () => closeMenu(false);
     const key = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') close();
+      if (e.key === 'Escape') closeMenu();
     };
     window.addEventListener('pointerdown', close);
     window.addEventListener('keydown', key);
@@ -94,10 +103,11 @@ export function TasksPage({
       }}
       onContextMenu={(e) => {
         e.preventDefault();
+        menuTrigger.current = e.currentTarget.querySelector('.card-menu');
         setMenu({
           task,
-          x: Math.min(e.clientX, window.innerWidth - 220),
-          y: Math.min(e.clientY, window.innerHeight - 290),
+          x: Math.max(12, Math.min(e.clientX, window.innerWidth - 232)),
+          y: Math.max(12, Math.min(e.clientY, window.innerHeight - 250)),
         });
       }}
     >
@@ -131,11 +141,12 @@ export function TasksPage({
         className="icon-button card-menu"
         aria-label={`Actions for ${task.title}`}
         onClick={(e) => {
+          menuTrigger.current = e.currentTarget;
           const r = e.currentTarget.getBoundingClientRect();
           setMenu({
             task,
-            x: Math.min(r.left, window.innerWidth - 220),
-            y: Math.min(r.bottom, window.innerHeight - 290),
+            x: Math.max(12, Math.min(r.left, window.innerWidth - 232)),
+            y: Math.max(12, Math.min(r.bottom, window.innerHeight - 250)),
           });
         }}
       >
@@ -144,7 +155,7 @@ export function TasksPage({
     </motion.article>
   );
   return (
-    <section className="tasks-page">
+    <section className="tasks-page" aria-busy={loading}>
       <div className="page-title">
         <div>
           <h1>All tasks</h1>
@@ -217,7 +228,7 @@ export function TasksPage({
       </div>
       <div className="task-results-toolbar">
         <p role="status">
-          {visible.length} of {tasks.length} tasks
+          {loading ? 'Loading tasks…' : `${visible.length} of ${tasks.length} tasks`}
         </p>
         <div className="inline">
           {(filters.query || filters.repository || filters.stage || filters.scope !== 'all') && (
@@ -253,7 +264,7 @@ export function TasksPage({
         </div>
       </div>
       {mutation.error && <Notice>{mutation.error}</Notice>}
-      {tasks.length === 0 ? (
+      {loading ? null : tasks.length === 0 ? (
         <div className="empty-state">
           <h2>No tasks yet</h2>
           <p>Create a draft to add requirements and repositories.</p>
@@ -310,13 +321,14 @@ export function TasksPage({
       )}
       {menu && (
         <div
+          ref={menuPanel}
           className="task-context-menu surface"
-          role="menu"
+          role="dialog"
+          aria-label="Task actions"
           style={{ left: menu.x, top: menu.y }}
           onPointerDown={(e) => e.stopPropagation()}
         >
           <button
-            role="menuitem"
             onClick={() => {
               onOpen(menu.task.id);
               setMenu(null);
@@ -335,7 +347,6 @@ export function TasksPage({
           />
           {menu.task.statusOverride && (
             <button
-              role="menuitem"
               onClick={() => {
                 void mutation
                   .run(`/api/tasks/${menu.task.id}/status-override`, {
@@ -350,7 +361,6 @@ export function TasksPage({
             </button>
           )}
           <button
-            role="menuitem"
             className="danger"
             onClick={() => {
               setDeleting(menu.task);
@@ -364,6 +374,7 @@ export function TasksPage({
       {deleting && (
         <Modal
           title="Delete task?"
+          returnFocus={menuTrigger.current}
           onClose={() => {
             if (!mutation.busy) setDeleting(null);
           }}

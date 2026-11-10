@@ -1,5 +1,5 @@
 import { ReviewChanges } from './ReviewChanges';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import { useMutation, useResource, useSession, Notice } from './Session';
 import { Icon, CopyButton, Select, ProviderIcon, RelayMark } from './UI';
@@ -74,6 +74,7 @@ export function ChatPanel({
     [editing, setEditing] = useState(''),
     [cursor, setCursor] = useState(0),
     [activeMention, setActiveMention] = useState(0),
+    [mentionOpen, setMentionOpen] = useState(false),
     [settings, setSettings] = useState(false),
     [renaming, setRenaming] = useState<Chat | null>(null),
     [rename, setRename] = useState(''),
@@ -101,7 +102,10 @@ export function ChatPanel({
   const current = chat.data?.id === selected ? chat.data : null,
     running = current?.messages?.some((m) => m.status === 'running');
   const uploads = useImageUpload((text) => setDraft((value) => value + text));
-  const mentionMatch = draft.slice(0, cursor).match(/(?:^|\s)@([^@\n]{0,60})$/),
+  const mentionID = useId();
+  const mentionMatch = mentionOpen
+      ? draft.slice(0, cursor).match(/(?:^|\s)@([^@\n]{0,60})$/)
+      : null,
     mentionQuery = mentionMatch?.[1]?.toLowerCase(),
     suggestions =
       mentionQuery === undefined
@@ -136,6 +140,12 @@ export function ChatPanel({
       el.style.height = Math.max(36, Math.min(el.scrollHeight, 160)) + 'px';
     }
   }, [draft]);
+  useEffect(() => {
+    if (suggestions.length)
+      document
+        .getElementById(`${mentionID}-${activeMention}`)
+        ?.scrollIntoView({ block: 'nearest' });
+  }, [mentionID, activeMention, suggestions.length]);
   useEffect(() => {
     if (follow.current && scroll.current) scroll.current.scrollTop = scroll.current.scrollHeight;
   }, [current]);
@@ -226,7 +236,8 @@ export function ChatPanel({
                 </button>
                 <button
                   className="icon-button"
-                  aria-label={`Rename ${row.name}`}
+                  aria-label={`Conversation settings: ${row.name}`}
+                  title="Conversation settings"
                   onClick={() => {
                     setRenaming(row);
                     setRename(row.name);
@@ -260,9 +271,13 @@ export function ChatPanel({
                 <Icon name="plus" size={16} />
               </button>
             )}
-            <button className="text-button" onClick={() => setSettings(true)}>
+            <button
+              className="text-button chat-model-button"
+              title={displayModel}
+              onClick={() => setSettings(true)}
+            >
               <ProviderIcon provider={selectedProvider} size={20} />
-              {displayModel}
+              <span>{displayModel}</span>
               <Icon name="settings" size={14} />
             </button>
           </div>
@@ -325,15 +340,17 @@ export function ChatPanel({
                     </button>
                   </span>
                 </div>
-                <Markdown text={message.question} />
+                <Markdown text={message.question} breaks />
                 {message.revisionOf && <small className="muted">Revised question</small>}
               </div>
               <div className="chat-assistant-message">
                 <div className="message-meta">
-                  <span className="inline">
+                  <span className="inline message-agent">
                     <Icon name="relay" size={16} />
                     <strong>Relay</strong>
-                    <small>{message.model || message.provider}</small>
+                    <small title={message.model || message.provider}>
+                      {message.model || message.provider}
+                    </small>
                   </span>
                   <CopyButton text={message.answer} />
                 </div>
@@ -451,14 +468,22 @@ export function ChatPanel({
           )}
           <div className="composer-input">
             {suggestions.length > 0 && (
-              <div className="mention-suggestions" role="listbox" aria-label="Mention a task">
+              <div
+                className="mention-suggestions"
+                role="listbox"
+                id={mentionID}
+                aria-label="Mention a task"
+              >
                 {suggestions.map((task, i) => (
                   <button
                     key={task.id}
+                    id={`${mentionID}-${i}`}
+                    tabIndex={-1}
                     type="button"
                     role="option"
                     aria-selected={i === activeMention}
                     onPointerDown={(e) => e.preventDefault()}
+                    onPointerMove={() => setActiveMention(i)}
                     onClick={() => mention(task)}
                   >
                     <span>
@@ -478,16 +503,30 @@ export function ChatPanel({
               onDragOver={uploads.onDragOver}
               ref={textarea}
               aria-label={taskId ? 'Ask Relay about this task' : 'Message Relay'}
+              aria-autocomplete="list"
+              aria-controls={suggestions.length ? mentionID : undefined}
+              aria-activedescendant={
+                suggestions[activeMention] ? `${mentionID}-${activeMention}` : undefined
+              }
               placeholder={taskId ? 'Ask about this task…' : 'Message Relay · @ to mention a task'}
               value={draft}
               onChange={(e) => {
+                setMentionOpen(true);
                 setDraft(e.target.value);
                 setCursor(e.target.selectionStart);
                 setActiveMention(0);
               }}
               onSelect={(e) => setCursor(e.currentTarget.selectionStart)}
+              onFocus={() => setMentionOpen(true)}
+              onBlur={() => setMentionOpen(false)}
               onKeyDown={(e) => {
                 if (e.nativeEvent.isComposing) return;
+                if (e.key === 'Escape' && suggestions.length) {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setMentionOpen(false);
+                  return;
+                }
                 if (suggestions.length && ['ArrowDown', 'ArrowUp'].includes(e.key)) {
                   e.preventDefault();
                   setActiveMention(
@@ -677,6 +716,30 @@ export function SideChat({ taskId }: { taskId: string }) {
     }),
     [size, setSize] = useState({ width: 540, height: 620 }),
     [position, setPosition] = useState({ x: 0, y: 0 });
+  const launcher = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    const followURL = () =>
+      setOpen(new URLSearchParams(location.hash.split('?')[1]).get('ask') === '1');
+    const resize = () => {
+      setSize((current) => fitSize(current));
+      setPosition({ x: 0, y: 0 });
+    };
+    resize();
+    window.addEventListener('hashchange', followURL);
+    window.addEventListener('popstate', followURL);
+    window.addEventListener('resize', resize);
+    return () => {
+      window.removeEventListener('hashchange', followURL);
+      window.removeEventListener('popstate', followURL);
+      window.removeEventListener('resize', resize);
+    };
+  }, []);
+  function fitSize(value: { width: number; height: number }) {
+    return {
+      width: Math.min(window.innerWidth - 32, Math.max(360, value.width)),
+      height: Math.min(window.innerHeight - 100, Math.max(340, value.height)),
+    };
+  }
   const drag = useRef<{
     x: number;
     y: number;
@@ -692,6 +755,7 @@ export function SideChat({ taskId }: { taskId: string }) {
     if (next) params.set('ask', '1');
     else params.delete('ask');
     history.replaceState(null, '', base + (params.size ? '?' + params.toString() : ''));
+    if (!next) launcher.current?.focus({ preventScroll: true });
   }
   function pointer(e: React.PointerEvent, kind: string) {
     if (e.button !== 0) return;
@@ -709,10 +773,9 @@ export function SideChat({ taskId }: { taskId: string }) {
     const d = drag.current;
     if (!d) return;
     if (d.kind === 'resize')
-      setSize({
-        width: Math.min(window.innerWidth - 32, Math.max(360, d.startX - (e.clientX - d.x))),
-        height: Math.min(window.innerHeight - 100, Math.max(340, d.startY - (e.clientY - d.y))),
-      });
+      setSize(
+        fitSize({ width: d.startX - (e.clientX - d.x), height: d.startY - (e.clientY - d.y) }),
+      );
     else
       setPosition({
         x: Math.max(0, Math.min(window.innerWidth - size.width - 24, d.startX - (e.clientX - d.x))),
@@ -724,13 +787,21 @@ export function SideChat({ taskId }: { taskId: string }) {
   }
   return (
     <>
-      <button className="ask-relay-launcher" onClick={toggle}>
+      <button
+        ref={launcher}
+        className="ask-relay-launcher"
+        onClick={toggle}
+        aria-expanded={open}
+        aria-controls={open ? `side-chat-${taskId}` : undefined}
+      >
         <Icon name="relay" size={18} />
         Ask Relay
       </button>
       <AnimatePresence>
         {open && (
           <motion.aside
+            id={`side-chat-${taskId}`}
+            aria-label="Task conversation"
             className="side-chat-window"
             style={{
               width: size.width,
@@ -741,6 +812,12 @@ export function SideChat({ taskId }: { taskId: string }) {
             initial={{ opacity: 0, y: 12 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 12 }}
+            onKeyDown={(event) => {
+              if (event.key === 'Escape' && !(event.target as HTMLElement).closest('dialog')) {
+                event.preventDefault();
+                toggle();
+              }
+            }}
           >
             <div
               className="side-chat-drag"
@@ -750,6 +827,9 @@ export function SideChat({ taskId }: { taskId: string }) {
                 drag.current = null;
               }}
               onPointerCancel={() => {
+                drag.current = null;
+              }}
+              onLostPointerCapture={() => {
                 drag.current = null;
               }}
             >
@@ -773,6 +853,30 @@ export function SideChat({ taskId }: { taskId: string }) {
               }}
               onPointerCancel={() => {
                 drag.current = null;
+              }}
+              onLostPointerCapture={() => {
+                drag.current = null;
+              }}
+              onKeyDown={(event) => {
+                if (
+                  !['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home'].includes(event.key)
+                )
+                  return;
+                event.preventDefault();
+                setSize((current) =>
+                  fitSize(
+                    event.key === 'Home'
+                      ? { width: 540, height: 620 }
+                      : {
+                          width:
+                            current.width +
+                            (event.key === 'ArrowLeft' ? 24 : event.key === 'ArrowRight' ? -24 : 0),
+                          height:
+                            current.height +
+                            (event.key === 'ArrowUp' ? 24 : event.key === 'ArrowDown' ? -24 : 0),
+                        },
+                  ),
+                );
               }}
             >
               <Icon name="resize" size={14} />

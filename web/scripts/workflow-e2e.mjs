@@ -284,6 +284,10 @@ console.log(JSON.stringify({ type: 'item.completed', item: { type: 'agent_messag
   );
   await composer.getByRole('button', { name: 'Preview', exact: true }).click();
   await composer.getByRole('button', { name: 'Enlarge image: fixture.png' }).click();
+  await page.getByRole('dialog', { name: 'fixture.png', exact: true }).press('Escape');
+  await page.getByRole('dialog', { name: 'fixture.png', exact: true }).waitFor({ state: 'hidden' });
+  assert.ok(await composer.isVisible(), 'Closing an image preserves the unsaved task dialog');
+  await composer.getByRole('button', { name: 'Enlarge image: fixture.png' }).click();
   await page
     .getByRole('dialog', { name: 'fixture.png', exact: true })
     .getByRole('button', { name: 'Close dialog' })
@@ -535,7 +539,7 @@ console.log(JSON.stringify({ type: 'item.completed', item: { type: 'agent_messag
   await writeFile(join(originalFinal.workspaceRoot, 'source.txt'), 'preserve later edits\n');
   await page.getByRole('button', { name: /^Checkpoints/ }).click();
   const checkpointDialog = page.getByRole('dialog', { name: 'Continue from a checkpoint' });
-  await checkpointDialog.getByRole('button', { name: 'Continue with', exact: true }).click();
+  await checkpointDialog.getByRole('button', { name: /^Continue with:/ }).click();
   await page
     .getByRole('option', { name: 'Choose a different saved approach', exact: true })
     .click();

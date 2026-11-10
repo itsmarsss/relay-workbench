@@ -10,11 +10,13 @@ export function matchTasks(tasks: Task[], query: string): Task[] {
 }
 export function TaskPicker({
   id,
+  label = 'Task for pane',
   tasks,
   selected,
   onChange,
 }: {
   id: string;
+  label?: string;
   tasks: Task[];
   selected: string;
   onChange: (value: string) => void;
@@ -28,6 +30,9 @@ export function TaskPicker({
     filtered = matchTasks(tasks, query);
   const inputID = `picker-${id}`,
     listID = `picker-list-${id}`;
+  useEffect(() => {
+    if (open) document.getElementById(`${listID}-${active}`)?.scrollIntoView({ block: 'nearest' });
+  }, [open, active, listID, query]);
   useEffect(() => {
     if (!open) return;
     function dismiss(event: PointerEvent) {
@@ -48,14 +53,14 @@ export function TaskPicker({
   return (
     <div className="picker" ref={root}>
       <label className="sr-only" htmlFor={inputID}>
-        Task for pane
+        {label}
       </label>
       <input
         ref={input}
         id={inputID}
         type="search"
         role="combobox"
-        aria-label="Task for pane"
+        aria-label={label}
         aria-autocomplete="list"
         aria-expanded={open}
         aria-controls={listID}
@@ -72,8 +77,12 @@ export function TaskPicker({
           setOpen(true);
           setActive(0);
         }}
+        onBlur={() => setOpen(false)}
         onKeyDown={(event) => {
-          if (event.key === 'Escape') {
+          if (event.key === 'Tab') {
+            setOpen(false);
+            setQuery('');
+          } else if (event.key === 'Escape') {
             event.preventDefault();
             setOpen(false);
             setQuery('');
@@ -109,8 +118,12 @@ export function TaskPicker({
                 <small>{item.repository?.name || 'Unspecified'}</small>
               </li>
             ))}
+            {filtered.length === 0 && (
+              <li role="option" aria-disabled="true">
+                No matching tasks
+              </li>
+            )}
           </ul>
-          {filtered.length === 0 && <p>No matching tasks</p>}
           {selected && (
             <button
               type="button"
