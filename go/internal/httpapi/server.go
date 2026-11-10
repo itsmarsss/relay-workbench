@@ -27,6 +27,7 @@ import (
 )
 
 var taskID = regexp.MustCompile(`^[a-f0-9-]{36}$`)
+var taskRevision = regexp.MustCompile(`^[a-f0-9]{64}$`)
 
 type Server struct {
 	store        *store.Store
@@ -40,6 +41,9 @@ type Server struct {
 type Coordinator interface {
 	Start(string) (map[string]any, error)
 	Resume(string) (map[string]any, error)
+	Approve(context.Context, string, string, string, string, string) (map[string]any, error)
+	Accept(context.Context, string, string) (map[string]any, error)
+	Diff(context.Context, string) (map[string]any, error)
 	Pause(string) error
 	Running() int
 }
@@ -111,7 +115,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			respond(w, 500, map[string]string{"error": "Could not read configuration"})
 			return
 		}
-		respond(w, 200, map[string]any{"token": hex.EncodeToString(s.token[:]), "config": config.Value, "configRevision": config.Revision, "version": "experimental-go", "workflowPreview": s.workflow != nil})
+		respond(w, 200, map[string]any{"token": hex.EncodeToString(s.token[:]), "config": config.Value, "configRevision": config.Revision, "version": "experimental-go", "workflowPreview": s.workflow != nil, "implementationPreview": s.workflow != nil})
 		return
 	}
 	if path == "/api/storage/scan" {
@@ -202,8 +206,13 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				respond(w, 500, map[string]string{"error": "Could not read task"})
 				return
 			}
-			w.Header().Set("Content-Type", "application/json; charset=utf-8")
-			_, _ = w.Write(task)
+			var body map[string]json.RawMessage
+			if json.Unmarshal(task, &body) != nil || body == nil {
+				respond(w, 500, map[string]string{"error": "Invalid stored task"})
+				return
+			}
+			body["taskRevision"], _ = json.Marshal(store.TaskRevision(task))
+			respond(w, 200, body)
 			return
 		}
 		if len(parts) == 2 && parts[1] == "events" {
@@ -224,6 +233,17 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			respond(w, 200, rows)
 			return
 		}
+		if len(parts) == 2 && parts[1] == "diff" && s.workflow != nil {
+			result, err := s.workflow.Diff(r.Context(), parts[0])
+			if errors.Is(err, os.ErrNotExist) {
+				respond(w, 404, map[string]string{"error": "Task not found"})
+			} else if err != nil {
+				respond(w, 409, map[string]string{"error": err.Error()})
+			} else {
+				respond(w, 200, result)
+			}
+			return
+		}
 	}
 	if strings.HasPrefix(path, "/api/") {
 		respond(w, 404, map[string]string{"error": "Endpoint not yet ported"})
@@ -237,7 +257,7 @@ func workflowAction(path string) (string, string, bool) {
 		return "", "", false
 	}
 	parts := strings.Split(strings.TrimPrefix(path, "/api/tasks/"), "/")
-	if len(parts) != 2 || !taskID.MatchString(parts[0]) || (parts[1] != "start" && parts[1] != "resume" && parts[1] != "pause") {
+	if len(parts) != 2 || !taskID.MatchString(parts[0]) || (parts[1] != "start" && parts[1] != "resume" && parts[1] != "pause" && parts[1] != "approve-plan" && parts[1] != "accept") {
 		return "", "", false
 	}
 	return parts[0], parts[1], true
@@ -245,7 +265,63 @@ func workflowAction(path string) (string, string, bool) {
 
 func (s *Server) runWorkflowAction(w http.ResponseWriter, r *http.Request, id, action string) {
 	body, err := requestObject(w, r)
-	if err != nil || len(body) != 0 {
+	if err != nil {
+		respond(w, 400, map[string]string{"error": "Invalid workflow action"})
+		return
+	}
+	if action == "approve-plan" {
+		optionID, valid := body["optionId"].(string)
+		if !valid || optionID == "" || len(optionID) > 100000 {
+			respond(w, 400, map[string]string{"error": "Choose a valid approach"})
+			return
+		}
+		attemptID, attemptValid := body["planAttemptId"].(string)
+		revision, revisionValid := body["taskRevision"].(string)
+		if !attemptValid || !revisionValid || attemptID == "" || len(attemptID) > 200 || !taskRevision.MatchString(revision) {
+			respond(w, 400, map[string]string{"error": "Refresh the proposal before approving"})
+			return
+		}
+		for key := range body {
+			if key != "optionId" && key != "note" && key != "planAttemptId" && key != "taskRevision" {
+				respond(w, 400, map[string]string{"error": "Approval does not accept extra fields"})
+				return
+			}
+		}
+		note := ""
+		if value, exists := body["note"]; exists {
+			note, valid = value.(string)
+			if !valid {
+				respond(w, 400, map[string]string{"error": "Invalid approval note"})
+				return
+			}
+		}
+		result, err := s.workflow.Approve(r.Context(), id, optionID, note, attemptID, revision)
+		if errors.Is(err, os.ErrNotExist) {
+			respond(w, 404, map[string]string{"error": "Task not found"})
+		} else if err != nil {
+			respond(w, 409, map[string]string{"error": err.Error()})
+		} else {
+			respond(w, 202, result)
+		}
+		return
+	}
+	if action == "accept" {
+		revision, valid := body["taskRevision"].(string)
+		if !valid || len(body) != 1 || !taskRevision.MatchString(revision) {
+			respond(w, 400, map[string]string{"error": "Refresh the task before accepting"})
+			return
+		}
+		result, err := s.workflow.Accept(r.Context(), id, revision)
+		if errors.Is(err, os.ErrNotExist) {
+			respond(w, 404, map[string]string{"error": "Task not found"})
+		} else if err != nil {
+			respond(w, 409, map[string]string{"error": err.Error()})
+		} else {
+			respond(w, 200, result)
+		}
+		return
+	}
+	if len(body) != 0 {
 		respond(w, 400, map[string]string{"error": "Workflow actions do not accept extra fields"})
 		return
 	}

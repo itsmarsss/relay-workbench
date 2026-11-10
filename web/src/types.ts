@@ -21,6 +21,7 @@ export type Task = {
   latestSummary?: string;
   error?: string | null;
   updatedAt?: string;
+  taskRevision?: string;
 };
 export type TaskView = 'overview' | 'thread' | 'terminals' | 'diff' | 'handoffs' | 'transcript';
 export const taskViews: { id: TaskView; label: string }[] = [
@@ -58,6 +59,11 @@ export function isTask(value: unknown): value is Task {
   for (const key of ['stage', 'latestSummary', 'updatedAt'])
     if (record[key] != null && typeof record[key] !== 'string') return false;
   if (record.error != null && typeof record.error !== 'string') return false;
+  if (
+    record.taskRevision != null &&
+    (typeof record.taskRevision !== 'string' || !/^[a-f0-9]{64}$/.test(record.taskRevision))
+  )
+    return false;
   if (record.repository != null) {
     if (typeof record.repository !== 'object' || Array.isArray(record.repository)) return false;
     const repo = record.repository as Record<string, unknown>;
@@ -91,6 +97,7 @@ export type Bootstrap = {
   config: RelayConfig;
   configRevision: string;
   workflowPreview: boolean;
+  implementationPreview: boolean;
 };
 export function isConfig(value: unknown): value is RelayConfig {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false;

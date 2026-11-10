@@ -34,6 +34,21 @@ func TestVerdictGatesAndRecommendations(t *testing.T) {
 		t.Fatalf("invalid recommendation: %v", err)
 	}
 }
+func TestApproachIdentifiersRemainActionable(t *testing.T) {
+	task := valid()
+	option := task["options"].([]any)[0].(map[string]any)
+	id := strings.Repeat("界", 100)
+	option["id"], task["recommendedOptionId"] = id, id
+	raw, _ := json.Marshal(task)
+	if err := Validate(raw, "plan"); err != nil {
+		t.Fatalf("valid unicode ID rejected: %v", err)
+	}
+	option["id"], task["recommendedOptionId"] = strings.Repeat("x", 100001), nil
+	raw, _ = json.Marshal(task)
+	if err := Validate(raw, "plan"); err == nil {
+		t.Fatal("unactionably large option ID accepted")
+	}
+}
 func TestMatchesLegacyValidatorAcrossHandoffCorpus(t *testing.T) {
 	node, err := exec.LookPath("node")
 	if err != nil {

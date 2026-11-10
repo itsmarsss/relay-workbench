@@ -113,6 +113,48 @@ func TestCoordinatorCreatesWorkspaceAndStopsAtPlanApproval(t *testing.T) {
 	}
 }
 
+func TestCoordinatorRequiresApprovalAndBlocksUnsupervisedVerification(t *testing.T) {
+	line := stageFinal()
+	c, db, id, _ := coordinatorFixture(t, "cat >/dev/null\nprintf '%s\\n' '"+line+"'")
+	configService := task.ConfigurationService{Store: db}
+	config, err := configService.Read()
+	if err != nil {
+		t.Fatal(err)
+	}
+	object(config.Value["harnesses"])["claude"] = object(config.Value["harnesses"])["codex"]
+	if _, err = configService.Replace(config.Revision, config.Value); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = c.Start(id); err != nil {
+		t.Fatal(err)
+	}
+	waitCoordinator(t, c, id)
+	if value := coordinatorTask(t, db, id); value["status"] != "awaiting_plan" {
+		t.Fatalf("plan gate missing: %#v", value)
+	}
+	gate := coordinatorTask(t, db, id)
+	planID := text(completedPlanAttempt(gate)["id"])
+	gateRaw, _ := db.Get(id)
+	revision := store.TaskRevision(gateRaw)
+	if _, err = c.Approve(context.Background(), id, "missing", "", planID, revision); err == nil {
+		t.Fatal("unknown approach accepted")
+	}
+	if value := coordinatorTask(t, db, id); value["status"] != "awaiting_plan" || len(array(value["approvals"])) != 0 {
+		t.Fatal("invalid approval changed task")
+	}
+	if _, err = c.Approve(context.Background(), id, "a", "", planID, revision); err != nil {
+		t.Fatal(err)
+	}
+	waitCoordinator(t, c, id)
+	value := coordinatorTask(t, db, id)
+	if value["status"] != "blocked" || value["stage"] != "verify" || value["verifiedFingerprint"] != nil || len(array(value["approvals"])) != 1 {
+		t.Fatalf("unverified work advanced: %#v", value)
+	}
+	if !strings.Contains(text(value["error"]), "supervised check") {
+		t.Fatalf("missing evidence not reported: %#v", value["error"])
+	}
+}
+
 func TestCoordinatorRejectsUnsupportedAndUnavailableBeforeMutation(t *testing.T) {
 	c, db, id, _ := coordinatorFixture(t, "exit 0")
 	value := coordinatorTask(t, db, id)
@@ -227,6 +269,21 @@ func TestCoordinatorRefusesResumeWithIncompleteSetup(t *testing.T) {
 	}
 	if value = coordinatorTask(t, db, id); value["status"] != "blocked" || value["setupRunning"] != true {
 		t.Fatal("failed resume modified the task")
+	}
+}
+
+func TestCoordinatorPreservesSpecificBlocker(t *testing.T) {
+	c, db, id, _ := coordinatorFixture(t, "exit 0")
+	value := coordinatorTask(t, db, id)
+	value["status"], value["error"] = "blocked", "Repair limit reached. Inspect the failed check."
+	body, _ := json.Marshal(value)
+	if err := db.Save(body, nil); err != nil {
+		t.Fatal(err)
+	}
+	c.finishError(id, &RepairLimitError{Message: "Repair limit reached. Inspect the failed check.", Cause: errors.New("generic check error")})
+	value = coordinatorTask(t, db, id)
+	if value["error"] != "Repair limit reached. Inspect the failed check." {
+		t.Fatalf("specific blocker was overwritten: %#v", value["error"])
 	}
 }
 

@@ -6,12 +6,19 @@ package store
 import "C"
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"os"
 	"strings"
 	"time"
 )
+
+func TaskRevision(raw json.RawMessage) string {
+	sum := sha256.Sum256(raw)
+	return hex.EncodeToString(sum[:])
+}
 
 var ErrTaskChanged = errors.New("task changed since it was inspected")
 var ErrMetadataChanged = errors.New("authorization or settings changed since inspection")

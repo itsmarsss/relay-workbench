@@ -1,5 +1,14 @@
 import { useEffect, useState } from 'react';
-import { asObject, asText, latestHandoffs, liveTerminal, eventPage } from './task-data';
+import {
+  asObject,
+  asText,
+  latestHandoffs,
+  liveTerminal,
+  eventPage,
+  parseDiff,
+  diffPreviewLines,
+  type DiffRepository,
+} from './task-data';
 import { statusLabel, taskViews, type Task, type TaskView } from './types';
 
 type Data = {
@@ -7,6 +16,7 @@ type Data = {
   output?: string;
   label?: string;
   message?: string;
+  diffs?: DiffRepository[];
 };
 async function get(path: string, signal: AbortSignal): Promise<unknown> {
   const response = await fetch(path, { signal, headers: { Accept: 'application/json' } });
@@ -20,11 +30,12 @@ async function get(path: string, signal: AbortSignal): Promise<unknown> {
 }
 export function TaskPanel({ task, view }: { task: Task; view: TaskView }) {
   const [data, setData] = useState<Data>({}),
-    [error, setError] = useState('');
+    [error, setError] = useState(''),
+    [refreshVersion, setRefreshVersion] = useState(0);
   useEffect(() => {
     setData({});
     setError('');
-    if (view === 'overview' || view === 'diff') return;
+    if (view === 'overview') return;
     let alive = true,
       running = false,
       controller: AbortController | null = null,
@@ -42,7 +53,9 @@ export function TaskPanel({ task, view }: { task: Task; view: TaskView }) {
       controller = new AbortController();
       try {
         let result: Data;
-        if (view === 'thread' || view === 'transcript') {
+        if (view === 'diff') {
+          result = { diffs: parseDiff(await get(`${base}/diff`, controller.signal)) };
+        } else if (view === 'thread' || view === 'transcript') {
           for (let page = 0; page < 5; page++) {
             const batch = eventPage(
               await get(`${base}/events?after=${cursor}`, controller.signal),
@@ -97,10 +110,13 @@ export function TaskPanel({ task, view }: { task: Task; view: TaskView }) {
       }, 200);
     }
     void refresh();
-    window.addEventListener('relay-data-change', onData);
-    const interval = window.setInterval(() => {
-      if (!document.hidden) void refresh();
-    }, 5000);
+    if (view !== 'diff') window.addEventListener('relay-data-change', onData);
+    const interval =
+      view === 'diff'
+        ? undefined
+        : window.setInterval(() => {
+            if (!document.hidden) void refresh();
+          }, 5000);
     return () => {
       alive = false;
       controller?.abort();
@@ -108,7 +124,7 @@ export function TaskPanel({ task, view }: { task: Task; view: TaskView }) {
       window.clearTimeout(refreshTimer);
       window.removeEventListener('relay-data-change', onData);
     };
-  }, [task.id, view]);
+  }, [task.id, view, refreshVersion]);
   if (view === 'overview')
     return (
       <div className="pane-content">
@@ -141,9 +157,44 @@ export function TaskPanel({ task, view }: { task: Task; view: TaskView }) {
         </p>
       )}
       {view === 'diff' && (
-        <p className="placeholder">
-          Code changes and review controls are not ported yet. Use the existing Relay for review.
-        </p>
+        <div className="diff-preview">
+          <button onClick={() => setRefreshVersion((value) => value + 1)}>Refresh changes</button>
+          {!data.diffs && !error && <p role="status">Loading changes…</p>}
+          {data.diffs?.map((repo) => {
+            const preview = diffPreviewLines(repo.text);
+            return (
+              <section key={repo.id} className="diff-repository">
+                <h3>{repo.name}</h3>
+                {repo.message && <p>{repo.message}</p>}
+                {repo.stat && <pre className="diff-stat">{repo.stat}</pre>}
+                {preview.lines.length > 0 && (
+                  <pre className="diff-code" tabIndex={0} aria-label={`Changes in ${repo.name}`}>
+                    {preview.lines.map((line, index) => (
+                      <span key={index} className={line.kind}>
+                        {line.text}
+                      </span>
+                    ))}
+                  </pre>
+                )}
+                {preview.truncated && (
+                  <p>Preview limited to 4,000 lines; inspect the full diff locally.</p>
+                )}
+                {repo.untracked.map((file) => (
+                  <div key={file.name}>
+                    <h4>New file: {file.name}</h4>
+                    <pre className="diff-code addition" tabIndex={0}>
+                      {file.content}
+                    </pre>
+                  </div>
+                ))}
+                {repo.omittedCount > 0 && (
+                  <p>{repo.omittedCount} untracked previews omitted; inspect them locally.</p>
+                )}
+                {!repo.message && !repo.text && !repo.untracked.length && <p>No changes found.</p>}
+              </section>
+            );
+          })}
+        </div>
       )}
       {view === 'terminals' && (
         <>

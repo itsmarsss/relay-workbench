@@ -1,6 +1,6 @@
 # Experimental Go backend
 
-This is an isolated migration preview, not a replacement for Relay. It can create isolated workspaces and run real agents through investigation and planning, with start, pause and resume controls. Human approach approval, implementation scheduling, verification, publishing, PR monitoring, and interactive terminals are not connected yet. Use separate test repositories: this preview cannot coordinate writers with the original Relay. Do not use it with real Relay state.
+This is an isolated migration preview, not a replacement for Relay. It can run investigation, planning, human approach approval, implementation, agent-selected supervised checks, independent review, and human final acceptance. Failed checks and review findings route back to implementation within a configured repair limit; timed-out checks do not count as passing or automatically trigger a debugger. Publishing, PR monitoring, automatic debugger recovery, checkpoints, and interactive terminals are not connected yet. Use separate test repositories: this preview cannot coordinate writers with the original Relay. Do not use it with real Relay state.
 
 It requires Go 1.22 or newer, a C toolchain, `pkg-config`, and SQLite development headers and libraries. To build and test, run `go test -race ./...` and `go vet ./...` inside this directory. The existing JavaScript backend and its tests remain authoritative during migration.
 

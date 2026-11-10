@@ -57,6 +57,30 @@ func TestDecisionServiceCommitsApproachAndEvent(t *testing.T) {
 		t.Fatalf("events: %s %v", events, err)
 	}
 }
+func TestDecisionServiceRejectsStaleProposalRevision(t *testing.T) {
+	db, err := store.Open(filepath.Join(t.TempDir(), "state"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	task := planTask()
+	saved(t, db, task)
+	raw, _ := db.Get("task")
+	revision := store.TaskRevision(raw)
+	task["title"] = "Changed after review"
+	saved(t, db, task)
+	service := Service{Store: db}
+	if _, err = service.ApproveExpected("task", "a", "", Authorization{Human: true}, "plan", revision); err == nil {
+		t.Fatal("stale proposal was approved")
+	}
+	current, _ := db.Get("task")
+	if _, err = service.ApproveExpected("task", "a", "", Authorization{Human: true}, "other-plan", store.TaskRevision(current)); err == nil {
+		t.Fatal("different proposal was approved")
+	}
+	if _, err = service.ApproveExpected("task", "a", "", Authorization{Human: true}, "plan", store.TaskRevision(current)); err != nil {
+		t.Fatal(err)
+	}
+}
 func TestDecisionServiceRejectsRevokedAutoRace(t *testing.T) {
 	db, err := store.Open(filepath.Join(t.TempDir(), "state"))
 	if err != nil {
@@ -186,6 +210,54 @@ func TestDecisionServiceRejectsReplacedWorkspaceDuringInspection(t *testing.T) {
 	_ = json.Unmarshal(raw, &current)
 	if current["status"] != "awaiting_final" {
 		t.Fatal("replaced workspace was accepted")
+	}
+}
+func TestDecisionServiceChecksOuterOwnershipBeforeAccepting(t *testing.T) {
+	db, err := store.Open(filepath.Join(t.TempDir(), "state"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	task, roots := taskWithRoots(t)
+	saved(t, db, task)
+	lease, err := workspace.NewRegistry().Acquire("task", roots)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lease.Release()
+	inspector := &fakeInspector{snapshot: workspace.FingerprintSnapshot{Combined: "combined", Repositories: map[string]string{"one": "f1", "two": "f2"}}}
+	sentinel := errors.New("repository ownership changed")
+	_, err = (Service{Store: db}).AcceptVerifiedWithGuard(context.Background(), "task", Authorization{Human: true}, lease, inspector, func() error { return sentinel })
+	if !errors.Is(err, sentinel) {
+		t.Fatalf("outer guard ignored: %v", err)
+	}
+	raw, _ := db.Get("task")
+	var current map[string]any
+	_ = json.Unmarshal(raw, &current)
+	if current["status"] != "awaiting_final" {
+		t.Fatal("acceptance committed despite ownership loss")
+	}
+}
+func TestDecisionServiceRejectsStaleFinalReviewBeforeScanning(t *testing.T) {
+	db, err := store.Open(filepath.Join(t.TempDir(), "state"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	task, roots := taskWithRoots(t)
+	saved(t, db, task)
+	raw, _ := db.Get("task")
+	revision := store.TaskRevision(raw)
+	task["title"] = "Changed after review"
+	saved(t, db, task)
+	lease, err := workspace.NewRegistry().Acquire("task", roots)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lease.Release()
+	inspector := &fakeInspector{snapshot: workspace.FingerprintSnapshot{Combined: "combined", Repositories: map[string]string{"one": "f1", "two": "f2"}}}
+	if _, err = (Service{Store: db}).AcceptVerifiedExpected(context.Background(), "task", Authorization{Human: true}, lease, inspector, nil, revision); err == nil || inspector.calls != 0 {
+		t.Fatal("stale final review was accepted or scanned")
 	}
 }
 func TestDecisionServiceRejectsWrongOwnerBeforeScanning(t *testing.T) {

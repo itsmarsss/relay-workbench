@@ -66,7 +66,8 @@ try {
   await writeFile(join(repo, 'source.txt'), 'local work stays here\n');
   run('go', ['build', '-o', binary, './cmd/relay-go'], goRoot);
   const agent = join(temporary, 'fake-agent'),
-    marker = join(temporary, 'started');
+    marker = join(temporary, 'started'),
+    failedOnce = join(temporary, 'failed-once');
   const handoff = {
     memorySuggestions: [],
     summary: 'Fixture investigation complete',
@@ -88,12 +89,30 @@ try {
     verdict: 'complete',
     routing: { investigate: 'codex', plan: 'codex', implement: 'codex', review: 'codex' },
   };
-  const line = JSON.stringify({
-    type: 'item.completed',
-    item: { type: 'agent_message', text: JSON.stringify(handoff) },
-  });
-  const output = `cat >/dev/null\nprintf '%s\\n' '${line}'\n`;
-  await writeFile(agent, `#!/bin/sh\n${output}`, { mode: 0o700 });
+  const agentProgram = `#!/usr/bin/env node
+const fs = require('node:fs');
+const { spawnSync } = require('node:child_process');
+const prompt = fs.readFileSync(0, 'utf8');
+const handoff = ${JSON.stringify(handoff)};
+if (prompt.includes('Implement the approved approach')) fs.writeFileSync('source.txt', 'implemented\\n');
+if (prompt.includes('SUPERVISED VERIFICATION:')) {
+  const helper = JSON.parse(prompt.slice(prompt.lastIndexOf('\\n') + 1));
+  const cwd = fs.realpathSync(process.cwd());
+  const command = process.execPath;
+  const repair = prompt.includes('"title":"Repair loop"');
+  const persistent = prompt.includes('"title":"Persistent failure"');
+  const failing = persistent || (repair && !fs.existsSync(process.env.RELAY_E2E_FAILED_ONCE));
+  if (failing && repair) fs.writeFileSync(process.env.RELAY_E2E_FAILED_ONCE, 'failed');
+  const args = ['-e', failing ? 'process.exit(7)' : 'console.log("checked the changed surface")'];
+  const check = spawnSync(helper.executable, [...helper.prefix, '--repository', 'fixture', '--cwd', cwd, '--', command, ...args], { encoding: 'utf8' });
+  if (check.stdout) process.stdout.write(check.stdout);
+  if (check.stderr) process.stderr.write(check.stderr);
+  if (check.status !== (failing ? 7 : 0)) process.exit(check.status || 1);
+  handoff.verification = { checks: [{ repositoryId: 'fixture', cwd, command, args, code: check.status, summary: failing ? 'Focused check failed' : 'Focused check passed' }], requirements: [{ repositoryId: 'fixture', source: 'fixture instructions', requirement: 'Check changed behavior', checkIndices: [0] }], reuse: [] };
+}
+console.log(JSON.stringify({ type: 'item.completed', item: { type: 'agent_message', text: JSON.stringify(handoff) } }));
+`;
+  await writeFile(agent, agentProgram, { mode: 0o700 });
   const listenPort = await port(),
     base = `http://127.0.0.1:${listenPort}`;
   server = spawn(
@@ -108,7 +127,7 @@ try {
     ],
     {
       cwd: goRoot,
-      env: { ...gitEnv, RELAY_E2E_MARKER: marker },
+      env: { ...gitEnv, RELAY_E2E_MARKER: marker, RELAY_E2E_FAILED_ONCE: failedOnce },
       stdio: ['ignore', 'pipe', 'pipe'],
     },
   );
@@ -121,6 +140,7 @@ try {
   await until(async () => (await fetch(`${base}/api/health`)).ok, 'preview server');
   const bootstrap = await (await fetch(`${base}/api/bootstrap`)).json();
   assert.equal(bootstrap.workflowPreview, true);
+  assert.equal(bootstrap.implementationPreview, true);
   const headers = { 'Content-Type': 'application/json', 'X-Relay-Token': bootstrap.token };
   const config = bootstrap.config;
   config.harnesses.codex.command = agent;
@@ -150,7 +170,7 @@ try {
       body: JSON.stringify({
         title,
         repositoryId: 'fixture',
-        routing: { investigate: 'codex', plan: 'codex' },
+        routing: { investigate: 'codex', plan: 'codex', implement: 'codex', review: 'codex' },
       }),
     });
     assert.equal(result.status, 201, await result.clone().text());
@@ -171,11 +191,23 @@ try {
   assert.equal(await page.getByText('Recommended', { exact: true }).count(), 1);
   response = await fetch(`${base}/api/tasks/${first.id}/approve-plan`, {
     method: 'POST',
-    headers,
-    body: '{}',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ optionId: 'a' }),
   });
-  assert.equal(response.status, 405, 'implementation cannot bypass the unfinished approval gate');
+  assert.equal(response.status, 403, 'approval must require the local session token');
   const firstTask = await (await fetch(`${base}/api/tasks/${first.id}`)).json();
+  const planAttempt = firstTask.attempts.findLast((attempt) => attempt.stage === 'plan');
+  response = await fetch(`${base}/api/tasks/${first.id}/approve-plan`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({
+      optionId: 'a',
+      planAttemptId: planAttempt.id,
+      taskRevision: firstTask.taskRevision,
+      automation: true,
+    }),
+  });
+  assert.equal(response.status, 400, 'approval cannot inject automation authority');
   assert.equal(firstTask.status, 'awaiting_plan');
   assert.equal(firstTask.approvals.length, 0);
   assert.equal(await readFile(join(repo, 'source.txt'), 'utf8'), 'local work stays here\n');
@@ -188,7 +220,31 @@ try {
     .first()
     .waitFor({ timeout: 10000 });
 
-  await writeFile(agent, `#!/bin/sh\ntouch "$RELAY_E2E_MARKER"\nsleep 30\n${output}`, {
+  await page.getByRole('button', { name: 'Overview', exact: true }).click();
+  await page.getByRole('radio', { name: 'Select Small change' }).check();
+  await page.getByRole('button', { name: 'Approve approach' }).click();
+  await page.getByRole('heading', { name: 'Ready for your review' }).waitFor({ timeout: 45000 });
+  await page.getByRole('button', { name: 'View changes' }).click();
+  await page
+    .locator('.diff-code .addition')
+    .filter({ hasText: '+implemented' })
+    .waitFor({ timeout: 10000 });
+  const reviewed = await (await fetch(`${base}/api/tasks/${first.id}`)).json();
+  assert.equal(reviewed.status, 'awaiting_final');
+  assert.ok(reviewed.verifiedFingerprint);
+  assert.equal(reviewed.reviewedFingerprint, reviewed.verifiedFingerprint);
+  assert.ok(
+    reviewed.attempts.some((run) => run.stage === 'verify' && run.verificationEvidence?.length),
+  );
+  await page.getByRole('button', { name: 'Accept result' }).click();
+  await until(
+    async () =>
+      (await (await fetch(`${base}/api/tasks/${first.id}`)).json()).status === 'completed',
+    'final acceptance',
+  );
+  assert.equal(await readFile(join(repo, 'source.txt'), 'utf8'), 'local work stays here\n');
+
+  await writeFile(agent, `#!/bin/sh\ntouch "$RELAY_E2E_MARKER"\nsleep 30\n`, {
     mode: 0o700,
   });
   const second = await draft('Pause and resume');
@@ -207,7 +263,7 @@ try {
   const paused = await (await fetch(`${base}/api/tasks/${second.id}`)).json();
   assert.equal(paused.status, 'paused');
   await writeFile(join(paused.workspaceRoot, 'setup.txt'), 'preserve changes');
-  await writeFile(agent, `#!/bin/sh\n${output}`, { mode: 0o700 });
+  await writeFile(agent, agentProgram, { mode: 0o700 });
   await page.getByRole('button', { name: 'Resume', exact: true }).click();
   await page.getByRole('heading', { name: 'Proposed approaches' }).waitFor({ timeout: 45000 });
   const resumed = await (await fetch(`${base}/api/tasks/${second.id}`)).json();
@@ -216,9 +272,46 @@ try {
     await readFile(join(resumed.workspaceRoot, 'setup.txt'), 'utf8'),
     'preserve changes',
   );
+
+  async function approveTask(title) {
+    const created = await draft(title);
+    await page.goto(`${base}/#task/${created.id}/overview`);
+    await page.getByRole('button', { name: 'Start investigation' }).click();
+    await page.getByRole('heading', { name: 'Proposed approaches' }).waitFor({ timeout: 45000 });
+    await page.getByRole('radio', { name: 'Select Small change' }).check();
+    await page.getByRole('button', { name: 'Approve approach' }).click();
+    return created.id;
+  }
+  const repairID = await approveTask('Repair loop');
+  await page.getByRole('heading', { name: 'Ready for your review' }).waitFor({ timeout: 45000 });
+  const repaired = await (await fetch(`${base}/api/tasks/${repairID}`)).json();
+  assert.equal(repaired.round, 1);
+  assert.equal(repaired.attempts.filter((attempt) => attempt.stage === 'implement').length, 2);
+  assert.equal(repaired.attempts.filter((attempt) => attempt.stage === 'verify').length, 2);
+  assert.equal(
+    repaired.attempts.some((attempt) => attempt.role === 'debug'),
+    false,
+  );
+
+  const failingID = await approveTask('Persistent failure');
+  const blocked = await until(
+    async () => {
+      const task = await (await fetch(`${base}/api/tasks/${failingID}`)).json();
+      return task.status === 'blocked' ? task : null;
+    },
+    'bounded repair',
+    45000,
+  );
+  assert.match(blocked.error, /Repair limit reached/);
+  assert.equal(blocked.round, 4);
+  assert.equal(blocked.attempts.filter((attempt) => attempt.stage === 'verify').length, 4);
+  assert.equal(
+    blocked.attempts.some((attempt) => attempt.role === 'debug'),
+    false,
+  );
   assert.deepEqual(errors, []);
   console.log(
-    'React/Go workflow: isolated start, activity, approval gate, pause and resume passed.',
+    'React/Go workflow: approval, supervised verification, bounded repair, review, diff, acceptance, pause and resume passed.',
   );
 } catch (error) {
   if (serverOutput) console.error(serverOutput);

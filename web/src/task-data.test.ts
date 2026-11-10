@@ -1,6 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { eventPage, latestHandoffs, latestPlan, liveTerminal } from './task-data.ts';
+import {
+  diffPreviewLines,
+  eventPage,
+  latestHandoffs,
+  latestPlan,
+  liveTerminal,
+  parseDiff,
+} from './task-data.ts';
 test('terminal selection respects manual control and live process status', () => {
   assert.deepEqual(liveTerminal({ status: 'manual', manual: { active: true, session: 'abc' } }), {
     id: 'manual',
@@ -70,12 +77,37 @@ test('plan preview selects the current completed proposal and recommendation', (
   const task = {
     followUpContext: { id: 'new', startedAt: '2026-01-02T00:00:00Z' },
     attempts: [
-      { stage: 'plan', status: 'complete', startedAt: '2026-01-01T00:00:00Z', handoff: plan },
-      { stage: 'plan', status: 'complete', role: 'debug', followUpId: 'new', handoff: plan },
-      { stage: 'plan', status: 'complete', followUpId: 'new', handoff: plan },
+      {
+        id: 'old',
+        stage: 'plan',
+        status: 'complete',
+        startedAt: '2026-01-01T00:00:00Z',
+        handoff: plan,
+      },
+      {
+        id: 'debug',
+        stage: 'plan',
+        status: 'complete',
+        role: 'debug',
+        followUpId: 'new',
+        handoff: plan,
+      },
+      { id: 'new', stage: 'plan', status: 'complete', followUpId: 'new', handoff: plan },
     ],
   };
   assert.equal(latestPlan(task)?.recommendedId, 'a');
+  assert.equal(latestPlan(task)?.attemptId, 'new');
+  const longId = '界'.repeat(100);
+  const longPlan = {
+    ...plan,
+    recommendedOptionId: longId,
+    options: [{ ...plan.options[0]!, id: longId }],
+  };
+  assert.equal(
+    latestPlan({ attempts: [{ id: 'p', stage: 'plan', status: 'complete', handoff: longPlan }] })
+      ?.recommendedId,
+    longId,
+  );
   task.attempts.pop();
   assert.equal(latestPlan(task), null);
   assert.equal(
@@ -83,5 +115,33 @@ test('plan preview selects the current completed proposal and recommendation', (
       attempts: [{ stage: 'plan', status: 'complete', handoff: { ...plan, options: [{}] } }],
     }),
     null,
+  );
+});
+test('change previews retain additions, deletions, files and explicit limits', () => {
+  const repos = parseDiff({
+    repositories: [
+      {
+        repositoryId: 'a',
+        name: 'Repo',
+        diff: {
+          text: '--- a/file\n+++ b/file\n-old\n+new\n',
+          stat: '1 file changed',
+          untracked: [{ name: 'new.txt', content: '<safe>' }],
+          untrackedOmitted: 2,
+        },
+      },
+    ],
+  });
+  assert.equal(repos[0]!.untracked[0]!.content, '<safe>');
+  assert.equal(repos[0]!.omittedCount, 2);
+  const preview = diffPreviewLines(repos[0]!.text);
+  assert.deepEqual(
+    preview.lines.map((line) => line.kind),
+    ['', '', 'deletion', 'addition'],
+  );
+  assert.equal(diffPreviewLines('a\nb\nc\n', 2).truncated, true);
+  assert.throws(
+    () => parseDiff({ repositories: [{ repositoryId: 'a', name: 'Repo', diff: { text: 1 } }] }),
+    /Invalid changes/,
   );
 });

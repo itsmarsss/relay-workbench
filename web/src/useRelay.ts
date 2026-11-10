@@ -1,5 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
-import { createTask, fetchBootstrap, fetchTasks, saveConfig, taskAction } from './api';
+import {
+  acceptResult,
+  approvePlan,
+  createTask,
+  fetchBootstrap,
+  fetchTasks,
+  saveConfig,
+  taskAction,
+} from './api';
 import type { Bootstrap, RelayConfig, Task } from './types';
 
 export function useRelay() {
@@ -105,6 +113,30 @@ export function useRelay() {
       throw failure;
     }
   }
+  async function approve(
+    id: string,
+    optionId: string,
+    note: string,
+    planAttemptId: string,
+    taskRevision: string,
+  ): Promise<Task> {
+    if (!bootstrap?.implementationPreview)
+      throw new Error('Implementation preview is unavailable.');
+    try {
+      return await approvePlan(bootstrap.token, id, optionId, note, planAttemptId, taskRevision);
+    } finally {
+      void refreshRef.current();
+    }
+  }
+  async function accept(id: string, taskRevision: string): Promise<Task> {
+    if (!bootstrap?.implementationPreview)
+      throw new Error('Implementation preview is unavailable.');
+    try {
+      return await acceptResult(bootstrap.token, id, taskRevision);
+    } finally {
+      void refreshRef.current();
+    }
+  }
   return {
     tasks,
     bootstrap,
@@ -113,6 +145,8 @@ export function useRelay() {
     create,
     updateConfig,
     act,
+    approve,
+    accept,
     refresh: () => refreshRef.current(),
   };
 }
