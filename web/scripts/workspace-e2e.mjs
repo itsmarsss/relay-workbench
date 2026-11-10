@@ -273,6 +273,7 @@ let input='';process.stdin.on('data',d=>input+=d);process.stdin.on('end',()=>{
     .getByRole('textbox', { name: 'Repository path', exact: true })
     .fill(directory);
   await profileEditor.getByRole('tab', { name: 'Checks & setup', exact: true }).click();
+  await profileEditor.getByRole('radio', { name: 'Required commands', exact: true }).check();
   const commands = profileEditor
     .locator('.command-list-editor')
     .filter({ has: page.getByRole('heading', { name: 'Required checks', exact: true }) });
@@ -293,6 +294,7 @@ let input='';process.stdin.on('data',d=>input+=d);process.stdin.on('end',()=>{
     (profile) => profile.name === 'Portable project',
   );
   assert.deepEqual(profile.checks, [{ command: 'fixture-check', args: [literal] }]);
+  assert.equal(profile.verificationMode, 'commands');
   await page.goto(origin + '/#settings');
   await page.getByRole('button', { name: 'Save settings', exact: true }).click();
   await page.getByText('Settings saved.', { exact: true }).waitFor();

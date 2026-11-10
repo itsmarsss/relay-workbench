@@ -161,6 +161,17 @@ try {
   const fixture = join(directory, 'fixture');
   await mkdir(fixture);
   assert.equal(spawnSync('git', ['init', '-q'], { cwd: fixture }).status, 0);
+  await writeFile(
+    join(fixture, 'package.json'),
+    JSON.stringify({ name: 'detected-service', scripts: { test: 'exit 91' } }),
+  );
+  await writeFile(join(fixture, 'package-lock.json'), '{}');
+  await writeFile(join(fixture, 'AGENTS.md'), 'Fixture guidance');
+  await mkdir(join(fixture, 'packages', 'api'), { recursive: true });
+  await writeFile(
+    join(fixture, 'packages', 'api', 'package.json'),
+    JSON.stringify({ name: 'detected-api', scripts: { test: 'exit 92' } }),
+  );
   const config = bootstrap.config;
   const agent = join(directory, 'agent');
   await writeFile(
@@ -364,6 +375,14 @@ let input='';process.stdin.on('data',d=>input+=d);process.stdin.on('end',()=>{
   );
 
   await page.goto(origin + '/#repositories');
+  await page.getByRole('textbox', { name: 'Search folder', exact: true }).fill(fixture);
+  await page.getByRole('button', { name: 'Scan folder', exact: true }).click();
+  await page.getByText('Scanned folders (1)', { exact: true }).waitFor();
+  assert.equal(await page.locator('.discovered-repositories > li').count(), 1);
+  assert.ok(
+    await page.locator('.discovered-repositories').getByText('Added', { exact: true }).isVisible(),
+  );
+  await audit('repository-discovery');
   await page.getByRole('button', { name: 'Add repository', exact: true }).click();
   dialog = page.getByRole('dialog', { name: 'Add repository', exact: true });
   await dialog.getByRole('tab', { name: 'General', exact: true }).press('ArrowRight');
@@ -371,9 +390,89 @@ let input='';process.stdin.on('data',d=>input+=d);process.stdin.on('end',()=>{
   await dialog.getByRole('tab', { name: 'Guidance', exact: true }).press('Home');
   await dialog.getByRole('tab', { name: 'General', exact: true }).press('ArrowRight');
   assert.ok(await dialog.getByRole('radio', { name: 'New worktree', exact: true }).isChecked());
-  await dialog.getByRole('tab', { name: 'General', exact: true }).click();
-  await page.keyboard.press('Escape');
+  await dialog.getByRole('tab', { name: 'Guidance', exact: true }).click();
+  await dialog.getByRole('button', { name: 'Save repository', exact: true }).click();
+  await dialog
+    .getByText('Enter a name, repository path and working directory.', { exact: true })
+    .waitFor();
+  assert.equal(
+    await dialog.getByRole('tab', { name: 'General', exact: true }).getAttribute('aria-selected'),
+    'true',
+  );
+  await dialog.getByRole('textbox', { name: 'Repository path', exact: true }).fill(fixture);
+  await dialog.getByText('Use package api', { exact: true }).waitFor();
+  assert.equal(
+    await dialog.getByRole('textbox', { name: 'Name', exact: true }).inputValue(),
+    'detected-service',
+  );
+  await dialog
+    .locator('.profile-detected-fields li')
+    .filter({ has: page.getByText('Use package api', { exact: true }) })
+    .getByRole('button', { name: 'Use', exact: true })
+    .click();
+  assert.equal(
+    await dialog.getByRole('textbox', { name: 'Working subdirectory', exact: true }).inputValue(),
+    'packages/api',
+  );
+  await dialog.getByText('Package name', { exact: true }).waitFor();
+  await dialog.getByRole('button', { name: 'Add check', exact: true }).click();
+  assert.ok(
+    await dialog.getByRole('radio', { name: 'Required commands', exact: true }).isChecked(),
+  );
+  await audit('repository-detected-checks');
+  const setupCommands = dialog
+    .locator('.command-list-editor')
+    .filter({ has: page.getByRole('heading', { name: 'Setup commands', exact: true }) });
+  await setupCommands.getByRole('button', { name: 'Add command', exact: true }).click();
+  await dialog.getByRole('tab', { name: 'Guidance', exact: true }).click();
+  await dialog.getByRole('button', { name: 'Save repository', exact: true }).click();
+  await dialog
+    .getByText('Setup commands need an executable and a list of literal arguments.', {
+      exact: true,
+    })
+    .waitFor();
+  assert.equal(
+    await dialog
+      .getByRole('tab', { name: 'Checks & setup', exact: true })
+      .getAttribute('aria-selected'),
+    'true',
+  );
+  await setupCommands.getByRole('button', { name: 'Remove command', exact: true }).click();
+  await dialog.getByRole('tab', { name: 'Guidance', exact: true }).click();
+  await dialog
+    .getByRole('textbox', { name: 'Repository instructions', exact: true })
+    .fill('**Repository guidance**');
+  await dialog.getByRole('button', { name: 'Preview', exact: true }).click();
+  assert.equal(
+    await dialog.locator('.markdown-preview strong').textContent(),
+    'Repository guidance',
+  );
+  await dialog.getByRole('button', { name: 'Save repository', exact: true }).click();
   await dialog.waitFor({ state: 'hidden' });
+  const addedProfile = page
+    .locator('.repository-card')
+    .filter({ has: page.getByRole('heading', { name: 'detected-service', exact: true }) });
+  await addedProfile.getByText('1 configured commands', { exact: true }).waitFor();
+  await addedProfile.getByRole('button', { name: 'Edit profile', exact: true }).click();
+  dialog = page.getByRole('dialog', { name: 'Edit repository', exact: true });
+  await dialog.getByRole('tab', { name: 'Guidance', exact: true }).click();
+  await dialog.getByRole('button', { name: 'Remove profile', exact: true }).click();
+  assert.ok(
+    await dialog
+      .getByRole('button', { name: 'Keep profile', exact: true })
+      .evaluate((el) => el === document.activeElement),
+  );
+  await audit('repository-removal-confirmation');
+  await dialog.getByRole('button', { name: 'Keep profile', exact: true }).click();
+  assert.ok(
+    await dialog
+      .getByRole('button', { name: 'Remove profile', exact: true })
+      .evaluate((el) => el === document.activeElement),
+  );
+  await dialog.getByRole('button', { name: 'Remove profile', exact: true }).click();
+  await dialog.getByRole('button', { name: 'Confirm removal', exact: true }).click();
+  await dialog.waitFor({ state: 'hidden' });
+  assert.equal(await addedProfile.count(), 0);
   await page.goto(origin + '/#memory');
   await page.getByRole('button', { name: 'Add memory', exact: true }).click();
   dialog = page.getByRole('dialog', { name: 'Add memory', exact: true });
@@ -579,6 +678,15 @@ let input='';process.stdin.on('data',d=>input+=d);process.stdin.on('end',()=>{
 
   // Populated decks must remain usable with a keyboard and nested pane layouts.
   await page.goto(origin + '/#deck');
+  assert.ok(
+    (await page.locator('.deck-grid .pane').boundingBox()).height < 160,
+    'Empty grid stays compact',
+  );
+  assert.equal(
+    await page.locator('.deck-grid .pane').evaluate((el) => getComputedStyle(el).borderRadius),
+    '0px',
+  );
+  await audit('empty-task-grid');
   let picker = page.getByRole('combobox', { name: /Task for pane/ }).first();
   await picker.fill('Queue fixture 1');
   await page
@@ -586,6 +694,46 @@ let input='';process.stdin.on('data',d=>input+=d);process.stdin.on('end',()=>{
     .filter({ has: page.getByText('Queue fixture 1', { exact: true }) })
     .click();
   await audit('populated-deck');
+  const addTask = page.getByRole('combobox', { name: 'Add task to grid', exact: true });
+  await addTask.fill('Queue fixture 2');
+  await page
+    .getByRole('option')
+    .filter({ has: page.getByText('Queue fixture 2', { exact: true }) })
+    .click();
+  assert.equal(await page.locator('.deck-grid .pane').count(), 2);
+  await page.getByRole('button', { name: '3 columns', exact: true }).click();
+  await page.reload();
+  await page.locator('.deck-grid[data-columns="3"] .pane').first().waitFor();
+  assert.deepEqual(
+    await page
+      .getByRole('combobox', { name: /Task for pane/ })
+      .evaluateAll((els) => els.map((el) => el.value)),
+    ['Queue fixture 1', 'Queue fixture 2'],
+  );
+  await page
+    .getByRole('button', { name: 'Reorder pane 1', exact: true })
+    .dragTo(page.locator('.deck-grid .pane').nth(1));
+  assert.deepEqual(
+    await page
+      .getByRole('combobox', { name: /Task for pane/ })
+      .evaluateAll((els) => els.map((el) => el.value)),
+    ['Queue fixture 2', 'Queue fixture 1'],
+  );
+  await page.getByRole('button', { name: 'Reorder pane 1', exact: true }).press('ArrowRight');
+  assert.deepEqual(
+    await page
+      .getByRole('combobox', { name: /Task for pane/ })
+      .evaluateAll((els) => els.map((el) => el.value)),
+    ['Queue fixture 1', 'Queue fixture 2'],
+  );
+  await audit('editable-task-grid');
+  await page.getByRole('button', { name: '1 column', exact: true }).click();
+  await audit('one-column-task-grid');
+  await page.setViewportSize({ width: 390, height: 844 });
+  await audit('mobile-task-grid');
+  await page.setViewportSize({ width: 1512, height: 982 });
+  await page.getByRole('button', { name: 'Close pane', exact: true }).nth(1).click();
+  await page.getByRole('button', { name: '2 columns', exact: true }).click();
   await picker.focus();
   await picker.fill('');
   await picker.press('Tab');
@@ -603,6 +751,7 @@ let input='';process.stdin.on('data',d=>input+=d);process.stdin.on('end',()=>{
     'Keyboard selection remains visible',
   );
   await picker.press('Escape');
+  await page.getByRole('button', { name: 'Freeform', exact: true }).click();
   await page.getByRole('button', { name: 'Split top and bottom', exact: true }).click();
   await page
     .getByRole('combobox', { name: /Task for pane/ })
