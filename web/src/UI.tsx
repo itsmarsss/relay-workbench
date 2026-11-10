@@ -107,6 +107,7 @@ export function Select({
             {open && (
               <motion.div
                 ref={popover}
+                data-framer-portal-id={id}
                 className="select-popover"
                 role="region"
                 aria-label={`${label} options`}

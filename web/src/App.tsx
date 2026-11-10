@@ -673,6 +673,7 @@ export default function App() {
               </header>
               <motion.main
                 ref={main}
+                layoutScroll
                 layout={!resizingSidebar}
                 className={route.kind === 'deck' ? 'deck-main' : 'page-main'}
               >

@@ -392,6 +392,13 @@ select {
 .select-popover > input {
   flex-shrink: 0;
 }
+.select-popover button {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.select-option-label {
+  max-width: 100%;
+}
 .task-status {
   font-weight: 500;
 }

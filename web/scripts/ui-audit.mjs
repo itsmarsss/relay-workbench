@@ -65,6 +65,19 @@ async function anchored(trigger, popup, label) {
     label + ' is not clipped or covered',
   );
 }
+async function pointerClick(locator) {
+  const rect = await locator.boundingBox();
+  assert.ok(rect, 'Pointer target is visible');
+  const point = { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
+  assert.ok(
+    await locator.evaluate(
+      (el, point) => el.contains(document.elementFromPoint(point.x, point.y)),
+      point,
+    ),
+    'Pointer target is not covered',
+  );
+  await page.mouse.click(point.x, point.y);
+}
 async function audit(name, accessibility = true) {
   await until(
     () => page.locator('.topbar-actions [aria-label="New task"]').isEnabled(),
@@ -460,6 +473,18 @@ let input='';process.stdin.on('data',d=>input+=d);process.stdin.on('end',()=>{
   await page.getByRole('button', { name: /^Chat agent:/ }).click();
   await audit('chat-agent-settings');
   await page.getByRole('combobox', { name: 'Search Chat agent', exact: true }).press('Escape');
+  const chatModel = page.getByRole('button', { name: /^claude model:/ });
+  await chatModel.click();
+  await page
+    .getByRole('combobox', { name: 'Search claude model', exact: true })
+    .fill('custom-model-'.repeat(24));
+  await anchored(chatModel, page.locator('.select-popover'), 'Long custom model menu');
+  assert.ok(
+    await page.locator('.select-popover').evaluate((el) => el.scrollWidth <= el.clientWidth + 1),
+    'Long model values stay inside their menu',
+  );
+  await audit('long-custom-model-menu');
+  await page.keyboard.press('Escape');
   await page.keyboard.press('Escape');
 
   await page.goto(origin + '/#task/' + task.id + '/overview');
@@ -604,6 +629,38 @@ let input='';process.stdin.on('data',d=>input+=d);process.stdin.on('end',()=>{
   await page.getByRole('button', { name: 'Close tab', exact: true }).click();
   await audit('close-workspace-dialog');
   await page.getByRole('button', { name: 'Close workspace', exact: true }).click();
+
+  // Use physical clicks: locator scrolling can move a horizontal board while opening a menu.
+  await page.evaluate(() => localStorage.setItem('relay-low-motion', 'false'));
+  await page.goto(origin + '/#tasks?view=board&scope=attention&empty=1');
+  await page.reload();
+  await page.locator('.task-board .task-card').waitFor();
+  assert.equal(await page.locator('html').getAttribute('data-low-motion'), 'false');
+  const boardLeft = await page.locator('.task-board').evaluate((el) => el.scrollLeft);
+  assert.ok(boardLeft > 0, 'Animated board opens at later populated stages');
+  await pointerClick(page.locator('.task-board .card-menu'));
+  const columnTrigger = page.getByRole('button', { name: /^Move to column:/ });
+  await columnTrigger.waitFor();
+  await pointerClick(columnTrigger);
+  await anchored(columnTrigger, page.locator('.select-popover'), 'Animated board dropdown');
+  assert.equal(
+    await page.locator('.task-board').evaluate((el) => el.scrollLeft),
+    boardLeft,
+    'Opening menus preserves board position',
+  );
+  await audit('animated-board-menu');
+  await page.keyboard.press('Escape');
+  await page.keyboard.press('Escape');
+  const boardMenu = page.locator('.task-board .card-menu');
+  await boardMenu.focus();
+  await boardMenu.press('Enter');
+  await columnTrigger.waitFor();
+  await columnTrigger.press('ArrowDown');
+  await anchored(columnTrigger, page.locator('.select-popover'), 'Keyboard board dropdown');
+  await page.keyboard.press('Escape');
+  await page.keyboard.press('Escape');
+  await page.evaluate(() => localStorage.setItem('relay-low-motion', 'true'));
+  await page.reload();
 
   const routes = [
     'overview',

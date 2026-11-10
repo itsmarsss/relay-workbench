@@ -373,7 +373,8 @@ export function TasksPage({
               );
             })}
           </nav>
-          <div
+          <motion.div
+            layoutScroll
             ref={board}
             className="task-board"
             role="region"
@@ -424,7 +425,7 @@ export function TasksPage({
                 <div className="lane-drop-hint">{dragging ? 'Move here' : ''}</div>
               </section>
             ))}
-          </div>
+          </motion.div>
         </div>
       )}
       {menu &&
