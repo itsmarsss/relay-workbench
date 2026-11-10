@@ -143,6 +143,7 @@ export function TaskPage({
       window.dispatchEvent(new Event('relay-data-change'));
     } catch (failure) {
       setActionError(failure instanceof Error ? failure.message : 'Could not update workflow.');
+      window.dispatchEvent(new Event('relay-data-change'));
     } finally {
       setBusy(false);
     }
@@ -173,6 +174,7 @@ export function TaskPage({
       window.dispatchEvent(new Event('relay-data-change'));
     } catch (failure) {
       setActionError(failure instanceof Error ? failure.message : 'Could not record the decision.');
+      window.dispatchEvent(new Event('relay-data-change'));
     } finally {
       setBusy(false);
     }
@@ -195,6 +197,7 @@ export function TaskPage({
       window.dispatchEvent(new Event('relay-data-change'));
     } catch (failure) {
       setActionError(failure instanceof Error ? failure.message : 'Could not record the decision.');
+      window.dispatchEvent(new Event('relay-data-change'));
     } finally {
       setBusy(false);
     }

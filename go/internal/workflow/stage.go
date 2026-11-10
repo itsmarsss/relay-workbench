@@ -269,10 +269,12 @@ func (s *StageRunner) Run(ctx context.Context, taskID string, options StageOptio
 		attempt["role"] = "verifier"
 	}
 	messageIDs := []string{}
-	for _, value := range array(task["messages"]) {
-		message := object(value)
-		if text(message["delivery"]) == "pending" && text(message["id"]) != "" {
-			messageIDs = append(messageIDs, text(message["id"]))
+	if stage != "verify" {
+		for _, value := range array(task["messages"]) {
+			message := object(value)
+			if text(message["delivery"]) == "pending" && text(message["id"]) != "" {
+				messageIDs = append(messageIDs, text(message["id"]))
+			}
 		}
 	}
 	if len(messageIDs) > 0 {

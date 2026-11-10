@@ -103,12 +103,21 @@ func verificationFixture(t *testing.T, setting string) (*StageRunner, StageOptio
 
 func TestVerificationStageRunsRealSupervisedCheck(t *testing.T) {
 	runner, options, _ := verificationFixture(t, "")
+	before := readStageTask(t, runner.Store)
+	before["messages"] = []any{map[string]any{"id": "pending", "role": "user", "text": "Change the behavior", "delivery": "pending"}}
+	raw, _ := json.Marshal(before)
+	if err := runner.Store.Save(raw, nil); err != nil {
+		t.Fatal(err)
+	}
 	if err := runner.Run(context.Background(), stageTaskID, options); err != nil {
 		t.Fatal(err)
 	}
 	value := readStageTask(t, runner.Store)
 	if value["status"] != "queued" || value["stage"] != "review" || value["verifiedFingerprint"] != "snapshot" {
 		t.Fatalf("verification did not advance: %#v", value)
+	}
+	if object(array(value["messages"])[0])["delivery"] != "pending" {
+		t.Fatal("verification consumed implementation direction")
 	}
 	attempt := object(array(value["attempts"])[0])
 	evidence := array(attempt["verificationEvidence"])
