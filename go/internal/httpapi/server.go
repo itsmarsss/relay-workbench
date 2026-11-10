@@ -251,6 +251,20 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if len(parts) == 2 && parts[1] == "events" {
+			if r.URL.Query().Has("before") {
+				before, err := strconv.ParseInt(r.URL.Query().Get("before"), 10, 64)
+				if err != nil || before < 0 || r.URL.Query().Has("after") {
+					respond(w, 400, map[string]string{"error": "Invalid event cursor"})
+					return
+				}
+				rows, err := s.store.EventsBefore(parts[0], before, 200)
+				if err != nil {
+					respond(w, 500, map[string]string{"error": "Could not read events"})
+				} else {
+					respond(w, 200, rows)
+				}
+				return
+			}
 			cursor := r.URL.Query().Get("after")
 			if cursor == "" {
 				cursor = "0"

@@ -22,6 +22,9 @@ type rpcRequest struct {
 	Method  string          `json:"method"`
 	Params  map[string]any  `json:"params"`
 }
+type imageContent struct{ block map[string]any }
+
+const maxRPCBytes = 16 * 1024 * 1024
 
 func (s *Service) serveTools(ctx context.Context, socket, capability string, chat Chat, messageID string) (func(), error) {
 	listener, err := net.Listen("unix", socket)
@@ -58,7 +61,7 @@ func (s *Service) serveTools(ctx context.Context, socket, capability string, cha
 			response["result"] = result
 		}
 		raw, _ := json.Marshal(response)
-		if len(raw) > 2*1024*1024 {
+		if len(raw) > maxRPCBytes {
 			raw, _ = json.Marshal(map[string]any{"jsonrpc": "2.0", "id": request.ID, "error": map[string]any{"code": -32603, "message": "Result exceeds limit; narrow the request"}})
 		}
 		_, _ = w.Write(raw)
@@ -94,6 +97,9 @@ func (s *Service) rpc(ctx context.Context, chat Chat, r rpcRequest) (any, error)
 		result, err := s.call(ctx, chat, text(r.Params["name"]), args)
 		if err != nil {
 			return map[string]any{"content": []any{map[string]any{"type": "text", "text": err.Error()}}, "isError": true}, nil
+		}
+		if image, ok := result.(imageContent); ok {
+			return map[string]any{"content": []any{image.block}}, nil
 		}
 		raw, err := json.Marshal(result)
 		if err != nil {
@@ -139,9 +145,9 @@ func MCPClient(args []string, input io.Reader, output, diagnostic io.Writer) int
 			fmt.Fprintln(diagnostic, "Relay tool bridge unavailable")
 			return 1
 		}
-		data, err := io.ReadAll(io.LimitReader(response.Body, 2*1024*1024+1))
+		data, err := io.ReadAll(io.LimitReader(response.Body, maxRPCBytes+1))
 		response.Body.Close()
-		if err != nil || response.StatusCode != 200 || len(data) > 2*1024*1024 {
+		if err != nil || response.StatusCode != 200 || len(data) > maxRPCBytes {
 			return 1
 		}
 		if _, err = fmt.Fprintln(output, string(data)); err != nil {

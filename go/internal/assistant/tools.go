@@ -3,6 +3,7 @@ package assistant
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -11,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"relay.local/relay/internal/attachments"
 	"relay.local/relay/internal/memory"
 	"relay.local/relay/internal/process"
 	"relay.local/relay/internal/task"
@@ -43,6 +45,7 @@ func tools() []tool {
 		makeTool("read_configuration", "Read current provider, repository and execution settings; credentials are excluded.", map[string]any{}),
 		makeTool("read_memory", "Read approved global and task/project memory.", map[string]any{"taskId": str}),
 		makeTool("read_model_catalog", "Discover actual provider models.", map[string]any{}),
+		makeTool("read_attachment", "View a local image referenced in this conversation or a selected task. Supply its /api/attachments URL.", map[string]any{"url": str, "taskId": str}, "url"),
 		makeTool("search_conversation", "Find older conversation exchanges.", map[string]any{"query": str}, "query"),
 		makeTool("read_file", "Read prepared worktree source with line and revision evidence. Relative paths only.", map[string]any{"taskId": str, "repositoryId": str, "path": str, "startLine": map[string]any{"type": "integer", "minimum": 1}, "lines": number}, "repositoryId", "path"),
 		makeTool("list_files", "List tracked/nonignored prepared worktree files under a relative directory.", map[string]any{"taskId": str, "repositoryId": str, "path": str}, "repositoryId"),
@@ -96,6 +99,11 @@ func (s *Service) context(chat Chat, message Message) ([]byte, error) {
 		}
 	}
 	result["mentionedTasks"] = mentioned
+	images, err := attachments.Context(s.Store, map[string]any{"description": message.Question, "messages": history})
+	if err != nil {
+		return nil, err
+	}
+	result["images"] = images
 	if permissions["readMemory"] == true {
 		rows, err := memory.Select(s.Store, chat.TaskID, nil)
 		if err != nil {
@@ -186,6 +194,34 @@ func (s *Service) call(ctx context.Context, chat Chat, name string, input map[st
 		return value, nil
 	}
 	switch name {
+	case "read_attachment":
+		url := text(input["url"])
+		name := strings.TrimPrefix(url, "/api/attachments/")
+		if url == name || !attachments.Filename.MatchString(name) {
+			return nil, errors.New("select a local image attachment")
+		}
+		current, err := s.Get(chat.ID)
+		if err != nil {
+			return nil, err
+		}
+		context, _ := json.Marshal(current.Messages)
+		allowed := strings.Contains(string(context), url)
+		if !allowed && taskID != "" {
+			value, err := readTask()
+			if err != nil {
+				return nil, err
+			}
+			raw, _ := json.Marshal(value)
+			allowed = strings.Contains(string(raw), url)
+		}
+		if !allowed {
+			return nil, errors.New("image is not referenced by this conversation or selected task")
+		}
+		data, image, err := attachments.Read(s.Store, name)
+		if err != nil {
+			return nil, err
+		}
+		return imageContent{map[string]any{"type": "image", "mimeType": image.Type, "data": base64.StdEncoding.EncodeToString(data)}}, nil
 	case "list_tasks":
 		rows, err := s.Store.All()
 		if err != nil {

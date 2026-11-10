@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"syscall"
@@ -37,6 +38,15 @@ type Spec struct {
 type Result struct {
 	Code  int    `json:"code"`
 	Error string `json:"error,omitempty"`
+}
+
+var validSession = regexp.MustCompile(`^relay-[A-Za-z0-9_-]{1,100}$`)
+
+func validateInfo(info Info) error {
+	if !validSession.MatchString(info.Session) || !filepath.IsAbs(info.Socket) || strings.ContainsAny(info.Socket, "\x00\r\n") {
+		return errors.New("invalid terminal")
+	}
+	return nil
 }
 
 func Available() bool { _, err := exec.LookPath("tmux"); return err == nil }
@@ -79,14 +89,14 @@ func readSpec(path string) (Spec, error) {
 	if err != nil {
 		return spec, err
 	}
-	if len(data) > 1024*1024 || json.Unmarshal(data, &spec) != nil || spec.Directory != filepath.Dir(path) || !filepath.IsAbs(spec.Cwd) || !strings.HasPrefix(spec.Info.Session, "relay-") || spec.Info.Socket != filepath.Join(spec.Directory, "tmux.sock") {
+	if len(data) > 1024*1024 || json.Unmarshal(data, &spec) != nil || spec.Directory != filepath.Dir(path) || !filepath.IsAbs(spec.Cwd) || validateInfo(spec.Info) != nil || spec.Info.Socket != filepath.Join(spec.Directory, "tmux.sock") {
 		return spec, errors.New("invalid private terminal specification")
 	}
 	return spec, nil
 }
 func command(ctx context.Context, info Info, args ...string) ([]byte, error) {
-	if !strings.HasPrefix(info.Session, "relay-") || !filepath.IsAbs(info.Socket) {
-		return nil, errors.New("invalid terminal")
+	if err := validateInfo(info); err != nil {
+		return nil, err
 	}
 	bounded, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()

@@ -128,3 +128,15 @@ func TestTerminalOutputDecoding(t *testing.T) {
 		t.Fatal("invalid size accepted")
 	}
 }
+
+func TestViewerRefusesControlTextInSessionNames(t *testing.T) {
+	for _, name := range []string{"relay-ok\nkill-server", "relay-x;kill-server", "relay-x\r", "-target"} {
+		info := Info{Session: name, Socket: filepath.Join(t.TempDir(), "tmux.sock")}
+		if _, err := Capture(context.Background(), info); err == nil {
+			t.Fatal("unsafe capture target accepted")
+		}
+		if err := Stream(context.Background(), info, func(map[string]any) error { t.Fatal("unsafe viewer opened"); return nil }); err == nil {
+			t.Fatal("unsafe viewer accepted")
+		}
+	}
+}

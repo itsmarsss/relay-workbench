@@ -7,7 +7,7 @@ import {
   useState,
   type ReactNode,
 } from 'react';
-import type { Bootstrap } from './types';
+import { isTask, type Bootstrap } from './types';
 const Session = createContext<{ bootstrap: Bootstrap | null; refresh: () => Promise<void> }>({
   bootstrap: null,
   refresh: async () => {},
@@ -57,7 +57,8 @@ export function useResource<T>(path: string | null) {
     }
     let alive = true,
       running = false,
-      pending = false;
+      pending = false,
+      generation = 0;
     let controller: AbortController | undefined, timer: number | undefined;
     async function load() {
       if (running) {
@@ -65,10 +66,11 @@ export function useResource<T>(path: string | null) {
         return;
       }
       running = true;
+      const started = generation;
       controller = new AbortController();
       try {
         const value = await request<T>(path!, token, undefined, 'GET', controller.signal);
-        if (alive) {
+        if (alive && started === generation) {
           setData(value);
           setError('');
         }
@@ -93,10 +95,18 @@ export function useResource<T>(path: string | null) {
           void load();
         }, 180);
     }
+    function updated(event: Event) {
+      const task = (event as CustomEvent).detail;
+      if (isTask(task) && path === `/api/tasks/${task.id}`) {
+        generation++;
+        setData(task as T);
+      }
+    }
     setLoading(true);
     void load();
     refreshRef.current = load;
     window.addEventListener('relay-data-change', changed);
+    window.addEventListener('relay-task-update', updated);
     const interval = window.setInterval(() => {
       if (!document.hidden) changed();
     }, 10000);
@@ -106,6 +116,7 @@ export function useResource<T>(path: string | null) {
       window.clearTimeout(timer);
       window.clearInterval(interval);
       window.removeEventListener('relay-data-change', changed);
+      window.removeEventListener('relay-task-update', updated);
     };
   }, [path, token]);
   return { data, error, loading, refresh: () => refreshRef.current() };
@@ -124,6 +135,8 @@ export function useMutation() {
       setError('');
       try {
         const value = await request<T>(path, bootstrap.token, body, method);
+        if (isTask(value))
+          window.dispatchEvent(new CustomEvent('relay-task-update', { detail: value }));
         window.dispatchEvent(new Event('relay-data-change'));
         void refresh();
         return value;

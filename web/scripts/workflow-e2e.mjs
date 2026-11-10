@@ -252,6 +252,13 @@ console.log(JSON.stringify({ type: 'item.completed', item: { type: 'agent_messag
     await composer.getByLabel('Description', { exact: true }).inputValue(),
     importedDescription,
   );
+  await composer.getByLabel('Attach images', { exact: true }).setInputFiles({
+    name: 'fixture.png', mimeType: 'image/png', buffer: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jR1sAAAAASUVORK5CYII=', 'base64'),
+  });
+  await until(async () => (await composer.getByLabel('Description', { exact: true }).inputValue()).includes('/api/attachments/'), 'image upload');
+  await composer.getByRole('button', { name: 'Preview', exact: true }).click();
+  await composer.getByRole('button', { name: 'Enlarge image: fixture.png' }).click();
+  await page.getByRole('dialog', { name: 'fixture.png', exact: true }).getByRole('button', { name: 'Close dialog' }).click();
   await composer.getByRole('button', { name: 'Cancel', exact: true }).click();
   await page.goto(`${base}/#task/${first.id}/overview`);
   await page.getByRole('button', { name: 'Start investigation' }).click();
@@ -305,6 +312,12 @@ console.log(JSON.stringify({ type: 'item.completed', item: { type: 'agent_messag
   assert.ok(
     reviewed.attempts.some((run) => run.stage === 'verify' && run.verificationEvidence?.length),
   );
+  await page.getByRole('button', { name: 'Comment on source.txt:1', exact: true }).last().click();
+  const commentDialog = page.getByRole('dialog', { name: 'Comment on source.txt:1', exact: true });
+  await commentDialog.getByLabel('Review comment', { exact: true }).fill('Please confirm this changed behavior.');
+  await commentDialog.getByRole('button', { name: 'Add comment', exact: true }).click();
+  await page.locator('.review-comment').getByRole('button', { name: 'Resolve', exact: true }).click();
+  await page.locator('.review-comment').getByRole('button', { name: 'Reopen', exact: true }).waitFor();
   await page.getByRole('button', { name: 'Accept result' }).click();
   await until(
     async () =>

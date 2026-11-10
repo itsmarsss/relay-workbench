@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -551,5 +552,36 @@ func TestStorageScanOnlyInspectsConfiguredPath(t *testing.T) {
 	}
 	if _, err = os.Stat(filepath.Join(root, "cache.bin")); err != nil {
 		t.Fatal("scan modified file")
+	}
+}
+
+func TestActivityPaginationStartsRecentAndKeepsBoundaries(t *testing.T) {
+	app, db := setup(t)
+	if err := db.Save(json.RawMessage(`{"id":"`+id+`","title":"History","status":"draft"}`), nil); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 240; i++ {
+		if _, err := db.Event(id, json.RawMessage(`{"type":"activity","summary":"entry"}`)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	w := request(app, "GET", "/api/tasks/"+id+"/events?before=0", "127.0.0.1:4311", "", "")
+	var newest []struct {
+		Seq int64 `json:"seq"`
+	}
+	if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &newest) != nil || len(newest) != 200 {
+		t.Fatal(w.Code, w.Body.String())
+	}
+	w = request(app, "GET", "/api/tasks/"+id+"/events?before="+strconv.FormatInt(newest[0].Seq, 10), "127.0.0.1:4311", "", "")
+	var earlier []struct {
+		Seq int64 `json:"seq"`
+	}
+	if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &earlier) != nil || len(earlier) != 40 || earlier[len(earlier)-1].Seq >= newest[0].Seq {
+		t.Fatal("earlier page overlaps or omits rows")
+	}
+	for _, query := range []string{"before=-1", "before=bad", "before=0&after=0"} {
+		if w = request(app, "GET", "/api/tasks/"+id+"/events?"+query, "127.0.0.1:4311", "", ""); w.Code != 400 {
+			t.Fatal("invalid cursor accepted")
+		}
 	}
 }

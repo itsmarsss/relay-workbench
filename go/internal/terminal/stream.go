@@ -30,6 +30,9 @@ func decodeOutput(value string) []byte {
 // Stream attaches a read-only control client. Input remains a separately
 // authenticated operation; the browser never supplies tmux command text.
 func Stream(ctx context.Context, info Info, send func(map[string]any) error) error {
+	if err := validateInfo(info); err != nil {
+		return err
+	}
 	childCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	child := exec.CommandContext(childCtx, "tmux", "-S", info.Socket, "-C", "attach-session", "-f", "ignore-size", "-t", info.Session)

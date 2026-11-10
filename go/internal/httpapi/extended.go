@@ -25,6 +25,9 @@ func result(w http.ResponseWriter, value any, err error, status int) {
 	}
 }
 func (s *Server) extended(w http.ResponseWriter, r *http.Request) bool {
+	if s.attachmentRoute(w, r) {
+		return true
+	}
 	if s.terminalRoute(w, r) {
 		return true
 	}

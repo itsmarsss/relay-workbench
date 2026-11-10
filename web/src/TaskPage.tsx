@@ -88,6 +88,7 @@ export function TaskPage({
       running = false,
       controller: AbortController | undefined,
       pending = false,
+      generation = 0,
       refreshTimer: number | undefined;
     async function load() {
       if (running) {
@@ -95,6 +96,7 @@ export function TaskPage({
         return;
       }
       running = true;
+      const started = generation;
       controller = new AbortController();
       try {
         const response = await fetch(`/api/tasks/${encodeURIComponent(id)}`, {
@@ -108,7 +110,7 @@ export function TaskPage({
           );
         const value: unknown = await response.json();
         if (!isTask(value)) throw new Error('Task data is invalid.');
-        if (active) {
+        if (active && started === generation) {
           const data = value as Task & Record<string, unknown>;
           setTask({
             ...value,
@@ -136,8 +138,16 @@ export function TaskPage({
         void load();
       }, 200);
     }
+    function onUpdate(event: Event) {
+      const task = (event as CustomEvent).detail;
+      if (isTask(task) && task.id === id) {
+        generation++;
+        setTask(task as Details);
+      }
+    }
     void load();
     window.addEventListener('relay-data-change', onData);
+    window.addEventListener('relay-task-update', onUpdate);
     const timer = window.setInterval(() => {
       if (!document.hidden) void load();
     }, 5000);
@@ -147,6 +157,7 @@ export function TaskPage({
       window.clearInterval(timer);
       window.clearTimeout(refreshTimer);
       window.removeEventListener('relay-data-change', onData);
+      window.removeEventListener('relay-task-update', onUpdate);
     };
   }, [id]);
   async function runAction(action: 'start' | 'resume' | 'pause') {

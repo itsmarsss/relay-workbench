@@ -27,6 +27,13 @@ func readPreviewFile(root, name string, max int64) ([]byte, error) {
 }
 
 func readBoundedFile(root, name string, max int64) ([]byte, os.FileMode, error) {
+	return readFile(root, name, max, false)
+}
+func readOwnedFile(root, name string, max int64) ([]byte, error) {
+	data, _, err := readFile(root, name, max, true)
+	return data, err
+}
+func readFile(root, name string, max int64, private bool) ([]byte, os.FileMode, error) {
 	fd, err := syscall.Open(root, syscall.O_RDONLY|syscall.O_DIRECTORY|syscall.O_NOFOLLOW|syscall.O_CLOEXEC, 0)
 	if err != nil {
 		return nil, 0, err
@@ -60,6 +67,12 @@ func readBoundedFile(root, name string, max int64) ([]byte, os.FileMode, error) 
 	info, err := current.Stat()
 	if err != nil || !info.Mode().IsRegular() || info.Size() > max {
 		return nil, 0, errors.New("file is not a small regular file")
+	}
+	if private {
+		stat, ok := info.Sys().(*syscall.Stat_t)
+		if !ok || stat.Nlink != 1 || stat.Uid != uint32(os.Geteuid()) || info.Mode().Perm()&0077 != 0 {
+			return nil, 0, errors.New("private file ownership changed")
+		}
 	}
 	data, err := io.ReadAll(io.LimitReader(current, max+1))
 	if err != nil || int64(len(data)) > max {

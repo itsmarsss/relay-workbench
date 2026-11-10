@@ -46,3 +46,32 @@ func TestControlsPreserveGatesAndRejectStaleOrPrivilegedEdits(t *testing.T) {
 		t.Fatal("task survived deletion")
 	}
 }
+
+func TestReviewCommentsBindToTheDisplayedDiff(t *testing.T) {
+	c, db, id, _, _ := acceptedPublicationFixture(t)
+	value := coordinatorTask(t, db, id)
+	value["status"] = "awaiting_final"
+	saved(t, db, value)
+	diff, err := c.Diff(context.Background(), id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := map[string]any{"taskRevision": diff["taskRevision"], "fingerprint": diff["fingerprint"], "repositoryId": "repo", "file": "file.txt", "line": float64(1), "side": "new", "text": "Please improve this."}
+	if _, err = c.Control(context.Background(), id, "review-comment", body); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = c.Control(context.Background(), id, "review-comment", body); err == nil {
+		t.Fatal("stale diff accepted")
+	}
+	raw, _ := db.Get(id)
+	body["taskRevision"] = store.TaskRevision(raw)
+	body["file"] = "../secret"
+	if _, err = c.Control(context.Background(), id, "review-comment", body); err == nil {
+		t.Fatal("unsafe path accepted")
+	}
+	body["file"] = "file.txt"
+	body["fingerprint"] = "old"
+	if _, err = c.Control(context.Background(), id, "review-comment", body); err == nil {
+		t.Fatal("mismatched diff accepted")
+	}
+}

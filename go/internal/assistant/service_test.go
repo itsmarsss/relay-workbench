@@ -3,12 +3,16 @@
 package assistant
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"image"
+	"image/png"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"relay.local/relay/internal/attachments"
 	"relay.local/relay/internal/process"
 	"relay.local/relay/internal/store"
 	"relay.local/relay/internal/task"
@@ -269,5 +273,40 @@ func TestMCPWireAcceptsJSONRPCAndHidesWritesInSideChat(t *testing.T) {
 	output.Reset()
 	if status := MCPClient([]string{socket, "wrong"}, strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}`), &output, &diagnostic); status == 0 {
 		t.Fatal("wrong capability accepted")
+	}
+}
+
+func TestAttachmentToolReturnsImagesOnlyFromSelectedContext(t *testing.T) {
+	s, db, _ := fixture(t)
+	chat, _ := s.Create("Images", "")
+	var data bytes.Buffer
+	if err := png.Encode(&data, image.NewRGBA(image.Rect(0, 0, 2, 3))); err != nil {
+		t.Fatal(err)
+	}
+	attachment, err := attachments.Save(db, data.Bytes(), "image/png")
+	if err != nil {
+		t.Fatal(err)
+	}
+	invoke := func() (any, error) {
+		return s.rpc(context.Background(), chat, rpcRequest{Method: "tools/call", Params: map[string]any{"name": "read_attachment", "arguments": map[string]any{"url": attachment.URL}}})
+	}
+	denied, err := invoke()
+	if err != nil || obj(denied)["isError"] != true {
+		t.Fatal("unreferenced image was exposed")
+	}
+	_, err = s.update(chat.ID, func(c *Chat) error {
+		c.Messages = append(c.Messages, Message{ID: "image", Question: "Explain ![image](" + attachment.URL + ")", Status: "complete"})
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := invoke()
+	if err != nil {
+		t.Fatal(err)
+	}
+	content := obj(array(obj(result)["content"])[0])
+	if content["type"] != "image" || content["mimeType"] != "image/png" || text(content["data"]) == "" {
+		t.Fatalf("image content not provided: %#v", result)
 	}
 }

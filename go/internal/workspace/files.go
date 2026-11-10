@@ -12,10 +12,18 @@ import (
 
 // ReadFile bounds inspection and refuses symlink traversal and special files.
 func ReadFile(root, name string, limit int64) ([]byte, error) {
-	if !filepath.IsAbs(root) || filepath.IsAbs(name) || limit < 1 || limit > 8*1024*1024 {
+	if !filepath.IsAbs(root) || filepath.IsAbs(name) || limit < 1 || limit > 10*1024*1024 {
 		return nil, errors.New("invalid file inspection")
 	}
 	return readPreviewFile(root, filepath.ToSlash(name), limit)
+}
+
+// ReadPrivateFile also rejects hard links and files with public permissions.
+func ReadPrivateFile(root, name string, limit int64) ([]byte, error) {
+	if !filepath.IsAbs(root) || filepath.IsAbs(name) || limit < 1 || limit > 10*1024*1024 {
+		return nil, errors.New("invalid private file inspection")
+	}
+	return readOwnedFile(root, filepath.ToSlash(name), limit)
 }
 
 // RunGit is used by trusted checkpoint and lifecycle operations. Arguments are

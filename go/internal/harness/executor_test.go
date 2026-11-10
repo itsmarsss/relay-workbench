@@ -212,7 +212,7 @@ func TestPublicationAgentRequiresCurrentFinalApproval(t *testing.T) {
 	task["routing"] = map[string]any{"implement": "codex"}
 	task["chosenApproach"] = map[string]any{"id": "a"}
 	task["verifiedFingerprint"], task["reviewedFingerprint"] = "same", "same"
-	task["delivery"] = map[string]any{"id": attemptID, "status": "running"}
+	task["delivery"] = map[string]any{"id": attemptID, "status": "running", "harness": "codex"}
 	task["approvals"] = []any{map[string]any{"type": "approach", "option": map[string]any{"id": "a"}}}
 	updated, _ := json.Marshal(task)
 	if err := db.Save(updated, nil); err != nil {

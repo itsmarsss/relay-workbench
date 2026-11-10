@@ -263,6 +263,15 @@ func (s *Store) Get(id string) (Task, error) {
 	return json.RawMessage(body), nil
 }
 func (s *Store) Events(id string, after int64, limit int) ([]json.RawMessage, error) {
+	return s.events(id, after, limit, false)
+}
+
+// EventsBefore reads a bounded page backwards, then returns chronological rows.
+// A zero cursor selects the newest page.
+func (s *Store) EventsBefore(id string, before int64, limit int) ([]json.RawMessage, error) {
+	return s.events(id, before, limit, true)
+}
+func (s *Store) events(id string, after int64, limit int, backwards bool) ([]json.RawMessage, error) {
 	if after < 0 || limit < 1 || limit > 1000 {
 		return nil, errors.New("invalid event cursor or limit")
 	}
@@ -271,7 +280,14 @@ func (s *Store) Events(id string, after int64, limit int) ([]json.RawMessage, er
 	if err := s.ready(); err != nil {
 		return nil, err
 	}
-	stmt, err := s.prepare("SELECT seq,body FROM events WHERE task_id=? AND seq>? ORDER BY seq LIMIT ?")
+	query := "SELECT seq,body FROM events WHERE task_id=? AND seq>? ORDER BY seq LIMIT ?"
+	if backwards {
+		if after == 0 {
+			after = 1<<63 - 1
+		}
+		query = "SELECT seq,body FROM events WHERE task_id=? AND seq<? ORDER BY seq DESC LIMIT ?"
+	}
+	stmt, err := s.prepare(query)
 	if err != nil {
 		return nil, err
 	}
@@ -301,6 +317,11 @@ func (s *Store) Events(id string, after int64, limit int) ([]json.RawMessage, er
 			return nil, err
 		}
 		events = append(events, b)
+	}
+	if backwards {
+		for left, right := 0, len(events)-1; left < right; left, right = left+1, right-1 {
+			events[left], events[right] = events[right], events[left]
+		}
 	}
 	return events, nil
 }

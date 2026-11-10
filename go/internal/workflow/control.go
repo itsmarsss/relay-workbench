@@ -245,11 +245,17 @@ func (c *Coordinator) control(ctx context.Context, id, operation string, body ma
 		value["messages"] = append(array(value["messages"]), map[string]any{"id": messageID, "at": timestamp(time.Now()), "role": "user", "text": message, "delivery": "pending"})
 		summary = "Direction saved for the next agent turn."
 	case "review-comment":
-		if err = fields(body, "commentId", "text", "file", "line", "repositoryId", "resolved"); err != nil {
+		if err = fields(body, "commentId", "text", "file", "line", "repositoryId", "resolved", "side", "fingerprint"); err != nil {
 			return nil, err
 		}
 		if active {
 			return nil, errors.New("wait for the current operation before changing review comments")
+		}
+		if value["status"] != "awaiting_final" {
+			return nil, errors.New("review comments require final review")
+		}
+		if expected := text(body["fingerprint"]); expected != "" && expected != text(value["reviewedFingerprint"]) {
+			return nil, errors.New("changes were updated since this diff was opened; refresh before commenting")
 		}
 		comments := array(value["reviewComments"])
 		if commentID := text(body["commentId"]); commentID != "" {
@@ -273,9 +279,20 @@ func (c *Coordinator) control(ctx context.Context, id, operation string, body ma
 				return nil, errors.New("review comment not found")
 			}
 		} else {
+			if text(body["fingerprint"]) == "" {
+				return nil, errors.New("refresh the diff before commenting")
+			}
 			content := strings.TrimSpace(text(body["text"]))
 			file := text(body["file"])
-			if content == "" || len(content) > 10000 || len(file) > 1000 || len(comments) >= 200 {
+			if strings.HasPrefix(file, "/") || strings.Contains(file, "\\") || strings.ContainsRune(file, '\x00') {
+				return nil, errors.New("invalid comment file")
+			}
+			for _, part := range strings.Split(file, "/") {
+				if part == ".." {
+					return nil, errors.New("invalid comment file")
+				}
+			}
+			if content == "" || file == "" || len(content) > 10000 || len(file) > 1000 || len(comments) >= 200 {
 				return nil, errors.New("invalid review comment")
 			}
 			repoID := text(body["repositoryId"])
@@ -283,14 +300,17 @@ func (c *Coordinator) control(ctx context.Context, id, operation string, body ma
 				return nil, errors.New("select a task repository")
 			}
 			line, _ := body["line"].(float64)
-			if line < 0 || line > 10000000 || line != float64(int(line)) {
+			if line < 1 || line > 10000000 || line != float64(int(line)) {
 				return nil, errors.New("invalid comment line")
+			}
+			if side := text(body["side"]); side != "old" && side != "new" {
+				return nil, errors.New("select the old or new side of the diff")
 			}
 			commentID, err := stageUUID()
 			if err != nil {
 				return nil, err
 			}
-			comments = append(comments, map[string]any{"id": commentID, "text": content, "file": file, "line": line, "repositoryId": repoID, "resolved": false, "status": "open", "at": timestamp(time.Now())})
+			comments = append(comments, map[string]any{"id": commentID, "text": content, "file": file, "line": line, "side": text(body["side"]), "fingerprint": value["reviewedFingerprint"], "repositoryId": repoID, "resolved": false, "status": "open", "at": timestamp(time.Now())})
 		}
 		value["reviewComments"] = comments
 		summary = "Review comments updated."

@@ -1,4 +1,5 @@
 import { useEffect, useRef, type FormEvent, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 export function Modal({
   title,
   onClose,
@@ -8,9 +9,9 @@ export function Modal({
 }: {
   title: string;
   onClose: () => void;
-  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+  onSubmit?: (event: FormEvent<HTMLFormElement>) => void;
   children: ReactNode;
-  footer: ReactNode;
+  footer?: ReactNode;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
   useEffect(() => {
@@ -20,7 +21,7 @@ export function Modal({
       element?.close();
     };
   }, []);
-  return (
+  const content = (
     <dialog
       ref={dialog}
       className="editor-modal"
@@ -30,7 +31,12 @@ export function Modal({
       }}
       aria-label={title}
     >
-      <form onSubmit={onSubmit}>
+      <form
+        onSubmit={(event) => {
+          event.preventDefault();
+          onSubmit?.(event);
+        }}
+      >
         <header>
           <h2>{title}</h2>
           <button type="button" aria-label="Close dialog" onClick={onClose}>
@@ -38,8 +44,9 @@ export function Modal({
           </button>
         </header>
         <div className="editor-modal-body">{children}</div>
-        <footer>{footer}</footer>
+        {footer && <footer>{footer}</footer>}
       </form>
     </dialog>
   );
+  return typeof document === 'undefined' ? content : createPortal(content, document.body);
 }

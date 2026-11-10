@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Modal } from './Modal';
 import { Markdown } from './Markdown';
+import { useImageUpload } from './ImageUpload';
 import { draftRequest } from './forms';
 import type { ImportedIssue, RelayConfig, Task } from './types';
 const presets = [
@@ -42,6 +43,7 @@ export function DraftComposer({
     [importWarnings, setImportWarnings] = useState<string[]>([]),
     [query, setQuery] = useState('');
   const importController = useRef<AbortController | null>(null);
+  const uploads = useImageUpload((text) => setDescription((value) => value + text));
   const priorImport = useRef<{
     repositoryId: string;
     references: string[];
@@ -116,7 +118,7 @@ export function DraftComposer({
       }}
       onSubmit={async (event) => {
         event.preventDefault();
-        if (busy || importing) return;
+        if (busy || importing || uploads.busy) return;
         setError('');
         try {
           const request = draftRequest(
@@ -151,7 +153,7 @@ export function DraftComposer({
           <button type="button" onClick={onClose} disabled={busy}>
             Cancel
           </button>
-          <button className="primary" type="submit" disabled={busy || importing}>
+          <button className="primary" type="submit" disabled={busy || importing || uploads.busy}>
             {busy ? 'Creating…' : 'Create draft'}
           </button>
         </>
@@ -191,6 +193,9 @@ export function DraftComposer({
         ) : (
           <textarea
             id="draft-description"
+            onPaste={uploads.onPaste}
+            onDrop={uploads.onDrop}
+            onDragOver={uploads.onDragOver}
             rows={5}
             value={description}
             maxLength={50000}
@@ -199,6 +204,7 @@ export function DraftComposer({
           />
         )}
       </div>
+      {uploads.control}
       <label className="field">
         Issue link or reference
         <input

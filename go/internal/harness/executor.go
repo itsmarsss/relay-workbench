@@ -285,6 +285,10 @@ func Execute(ctx context.Context, request RunRequest) (RunResult, error) {
 		if recovery["active"] != true || recovery["phase"] != "debug" {
 			return RunResult{}, errors.New("debugger has not been scheduled")
 		}
+	} else if request.Auxiliary {
+		if auxiliaryRecord(task, request.ActiveRepositoryID, request.Stage)["harness"] != request.Provider {
+			return RunResult{}, errors.New("selected harness does not match the scheduled agent")
+		}
 	} else if routing[routeStage] != request.Provider {
 		return RunResult{}, errors.New("selected harness does not match task routing")
 	}

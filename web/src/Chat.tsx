@@ -3,6 +3,7 @@ import { AnimatePresence, motion } from 'motion/react';
 import { useMutation, useResource, useSession, Notice } from './Session';
 import { Icon, CopyButton, Select } from './UI';
 import { Markdown } from './Markdown';
+import { useImageUpload } from './ImageUpload';
 import { Modal } from './Modal';
 import { ModelSelect } from './WorkspacePages';
 import { asObject } from './task-data';
@@ -83,6 +84,7 @@ export function ChatPanel({
     follow = useRef(true);
   const current = chat.data?.id === selected ? chat.data : null,
     running = current?.messages?.some((m) => m.status === 'running');
+  const uploads = useImageUpload((text) => setDraft((value) => value + text));
   const mentionMatch = draft.slice(0, cursor).match(/(?:^|\s)@([^@\n]{0,60})$/),
     mentionQuery = mentionMatch?.[1]?.toLowerCase(),
     suggestions =
@@ -141,6 +143,7 @@ export function ChatPanel({
     }
   }
   async function send() {
+    if (uploads.busy) return;
     if (!draft.trim() || running || mutation.busy) return;
     let value = current;
     if (!value) value = await create();
@@ -449,6 +452,9 @@ export function ChatPanel({
             )}
             <textarea
               rows={1}
+              onPaste={uploads.onPaste}
+              onDrop={uploads.onDrop}
+              onDragOver={uploads.onDragOver}
               ref={textarea}
               aria-label={taskId ? 'Ask Relay about this task' : 'Message Relay'}
               placeholder={taskId ? 'Ask about this task…' : 'Message Relay · @ to mention a task'}
@@ -499,12 +505,13 @@ export function ChatPanel({
               <button
                 className="primary send-message"
                 aria-label="Send message"
-                disabled={!draft.trim() || mutation.busy || !bootstrap}
+                disabled={!draft.trim() || mutation.busy || uploads.busy || !bootstrap}
               >
                 <Icon name="send" size={18} />
               </button>
             )}
           </div>
+          {uploads.control}
           <small className="composer-hint">
             {taskId
               ? 'Read only · Your pipeline keeps running'

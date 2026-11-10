@@ -871,7 +871,7 @@ func (c *Coordinator) Diff(ctx context.Context, id string) (map[string]any, erro
 		}
 		result = append(result, row)
 	}
-	return map[string]any{"repositories": result}, nil
+	return map[string]any{"repositories": result, "taskRevision": store.TaskRevision(raw), "fingerprint": value["reviewedFingerprint"]}, nil
 }
 
 // ImportIssue uses only a configured provider command and treats the ticket as

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { motion } from 'motion/react';
 import { Markdown } from './Markdown';
+import { useImageUpload } from './ImageUpload';
 import { Modal } from './Modal';
 import { Icon, Select } from './UI';
 import { ModelSelect } from './WorkspacePages';
@@ -77,6 +78,7 @@ function TaskEditor({ task, onClose }: { task: FullTask; onClose: () => void }) 
     [models, setModels] = useState(JSON.stringify(task.models || {}, null, 2)),
     [execution, setExecution] = useState(JSON.stringify(task.execution || {}, null, 2));
   const mutation = useMutation();
+  const uploads = useImageUpload((text) => setDescription((value) => value + text));
   const [parseError, setParseError] = useState('');
   return (
     <Modal
@@ -86,6 +88,7 @@ function TaskEditor({ task, onClose }: { task: FullTask; onClose: () => void }) 
       }}
       onSubmit={(e) => {
         e.preventDefault();
+        if (uploads.busy) return;
         try {
           const body = {
             taskRevision: task.taskRevision,
@@ -109,7 +112,7 @@ function TaskEditor({ task, onClose }: { task: FullTask; onClose: () => void }) 
           <button type="button" onClick={onClose}>
             Cancel
           </button>
-          <button className="primary" disabled={mutation.busy}>
+          <button className="primary" disabled={mutation.busy || uploads.busy}>
             Save changes
           </button>
         </>
@@ -140,12 +143,16 @@ function TaskEditor({ task, onClose }: { task: FullTask; onClose: () => void }) 
       ) : (
         <textarea
           aria-label="Description"
+          onPaste={uploads.onPaste}
+          onDrop={uploads.onDrop}
+          onDragOver={uploads.onDragOver}
           rows={7}
           maxLength={50000}
           value={description}
           onChange={(e) => setDescription(e.target.value)}
         />
       )}
+      {uploads.control}
       <details>
         <summary>Agent and execution overrides</summary>
         {[
@@ -176,6 +183,7 @@ export function ContinueWork({ task }: { task: FullTask }) {
     [model, setModel] = useState(''),
     [effort, setEffort] = useState('');
   const active = ['queued', 'running', 'manual'].includes(task.status);
+  const uploads = useImageUpload((text) => setMessage((value) => value + text));
   return (
     <section className="surface continuation">
       <div className="section-heading">
@@ -193,6 +201,7 @@ export function ContinueWork({ task }: { task: FullTask }) {
           <form
             onSubmit={(e) => {
               e.preventDefault();
+              if (uploads.busy) return;
               void mutation
                 .run(`/api/tasks/${task.id}/${active ? 'message' : 'request-changes'}`, {
                   taskRevision: task.taskRevision,
@@ -205,6 +214,9 @@ export function ContinueWork({ task }: { task: FullTask }) {
           >
             <textarea
               aria-label="Agent direction"
+              onPaste={uploads.onPaste}
+              onDrop={uploads.onDrop}
+              onDragOver={uploads.onDragOver}
               placeholder={
                 active ? 'Direction for the next turn…' : 'What should the agent change?'
               }
@@ -247,6 +259,7 @@ export function ContinueWork({ task }: { task: FullTask }) {
                 />
               </div>
             )}
+            {uploads.control}
             {mutation.error && <Notice>{mutation.error}</Notice>}
             <div className="composer-footer">
               <small>
@@ -254,7 +267,10 @@ export function ContinueWork({ task }: { task: FullTask }) {
                   ? 'Delivered at the next agent turn.'
                   : 'Uses the approved approach, then verifies and reviews the changes.'}
               </small>
-              <button className="primary" disabled={mutation.busy || !message.trim()}>
+              <button
+                className="primary"
+                disabled={mutation.busy || uploads.busy || !message.trim()}
+              >
                 {mutation.busy ? 'Sending…' : active ? 'Send direction' : 'Run agent'}
               </button>
             </div>

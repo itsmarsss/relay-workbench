@@ -411,7 +411,13 @@ func (s *Service) Send(id string, body map[string]any) (Chat, error) {
 	}
 	message := Message{ID: uuid(), Question: q, Status: "running", Provider: provider, Model: model, Effort: effort, CreatedAt: now(), Mentions: mentions, ToolCalls: []ToolCall{}, RevisionOf: text(body["revisionOf"])}
 	chat, err := s.update(id, func(c *Chat) error {
-        if c.TaskID!="" {for _,mentioned:=range mentions{if mentioned!=c.TaskID{return errors.New("side chat references must stay within its task")}}}
+		if c.TaskID != "" {
+			for _, mentioned := range mentions {
+				if mentioned != c.TaskID {
+					return errors.New("side chat references must stay within its task")
+				}
+			}
+		}
 		if body["revision"] != float64(c.Revision) {
 			return store.ErrMetadataChanged
 		}
