@@ -103,9 +103,6 @@ func (c *Coordinator) captureCheckpoint(ctx context.Context, id string, revalida
 		}
 	}
 	// Tree refs are incremental Git objects, never directory copies.
-	if len(rows) >= 100 {
-		return errors.New("checkpoint limit reached; archive this task before continuing")
-	}
 	entries, err := stageWorkspaces(value)
 	if err != nil {
 		return err
@@ -248,7 +245,75 @@ func (c *Coordinator) captureCheckpoint(ctx context.Context, id string, revalida
 		return err
 	}
 	committed = true
+	if pruneErr := c.pruneCheckpoints(ctx, id, runner); pruneErr != nil {
+		_, _ = c.store.Event(id, mustJSON(map[string]any{"type": "warning", "source": "relay", "summary": "Checkpoint saved; retention cleanup deferred: " + pruneErr.Error()}))
+	}
 	_, err = c.store.Event(id, mustJSON(map[string]any{"type": "checkpoint", "source": "relay", "checkpointId": record.ID, "attemptId": record.AttemptID, "summary": "Saved a checkpoint after " + record.Stage + "."}))
 	return err
 }
 func nowCheckpoint() string { return timestamp(time.Now()) }
+
+// Keep the latest hundred snapshots plus checkpoints referenced by continuations.
+// Retention is maintenance: a failure must not invalidate a saved stage result.
+func (c *Coordinator) pruneCheckpoints(ctx context.Context, id string, runner workspace.Runner) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	rows, err := c.checkpointRecords(id)
+	if err != nil || len(rows) <= 100 {
+		return err
+	}
+	all, err := c.store.All()
+	if err != nil {
+		return err
+	}
+	pinned := map[string]bool{}
+	for _, raw := range all {
+		var task map[string]any
+		if err := json.Unmarshal(raw, &task); err != nil {
+			return err
+		}
+		fork := object(task["fork"])
+		if fork["sourceTaskId"] == id {
+			pinned[text(fork["checkpointId"])] = true
+		}
+	}
+	keep, remove := []Checkpoint{}, []Checkpoint{}
+	for i, row := range rows {
+		if i >= len(rows)-100 || pinned[row.ID] {
+			keep = append(keep, row)
+		} else {
+			remove = append(remove, row)
+		}
+	}
+	if len(remove) == 0 {
+		return nil
+	}
+	// Commit retention metadata first. An interrupted cleanup can only leave extra
+	// refs, never dangling metadata referring to removed snapshots.
+	if err = c.store.UpdateMeta("checkpoints:"+id, func(raw string, exists bool) (string, error) {
+		original, _ := json.Marshal(rows)
+		var current []Checkpoint
+		if !exists || json.Unmarshal([]byte(raw), &current) != nil {
+			return "", errors.New("checkpoint history changed")
+		}
+		actual, _ := json.Marshal(current)
+		if string(actual) != string(original) {
+			return "", errors.New("checkpoint history changed")
+		}
+		encoded, err := json.Marshal(keep)
+		return string(encoded), err
+	}); err != nil {
+		return err
+	}
+	for _, row := range remove {
+		for i, repo := range row.Repositories {
+			for _, suffix := range []string{"head", "index", "work"} {
+				ref := fmt.Sprintf("refs/relay/checkpoints/%s/%s/%d/%s", id, row.ID, i, suffix)
+				if _, err = runner.RunGit(ctx, repo.Root, []string{"update-ref", "-d", ref}, nil, nil); err != nil {
+					return err
+				}
+			}
+		}
+	}
+	return nil
+}

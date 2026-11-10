@@ -5,9 +5,11 @@ package workflow
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"relay.local/relay/internal/workspace"
 	"testing"
 
 	"relay.local/relay/internal/store"
@@ -162,5 +164,31 @@ func TestAutomationDelegationIsAtomicAndRevocable(t *testing.T) {
 	waitCoordinator(t, c, forkID)
 	if _, exists, _ := db.GetMeta("automation:" + forkID); exists {
 		t.Fatal("fork inherited delegation")
+	}
+}
+
+func TestCheckpointRetentionPinsContinuations(t *testing.T) {
+	c, db, id, _ := coordinatorFixture(t, "exit 0")
+	rows := []Checkpoint{}
+	for i := 0; i < 105; i++ {
+		rows = append(rows, Checkpoint{ID: fmt.Sprintf("snapshot-%d", i)})
+	}
+	raw, _ := json.Marshal(rows)
+	if err := db.SetMeta("checkpoints:"+id, string(raw)); err != nil {
+		t.Fatal(err)
+	}
+	value := coordinatorTask(t, db, id)
+	value["id"] = "550e8400-e29b-41d4-a716-446655440099"
+	value["fork"] = map[string]any{"sourceTaskId": id, "checkpointId": "snapshot-1"}
+	raw, _ = json.Marshal(value)
+	if _, err := db.InsertTask(raw, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.pruneCheckpoints(context.Background(), id, workspace.Runner{}); err != nil {
+		t.Fatal(err)
+	}
+	kept, err := c.checkpointRecords(id)
+	if err != nil || len(kept) != 101 || kept[0].ID != "snapshot-1" || kept[1].ID != "snapshot-5" {
+		t.Fatalf("retention: %#v %v", kept, err)
 	}
 }

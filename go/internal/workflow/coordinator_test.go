@@ -172,12 +172,12 @@ func TestCoordinatorRequiresApprovalAndBlocksUnsupervisedVerification(t *testing
 func TestCoordinatorRejectsUnsupportedAndUnavailableBeforeMutation(t *testing.T) {
 	c, db, id, _ := coordinatorFixture(t, "exit 0")
 	value := coordinatorTask(t, db, id)
-	object(value["repository"])["strategy"] = "attach"
+	object(value["repository"])["strategy"] = "invalid"
 	body, _ := json.Marshal(value)
 	if err := db.Save(body, nil); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := c.Start(id); err == nil || !strings.Contains(err.Error(), "attached") {
+	if _, err := c.Start(id); err == nil || !strings.Contains(err.Error(), "strategy") {
 		t.Fatalf("unsupported strategy accepted: %v", err)
 	}
 	if value = coordinatorTask(t, db, id); value["status"] != "draft" || value["workspaceRoot"] != nil {

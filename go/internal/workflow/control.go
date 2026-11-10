@@ -55,6 +55,9 @@ func (c *Coordinator) control(ctx context.Context, id, operation string, body ma
 	if ctx == nil || ctx.Err() != nil {
 		return nil, errors.New("request was cancelled")
 	}
+	if operation == "cleanup" {
+		return c.Cleanup(ctx, id, body)
+	}
 	if operation == "automation" {
 		return c.setAutomation(id, body)
 	}

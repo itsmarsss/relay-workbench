@@ -36,9 +36,13 @@ export function TaskMenu({ task, onDeleted }: { task: Task; onDeleted?: () => vo
   return (
     <>
       {loadError && <Notice>{loadError}</Notice>}
-      <button onClick={() => void edit()} disabled={!bootstrap || asObject((task as FullTask).migration)?.readOnly === true}>
+      <button
+        onClick={() => void edit()}
+        disabled={!bootstrap || asObject((task as FullTask).migration)?.readOnly === true}
+      >
         Edit task
       </button>
+      <WorkspaceCleanup task={task as FullTask} />
       <button className="text-button danger" onClick={() => setConfirm(true)}>
         Delete
       </button>
@@ -75,7 +79,7 @@ function TaskEditor({ task, onClose }: { task: FullTask; onClose: () => void }) 
     [ticket, setTicket] = useState(asText(task.ticket, 2000)),
     [preview, setPreview] = useState(false),
     [agents, setAgents] = useState(() => agentOptions(task));
-  const {bootstrap} = useSession();
+  const { bootstrap } = useSession();
   const mutation = useMutation();
   const uploads = useImageUpload((text) => setDescription((value) => value + text));
   const [parseError, setParseError] = useState('');
@@ -152,7 +156,9 @@ function TaskEditor({ task, onClose }: { task: FullTask; onClose: () => void }) 
       {uploads.control}
       <details>
         <summary>Agent and execution overrides</summary>
-        {bootstrap && <AgentSettings config={bootstrap.config} value={agents} onChange={setAgents} />}
+        {bootstrap && (
+          <AgentSettings config={bootstrap.config} value={agents} onChange={setAgents} />
+        )}
       </details>
     </Modal>
   );
@@ -166,6 +172,7 @@ export function ContinueWork({ task }: { task: FullTask }) {
     [model, setModel] = useState(''),
     [effort, setEffort] = useState('');
   const active = ['queued', 'running', 'manual'].includes(task.status);
+
   const followupBusy =
     Array.isArray(task.deliveryRuns) &&
     task.deliveryRuns.some((item) => {
@@ -173,6 +180,13 @@ export function ContinueWork({ task }: { task: FullTask }) {
       return run?.stage === 'followup' && ['queued', 'running'].includes(String(run.status));
     });
   const uploads = useImageUpload((text) => setMessage((value) => value + text));
+  if (asObject(task.workspaceCleanup)?.status === 'removed')
+    return (
+      <section className="surface">
+        <h2>Workspace removed</h2>
+        <p>Continue from a saved checkpoint to reopen this work in a new workspace.</p>
+      </section>
+    );
   return (
     <section className="surface continuation">
       <div className="section-heading">
@@ -303,7 +317,7 @@ export function PublicationPanel({ task }: { task: FullTask }) {
         const url = asText(publication?.url);
         const valid = /^https?:\/\//.test(url);
         const busy =
-          asObject(task.migration)?.readOnly===true ||
+          asObject(task.migration)?.readOnly === true ||
           delivery?.status === 'running' ||
           delivery?.status === 'queued' ||
           monitor?.status === 'running';
@@ -404,3 +418,65 @@ export function PublicationPanel({ task }: { task: FullTask }) {
   );
 }
 export { ExecutionGraph } from './ExecutionGraph';
+
+function WorkspaceCleanup({ task }: { task: FullTask }) {
+  const mutation = useMutation();
+  const [open, setOpen] = useState(false),
+    [includeIgnored, setIncludeIgnored] = useState(false);
+  if (
+    task.status !== 'completed' ||
+    !task.workspaceRoot ||
+    asObject(task.migration)?.readOnly === true
+  )
+    return null;
+  return (
+    <>
+      <button onClick={() => setOpen(true)}>Clean up workspace</button>
+      {open && (
+        <Modal
+          title="Remove published worktrees?"
+          onClose={() => {
+            if (!mutation.busy) setOpen(false);
+          }}
+          onSubmit={(event) => {
+            event.preventDefault();
+            void mutation
+              .run(`/api/tasks/${task.id}/cleanup`, {
+                taskRevision: task.taskRevision,
+                includeIgnored,
+              })
+              .then(() => setOpen(false))
+              .catch(() => {});
+          }}
+          footer={
+            <>
+              <button type="button" disabled={mutation.busy} onClick={() => setOpen(false)}>
+                Cancel
+              </button>
+              <button className="danger" disabled={mutation.busy}>
+                Remove clean worktrees
+              </button>
+            </>
+          }
+        >
+          <p>
+            Removes this instance’s clean worktrees after every repository is published. Branches,
+            pull requests and checkpoints stay available. Continue from a checkpoint to work again.
+          </p>
+          <label className="check-row">
+            <input
+              type="checkbox"
+              checked={includeIgnored}
+              onChange={(event) => setIncludeIgnored(event.target.checked)}
+            />
+            Also remove ignored files, including generated builds and dependencies
+          </label>
+          <p className="muted">
+            Local changes block cleanup. Attached and externally managed checkouts are excluded.
+          </p>
+          {mutation.error && <Notice>{mutation.error}</Notice>}
+        </Modal>
+      )}
+    </>
+  );
+}

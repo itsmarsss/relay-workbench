@@ -1,5 +1,5 @@
 // Package workspace provides repository-agnostic inspection and fingerprints.
-// Worktree creation and workspace leases are not yet implemented.
+// It also owns worktree preparation, leases and guarded cleanup.
 package workspace
 
 import (

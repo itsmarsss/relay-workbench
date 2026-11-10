@@ -233,8 +233,8 @@ func profiles(task map[string]any) ([]map[string]any, error) {
 		if id == "" || seen[id] || !filepath.IsAbs(text(profile["path"])) {
 			return nil, errors.New("invalid task repository")
 		}
-		if strategy != "" && strategy != "worktree" && strategy != "managed" {
-			return nil, errors.New("attached checkouts are not supported by the preview yet")
+		if strategy != "" && strategy != "worktree" && strategy != "managed" && strategy != "attach" {
+			return nil, errors.New("unsupported repository workspace strategy")
 		}
 		seen[id] = true
 		result = append(result, entry)
@@ -341,6 +341,11 @@ func (c *Coordinator) enqueueMode(id string, resume, automatic bool) (map[string
 				return errors.New("implementation requires an approved approach")
 			}
 			for _, entry := range entries {
+				// A preflight refusal created no checkout and ran no stage.
+				// An explicit resume may safely retry that preparation.
+				if text(entry["workspaceRoot"]) == "" && entry["workspaceDraft"] == nil && len(array(value["attempts"])) == 0 && (stage == "investigate" || stage == "triage") {
+					continue
+				}
 				if text(entry["workspaceRoot"]) == "" || entry["workspaceDraft"] != nil || entry["setupCompleted"] != true && object(value["checkpointRestore"])["status"] != "complete" {
 					return errors.New("workspace or setup is incomplete; inspect retained work before continuing")
 				}
@@ -1219,8 +1224,8 @@ func (c *Coordinator) Close() {
 	<-c.monitorDone
 }
 
-// prepare and setup intentionally operate only on task-owned isolated
-// workspaces. Partially created workspaces are recorded and never removed.
+// prepare and setup preserve partial workspaces. Attaching to a source checkout
+// requires an explicitly configured profile and an initially clean branch.
 func (c *Coordinator) prepare(ctx context.Context, id string, guard storage.Guard, timeout time.Duration) error {
 	raw, err := c.store.Get(id)
 	if err != nil {
@@ -1241,6 +1246,9 @@ func (c *Coordinator) prepare(ctx context.Context, id string, guard storage.Guar
 		}
 		profile := object(entry["repository"])
 		repositoryID := text(profile["id"])
+		if object(entry["workspaceCleanup"])["status"] == "removed" {
+			return errors.New("workspace was cleaned up; continue from a saved checkpoint in a new workspace")
+		}
 		if text(entry["workspaceRoot"]) != "" {
 			if entry["workspaceDraft"] != nil || entry["setupCompleted"] != true && object(value["checkpointRestore"])["status"] != "complete" {
 				return errors.New("workspace or setup is incomplete; inspect retained work before continuing")
@@ -1249,7 +1257,11 @@ func (c *Coordinator) prepare(ctx context.Context, id string, guard storage.Guar
 			if expectedHead == "" {
 				expectedHead = text(entry["baseCommit"])
 			}
-			if err = runner.VerifyExisting(ctx, workspace.Profile{Path: text(profile["path"]), Cwd: text(profile["cwd"])}, text(entry["workspaceRoot"]), text(entry["workspace"]), text(entry["branch"]), expectedHead); err != nil {
+			verifyExisting := runner.VerifyExisting
+			if profile["strategy"] == "attach" {
+				verifyExisting = runner.VerifyAttached
+			}
+			if err = verifyExisting(ctx, workspace.Profile{Path: text(profile["path"]), Cwd: text(profile["cwd"])}, text(entry["workspaceRoot"]), text(entry["workspace"]), text(entry["branch"]), expectedHead); err != nil {
 				return err
 			}
 			continue
@@ -1281,6 +1293,8 @@ func (c *Coordinator) prepare(ctx context.Context, id string, guard storage.Guar
 				return errors.New("invalid workspace manager arguments")
 			}
 			draft, err = runner.CreateManaged(ctx, c.area, workspace.ManagedProfile{Profile: base, PathTemplate: text(profile["workspacePath"]), Command: text(command["command"]), Args: args}, id, repositoryID, key, "", guard, checkpoint)
+		} else if text(profile["strategy"]) == "attach" {
+			draft, err = runner.Attach(ctx, base, id, repositoryID, guard, checkpoint)
 		} else {
 			draft, err = runner.CreateWorktree(ctx, c.area, base, id, repositoryID, "", guard, checkpoint)
 		}
@@ -1325,7 +1339,7 @@ func updateWorkspace(task map[string]any, repositoryID string, apply func(map[st
 		}
 		apply(entry)
 		if text(object(task["repository"])["id"]) == repositoryID {
-			for _, key := range []string{"workspaceRoot", "workspace", "branch", "baseCommit", "workspaceHead", "workspaceDraft"} {
+			for _, key := range []string{"workspaceRoot", "workspace", "branch", "baseCommit", "workspaceHead", "workspaceDraft", "workspaceCleanup"} {
 				if val, ok := entry[key]; ok {
 					task[key] = val
 				} else {
