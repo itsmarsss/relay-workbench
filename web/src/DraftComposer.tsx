@@ -257,7 +257,7 @@ export function DraftComposer({
       </fieldset>
       <label className="check-row">
         <input type="checkbox" checked={demo} onChange={(event) => setDemo(event.target.checked)} />
-        Demo draft
+        Demo · simulated agents, no repository commands
       </label>
       {!demo && (
         <fieldset>

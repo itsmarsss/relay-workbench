@@ -272,9 +272,9 @@ export function TaskPage({
             ))}
         </div>
         <div className="task-page-actions">
-          {workflowPreview && !task.demo && task.status === 'draft' && (
+          {workflowPreview && task.status === 'draft' && (
             <button className="primary" disabled={busy} onClick={() => void runAction('start')}>
-              {busy ? 'Starting…' : 'Start investigation'}
+              {busy ? 'Starting…' : task.demo ? 'Run demo' : 'Start investigation'}
             </button>
           )}
           {workflowPreview &&
@@ -286,7 +286,6 @@ export function TaskPage({
               </button>
             )}
           {workflowPreview &&
-            !task.demo &&
             ['paused', 'interrupted', 'blocked'].includes(task.status) &&
             !blocker &&
             ['triage', 'investigate', 'plan', 'implement', 'verify', 'review'].includes(

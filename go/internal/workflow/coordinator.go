@@ -282,6 +282,17 @@ func (c *Coordinator) enqueueMode(id string, resume, automatic bool) (map[string
 	if len(c.jobs) >= 256 {
 		return nil, errors.New("workflow queue is full")
 	}
+	rawDemo, demoErr := c.store.Get(id)
+	var demoValue map[string]any
+	if demoErr != nil {
+		return nil, demoErr
+	}
+	if json.Unmarshal(rawDemo, &demoValue) != nil {
+		return nil, errors.New("invalid task")
+	}
+	if demoValue["demo"] == true {
+		return c.enqueueDemoLocked(id, resume, automatic)
+	}
 	config, err := (task.ConfigurationService{Store: c.store}).Read()
 	if err != nil {
 		return nil, err
@@ -307,9 +318,6 @@ func (c *Coordinator) enqueueMode(id string, resume, automatic bool) (map[string
 			if err != nil || !exists || json.Unmarshal([]byte(meta), &delegation) != nil || delegation["enabled"] != true {
 				return errors.New("Auto delegation is no longer enabled")
 			}
-		}
-		if value["demo"] == true {
-			return errors.New("simulated workflows are not ported yet")
 		}
 		if !resume && status != "draft" {
 			return errors.New("start requires a draft task")
@@ -495,6 +503,17 @@ func (c *Coordinator) Approve(ctx context.Context, id, optionID, note, attemptID
 	if json.Unmarshal(raw, &value) != nil || value == nil {
 		return nil, errors.New("invalid task state")
 	}
+	if value["demo"] == true {
+		approved, err := (Service{Store: c.store}).ApproveExpected(id, optionID, note, Authorization{Human: true}, attemptID, revision)
+		if err != nil {
+			return nil, err
+		}
+		if json.Unmarshal(approved, &value) != nil {
+			return nil, errors.New("invalid approved demo")
+		}
+		c.startDemoLocked(id)
+		return value, nil
+	}
 	entries, err := profiles(value)
 	if err != nil {
 		return nil, err
@@ -586,6 +605,17 @@ func (c *Coordinator) Accept(ctx context.Context, id, revision string) (map[stri
 		return nil, errors.New("Task changed; refresh before accepting")
 	}
 	var value map[string]any
+	if json.Unmarshal(raw, &value) == nil && value["demo"] == true {
+		accepted, err := (Service{Store: c.store}).AcceptDemo(id, Authorization{Human: true})
+		if err != nil {
+			return nil, err
+		}
+		if json.Unmarshal(accepted, &value) != nil {
+			return nil, errors.New("invalid accepted demo")
+		}
+		value["taskRevision"] = store.TaskRevision(accepted)
+		return value, nil
+	}
 	if json.Unmarshal(raw, &value) != nil || value == nil || text(value["status"]) != "awaiting_final" || value["demo"] == true {
 		return nil, errors.New("task is not awaiting a live final review")
 	}

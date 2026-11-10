@@ -143,6 +143,15 @@ let input='';process.stdin.on('data',d=>input+=d);process.stdin.on('end',()=>{
   await page.getByText('Settings saved.', { exact: true }).waitFor();
   await page.getByRole('button', { name: 'Save settings', exact: true }).click();
   await page.getByText('Settings saved.', { exact: true }).waitFor();
+  const demo = await api('/api/tasks', {title:'Workflow demo',demo:true});
+  await page.goto(origin + '/#task/' + demo.id + '/overview');
+  await page.getByRole('button', {name:'Run demo',exact:true}).click();
+  await page.getByText('Focused repair', {exact:true}).first().waitFor();
+  await page.getByText('Focused repair', {exact:true}).first().click();
+  await page.getByRole('button', {name:'Approve approach',exact:true}).click();
+  await page.getByRole('button', {name:'Accept result',exact:true}).waitFor();
+  await page.getByRole('button', {name:'Accept result',exact:true}).click();
+  await until(async()=> (await (await fetch(origin+'/api/tasks/'+demo.id)).json()).status==='completed','demo acceptance');
   await page.goto(origin + '/#relay');
   await page.screenshot({ path: join(directory, 'light.png') });
   await page.getByRole('button', { name: 'Use dark theme' }).click();
