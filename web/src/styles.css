@@ -2890,3 +2890,9 @@ body:has(dialog[open]) {
 .graph-status.failed,.graph-status.interrupted{background:var(--danger,#b64a3b);}
 .graph-status.running{background:var(--accent);}
 .graph-zoom{min-width:52px;font-variant-numeric:tabular-nums;}
+
+.proposal-diff { display: grid; gap: 16px; margin-top: 12px; }
+.proposal-diff h4 { margin: 0 0 6px; font-size: .85rem; overflow-wrap: anywhere; }
+.proposal-diff-text { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.65; font-size: .9rem; }
+.proposal-diff ins { color: var(--text); background: color-mix(in srgb, #219653 23%, transparent); text-decoration: none; }
+.proposal-diff del { color: var(--text); background: color-mix(in srgb, #d64747 22%, transparent); }

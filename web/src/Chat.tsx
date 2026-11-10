@@ -1,3 +1,4 @@
+import { ReviewChanges } from './ReviewChanges';
 import { useEffect, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import { useMutation, useResource, useSession, Notice } from './Session';
@@ -30,6 +31,7 @@ type Proposal = {
   reason: string;
   status: string;
   body: Record<string, unknown>;
+  before?: Record<string, unknown>;
   error?: string;
 };
 type Chat = {
@@ -85,8 +87,17 @@ export function ChatPanel({
     follow = useRef(true);
   const workspaceAgent = asObject(bootstrap?.config.workspaceAgent),
     selectedProvider = provider || String(workspaceAgent?.provider || 'claude'),
-    configuredModel = selectedProvider === String(workspaceAgent?.provider || 'claude') ? workspaceAgent?.model : undefined,
-    displayModel = model || String(configuredModel || asObject(asObject(bootstrap?.config.harnesses)?.[selectedProvider])?.model || selectedProvider);
+    configuredModel =
+      selectedProvider === String(workspaceAgent?.provider || 'claude')
+        ? workspaceAgent?.model
+        : undefined,
+    displayModel =
+      model ||
+      String(
+        configuredModel ||
+          asObject(asObject(bootstrap?.config.harnesses)?.[selectedProvider])?.model ||
+          selectedProvider,
+      );
   const current = chat.data?.id === selected ? chat.data : null,
     running = current?.messages?.some((m) => m.status === 'running');
   const uploads = useImageUpload((text) => setDraft((value) => value + text));
@@ -362,14 +373,18 @@ export function ChatPanel({
             <article className="chat-proposal surface" key={p.id}>
               <div className="section-heading">
                 <h3>
-                  {p.kind === 'configuration' ? 'Settings change' : p.taskTitle || 'Task change'}
+                  {p.kind === 'configuration'
+                    ? 'Settings change'
+                    : p.kind === 'storage'
+                      ? 'Storage policy'
+                      : p.taskTitle || 'Task change'}
                 </h3>
                 <span className="task-status">{p.status}</span>
               </div>
               <Markdown text={p.reason} />
               <details>
                 <summary>Review exact changes{p.operation ? ' · ' + p.operation : ''}</summary>
-                <pre>{JSON.stringify(p.body, null, 2)}</pre>
+                <ReviewChanges before={p.before} after={p.body} />
               </details>
               {p.error && <Notice>{p.error}</Notice>}
               {p.status === 'pending' && (
@@ -537,9 +552,21 @@ export function ChatPanel({
           <p className="muted">Model and effort apply to the next message in this view.</p>
           <label className="field">
             Agent
-            <Select label="Chat agent" value={selectedProvider}
-              options={['codex', 'claude', 'pi'].map(value => ({value, label:value === 'codex' ? 'Codex' : value === 'claude' ? 'Claude' : 'Pi', disabled:asObject(asObject(bootstrap?.config.harnesses)?.[value])?.enabled !== true}))}
-              onChange={value => {setProvider(value);setModel('');setEffort('');}} />
+            <Select
+              label="Chat agent"
+              value={selectedProvider}
+              options={['codex', 'claude', 'pi'].map((value) => ({
+                value,
+                label: value === 'codex' ? 'Codex' : value === 'claude' ? 'Claude' : 'Pi',
+                disabled:
+                  asObject(asObject(bootstrap?.config.harnesses)?.[value])?.enabled !== true,
+              }))}
+              onChange={(value) => {
+                setProvider(value);
+                setModel('');
+                setEffort('');
+              }}
+            />
           </label>
           <label className="field">
             Model

@@ -161,6 +161,6 @@ const storage = renderToStaticMarkup(
   }),
 );
 assert.match(storage, /Low space/);
-assert.match(storage, /Automatic cleanup/);
-assert.match(storage, /not connected/);
+assert.match(storage, /Critical space blocks new workspace/);
+assert.match(storage, /Cleanup requires a separate action/);
 console.log('React server-render smoke test passed.');

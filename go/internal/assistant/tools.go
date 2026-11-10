@@ -15,6 +15,7 @@ import (
 	"relay.local/relay/internal/attachments"
 	"relay.local/relay/internal/memory"
 	"relay.local/relay/internal/process"
+	"relay.local/relay/internal/storage"
 	"relay.local/relay/internal/task"
 	"relay.local/relay/internal/tasksummary"
 	"relay.local/relay/internal/workspace"
@@ -41,7 +42,10 @@ func tools() []tool {
 	return []tool{
 		makeTool("list_tasks", "Read current workspace tasks.", map[string]any{}),
 		makeTool("get_task", "Read a task's full current context and workflow state.", map[string]any{"taskId": str}, "taskId"),
+		makeTool("read_task_history", "Read saved checkpoints, approach choices and workflow continuations.", map[string]any{"taskId": str}, "taskId"),
+		makeTool("read_task_changes", "Read current structured Git diffs and their revision. Requires prepared source access.", map[string]any{"taskId": str}, "taskId"),
 		makeTool("read_task_activity", "Read recent task activity, handoffs and failures.", map[string]any{"taskId": str}, "taskId"),
+		makeTool("read_storage", "Read the current disk policy and Relay data volume capacity.", map[string]any{}),
 		makeTool("read_configuration", "Read current provider, repository and execution settings; credentials are excluded.", map[string]any{}),
 		makeTool("read_memory", "Read approved global and task/project memory.", map[string]any{"taskId": str}),
 		makeTool("read_model_catalog", "Discover actual provider models.", map[string]any{}),
@@ -53,7 +57,8 @@ func tools() []tool {
 		makeTool("git_inspect", "Read worktree status, diff or recent history; no arbitrary arguments.", map[string]any{"taskId": str, "repositoryId": str, "operation": map[string]any{"enum": []string{"status", "diff", "log"}}, "path": str}, "repositoryId", "operation"),
 		makeTool("github_read", "Read GitHub issue, PR, checks, diff, search or relative REST GET with host authentication. Never writes.", map[string]any{"operation": map[string]any{"enum": []string{"issue", "pull_request", "checks", "diff", "search_issues", "search_prs", "api_get"}}, "repository": str, "number": map[string]any{"type": "integer", "minimum": 1}, "query": str, "endpoint": str}, "operation"),
 		makeTool("create_draft", "Create an unstarted task draft if permitted. Read issue context and reuse existing tickets.", map[string]any{"task": map[string]any{"type": "object", "additionalProperties": true}}, "task"),
-		makeTool("propose_task_change", "Persist an exact task action for separate human approval. Never applies it. Settings, direction, workflow, publication and PR feedback controls are supported.", map[string]any{"taskId": str, "operation": str, "body": map[string]any{"type": "object", "additionalProperties": true}, "reason": str}, "taskId", "operation", "body", "reason"),
+		makeTool("propose_task_change", "Persist an exact task action for separate human approval. Never applies it. Settings, direction, workflow, publication and PR feedback controls are supported.", map[string]any{"taskId": str, "operation": map[string]any{"enum": []string{"edit", "start", "resume", "pause", "approve", "accept", "resolve", "automation", "checkpoint", "message", "request-changes", "replan", "publish", "publication", "feedback", "monitor", "followup", "review-comment", "recreate", "cleanup", "delete"}}, "body": map[string]any{"type": "object", "additionalProperties": true}, "reason": str}, "taskId", "operation", "body", "reason"),
+		makeTool("propose_storage_change", "Propose a complete storage policy replacement for separate human approval; read_storage first.", map[string]any{"policy": map[string]any{"type": "object", "additionalProperties": true}, "reason": str}, "policy", "reason"),
 		makeTool("propose_config_change", "Propose a complete validated configuration replacement; read_configuration first. Human approval and matching revision are required.", map[string]any{"config": map[string]any{"type": "object", "additionalProperties": true}, "reason": str}, "config", "reason"),
 	}
 }
@@ -71,7 +76,7 @@ func (s *Service) context(chat Chat, message Message) ([]byte, error) {
 	}
 	settings := obj(config["workspaceAgent"])
 	permissions := obj(settings["permissions"])
-	result := map[string]any{"capturedAt": now(), "taskId": chat.TaskID, "permissions": permissions, "readOnly": chat.TaskID != "", "memoryRules": memory.Rules, "capabilities": []string{"read_task", "read_source", "github_read", "create_draft", "propose_task_change", "propose_config_change"}}
+	result := map[string]any{"capturedAt": now(), "taskId": chat.TaskID, "permissions": permissions, "readOnly": chat.TaskID != "", "memoryRules": memory.Rules, "capabilities": []string{"read_task", "read_task_activity", "read_task_history", "read_task_changes", "read_source", "github_read", "create_draft", "propose_task_change", "propose_config_change"}}
 	if permissions["readSettings"] == true {
 		result["configuration"] = config
 	}
@@ -244,7 +249,52 @@ func (s *Service) call(ctx context.Context, chat Chat, name string, input map[st
 		if taskID == "" {
 			return nil, errors.New("select a task")
 		}
-		return s.Store.Events(taskID, 0, 200)
+		return s.Store.EventsBefore(taskID, 0, 200)
+	case "read_task_history":
+		if taskID == "" {
+			return nil, errors.New("select a task")
+		}
+		if _, err := readTask(); err != nil {
+			return nil, err
+		}
+		reader, ok := s.Actions.(interface {
+			History(string) (map[string]any, error)
+		})
+		if !ok {
+			return nil, errors.New("task history is unavailable")
+		}
+		return reader.History(taskID)
+	case "read_task_changes":
+		if taskID == "" {
+			return nil, errors.New("select a task")
+		}
+		if _, err := readTask(); err != nil {
+			return nil, err
+		}
+		reader, ok := s.Actions.(interface {
+			Diff(context.Context, string) (map[string]any, error)
+		})
+		if !ok {
+			return nil, errors.New("task diffs are unavailable")
+		}
+		return reader.Diff(ctx, taskID)
+	case "read_storage":
+		if permissions["readSettings"] != true {
+			return nil, errors.New("readSettings permission is disabled")
+		}
+		policy, err := (storage.PolicyService{Store: s.Store}).Read()
+		if err != nil {
+			return nil, err
+		}
+		root, err := s.Store.OwnedRoot()
+		if err != nil {
+			return nil, err
+		}
+		capacity, err := storage.ProbeWithTimeout(ctx, root, 2*time.Second, storage.Filesystem)
+		if err != nil {
+			return nil, err
+		}
+		return map[string]any{"policy": policy.Policy, "revision": policy.Revision, "space": capacity}, nil
 	case "read_configuration":
 		if permissions["readSettings"] != true {
 			return nil, errors.New("readSettings permission is disabled")
@@ -296,7 +346,7 @@ func (s *Service) call(ctx context.Context, chat Chat, name string, input map[st
 			return nil, errors.New("draft creation is not permitted in this conversation")
 		}
 		draft := obj(input["task"])
-		allowed := []string{"title", "description", "ticket", "preset", "repositoryId", "repositoryIds", "repositorySettings", "dependencies", "smartRouting", "routing", "models", "execution"}
+		allowed := []string{"title", "description", "ticket", "preset", "repositoryId", "repositoryIds", "repositorySettings", "dependencies", "smartRouting", "routing", "models", "efforts", "execution"}
 		if draft == nil {
 			return nil, errors.New("task must be an object")
 		}
@@ -316,12 +366,12 @@ func (s *Service) call(ctx context.Context, chat Chat, name string, input map[st
 			}
 		}
 		return (task.ConfigurationService{Store: s.Store}).CreateTask(draft)
-	case "propose_task_change", "propose_config_change":
+	case "propose_task_change", "propose_config_change", "propose_storage_change":
 		if chat.TaskID != "" {
 			return nil, errors.New("side chats cannot propose changes")
 		}
 		permission := "proposeTasks"
-		if name == "propose_config_change" {
+		if name != "propose_task_change" {
 			permission = "proposeSettings"
 		}
 		if permissions[permission] != true {

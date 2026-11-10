@@ -90,13 +90,9 @@ export function SettingsPage({
                 </label>
                 <label className="field">
                   Effort
-                  <Select
-                    label={`${id} effort`}
+                  <EffortSelect
+                    provider={id}
                     value={String(agent.effort || '')}
-                    options={['', 'low', 'medium', 'high', 'xhigh', 'max'].map((value) => ({
-                      value,
-                      label: value || 'Provider default',
-                    }))}
                     onChange={(value) => field('effort', value)}
                   />
                 </label>
@@ -146,20 +142,41 @@ export function SettingsPage({
       <section className="surface">
         <h2>Relay agent</h2>
         <div className="form-grid">
-          <label className="field">Agent
-            <Select label="Default Relay agent" value={String(asObject(config.workspaceAgent)?.provider || 'claude')}
-              options={providers.map(value=>({value,label:value}))}
-              onChange={provider=>update('workspaceAgent',{...asObject(config.workspaceAgent),provider,model:'',effort:''})} />
+          <label className="field">
+            Agent
+            <Select
+              label="Default Relay agent"
+              value={String(asObject(config.workspaceAgent)?.provider || 'claude')}
+              options={providers.map((value) => ({ value, label: value }))}
+              onChange={(provider) =>
+                update('workspaceAgent', {
+                  ...asObject(config.workspaceAgent),
+                  provider,
+                  model: '',
+                  effort: '',
+                })
+              }
+            />
           </label>
-          <label className="field">Model
-            <ModelSelect provider={String(asObject(config.workspaceAgent)?.provider || 'claude')}
+          <label className="field">
+            Model
+            <ModelSelect
+              provider={String(asObject(config.workspaceAgent)?.provider || 'claude')}
               value={String(asObject(config.workspaceAgent)?.model || '')}
-              onChange={model=>update('workspaceAgent',{...asObject(config.workspaceAgent),model})} />
+              onChange={(model) =>
+                update('workspaceAgent', { ...asObject(config.workspaceAgent), model })
+              }
+            />
           </label>
-          <label className="field">Effort
-            <EffortSelect provider={String(asObject(config.workspaceAgent)?.provider || 'claude')}
+          <label className="field">
+            Effort
+            <EffortSelect
+              provider={String(asObject(config.workspaceAgent)?.provider || 'claude')}
               value={String(asObject(config.workspaceAgent)?.effort || '')}
-              onChange={effort=>update('workspaceAgent',{...asObject(config.workspaceAgent),effort})} />
+              onChange={(effort) =>
+                update('workspaceAgent', { ...asObject(config.workspaceAgent), effort })
+              }
+            />
           </label>
         </div>
         <p className="muted">Execution and settings proposals always need your approval.</p>
@@ -528,18 +545,84 @@ export function InboxPage({ onOpen }: { onOpen: (id: string) => void }) {
   );
 }
 
-export function EffortSelect({provider,value,onChange}:{provider:string;value:string;onChange:(value:string)=>void}) {
- const levels=provider==='codex'?['none','minimal','low','medium','high','xhigh','max','ultra']:provider==='pi'?['off','minimal','low','medium','high','xhigh','max']:['low','medium','high','xhigh','max'];
- return <Select label="Agent effort" value={value} onChange={onChange} options={['',...levels].map(value=>({value,label:value||'Configured default'}))} />;
+export function EffortSelect({
+  provider,
+  value,
+  onChange,
+}: {
+  provider: string;
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  const levels =
+    provider === 'codex'
+      ? ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra']
+      : provider === 'pi'
+        ? ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']
+        : ['low', 'medium', 'high', 'xhigh', 'max'];
+  return (
+    <Select
+      label="Agent effort"
+      value={value}
+      onChange={onChange}
+      options={['', ...levels].map((value) => ({ value, label: value || 'Configured default' }))}
+    />
+  );
 }
 
-function StateTransfer(){
- const {bootstrap}=useSession();const [busy,setBusy]=useState(false),[error,setError]=useState('');
- async function download(){if(!bootstrap||busy)return;setBusy(true);setError('');try{
-  const response=await fetch('/api/state/export',{method:'POST',headers:{'Content-Type':'application/json','X-Relay-Token':bootstrap.token},body:'{}'});
-  if(!response.ok){const value=await response.json();throw new Error(value.error||'Could not export state')}
-  const url=URL.createObjectURL(await response.blob());const link=document.createElement('a');link.href=url;link.download='relay-state.tar.gz';link.click();window.setTimeout(()=>URL.revokeObjectURL(url),1000);
- }catch(e){setError(e instanceof Error?e.message:'Export failed')}finally{setBusy(false)}}
- return <section className="surface"><div className="section-heading"><div><h2>State transfer</h2><p className="muted">Save tasks, activity, chats, memory and images. Worktrees and build files stay on disk.</p></div><button disabled={busy||!bootstrap} onClick={()=>void download()}>{busy?'Preparing…':'Export state'}</button></div>
- <details><summary>Import into another instance</summary><p>Import with the Go command using <code>--import-state relay-state.tar.gz --data-dir /path/to/new-state</code>. The destination must not exist. Imported tasks stay read-only; create a fresh draft to run them in new worktrees. Providers are disabled until you configure the new instance.</p></details>{error&&<Notice>{error}</Notice>}</section>;
+function StateTransfer() {
+  const { bootstrap } = useSession();
+  const [busy, setBusy] = useState(false),
+    [error, setError] = useState('');
+  async function download() {
+    if (!bootstrap || busy) return;
+    setBusy(true);
+    setError('');
+    try {
+      const response = await fetch('/api/state/export', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Relay-Token': bootstrap.token },
+        body: '{}',
+      });
+      if (!response.ok) {
+        const value = await response.json();
+        throw new Error(value.error || 'Could not export state');
+      }
+      const url = URL.createObjectURL(await response.blob());
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = 'relay-state.tar.gz';
+      link.click();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Export failed');
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <section className="surface">
+      <div className="section-heading">
+        <div>
+          <h2>State transfer</h2>
+          <p className="muted">
+            Save tasks, activity, chats, memory and images. Worktrees and build files stay on disk.
+          </p>
+        </div>
+        <button disabled={busy || !bootstrap} onClick={() => void download()}>
+          {busy ? 'Preparing…' : 'Export state'}
+        </button>
+      </div>
+      <details>
+        <summary>Import into another instance</summary>
+        <p>
+          Import with the Go command using{' '}
+          <code>--import-state relay-state.tar.gz --data-dir /path/to/new-state</code>. The
+          destination must not exist. Imported tasks stay read-only; create a fresh draft to run
+          them in new worktrees. Providers are disabled until you configure the new instance.
+        </p>
+      </details>
+      {error && <Notice>{error}</Notice>}
+    </section>
+  );
 }
