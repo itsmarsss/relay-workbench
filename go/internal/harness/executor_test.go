@@ -64,7 +64,7 @@ func fixture(t *testing.T, stage, script string) (RunRequest, *store.Store) {
 		}
 	})
 	route := map[string]any{stage: "codex"}
-	task := map[string]any{"id": taskID, "status": "running", "stage": stage, "routing": route, "demo": false}
+	task := map[string]any{"id": taskID, "status": "running", "stage": stage, "routing": route, "demo": false, "repository": map[string]any{"id": "repo"}, "workspaceRoot": root, "workspace": root}
 	if stage == "implement" || stage == "review" {
 		task["chosenApproach"] = map[string]any{"id": "approved"}
 		task["approvals"] = []any{map[string]any{"type": "approach", "option": map[string]any{"id": "approved"}}}
@@ -191,6 +191,43 @@ func TestExecuteRequiresStructuredFinalAndPropagatesAgentError(t *testing.T) {
 	result, err = Execute(context.Background(), request)
 	if err == nil || !strings.Contains(err.Error(), "actual failure") || result.Handoff != nil {
 		t.Fatalf("agent error lost: %v", err)
+	}
+}
+
+func TestExecuteRejectsWorkspaceSetDifferentFromTask(t *testing.T) {
+	request, _ := fixture(t, "plan", "exit 0")
+	request.Workspaces[0].Root = t.TempDir()
+	if result, err := Execute(context.Background(), request); err == nil || result.ArtifactDirectory != "" || !strings.Contains(err.Error(), "workspace set changed") {
+		t.Fatalf("different workspace accepted: %#v %v", result, err)
+	}
+}
+
+func TestPublicationAgentRequiresCurrentFinalApproval(t *testing.T) {
+	request, db := fixture(t, "publish", "cat >/dev/null\nprintf '%s\\n' '"+validFinal()+"'")
+	request.Auxiliary = true
+	raw, _ := db.Get(taskID)
+	var task map[string]any
+	_ = json.Unmarshal(raw, &task)
+	task["status"], task["stage"] = "completed", "review"
+	task["routing"] = map[string]any{"implement": "codex"}
+	task["chosenApproach"] = map[string]any{"id": "a"}
+	task["verifiedFingerprint"], task["reviewedFingerprint"] = "same", "same"
+	task["delivery"] = map[string]any{"id": attemptID, "status": "running"}
+	task["approvals"] = []any{map[string]any{"type": "approach", "option": map[string]any{"id": "a"}}}
+	updated, _ := json.Marshal(task)
+	if err := db.Save(updated, nil); err != nil {
+		t.Fatal(err)
+	}
+	if result, err := Execute(context.Background(), request); err == nil || result.ArtifactDirectory != "" || !strings.Contains(err.Error(), "accepted") {
+		t.Fatalf("unaccepted work published: %#v %v", result, err)
+	}
+	task["approvals"] = append(task["approvals"].([]any), map[string]any{"type": "final", "fingerprint": "same"})
+	updated, _ = json.Marshal(task)
+	if err := db.Save(updated, nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Execute(context.Background(), request); err != nil {
+		t.Fatal(err)
 	}
 }
 func TestFinalHandoffAcceptsFencesAndRejectsMalformedData(t *testing.T) {

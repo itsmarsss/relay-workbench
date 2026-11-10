@@ -37,6 +37,9 @@ func (c *fakeCoordinator) Accept(_ context.Context, id, revision string) (map[st
 	c.accepts++
 	return map[string]any{"id": id, "title": "Task", "status": "completed"}, nil
 }
+func (c *fakeCoordinator) Publish(_ context.Context, id, revision, repository string) (map[string]any, error) {
+	return map[string]any{"id": id, "title": "Task", "status": "completed"}, nil
+}
 func (c *fakeCoordinator) Diff(context.Context, string) (map[string]any, error) {
 	return map[string]any{"repositories": []any{}}, nil
 }
@@ -50,6 +53,30 @@ func (c *fakeCoordinator) ImportIssue(_ context.Context, repository, revision, t
 }
 func (c *fakeCoordinator) Pause(string) error { c.pauses++; return nil }
 func (c *fakeCoordinator) Running() int       { return c.starts - c.pauses }
+
+func TestPublicationBoundary(t *testing.T) {
+	app, _ := setup(t)
+	app.SetCoordinator(&fakeCoordinator{})
+	for _, entry := range []struct {
+		token, body string
+		status      int
+	}{
+		{"", `{}`, 403},
+		{hex.EncodeToString(app.token[:]), `{}`, 400},
+		{hex.EncodeToString(app.token[:]), `{"taskRevision":"` + strings.Repeat("a", 64) + `","repositoryId":"repo","command":"bad"}`, 400},
+		{hex.EncodeToString(app.token[:]), `{"taskRevision":"` + strings.Repeat("a", 64) + `","repositoryId":"repo"}`, 202},
+	} {
+		req := httptest.NewRequest("POST", "http://127.0.0.1:4311/api/tasks/"+id+"/publish", strings.NewReader(entry.body))
+		req.Host = "127.0.0.1:4311"
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-Relay-Token", entry.token)
+		out := httptest.NewRecorder()
+		app.ServeHTTP(out, req)
+		if out.Code != entry.status {
+			t.Fatalf("publication boundary: %d %s", out.Code, out.Body.String())
+		}
+	}
+}
 
 func TestWorkflowActionsRequireAuthenticationAndRejectExtraFields(t *testing.T) {
 	app, db := setup(t)

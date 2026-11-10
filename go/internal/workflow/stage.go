@@ -95,6 +95,10 @@ func stagePrompt(task map[string]any, stage string, active stageWorkspace, enabl
 	if len(attempts) > 12 {
 		attempts = attempts[len(attempts)-12:]
 	}
+	deliveryRuns := array(task["deliveryRuns"])
+	if len(deliveryRuns) > 4 {
+		deliveryRuns = deliveryRuns[len(deliveryRuns)-4:]
+	}
 	context := map[string]any{
 		"title": task["title"], "description": task["description"], "ticket": task["ticket"],
 		"issue": task["issue"], "messages": task["messages"], "preset": task["preset"],
@@ -103,7 +107,8 @@ func stagePrompt(task map[string]any, stage string, active stageWorkspace, enabl
 		"chosenApproach": task["chosenApproach"], "attempts": attempts,
 		"activeRepositoryId": active.id, "workspace": active.cwd, "routing": task["routing"],
 		"models": task["models"], "availableProviders": enabled,
-		"recovery": task["recovery"],
+		"recovery":            task["recovery"],
+		"publicationRecovery": task["publicationRecovery"], "publicationRuns": deliveryRuns,
 	}
 	data, err := json.Marshal(context)
 	if err != nil || len(data) > 7*1024*1024 {
@@ -124,6 +129,9 @@ func stagePrompt(task map[string]any, stage string, active stageWorkspace, enabl
 		instruction = "You are a debugger. Diagnose the current blocker, inspect prior evidence, and resolve feasible environment or diagnostic issues as the current user. Preserve all repository source. Return complete only with a concrete diagnosis; request source repair or verification only when an implementation approach was approved. Ask the human only for a genuine design choice or an unavailable capability."
 	} else {
 		instruction += " Attempt feasible diagnosis and recovery yourself before returning blocked."
+		if object(task["publicationRecovery"])["active"] == true {
+			instruction += " A publication agent prepared this branch after acceptance. Inspect its recorded preparation and focus checks and review on the affected surfaces; preserve the approved goal."
+		}
 		if text(object(task["recovery"])["phase"]) == "continue" {
 			instruction += " Continue from the preserved work and diagnosis; do not restart the entire task or repeat passing checks without new evidence."
 		}
@@ -188,6 +196,9 @@ func (s *StageRunner) Run(ctx context.Context, taskID string, options StageOptio
 	}
 	if model := text(object(task["models"])[routeStage]); model != "" && !debugging {
 		config.Model = model
+	}
+	if effort, ok := object(task["efforts"])[routeStage].(string); ok && !debugging {
+		config.Effort = effort
 	}
 	entries, err := stageWorkspaces(task)
 	if err != nil {
@@ -301,7 +312,11 @@ func (s *StageRunner) Run(ctx context.Context, taskID string, options StageOptio
 	if _, err = s.Store.CompareAndSwap(taskID, raw, data, event); err != nil {
 		return err
 	}
-	result, runErr := harness.Execute(ctx, harness.RunRequest{Store: s.Store, TaskID: taskID, AttemptID: id, Stage: stage, Provider: provider, Config: config, Prompt: prompt, Cwd: active.cwd, ActiveRepositoryID: active.id, Workspaces: workspaces, Lease: lease, Admission: options.Admission, Inspector: options.Inspector, WorkerExecutable: options.WorkerExecutable, WorkerArgs: options.WorkerArgs, Environment: options.Environment, Timeout: options.Timeout, OnEvent: onEvent, Debug: debugging})
+	expected := ""
+	if session != nil {
+		expected = session.fingerprint
+	}
+	result, runErr := harness.Execute(ctx, harness.RunRequest{Store: s.Store, TaskID: taskID, AttemptID: id, Stage: stage, Provider: provider, Config: config, Prompt: prompt, Cwd: active.cwd, ActiveRepositoryID: active.id, Workspaces: workspaces, Lease: lease, Admission: options.Admission, Inspector: options.Inspector, WorkerExecutable: options.WorkerExecutable, WorkerArgs: options.WorkerArgs, Environment: options.Environment, Timeout: options.Timeout, OnEvent: onEvent, Debug: debugging, ExpectedBefore: expected})
 	var evidence []any
 	if session != nil {
 		evidence, runErr = session.finish(result, runErr)

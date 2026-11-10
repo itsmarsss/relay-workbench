@@ -42,6 +42,8 @@ type RunRequest struct {
 	Timeout                                       time.Duration
 	OnEvent                                       EventSink
 	Debug                                         bool
+	Auxiliary                                     bool
+	ExpectedBefore                                string
 }
 type RunResult struct {
 	Handoff           json.RawMessage
@@ -134,10 +136,93 @@ func HasApprovedApproach(task map[string]any) bool {
 	return false
 }
 
-// Execute runs one normal specialist turn under a workspace lease. It is not
-// wired to HTTP or a scheduler. Callers must authenticate approvals, hold the
-// task action lock, supply trusted configuration and supervise persistence.
-// Native sessions, interactive tmux and verification evidence are not ported.
+func HasFinalApproval(task map[string]any) bool {
+	if task["status"] != "completed" || task["demo"] == true || task["preset"] == "investigate" || !HasApprovedApproach(task) {
+		return false
+	}
+	reviewed, ok := task["reviewedFingerprint"].(string)
+	if !ok || reviewed == "" || task["verifiedFingerprint"] != reviewed {
+		return false
+	}
+	approvals, ok := task["approvals"].([]any)
+	if !ok {
+		return false
+	}
+	final, matching := false, false
+	for _, value := range approvals {
+		approval, _ := value.(map[string]any)
+		if approval["type"] == "final" {
+			final = true
+		}
+		if (approval["type"] == "final" || approval["type"] == "publication_revalidation") && approval["fingerprint"] == reviewed {
+			matching = true
+		}
+	}
+	return final && matching
+}
+
+func auxiliaryRecord(task map[string]any, repositoryID, stage string) map[string]any {
+	entries, _ := task["repositories"].([]any)
+	if len(entries) <= 1 {
+		entries = []any{task}
+	}
+	for _, value := range entries {
+		entry, _ := value.(map[string]any)
+		repository, _ := entry["repository"].(map[string]any)
+		if repository["id"] != repositoryID {
+			continue
+		}
+		key := "delivery"
+		if stage == "monitor" {
+			key = "publicationMonitor"
+		}
+		record, _ := entry[key].(map[string]any)
+		return record
+	}
+	return nil
+}
+
+func matchesTaskWorkspaces(task map[string]any, workspaces []workspace.Workspace) error {
+	entries, _ := task["repositories"].([]any)
+	if len(entries) <= 1 {
+		entries = []any{task}
+	}
+	if len(entries) == 0 || len(entries) != len(workspaces) {
+		return errors.New("task workspace set changed")
+	}
+	seen := map[string]bool{}
+	for _, value := range entries {
+		entry, _ := value.(map[string]any)
+		repository, _ := entry["repository"].(map[string]any)
+		id, _ := repository["id"].(string)
+		root, _ := entry["workspaceRoot"].(string)
+		if id == "" || root == "" || seen[id] {
+			return errors.New("task workspace set changed")
+		}
+		seen[id] = true
+		var actual string
+		for _, candidate := range workspaces {
+			if candidate.RepositoryID == id {
+				actual = candidate.Root
+				break
+			}
+		}
+		if actual == "" {
+			return errors.New("task workspace set changed")
+		}
+		storedInfo, storedErr := os.Stat(root)
+		actualInfo, actualErr := os.Stat(actual)
+		if storedErr != nil || actualErr != nil || !storedInfo.IsDir() || !actualInfo.IsDir() || !os.SameFile(storedInfo, actualInfo) {
+			return errors.New("task workspace set changed")
+		}
+	}
+	return nil
+}
+
+// Execute runs one specialist or auxiliary turn under a workspace lease.
+// Callers must authenticate approvals, hold the task action lock, supply
+// trusted configuration and supervise persistence. Native sessions and
+// interactive tmux are not ported.
 func Execute(ctx context.Context, request RunRequest) (RunResult, error) {
 	if ctx == nil || request.Store == nil || request.OnEvent == nil || request.WorkerExecutable == "" || request.Timeout <= 0 {
 		return RunResult{}, errors.New("incomplete harness execution request")
@@ -149,7 +234,7 @@ func Execute(ctx context.Context, request RunRequest) (RunResult, error) {
 		return RunResult{}, errors.New("invalid harness prompt")
 	}
 	switch request.Stage {
-	case "triage", "investigate", "plan", "implement", "verify", "review":
+	case "triage", "investigate", "plan", "implement", "verify", "review", "publish", "monitor":
 	default:
 		return RunResult{}, errors.New("stage execution is not yet supported")
 	}
@@ -164,13 +249,34 @@ func Execute(ctx context.Context, request RunRequest) (RunResult, error) {
 	if task["demo"] == true {
 		return RunResult{}, errors.New("simulated tasks cannot run real harnesses")
 	}
-	if task["status"] != "running" || task["stage"] != request.Stage {
+	if err := matchesTaskWorkspaces(task, request.Workspaces); err != nil {
+		return RunResult{}, err
+	}
+	if request.Auxiliary {
+		if request.Debug || (request.Stage != "publish" && request.Stage != "monitor") || !HasFinalApproval(task) {
+			return RunResult{}, errors.New("publication requires an accepted, verified task")
+		}
+		record := auxiliaryRecord(task, request.ActiveRepositoryID, request.Stage)
+		id, _ := record["id"].(string)
+		if id == "" {
+			id, _ = record["attemptId"].(string)
+		}
+		if id != request.AttemptID || record["status"] != "running" {
+			return RunResult{}, errors.New("publication attempt is not running")
+		}
+	} else if request.Stage == "publish" || request.Stage == "monitor" || task["status"] != "running" || task["stage"] != request.Stage {
 		return RunResult{}, errors.New("task is not running this stage")
 	}
 	routing, _ := task["routing"].(map[string]any)
 	routeStage := request.Stage
 	if routeStage == "verify" {
 		routeStage = "implement"
+	}
+	if routeStage == "publish" {
+		routeStage = "implement"
+	}
+	if routeStage == "monitor" {
+		routeStage = "investigate"
 	}
 	if request.Debug {
 		recovery, _ := task["recovery"].(map[string]any)
@@ -206,7 +312,7 @@ func Execute(ctx context.Context, request RunRequest) (RunResult, error) {
 		return RunResult{}, errors.New("working directory must be inside the active workspace")
 	}
 	mode := workspace.ReadOnly
-	if request.Stage == "implement" && !request.Debug {
+	if (request.Stage == "implement" && !request.Debug) || request.Stage == "publish" {
 		mode = workspace.WriteOne
 	}
 	executionStage := request.Stage
@@ -215,7 +321,7 @@ func Execute(ctx context.Context, request RunRequest) (RunResult, error) {
 	}
 	var result RunResult
 	err = request.Store.WithOwnership(func(stateRoot string, verify func() error) error {
-		guard, guardErr := workspace.GuardedRun(ctx, request.Lease, request.TaskID, request.Workspaces, mode, request.ActiveRepositoryID, request.Admission, request.Inspector, func(runCtx context.Context) error {
+		guard, guardErr := workspace.GuardedRunExpected(ctx, request.Lease, request.TaskID, request.Workspaces, mode, request.ActiveRepositoryID, request.Admission, request.Inspector, request.ExpectedBefore, func(runCtx context.Context) error {
 			if err := verify(); err != nil {
 				return err
 			}

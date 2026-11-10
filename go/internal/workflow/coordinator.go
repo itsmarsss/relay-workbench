@@ -30,9 +30,7 @@ type coordinatorJob struct {
 
 var errTaskNoLongerActive = errors.New("task no longer active")
 
-// Coordinator prepares isolated workspaces and runs investigation through the
-// plan gate. Implementation, verification, publication and debugger scheduling
-// remain disabled until their supervision and recovery contracts are ported.
+// Coordinator supervises workflow and publication jobs in isolated workspaces.
 type Coordinator struct {
 	store    *store.Store
 	worker   string
@@ -233,6 +231,7 @@ func (c *Coordinator) enqueue(id string, resume bool) (map[string]any, error) {
 	var timeout time.Duration
 	var repairLimit int
 	var recoveryLimit int
+	var publicationResume *publicationPrepared
 	result, err := c.update(id, func(value map[string]any) error {
 		status := text(value["status"])
 		if value["demo"] == true {
@@ -260,6 +259,16 @@ func (c *Coordinator) enqueue(id string, resume bool) (map[string]any, error) {
 				if text(entry["workspaceRoot"]) == "" || entry["workspaceDraft"] != nil || entry["setupCompleted"] != true {
 					return errors.New("workspace or setup is incomplete; inspect retained work before continuing")
 				}
+			}
+			if recovery := object(value["publicationRecovery"]); recovery != nil && recovery["active"] == true {
+				attemptID, repositoryID, base, content := text(recovery["attemptId"]), text(recovery["repositoryId"]), text(recovery["baseCommit"]), text(recovery["content"])
+				same, valid := recovery["sameContent"].(bool)
+				entry := publicationEntry(value, repositoryID)
+				delivery := object(entry["delivery"])
+				if !valid || attemptID == "" || repositoryID == "" || base == "" || content == "" || text(delivery["id"]) != attemptID {
+					return errors.New("publication recovery is incomplete; inspect retained work before continuing")
+				}
+				publicationResume = &publicationPrepared{AttemptID: attemptID, RepositoryID: repositoryID, BaseCommit: base, Content: content, SameContent: same}
 			}
 			if decision := object(value["blockerDecision"]); decision != nil && decision["resolved"] != true {
 				return errors.New("resolve the pending decision before resuming")
@@ -320,7 +329,11 @@ func (c *Coordinator) enqueue(id string, resume bool) (map[string]any, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	job := &coordinatorJob{cancel: cancel, done: make(chan struct{})}
 	c.jobs[id] = job
-	go c.run(ctx, id, limit, timeout, repairLimit, recoveryLimit, enabled, configs, job)
+	if publicationResume != nil {
+		go c.runPublication(ctx, id, publicationResume.RepositoryID, publicationResume.AttemptID, limit, timeout, repairLimit, recoveryLimit, enabled, configs, job, publicationResume)
+	} else {
+		go c.run(ctx, id, limit, timeout, repairLimit, recoveryLimit, enabled, configs, job)
+	}
 	return result, nil
 }
 
@@ -541,6 +554,24 @@ func (c *Coordinator) Accept(ctx context.Context, id, revision string) (map[stri
 	}
 	if json.Unmarshal(accepted, &value) != nil {
 		return nil, errors.New("invalid accepted task")
+	}
+	if pending := object(value["publicationRecovery"]); pending != nil && pending["awaitingHuman"] == true && text(pending["repositoryId"]) != "" {
+		repositoryID, acceptedRevision := text(pending["repositoryId"]), store.TaskRevision(accepted)
+		go func() {
+			<-job.done
+			if _, resumeErr := c.Publish(context.Background(), id, acceptedRevision, repositoryID); resumeErr != nil {
+				current, getErr := c.store.Get(id)
+				var task map[string]any
+				if getErr == nil && json.Unmarshal(current, &task) == nil {
+					delivery := object(publicationEntry(task, repositoryID)["delivery"])
+					if status := text(delivery["status"]); status == "queued" || status == "running" || status == "complete" {
+						return
+					}
+				}
+				event, _ := json.Marshal(map[string]any{"type": "publication", "source": "relay", "repositoryId": repositoryID, "summary": "Publication did not resume automatically: " + resumeErr.Error()})
+				_, _ = c.store.Event(id, event)
+			}
+		}()
 	}
 	return value, nil
 }

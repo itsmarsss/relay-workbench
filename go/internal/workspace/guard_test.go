@@ -58,6 +58,21 @@ func TestGuardedRunRequiresCorrectWorkspaceAndProtectsOtherRepos(t *testing.T) {
 		t.Fatalf("wrong owner: %v", err)
 	}
 }
+func TestGuardedRunDoesNotStartWhenReviewedFingerprintChanged(t *testing.T) {
+	root := t.TempDir()
+	entries := []Workspace{{RepositoryID: "one", Root: root}}
+	lease, err := NewRegistry().Acquire("task", []string{root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lease.Release()
+	inspector := &sequenceInspector{snapshots: []FingerprintSnapshot{{Combined: "new", Repositories: map[string]string{"one": "new"}}}}
+	ran := false
+	result, err := GuardedRunExpected(context.Background(), lease, "task", entries, WriteOne, "one", allowSpace, inspector, "reviewed", func(context.Context) error { ran = true; return nil })
+	if !errors.Is(err, ErrFingerprintChanged) || ran || result.Before.Combined != "new" {
+		t.Fatalf("stale workspace started work: ran %v result %#v err %v", ran, result, err)
+	}
+}
 func TestGuardedRunRejectsReplacedRootAndPreservesError(t *testing.T) {
 	parent := t.TempDir()
 	root := filepath.Join(parent, "repo")

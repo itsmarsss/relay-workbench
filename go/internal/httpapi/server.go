@@ -44,6 +44,7 @@ type Coordinator interface {
 	Resume(string) (map[string]any, error)
 	Approve(context.Context, string, string, string, string, string) (map[string]any, error)
 	Accept(context.Context, string, string) (map[string]any, error)
+	Publish(context.Context, string, string, string) (map[string]any, error)
 	Resolve(context.Context, string, string, string, string, string, string) (map[string]any, error)
 	Diff(context.Context, string) (map[string]any, error)
 	ImportIssue(context.Context, string, string, string) (issue.Result, error)
@@ -126,7 +127,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			respond(w, 500, map[string]string{"error": "Could not read configuration"})
 			return
 		}
-		respond(w, 200, map[string]any{"token": hex.EncodeToString(s.token[:]), "config": config.Value, "configRevision": config.Revision, "version": "experimental-go", "workflowPreview": s.workflow != nil, "implementationPreview": s.workflow != nil, "debugRecoveryPreview": s.workflow != nil, "issueImportPreview": s.workflow != nil})
+		respond(w, 200, map[string]any{"token": hex.EncodeToString(s.token[:]), "config": config.Value, "configRevision": config.Revision, "version": "experimental-go", "workflowPreview": s.workflow != nil, "implementationPreview": s.workflow != nil, "debugRecoveryPreview": s.workflow != nil, "issueImportPreview": s.workflow != nil, "publicationPreview": s.workflow != nil})
 		return
 	}
 	if path == "/api/storage/scan" {
@@ -304,7 +305,7 @@ func workflowAction(path string) (string, string, bool) {
 		return "", "", false
 	}
 	parts := strings.Split(strings.TrimPrefix(path, "/api/tasks/"), "/")
-	if len(parts) != 2 || !taskID.MatchString(parts[0]) || (parts[1] != "start" && parts[1] != "resume" && parts[1] != "pause" && parts[1] != "approve-plan" && parts[1] != "accept" && parts[1] != "resolve-blocker") {
+	if len(parts) != 2 || !taskID.MatchString(parts[0]) || (parts[1] != "start" && parts[1] != "resume" && parts[1] != "pause" && parts[1] != "approve-plan" && parts[1] != "accept" && parts[1] != "resolve-blocker" && parts[1] != "publish") {
 		return "", "", false
 	}
 	return parts[0], parts[1], true
@@ -314,6 +315,23 @@ func (s *Server) runWorkflowAction(w http.ResponseWriter, r *http.Request, id, a
 	body, err := requestObject(w, r)
 	if err != nil {
 		respond(w, 400, map[string]string{"error": "Invalid workflow action"})
+		return
+	}
+	if action == "publish" {
+		revision, valid := body["taskRevision"].(string)
+		repositoryID, repoValid := body["repositoryId"].(string)
+		if !valid || !taskRevision.MatchString(revision) || !repoValid || repositoryID == "" || len(repositoryID) > 200 || len(body) != 2 {
+			respond(w, 400, map[string]string{"error": "Refresh and select a task repository before publishing"})
+			return
+		}
+		result, err := s.workflow.Publish(r.Context(), id, revision, repositoryID)
+		if errors.Is(err, os.ErrNotExist) {
+			respond(w, 404, map[string]string{"error": "Task not found"})
+		} else if err != nil {
+			respond(w, 409, map[string]string{"error": err.Error()})
+		} else {
+			respond(w, 202, result)
+		}
 		return
 	}
 	if action == "resolve-blocker" {

@@ -10,6 +10,7 @@ import (
 var ErrReadOnlyChanged = errors.New("read-only stage modified a workspace")
 var ErrOtherWorkspaceChanged = errors.New("stage modified a different repository")
 var ErrInspectionIncomplete = errors.New("workspace inspection was incomplete")
+var ErrFingerprintChanged = errors.New("workspace changed before the operation started")
 
 type GuardMode string
 
@@ -54,6 +55,12 @@ func validSnapshot(snapshot FingerprintSnapshot, entries []Workspace) bool {
 // detects unauthorized writes; it does not sandbox processes or authorize them.
 // Cross-process workspace ownership must be provided by the future scheduler.
 func GuardedRun(ctx context.Context, lease *Lease, owner string, entries []Workspace, mode GuardMode, activeID string, admission Admission, inspector Inspector, run func(context.Context) error) (GuardResult, error) {
+	return GuardedRunExpected(ctx, lease, owner, entries, mode, activeID, admission, inspector, "", run)
+}
+
+// GuardedRunExpected verifies an already reviewed snapshot before allowing
+// any side effect. An empty expected fingerprint skips this additional gate.
+func GuardedRunExpected(ctx context.Context, lease *Lease, owner string, entries []Workspace, mode GuardMode, activeID string, admission Admission, inspector Inspector, expected string, run func(context.Context) error) (GuardResult, error) {
 	if nilDependency(ctx) || nilDependency(admission) || nilDependency(inspector) || run == nil || owner == "" || len(entries) == 0 {
 		return GuardResult{}, errors.New("incomplete guarded run")
 	}
@@ -85,6 +92,9 @@ func GuardedRun(ctx context.Context, lease *Lease, owner string, entries []Works
 			return ErrInspectionIncomplete
 		}
 		result.Before = before
+		if expected != "" && before.Combined != expected {
+			return ErrFingerprintChanged
+		}
 		if err = ctx.Err(); err != nil {
 			return err
 		}
