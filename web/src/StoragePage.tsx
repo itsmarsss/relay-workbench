@@ -326,7 +326,8 @@ export function StoragePage({
               and worktrees are never removed automatically.
             </p>
             <p className="form-note">
-              Critical space blocks new workspace and agent work. Running processes keep their workspace. Cleanup requires a separate action.
+              Critical space blocks new workspace and agent work. Running processes keep their
+              workspace. Cleanup requires a separate action.
             </p>
           </section>
         </>

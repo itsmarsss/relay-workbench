@@ -2,6 +2,10 @@
 
 A local workbench that coordinates Codex, Claude Code and Pi across investigation, planning, implementation, verification and independent review. You approve an approach and accept the final result. Every stage shares a worktree and leaves an inspectable handoff.
 
+## React and Go rewrite
+
+The standalone rewrite lives in [`web/`](web/README.md) and [`go/`](go/README.md). Follow the Go guide to build and run it on a separate port and state directory. The legacy commands and details below remain available while the rewrite is evaluated. Do not share active repositories between the two services.
+
 ## Task deck
 
 Open **Task deck** in the sidebar to work with several tasks at once. Add workspaces as tabs, choose a task for each pane, and split panes horizontally or vertically. Drag the dividers or use the arrow keys to resize; **Focus** temporarily expands a pane without stopping the others. Switch between activity, terminal, changes, and other task views in each pane. Task controls and approval gates work as they do on the full task page.

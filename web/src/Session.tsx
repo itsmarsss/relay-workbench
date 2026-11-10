@@ -102,6 +102,8 @@ export function useResource<T>(path: string | null) {
         setData(task as T);
       }
     }
+    setData(null);
+    setError('');
     setLoading(true);
     void load();
     refreshRef.current = load;

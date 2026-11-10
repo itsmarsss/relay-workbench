@@ -110,7 +110,18 @@ func (s *Service) context(chat Chat, message Message) ([]byte, error) {
 	}
 	result["images"] = images
 	if permissions["readMemory"] == true {
-		rows, err := memory.Select(s.Store, chat.TaskID, nil)
+		repositoryIDs := []string{}
+		seenRepositories := map[string]bool{}
+		for _, item := range mentioned {
+			for _, entry := range taskRepositories(obj(item)) {
+				id := text(obj(entry["repository"])["id"])
+				if id != "" && !seenRepositories[id] {
+					repositoryIDs = append(repositoryIDs, id)
+					seenRepositories[id] = true
+				}
+			}
+		}
+		rows, err := memory.Select(s.Store, chat.TaskID, repositoryIDs)
 		if err != nil {
 			return nil, err
 		}

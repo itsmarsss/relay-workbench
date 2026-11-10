@@ -233,8 +233,8 @@ func matchesTaskWorkspaces(task map[string]any, workspaces []workspace.Workspace
 
 // Execute runs one specialist or auxiliary turn under a workspace lease.
 // Callers must authenticate approvals, hold the task action lock, supply
-// trusted configuration and supervise persistence. Native sessions and
-// interactive tmux are not ported.
+// trusted configuration and supervise persistence. Interactive tmux sessions
+// share the same supervised process lifecycle. Continuations use fresh context.
 func Execute(ctx context.Context, request RunRequest) (RunResult, error) {
 	if ctx == nil || request.Store == nil || request.OnEvent == nil || request.WorkerExecutable == "" || request.Timeout <= 0 {
 		return RunResult{}, errors.New("incomplete harness execution request")
@@ -248,7 +248,7 @@ func Execute(ctx context.Context, request RunRequest) (RunResult, error) {
 	switch request.Stage {
 	case "triage", "investigate", "plan", "implement", "verify", "review", "publish", "monitor", "followup":
 	default:
-		return RunResult{}, errors.New("stage execution is not yet supported")
+		return RunResult{}, errors.New("unsupported workflow stage")
 	}
 	raw, err := request.Store.Get(request.TaskID)
 	if err != nil {

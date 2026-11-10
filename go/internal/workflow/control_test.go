@@ -4,6 +4,8 @@ package workflow
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"relay.local/relay/internal/store"
 	"strings"
 	"testing"
@@ -73,5 +75,26 @@ func TestReviewCommentsBindToTheDisplayedDiff(t *testing.T) {
 	body["fingerprint"] = "old"
 	if _, err = c.Control(context.Background(), id, "review-comment", body); err == nil {
 		t.Fatal("mismatched diff accepted")
+	}
+}
+
+func TestReviewCommentsRejectUnrecordedWorkspaceChanges(t *testing.T) {
+	c, db, id, _, _ := acceptedPublicationFixture(t)
+	value := coordinatorTask(t, db, id)
+	value["status"] = "awaiting_final"
+	saved(t, db, value)
+	diff, err := c.Diff(context.Background(), id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(text(value["workspaceRoot"]), "file.txt"), []byte("not reviewed\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	body := map[string]any{"taskRevision": diff["taskRevision"], "fingerprint": diff["fingerprint"], "repositoryId": "repo", "file": "file.txt", "line": float64(1), "side": "new", "text": "Stale"}
+	if _, err := c.Control(context.Background(), id, "review-comment", body); err == nil {
+		t.Fatal("comment bound to stale workspace")
+	}
+	if len(array(coordinatorTask(t, db, id)["reviewComments"])) != 0 {
+		t.Fatal("stale comment persisted")
 	}
 }

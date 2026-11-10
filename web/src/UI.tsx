@@ -129,8 +129,8 @@ export function Select({
     popover = useRef<HTMLDivElement>(null),
     input = useRef<HTMLInputElement>(null),
     id = useId();
-  const items = options.filter((o) =>
-    !o.disabled && `${o.label} ${o.value}`.toLowerCase().includes(query.toLowerCase()),
+  const items = options.filter(
+    (o) => !o.disabled && `${o.label} ${o.value}`.toLowerCase().includes(query.toLowerCase()),
   );
   function close(focus = false) {
     setOpen(false);

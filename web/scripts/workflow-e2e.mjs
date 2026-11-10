@@ -179,8 +179,18 @@ console.log(JSON.stringify({ type: 'item.completed', item: { type: 'agent_messag
   assert.equal(bootstrap.issueImportPreview, true);
   const headers = { 'Content-Type': 'application/json', 'X-Relay-Token': bootstrap.token };
   const storage = await (await fetch(`${base}/api/storage/pressure`)).json();
-  const storageSave = await fetch(`${base}/api/storage/policy`, {method:'PUT', headers:{...headers,'If-Match':storage.revision}, body:JSON.stringify({...storage.policy,warningPercent:0,criticalPercent:0,warningBytes:4*1024**3,criticalBytes:2*1024**3})});
-  assert.equal(storageSave.status,200,await storageSave.text());
+  const storageSave = await fetch(`${base}/api/storage/policy`, {
+    method: 'PUT',
+    headers: { ...headers, 'If-Match': storage.revision },
+    body: JSON.stringify({
+      ...storage.policy,
+      warningPercent: 0,
+      criticalPercent: 0,
+      warningBytes: 4 * 1024 ** 3,
+      criticalBytes: 2 * 1024 ** 3,
+    }),
+  });
+  assert.equal(storageSave.status, 200, await storageSave.text());
   const config = bootstrap.config;
   config.harnesses.codex.command = agent;
   config.harnesses.claude.enabled = false;

@@ -116,7 +116,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		if (path != "/api/tasks" || r.Method != http.MethodPost) && (path != "/api/config" || r.Method != http.MethodPut) && (path != "/api/storage/policy" || r.Method != http.MethodPut) {
 			w.Header().Set("Allow", "GET, HEAD")
-			respond(w, http.StatusMethodNotAllowed, map[string]string{"error": "Workflow actions are not ported yet"})
+			respond(w, http.StatusMethodNotAllowed, map[string]string{"error": "Method not allowed"})
 			return
 		}
 		if !s.authorized(r) {
@@ -296,7 +296,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if strings.HasPrefix(path, "/api/") {
-		respond(w, 404, map[string]string{"error": "Endpoint not yet ported"})
+		respond(w, 404, map[string]string{"error": "Endpoint not found"})
 		return
 	}
 	s.asset(w, r)

@@ -133,7 +133,7 @@ export function DraftComposer({
               repositories: selected,
               primary,
               preset: preset || null,
-              advanced: JSON.stringify({...jsonObject(advanced),...agents}),
+              advanced: JSON.stringify({ ...jsonObject(advanced), ...agents }),
             },
             config,
           );
@@ -313,9 +313,7 @@ export function DraftComposer({
       </details>
       <details>
         <summary>Repository and dependency overrides</summary>
-        <p className="form-note">
-          JSON keys: dependencies, repositorySettings.
-        </p>
+        <p className="form-note">JSON keys: dependencies, repositorySettings.</p>
         <textarea
           aria-label="Advanced task options"
           className="code-input"

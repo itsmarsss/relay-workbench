@@ -1,9 +1,16 @@
-# Experimental React frontend
+# Relay React/TypeScript frontend
 
-This is an isolated migration preview. It supports repository profiles, task drafts, development through final acceptance, bounded debugger recovery, blocker decisions, and read-only change previews on separate test repositories. Publishing, checkpoints, native session continuation, and interactive terminals are not yet connected. Keep using the existing Relay for active work; the two instances cannot coordinate writers.
+The React frontend is served by the standalone [Go backend](../go/README.md). Its API calls do not depend on the legacy JavaScript backend. Keep the two versions on separate ports, state directories and repositories while evaluating the rewrite.
 
-Drafts can import issue context through a repository's configured issue command. Existing draft text is preserved, and missing discussion is reported.
+```sh
+npm ci
+npm run check
+npm test
+npm run build
+```
 
-Install dependencies with `npm ci`, then run `npm run check`, `npm test`, and `npm run build`. `npm run test:e2e` builds and runs an isolated Go server and disposable Git fixture with Playwright; install its Chromium browser or set `RELAY_CHROME` to an existing compatible browser. Serve `dist` with the experimental Go backend only against its isolated state directory.
+The Go service serves `dist`. Build tooling requires Node 24+. The browser uses React, TypeScript, Motion, xterm and pinned Markdown sanitization. Tabs/filters and side-chat visibility have URL state; task deck layouts, appearance and motion preferences persist in the browser. Workspace conversations and task side chats persist on the server.
 
-Storage displays free space, configurable thresholds and read-only scans of selected paths. Automatic cleanup and scheduler-wide admission are not available yet.
+`npm run test:e2e` exercises the workflow through approvals, repairs, debugger decisions, review, continuations, Auto and interactive terminal takeover. `npm run test:workspace` covers chats, mentions, proposals, settings, board controls, demos and navigation. Both create isolated Go servers and disposable fixture repositories. Install Playwright Chromium or set `RELAY_CHROME` to an existing compatible browser.
+
+State export is in Settings. Imported tasks display an explicit read-only-history banner and can create a fresh draft. Clean up accepted/published worktrees from the task menu; checkpoint history stays accessible from the workflow graph.

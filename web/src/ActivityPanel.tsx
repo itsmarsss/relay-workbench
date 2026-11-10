@@ -119,29 +119,32 @@ export function ActivityPanel({ taskId, logs = false }: { taskId: string; logs?:
     [loading, setLoading] = useState(true),
     [stage, setStage] = useState(''),
     [all, setAll] = useState(false);
-  const state = useRef({ first: 0, last: 0, busy: false }),
+  const state = useRef({ first: 0, last: 0, busy: false, taskId }),
     scroll = useRef<HTMLDivElement>(null),
     following = useRef(true);
   useEffect(() => {
     let alive = true,
       again = false;
     const controller = new AbortController();
-    state.current = { first: 0, last: 0, busy: false };
+    const cursor = { first: 0, last: 0, busy: false, taskId };
+    state.current = cursor;
     setEvents([]);
     setLoading(true);
     setError('');
+    setStage('');
+    setOlder(false);
     following.current = true;
     async function load() {
-      if (state.current.busy) {
+      if (cursor.busy) {
         again = true;
         return;
       }
-      state.current.busy = true;
+      cursor.busy = true;
       try {
-        const initial = !state.current.last;
+        const initial = !cursor.last;
         const result = rows(
           await request(
-            `/api/tasks/${taskId}/events?${initial ? 'before=0' : 'after=' + state.current.last}`,
+            `/api/tasks/${taskId}/events?${initial ? 'before=0' : 'after=' + cursor.last}`,
             undefined,
             undefined,
             'GET',
@@ -151,8 +154,8 @@ export function ActivityPanel({ taskId, logs = false }: { taskId: string; logs?:
         if (alive) {
           if (initial) setOlder(result.length === 200);
           if (result.length) {
-            state.current.first = state.current.first || result[0]!.seq;
-            state.current.last = result.at(-1)!.seq;
+            cursor.first = cursor.first || result[0]!.seq;
+            cursor.last = result.at(-1)!.seq;
             setEvents((current) => [...current, ...result].slice(-2000));
           }
           setError('');
@@ -161,7 +164,7 @@ export function ActivityPanel({ taskId, logs = false }: { taskId: string; logs?:
         if (alive && !controller.signal.aborted)
           setError(e instanceof Error ? e.message : 'Could not load activity');
       } finally {
-        state.current.busy = false;
+        cursor.busy = false;
         if (alive) {
           setLoading(false);
           if (again) {
@@ -190,28 +193,29 @@ export function ActivityPanel({ taskId, logs = false }: { taskId: string; logs?:
     if (following.current && scroll.current) scroll.current.scrollTop = scroll.current.scrollHeight;
   }, [events, logs, stage, all]);
   async function previous() {
-    if (state.current.busy) return;
-    state.current.busy = true;
+    const cursor = state.current;
+    if (cursor.busy || cursor.taskId !== taskId) return;
+    cursor.busy = true;
     const el = scroll.current,
       height = el?.scrollHeight || 0,
       top = el?.scrollTop || 0;
     try {
-      const result = rows(
-        await request(`/api/tasks/${taskId}/events?before=${state.current.first}`),
-      );
+      const result = rows(await request(`/api/tasks/${taskId}/events?before=${cursor.first}`));
+      if (state.current !== cursor) return;
       setOlder(result.length === 200);
       if (result.length) {
-        state.current.first = result[0]!.seq;
+        cursor.first = result[0]!.seq;
         setEvents((current) => [...result, ...current].slice(0, 2000));
       }
       following.current = false;
       requestAnimationFrame(() => {
-        if (el) el.scrollTop = top + el.scrollHeight - height;
+        if (state.current === cursor && el) el.scrollTop = top + el.scrollHeight - height;
       });
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Could not load older activity');
+      if (state.current === cursor)
+        setError(e instanceof Error ? e.message : 'Could not load older activity');
     } finally {
-      state.current.busy = false;
+      cursor.busy = false;
     }
   }
   const stages = [...new Set(events.map((row) => asText(row.stage)).filter(Boolean))];

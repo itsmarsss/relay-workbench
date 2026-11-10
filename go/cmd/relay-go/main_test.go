@@ -2,10 +2,13 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"relay.local/relay/internal/process"
+	"relay.local/relay/internal/store"
+	"relay.local/relay/internal/task"
 	"relay.local/relay/internal/verification"
 	"runtime"
 	"strings"
@@ -83,5 +86,54 @@ func TestBuiltBinarySupervisesCommand(t *testing.T) {
 	}
 	if result.ExitCode != 0 || strings.TrimSpace(result.Stdout) != "worker ok" {
 		t.Fatalf("unexpected result: %#v", result)
+	}
+}
+
+func TestStateTransferCLIRefusesLiveAndExistingDestinations(t *testing.T) {
+	source := filepath.Join(t.TempDir(), "source")
+	db, err := store.Open(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	config := task.ConfigurationService{Store: db}
+	created, err := config.CreateTask(map[string]any{"title": "CLI transfer", "demo": true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	archive := filepath.Join(t.TempDir(), "state.tar.gz")
+	if err := run([]string{"--data-dir", source, "--export-state", archive}); err == nil {
+		t.Fatal("live state exported through CLI")
+	}
+	if _, err := os.Stat(archive); !os.IsNotExist(err) {
+		t.Fatal("failed export retained output")
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := run([]string{"--data-dir", source, "--export-state", archive}); err != nil {
+		t.Fatal(err)
+	}
+	destination := filepath.Join(t.TempDir(), "new-state")
+	if err := run([]string{"--data-dir", destination, "--import-state", archive}); err != nil {
+		t.Fatal(err)
+	}
+	if err := run([]string{"--data-dir", destination, "--import-state", archive}); err == nil {
+		t.Fatal("existing destination overwritten")
+	}
+	restored, err := store.Open(destination)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer restored.Close()
+	raw, err := restored.Get(created["id"].(string))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var value map[string]any
+	if err := json.Unmarshal(raw, &value); err != nil {
+		t.Fatal(err)
+	}
+	if value["status"] != "imported" {
+		t.Fatal("CLI import retained executable task")
 	}
 }

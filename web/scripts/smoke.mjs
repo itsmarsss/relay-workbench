@@ -44,7 +44,7 @@ const { Markdown } = await import(pathToFileURL(resolve('dist/ssr-smoke/Markdown
 const { StoragePage } = await import(pathToFileURL(resolve('dist/ssr-smoke/StoragePage.js')).href);
 const shell = renderToStaticMarkup(React.createElement(App));
 assert.match(shell, /Task deck/);
-assert.match(shell, /Migration in progress/);
+assert.match(shell, /Isolated preview/);
 assert.match(shell, /All tasks/);
 assert.match(shell, /Repositories/);
 const panel = renderToStaticMarkup(

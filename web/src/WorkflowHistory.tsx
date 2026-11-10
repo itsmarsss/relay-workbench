@@ -127,7 +127,7 @@ export function CheckpointControls({ task, history }: { task: FullTask; history:
   return (
     <>
       <button
-        disabled={!history?.checkpoints.length || asObject(task.migration)?.readOnly===true}
+        disabled={!history?.checkpoints.length || asObject(task.migration)?.readOnly === true}
         onClick={() => {
           setCheckpoint(history?.checkpoints.at(-1)?.id || '');
           setOpen(true);

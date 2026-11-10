@@ -10,6 +10,7 @@ import (
 	"relay.local/relay/internal/harness"
 	"relay.local/relay/internal/store"
 	"relay.local/relay/internal/task"
+	"relay.local/relay/internal/workspace"
 )
 
 func fields(body map[string]any, allowed ...string) error {
@@ -84,6 +85,7 @@ func (c *Coordinator) control(ctx context.Context, id, operation string, body ma
 	}
 	active := c.jobs[id] != nil || value["status"] == "running" || value["status"] == "queued" || value["status"] == "manual"
 	summary := ""
+	var validateReview func() error
 	switch operation {
 	case "recreate":
 		if err = fields(body); err != nil {
@@ -302,6 +304,49 @@ func (c *Coordinator) control(ctx context.Context, id, operation string, body ma
 		if expected := text(body["fingerprint"]); expected != "" && expected != text(value["reviewedFingerprint"]) {
 			return nil, errors.New("changes were updated since this diff was opened; refresh before commenting")
 		}
+		entries, inspectionErr := stageWorkspaces(value)
+		if inspectionErr != nil {
+			return nil, inspectionErr
+		}
+		inspectCtx, cancelInspection := context.WithTimeout(ctx, 30*time.Second)
+		defer cancelInspection()
+		commonRoots, inspectionErr := c.repositoryRoots(inspectCtx, id)
+		if inspectionErr != nil {
+			return nil, inspectionErr
+		}
+		repoLease, inspectionErr := c.repos.Acquire(id, commonRoots)
+		if inspectionErr != nil {
+			return nil, inspectionErr
+		}
+		defer repoLease.Release()
+		roots := []string{}
+		workspaces := []workspace.Workspace{}
+		for _, entry := range entries {
+			roots = append(roots, entry.root)
+			workspaces = append(workspaces, workspace.Workspace{RepositoryID: entry.id, Root: entry.root})
+		}
+		lease, inspectionErr := c.registry.Acquire(id, roots)
+		if inspectionErr != nil {
+			return nil, inspectionErr
+		}
+		defer lease.Release()
+		validateReview = func() error {
+			return repoLease.Protect(id, commonRoots, func(_ func() error) error {
+				return lease.Protect(id, roots, func(revalidate func() error) error {
+					snapshot, err := (workspace.Runner{WorkerExecutable: c.worker, WorkerArgs: c.args, Environment: c.env}).Snapshot(inspectCtx, workspaces)
+					if err != nil {
+						return err
+					}
+					if snapshot.Combined != text(value["reviewedFingerprint"]) {
+						return errors.New("workspace changed after review; verify and review the retained changes again")
+					}
+					return revalidate()
+				})
+			})
+		}
+		if err = validateReview(); err != nil {
+			return nil, err
+		}
 		comments := array(value["reviewComments"])
 		if commentID := text(body["commentId"]); commentID != "" {
 			found := false
@@ -384,6 +429,11 @@ func (c *Coordinator) control(ctx context.Context, id, operation string, body ma
 		return nil, err
 	}
 	event, _ := json.Marshal(map[string]any{"type": operation, "source": "user", "summary": summary})
+	if validateReview != nil {
+		if err = validateReview(); err != nil {
+			return nil, err
+		}
+	}
 	saved, err := c.store.CompareAndSwap(id, raw, next, event)
 	if err != nil {
 		return nil, err

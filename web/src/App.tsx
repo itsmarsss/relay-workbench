@@ -490,7 +490,7 @@ export default function App() {
                     <p>Watch tasks side by side.</p>
                   </div>
                   <div className="page-header-actions">
-                    <span className="preview">Migration in progress</span>
+                    <span className="preview">Isolated preview</span>
                     <button
                       className="primary"
                       disabled={!bootstrap}

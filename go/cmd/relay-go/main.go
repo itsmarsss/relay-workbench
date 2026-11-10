@@ -90,8 +90,11 @@ func run(args []string) (result error) {
 		if err = output.Sync(); err != nil {
 			return err
 		}
+		if err = output.Close(); err != nil {
+			return err
+		}
 		succeeded = true
-		return output.Close()
+		return nil
 	}
 	if *legacyPath != "" {
 		return errors.New("--export-legacy also requires --export-state")

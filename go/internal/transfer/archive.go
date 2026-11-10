@@ -143,7 +143,7 @@ func export(ctx context.Context, root string, config []byte, w io.Writer, record
 			return e
 		}
 		total += info.Size()
-		if total > MaxBytes {
+		if total > MaxBytes-2*1024*1024-int64(len(names))*1024 {
 			input.Close()
 			return errors.New("archive exceeds 512 MB; archive older tasks separately")
 		}
@@ -317,6 +317,19 @@ func Restore(ctx context.Context, r io.Reader, destination string) error {
 		return err
 	}
 	if _, err = os.Stat(filepath.Join(staging, "attachments")); err == nil {
+		for name := range digests {
+			if !strings.HasPrefix(name, "attachments/") {
+				continue
+			}
+			data, err := workspace.ReadPrivateFile(staging, name, attachments.MaxBytes)
+			if err != nil {
+				return err
+			}
+			kind := map[string]string{".png": "image/png", ".jpg": "image/jpeg", ".gif": "image/gif", ".webp": "image/webp"}[filepath.Ext(name)]
+			if _, err = attachments.Inspect(data, kind); err != nil {
+				return err
+			}
+		}
 		if err = os.Rename(filepath.Join(staging, "attachments"), filepath.Join(state, "attachments")); err != nil {
 			return err
 		}
