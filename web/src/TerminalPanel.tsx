@@ -97,6 +97,7 @@ function Screen({ taskId, info }: { taskId: string; info: NonNullable<LiveTermin
       });
       observer.observe(host.current);
       async function stream() {
+        let ended = false;
         try {
           const response = await fetch(
             `/api/tasks/${taskId}/terminal-stream?session=${encodeURIComponent(info.session)}`,
@@ -120,6 +121,7 @@ function Screen({ taskId, info }: { taskId: string; info: NonNullable<LiveTermin
               const message = JSON.parse(frame.slice(6));
               if (message.type === 'closed' || message.type === 'error') {
                 connected = false;
+                ended = true;
                 setStatus(message.message || 'Terminal closed');
                 continue;
               }
@@ -137,7 +139,13 @@ function Screen({ taskId, info }: { taskId: string; info: NonNullable<LiveTermin
               );
             }
           }
+          if (!disposed && !ended) {
+            connected = false;
+            setStatus('Terminal disconnected. Reconnect to resume.');
+          }
         } catch (error) {
+          connected = false;
+          controller.abort();
           if (!disposed)
             setStatus(error instanceof Error ? error.message : 'Terminal disconnected');
         }
@@ -173,7 +181,8 @@ export function TerminalPanel({ taskId }: { taskId: string }) {
   const current = useResource<FullTask>(`/api/tasks/${taskId}`),
     live = useResource<LiveTerminal>(`/api/tasks/${taskId}/terminal`),
     mutation = useMutation();
-  const [takeover, setTakeover] = useState(false),
+  const [connection, setConnection] = useState(0),
+    [takeover, setTakeover] = useState(false),
     [provider, setProvider] = useState(''),
     [model, setModel] = useState(''),
     [effort, setEffort] = useState(''),
@@ -219,14 +228,21 @@ export function TerminalPanel({ taskId }: { taskId: string }) {
               Take control
             </button>
           )}
-          <button onClick={() => void live.refresh()}>Reconnect</button>
+          <button
+            onClick={() => {
+              setConnection((value) => value + 1);
+              void live.refresh();
+            }}
+          >
+            Reconnect
+          </button>
         </div>
       </div>
       {(live.error || current.error || mutation.error) && (
         <Notice>{live.error || current.error || mutation.error}</Notice>
       )}
       {live.data?.available && live.data.terminal ? (
-        <Screen taskId={taskId} info={live.data.terminal} />
+        <Screen key={`${taskId}:${connection}`} taskId={taskId} info={live.data.terminal} />
       ) : (
         <div className="terminal-empty">
           <strong>

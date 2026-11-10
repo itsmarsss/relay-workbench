@@ -407,12 +407,35 @@ console.log(JSON.stringify({ type: 'item.completed', item: { type: 'agent_messag
 
   // Take over from the browser, type into the PTY, then return control.
   await page.getByRole('button', { name: 'Terminal', exact: true }).click();
+  // An interrupted stream must visibly disconnect, then reconnect to the same
+  // session. Refreshing the snapshot alone must not leave the old viewer mounted.
+  await page.route(
+    `**/api/tasks/${second.id}/terminal-stream?*`,
+    async (route) => {
+      await route.fulfill({
+        contentType: 'text/event-stream',
+        body: `data: ${JSON.stringify({ type: 'snapshot', cols: 120, rows: 30, data: '' })}\n\n`,
+      });
+    },
+    { times: 1 },
+  );
   await page.getByRole('button', { name: 'Take control', exact: true }).click();
   await page
     .getByRole('dialog', { name: 'Take control' })
     .getByRole('button', { name: 'Open terminal' })
     .click();
+  await page
+    .getByText('Terminal disconnected. Reconnect to resume.', { exact: true })
+    .waitFor({ timeout: 15000 });
+  let reopened = 0;
+  const countStreams = (request) => {
+    if (request.url().includes(`/api/tasks/${second.id}/terminal-stream?`)) reopened++;
+  };
+  page.on('request', countStreams);
+  await page.getByRole('button', { name: 'Reconnect', exact: true }).click();
   await page.getByText('You have control', { exact: true }).waitFor({ timeout: 15000 });
+  assert.equal(reopened, 1, 'Reconnect must open exactly one new stream');
+  page.off('request', countStreams);
   await page.getByLabel('Interactive terminal', { exact: true }).focus();
   await page.keyboard.type('printf terminal-ok > manual.txt');
   await page.keyboard.press('Enter');
