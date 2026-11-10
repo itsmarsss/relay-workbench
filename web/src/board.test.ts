@@ -17,8 +17,16 @@ test('board overrides change presentation without advancing workflow gates', () 
     scope: 'all',
     stage: '',
     sort: 'priority',
-    showEmpty: false,
+    showEmpty: true,
   });
+});
+test('task views restore preferences while explicit URLs win', () => {
+  const saved = { layout: 'board' as const, showEmpty: false };
+  assert.equal(boardFilters('#tasks', saved).layout, 'board');
+  assert.equal(boardFilters('#tasks', saved).showEmpty, false);
+  assert.equal(boardFilters('#tasks?view=list&empty=1', saved).layout, 'list');
+  assert.equal(boardFilters('#tasks?view=list&empty=1', saved).showEmpty, true);
+  assert.equal(boardFilters('#tasks?view=board&empty=0').showEmpty, false);
 });
 
 test('task filters preserve views in URLs and reject unknown values', () => {

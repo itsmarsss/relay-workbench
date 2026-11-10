@@ -2,6 +2,7 @@ import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { AnimatePresence, motion } from 'motion/react';
 import { Icon } from './Icons';
+import { useAnchoredPopover, revealOption } from './useAnchoredPopover';
 export { Icon, ProviderIcon, ProviderName, RelayMark, providerName } from './Icons';
 export function Select({
   label,
@@ -26,8 +27,7 @@ export function Select({
 }) {
   const [open, setOpen] = useState(false),
     [query, setQuery] = useState(''),
-    [index, setIndex] = useState(0),
-    [position, setPosition] = useState({ left: 0, top: 0, width: 240, maxHeight: 320 });
+    [index, setIndex] = useState(0);
   const trigger = useRef<HTMLButtonElement>(null),
     popover = useRef<HTMLDivElement>(null),
     input = useRef<HTMLInputElement>(null),
@@ -39,54 +39,39 @@ export function Select({
     displayLabel = selected?.label || value || 'Default';
   function close(focus = false) {
     setOpen(false);
-    if (focus) trigger.current?.focus();
+    if (focus) trigger.current?.focus({ preventScroll: true });
   }
+  useAnchoredPopover(open, trigger, popover, () => close());
   useEffect(() => {
     if (!open) return;
-    function place() {
-      const r = trigger.current?.getBoundingClientRect();
-      if (!r) return;
-      const width = Math.min(Math.max(r.width, 240), window.innerWidth - 24);
-      const below = window.innerHeight - r.bottom - 16;
-      const above = r.top - 16;
-      const height = Math.max(100, Math.min(320, Math.max(below, above)));
-      setPosition({
-        left: Math.max(12, Math.min(r.left, window.innerWidth - width - 12)),
-        top: below >= Math.min(240, above) ? r.bottom + 5 : Math.max(12, r.top - height - 5),
-        width,
-        maxHeight: height,
-      });
-    }
-    place();
-    input.current?.focus();
+    input.current?.focus({ preventScroll: true });
     function outside(e: PointerEvent) {
       const target = e.target as Node;
       if (!trigger.current?.contains(target) && !popover.current?.contains(target)) close();
     }
-    function scroll(e: Event) {
-      if (!popover.current?.contains(e.target as Node)) place();
-    }
     document.addEventListener('pointerdown', outside);
-    window.addEventListener('resize', place);
-    window.addEventListener('scroll', scroll, true);
     return () => {
       document.removeEventListener('pointerdown', outside);
-      window.removeEventListener('resize', place);
-      window.removeEventListener('scroll', scroll, true);
     };
   }, [open]);
   useEffect(() => {
-    popover.current
-      ?.querySelector('[data-highlighted="true"]')
-      ?.scrollIntoView({ block: 'nearest' });
-  }, [index]);
+    revealOption(
+      popover.current?.querySelector('[role="listbox"]') || null,
+      popover.current?.querySelector('[data-highlighted="true"]') || null,
+    );
+  }, [open, index, query]);
   function choose(v: string) {
     onChange(v);
     close(true);
   }
   function show() {
     setQuery('');
-    setIndex(0);
+    setIndex(
+      Math.max(
+        0,
+        options.filter((o) => !o.disabled).findIndex((o) => o.value === value),
+      ),
+    );
     setOpen(true);
   }
   return (
@@ -125,7 +110,13 @@ export function Select({
                 className="select-popover"
                 role="region"
                 aria-label={`${label} options`}
-                style={{ position: 'fixed', ...position, zIndex: 1100 }}
+                style={{
+                  position: 'fixed',
+                  inset: 'auto',
+                  margin: 0,
+                  visibility: 'hidden',
+                  zIndex: 1100,
+                }}
                 initial={{ opacity: 0, y: -4 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -4 }}
@@ -154,7 +145,7 @@ export function Select({
                       close(true);
                     }
                     if (e.key === 'Tab') {
-                      close();
+                      close(true);
                     }
                     if (e.key === 'ArrowDown') {
                       e.preventDefault();
@@ -219,7 +210,7 @@ export function Select({
               </motion.div>
             )}
           </AnimatePresence>,
-          trigger.current?.closest('dialog') || document.body,
+          trigger.current?.closest('dialog, [data-popover-container]') || document.body,
         )}
     </div>
   );

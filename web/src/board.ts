@@ -41,18 +41,23 @@ export function taskLane(task: Task): string {
         : 'discovery')
   );
 }
-export function boardFilters(hash: string) {
+export function boardFilters(
+  hash: string,
+  defaults: { layout?: 'list' | 'board'; showEmpty?: boolean } = {},
+) {
   const q = new URLSearchParams(hash.split('?')[1]);
   return {
     query: q.get('q') || '',
     repository: q.get('repo') || '',
-    layout: q.get('view') === 'board' ? ('board' as const) : ('list' as const),
+    layout: ['board', 'list'].includes(q.get('view') || '')
+      ? (q.get('view') as 'board' | 'list')
+      : defaults.layout || 'list',
     scope: taskScopes.some(([id]) => id === q.get('scope')) ? q.get('scope')! : 'all',
     stage: columns.some(([id]) => id === q.get('stage')) ? q.get('stage')! : '',
     sort: ['priority', 'recent', 'title'].includes(q.get('sort') || '')
       ? q.get('sort')!
       : 'priority',
-    showEmpty: q.get('empty') === '1',
+    showEmpty: q.has('empty') ? q.get('empty') === '1' : (defaults.showEmpty ?? true),
   };
 }
 

@@ -1,5 +1,6 @@
 import { ReviewChanges } from './ReviewChanges';
 import { useEffect, useId, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { AnimatePresence, motion } from 'motion/react';
 import { useMutation, useResource, useSession, Notice } from './Session';
 import { Icon, CopyButton, Select, ProviderIcon, RelayMark } from './UI';
@@ -11,6 +12,7 @@ import { asObject } from './task-data';
 import { statusLabel, type Task } from './types';
 import { inTaskScope } from './board';
 import { ago } from './presentation';
+import { useAnchoredPopover, revealOption } from './useAnchoredPopover';
 type Call = { id: string; name: string; status: string; input: unknown };
 type Message = {
   id: string;
@@ -92,6 +94,7 @@ export function ChatPanel({
   const chat = useResource<Chat>(selected ? `/api/chats/${selected}` : null),
     scroll = useRef<HTMLDivElement>(null),
     textarea = useRef<HTMLTextAreaElement>(null),
+    mentionLayer = useRef<HTMLDivElement>(null),
     follow = useRef(true);
   const workspaceAgent = asObject(bootstrap?.config.workspaceAgent),
     selectedProvider = provider || String(workspaceAgent?.provider || 'claude'),
@@ -146,6 +149,9 @@ export function ChatPanel({
                 `${t.title} ${t.id}`.toLowerCase().includes(mentionQuery),
             )
             .slice(0, 7);
+  useAnchoredPopover(suggestions.length > 0, textarea, mentionLayer, () => setMentionOpen(false), {
+    maxHeight: 290,
+  });
   useEffect(() => {
     if (!persistSelection) return;
     const followURL = () => setSelected(requestedChat());
@@ -172,9 +178,7 @@ export function ChatPanel({
   }, [draft]);
   useEffect(() => {
     if (suggestions.length)
-      document
-        .getElementById(`${mentionID}-${activeMention}`)
-        ?.scrollIntoView({ block: 'nearest' });
+      revealOption(mentionLayer.current, document.getElementById(`${mentionID}-${activeMention}`));
   }, [mentionID, activeMention, suggestions.length]);
   useEffect(() => {
     if (follow.current && scroll.current) scroll.current.scrollTop = scroll.current.scrollHeight;
@@ -545,35 +549,47 @@ export function ChatPanel({
             </div>
           )}
           <div className="composer-input">
-            {suggestions.length > 0 && (
-              <div
-                className="mention-suggestions"
-                role="listbox"
-                id={mentionID}
-                aria-label="Mention a task"
-              >
-                {suggestions.map((task, i) => (
-                  <button
-                    key={task.id}
-                    id={`${mentionID}-${i}`}
-                    tabIndex={-1}
-                    type="button"
-                    role="option"
-                    aria-selected={i === activeMention}
-                    onPointerDown={(e) => e.preventDefault()}
-                    onPointerMove={() => setActiveMention(i)}
-                    onClick={() => mention(task)}
-                  >
-                    <span>
-                      <strong>{task.title}</strong>
-                      <small>
-                        {task.repository?.name} · {task.id.slice(0, 8)}
-                      </small>
-                    </span>
-                  </button>
-                ))}
-              </div>
-            )}
+            {suggestions.length > 0 &&
+              typeof document !== 'undefined' &&
+              createPortal(
+                <div
+                  ref={mentionLayer}
+                  className="mention-suggestions"
+                  role="region"
+                  aria-label="Task mentions"
+                  style={{
+                    position: 'fixed',
+                    inset: 'auto',
+                    visibility: 'hidden',
+                    margin: 0,
+                    zIndex: 1100,
+                  }}
+                >
+                  <div role="listbox" id={mentionID} aria-label="Mention a task">
+                    {suggestions.map((task, i) => (
+                      <button
+                        key={task.id}
+                        id={`${mentionID}-${i}`}
+                        tabIndex={-1}
+                        type="button"
+                        role="option"
+                        aria-selected={i === activeMention}
+                        onPointerDown={(e) => e.preventDefault()}
+                        onPointerMove={() => setActiveMention(i)}
+                        onClick={() => mention(task)}
+                      >
+                        <span>
+                          <strong>{task.title}</strong>
+                          <small>
+                            {task.repository?.name} · {task.id.slice(0, 8)}
+                          </small>
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                </div>,
+                textarea.current?.closest('dialog') || document.body,
+              )}
             <textarea
               rows={1}
               onPaste={uploads.onPaste}

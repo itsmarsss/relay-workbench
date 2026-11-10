@@ -2,6 +2,13 @@ import type { CSSProperties, ReactNode } from 'react';
 
 // The same SVG marks and stroke weight as the original Relay workbench.
 const paths: Record<string, ReactNode> = {
+  board: (
+    <>
+      <rect x="3" y="4" width="5" height="16" rx="1" />
+      <rect x="10" y="4" width="5" height="11" rx="1" />
+      <rect x="17" y="4" width="4" height="14" rx="1" />
+    </>
+  ),
   menu: <path d="M4 6h16M4 12h16M4 18h16" />,
   relay: <path d="M5 5h7a4 4 0 0 1 0 8H5V5Zm7 8 7 6M5 13v6M17 5h2v2" />,
   tasks: <path d="m12 3 10 5-10 5L2 8l10-5Zm-9 9 9 5 9-5M3 16l9 5 9-5" />,

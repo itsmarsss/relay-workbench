@@ -1,12 +1,23 @@
-import { useEffect, useRef, useState } from 'react';
-import { motion } from 'motion/react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { motion, useReducedMotion } from 'motion/react';
+import { createPortal } from 'react-dom';
 import type { Task } from './types';
 import { columns, taskLane, boardFilters, filteredTasks, taskScopes, inTaskScope } from './board';
-import { Select, Icon, ProviderName } from './UI';
+import { Select, Icon } from './UI';
 import { Notice, useMutation } from './Session';
 import { Modal } from './Modal';
 import { nextStep, ago } from './presentation';
 export { taskLane } from './board';
+const useClientLayoutEffect = typeof window === 'undefined' ? useEffect : useLayoutEffect;
+function currentFilters() {
+  let layout: 'board' | 'list' = 'list',
+    showEmpty = true;
+  try {
+    layout = localStorage.getItem('relay-task-layout') === 'board' ? 'board' : 'list';
+    showEmpty = localStorage.getItem('relay-task-show-empty') !== 'false';
+  } catch {}
+  return boardFilters(typeof location === 'undefined' ? '' : location.hash, { layout, showEmpty });
+}
 export function TasksPage({
   tasks,
   onOpen,
@@ -18,22 +29,25 @@ export function TasksPage({
   onCreate: () => void;
   loading?: boolean;
 }) {
-  const [filters, setFilters] = useState(() =>
-      boardFilters(typeof location === 'undefined' ? '' : location.hash),
-    ),
+  const [filters, setFilters] = useState(currentFilters),
     [dragging, setDragging] = useState(''),
     [target, setTarget] = useState(''),
     [menu, setMenu] = useState<{ task: Task; x: number; y: number } | null>(null),
     [deleting, setDeleting] = useState<Task | null>(null);
   const mutation = useMutation();
   const menuPanel = useRef<HTMLDivElement>(null),
-    menuTrigger = useRef<HTMLElement | null>(null);
+    menuTrigger = useRef<HTMLElement | null>(null),
+    board = useRef<HTMLDivElement>(null),
+    positionedBoard = useRef(''),
+    positionedLane = useRef(''),
+    boardInteracted = useRef(false);
+  const reduceMotion = useReducedMotion();
   function closeMenu(restoreFocus = true) {
     setMenu(null);
     if (restoreFocus) menuTrigger.current?.focus({ preventScroll: true });
   }
   useEffect(() => {
-    const follow = () => setFilters(boardFilters(location.hash));
+    const follow = () => setFilters(currentFilters());
     window.addEventListener('hashchange', follow);
     window.addEventListener('popstate', follow);
     return () => {
@@ -42,17 +56,38 @@ export function TasksPage({
     };
   }, []);
   useEffect(() => {
+    try {
+      localStorage.setItem('relay-task-layout', filters.layout);
+      localStorage.setItem('relay-task-show-empty', String(filters.showEmpty));
+    } catch {}
+  }, [filters.layout, filters.showEmpty]);
+  useClientLayoutEffect(() => {
+    if (!menu || !menuPanel.current) return;
+    const panel = menuPanel.current,
+      bounds = panel.getBoundingClientRect();
+    panel.style.left = `${Math.max(8, Math.min(menu.x, innerWidth - bounds.width - 8))}px`;
+    panel.style.top = `${Math.max(8, Math.min(menu.y, innerHeight - bounds.height - 8))}px`;
+    panel.style.visibility = 'visible';
+  }, [menu]);
+  useEffect(() => {
     if (!menu) return;
     menuPanel.current?.querySelector('button')?.focus({ preventScroll: true });
-    const close = () => closeMenu(false);
+    const close = (event: Event) => {
+      if (event.target instanceof Node && menuPanel.current?.contains(event.target)) return;
+      closeMenu(false);
+    };
     const key = (e: KeyboardEvent) => {
       if (e.key === 'Escape') closeMenu();
     };
     window.addEventListener('pointerdown', close);
     window.addEventListener('keydown', key);
+    window.addEventListener('scroll', close, true);
+    window.addEventListener('resize', close);
     return () => {
       window.removeEventListener('pointerdown', close);
       window.removeEventListener('keydown', key);
+      window.removeEventListener('scroll', close, true);
+      window.removeEventListener('resize', close);
     };
   }, [menu]);
   function filter(patch: Partial<typeof filters>) {
@@ -61,14 +96,54 @@ export function TasksPage({
     const p = new URLSearchParams();
     if (next.query) p.set('q', next.query);
     if (next.repository) p.set('repo', next.repository);
-    if (next.layout === 'board') p.set('view', 'board');
+    p.set('view', next.layout);
     if (next.scope !== 'all') p.set('scope', next.scope);
     if (next.stage) p.set('stage', next.stage);
     if (next.sort !== 'priority') p.set('sort', next.sort);
-    if (next.showEmpty) p.set('empty', '1');
+    p.set('empty', next.showEmpty ? '1' : '0');
     history.replaceState(null, '', '#tasks' + (p.size ? '?' + p.toString() : ''));
   }
   const visible = filteredTasks(tasks, filters);
+  const lanes = columns.filter(
+    ([lane]) => filters.showEmpty || dragging || visible.some((task) => taskLane(task) === lane),
+  );
+  useClientLayoutEffect(() => {
+    if (filters.layout !== 'board') {
+      positionedBoard.current = '';
+      positionedLane.current = '';
+      return;
+    }
+    const key = JSON.stringify([
+      filters.query,
+      filters.repository,
+      filters.scope,
+      filters.stage,
+      filters.showEmpty,
+    ]);
+    if (!board.current) return;
+    if (positionedBoard.current !== key) {
+      positionedBoard.current = key;
+      positionedLane.current = '';
+      boardInteracted.current = false;
+    }
+    if (boardInteracted.current) return;
+    const lane = board.current.querySelector<HTMLElement>('[data-populated="true"]');
+    if (!lane || positionedLane.current === lane.dataset.lane) return;
+    board.current.scrollLeft = lane.offsetLeft;
+    positionedLane.current = lane.dataset.lane || '';
+  }, [filters, tasks, loading]);
+  function showLane(lane: string) {
+    const column = board.current?.querySelector<HTMLElement>(`[data-lane="${lane}"]`);
+    if (!column || !board.current) return;
+    boardInteracted.current = true;
+    board.current.scrollTo({
+      left: column.offsetLeft,
+      behavior:
+        reduceMotion || document.documentElement.dataset.lowMotion === 'true'
+          ? 'instant'
+          : 'smooth',
+    });
+  }
   const repositories = [
     ...new Map(
       tasks
@@ -94,11 +169,12 @@ export function TasksPage({
       key={task.id}
       className="task-card"
       draggable={!mutation.busy}
-      onDragStart={(e) => {
-        if ('dataTransfer' in e) (e.dataTransfer as DataTransfer)?.setData('text/plain', task.id);
+      onDragStartCapture={(e) => {
+        e.dataTransfer.setData('text/plain', task.id);
+        e.dataTransfer.effectAllowed = 'move';
         setDragging(task.id);
       }}
-      onDragEnd={() => {
+      onDragEndCapture={() => {
         setDragging('');
         setTarget('');
       }}
@@ -107,8 +183,8 @@ export function TasksPage({
         menuTrigger.current = e.currentTarget.querySelector('.card-menu');
         setMenu({
           task,
-          x: Math.max(12, Math.min(e.clientX, window.innerWidth - 232)),
-          y: Math.max(12, Math.min(e.clientY, window.innerHeight - 250)),
+          x: e.clientX,
+          y: e.clientY,
         });
       }}
     >
@@ -144,8 +220,8 @@ export function TasksPage({
           const r = e.currentTarget.getBoundingClientRect();
           setMenu({
             task,
-            x: Math.max(12, Math.min(r.left, window.innerWidth - 232)),
-            y: Math.max(12, Math.min(r.bottom, window.innerHeight - 250)),
+            x: r.left,
+            y: r.bottom + 4,
           });
         }}
       >
@@ -160,6 +236,18 @@ export function TasksPage({
           <div className="eyebrow">Your work queue</div>
           <h1>Tasks</h1>
           <p>Your work, from first investigation to final approval.</p>
+        </div>
+        <div className="segmented task-layout-switch" role="group" aria-label="Task layout">
+          {(['board', 'list'] as const).map((layout) => (
+            <button
+              key={layout}
+              aria-pressed={filters.layout === layout}
+              onClick={() => filter({ layout })}
+            >
+              <Icon name={layout === 'board' ? 'board' : 'list'} size={16} />
+              {layout === 'board' ? 'Board' : 'List'}
+            </button>
+          ))}
         </div>
       </div>
       <nav className="task-scopes" aria-label="Task status filters">
@@ -249,22 +337,10 @@ export function TasksPage({
               Empty stages
             </label>
           )}
-          <div className="segmented" role="group" aria-label="Task layout">
-            {(['list', 'board'] as const).map((layout) => (
-              <button
-                key={layout}
-                aria-pressed={filters.layout === layout}
-                onClick={() => filter({ layout })}
-              >
-                <Icon name={layout === 'board' ? 'grid' : 'list'} size={15} />
-                {layout === 'board' ? 'Board' : 'List'}
-              </button>
-            ))}
-          </div>
         </div>
       </div>
       {mutation.error && <Notice>{mutation.error}</Notice>}
-      {loading ? null : tasks.length === 0 ? (
+      {loading ? null : tasks.length === 0 && (filters.layout !== 'board' || !filters.showEmpty) ? (
         <div className="empty-state">
           <h2>No tasks yet</h2>
           <p>Create a draft to add requirements and repositories.</p>
@@ -273,7 +349,7 @@ export function TasksPage({
             Create task
           </button>
         </div>
-      ) : !visible.length ? (
+      ) : !visible.length && (filters.layout !== 'board' || !filters.showEmpty) ? (
         <div className="empty-state">
           <Icon name="search" size={28} />
           <h2>No matching tasks</h2>
@@ -285,19 +361,45 @@ export function TasksPage({
       ) : filters.layout === 'list' ? (
         <div className="task-list">{visible.map(card)}</div>
       ) : (
-        <div className="task-board">
-          {columns
-            .filter(
-              ([lane]) =>
-                filters.showEmpty || dragging || visible.some((task) => taskLane(task) === lane),
-            )
-            .map(([lane, label]) => (
+        <div className="task-board-workspace">
+          <nav className="board-stage-nav" aria-label="Board stages">
+            {lanes.map(([lane, label]) => {
+              const count = visible.filter((task) => taskLane(task) === lane).length;
+              return (
+                <button key={lane} onClick={() => showLane(lane)}>
+                  {label}
+                  <span>{count}</span>
+                </button>
+              );
+            })}
+          </nav>
+          <div
+            ref={board}
+            className="task-board"
+            role="region"
+            aria-label="Task board"
+            tabIndex={0}
+            onPointerDown={() => {
+              boardInteracted.current = true;
+            }}
+            onWheel={() => {
+              boardInteracted.current = true;
+            }}
+            onKeyDown={() => {
+              boardInteracted.current = true;
+            }}
+          >
+            {lanes.map(([lane, label]) => (
               <section
                 key={lane}
+                data-lane={lane}
+                data-populated={visible.some((task) => taskLane(task) === lane)}
+                aria-label={`${label} column`}
                 className={`task-lane ${target === lane ? 'drop-target' : ''}`}
                 onDragOver={(e) => {
                   if (dragging) {
                     e.preventDefault();
+                    e.dataTransfer.dropEffect = 'move';
                     setTarget(lane);
                   }
                 }}
@@ -314,63 +416,73 @@ export function TasksPage({
                   <span>{visible.filter((t) => taskLane(t) === lane).length}</span>
                 </h2>
                 {visible.filter((t) => taskLane(t) === lane).map(card)}
+                {tasks.length === 0 && lane === 'backlog' && (
+                  <button className="board-create-task" onClick={onCreate}>
+                    <Icon name="plus" size={16} /> Create task
+                  </button>
+                )}
                 <div className="lane-drop-hint">{dragging ? 'Move here' : ''}</div>
               </section>
             ))}
+          </div>
         </div>
       )}
-      {menu && (
-        <div
-          ref={menuPanel}
-          className="task-context-menu surface"
-          role="dialog"
-          aria-label="Task actions"
-          style={{ left: menu.x, top: menu.y }}
-          onPointerDown={(e) => e.stopPropagation()}
-        >
-          <button
-            onClick={() => {
-              onOpen(menu.task.id);
-              setMenu(null);
-            }}
+      {menu &&
+        typeof document !== 'undefined' &&
+        createPortal(
+          <div
+            ref={menuPanel}
+            className="task-context-menu surface"
+            role="dialog"
+            aria-label="Task actions"
+            data-popover-container="true"
+            style={{ left: menu.x, top: menu.y, visibility: 'hidden' }}
+            onPointerDown={(e) => e.stopPropagation()}
           >
-            Open task
-          </button>
-          <Select
-            label="Move to column"
-            value={taskLane(menu.task)}
-            options={columns.map(([value, label]) => ({ value, label }))}
-            onChange={(lane) => {
-              void move(menu.task, lane);
-              setMenu(null);
-            }}
-          />
-          {menu.task.statusOverride && (
             <button
               onClick={() => {
-                void mutation
-                  .run(`/api/tasks/${menu.task.id}/status-override`, {
-                    taskRevision: menu.task.taskRevision,
-                    value: null,
-                  })
-                  .catch(() => {});
+                onOpen(menu.task.id);
                 setMenu(null);
               }}
             >
-              Follow workflow status
+              Open task
             </button>
-          )}
-          <button
-            className="danger"
-            onClick={() => {
-              setDeleting(menu.task);
-              setMenu(null);
-            }}
-          >
-            Delete task
-          </button>
-        </div>
-      )}
+            <Select
+              label="Move to column"
+              value={taskLane(menu.task)}
+              options={columns.map(([value, label]) => ({ value, label }))}
+              onChange={(lane) => {
+                void move(menu.task, lane);
+                setMenu(null);
+              }}
+            />
+            {menu.task.statusOverride && (
+              <button
+                onClick={() => {
+                  void mutation
+                    .run(`/api/tasks/${menu.task.id}/status-override`, {
+                      taskRevision: menu.task.taskRevision,
+                      value: null,
+                    })
+                    .catch(() => {});
+                  setMenu(null);
+                }}
+              >
+                Follow workflow status
+              </button>
+            )}
+            <button
+              className="danger"
+              onClick={() => {
+                setDeleting(menu.task);
+                setMenu(null);
+              }}
+            >
+              Delete task
+            </button>
+          </div>,
+          document.body,
+        )}
       {deleting && (
         <Modal
           title="Delete task?"

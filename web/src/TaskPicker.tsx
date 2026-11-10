@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
+import { useAnchoredPopover, revealOption } from './useAnchoredPopover';
 import type { Task } from './types';
 export function matchTasks(tasks: Task[], query: string): Task[] {
   const words = query.trim().toLocaleLowerCase().split(/\s+/).filter(Boolean);
@@ -22,6 +24,7 @@ export function TaskPicker({
   onChange: (value: string) => void;
 }) {
   const root = useRef<HTMLDivElement>(null),
+    popover = useRef<HTMLDivElement>(null),
     input = useRef<HTMLInputElement>(null);
   const [open, setOpen] = useState(false),
     [query, setQuery] = useState(''),
@@ -30,13 +33,18 @@ export function TaskPicker({
     filtered = matchTasks(tasks, query);
   const inputID = `picker-${id}`,
     listID = `picker-list-${id}`;
+  useAnchoredPopover(open, input, popover, () => setOpen(false), { maxHeight: 280, gap: 5 });
   useEffect(() => {
-    if (open) document.getElementById(`${listID}-${active}`)?.scrollIntoView({ block: 'nearest' });
+    if (open)
+      revealOption(document.getElementById(listID), document.getElementById(`${listID}-${active}`));
   }, [open, active, listID, query]);
   useEffect(() => {
     if (!open) return;
     function dismiss(event: PointerEvent) {
-      if (!root.current?.contains(event.target as globalThis.Node)) {
+      if (
+        !root.current?.contains(event.target as globalThis.Node) &&
+        !popover.current?.contains(event.target as globalThis.Node)
+      ) {
         setOpen(false);
         setQuery('');
       }
@@ -48,7 +56,7 @@ export function TaskPicker({
     onChange(value);
     setOpen(false);
     setQuery('');
-    input.current?.focus();
+    input.current?.focus({ preventScroll: true });
   }
   return (
     <div className="picker" ref={root}>
@@ -71,6 +79,13 @@ export function TaskPicker({
           setOpen(true);
           setQuery('');
           setActive(0);
+        }}
+        onClick={() => {
+          if (!open) {
+            setOpen(true);
+            setQuery('');
+            setActive(0);
+          }
         }}
         onChange={(event) => {
           setQuery(event.target.value);
@@ -101,40 +116,49 @@ export function TaskPicker({
           }
         }}
       />
-      {open && (
-        <div className="picker-popover">
-          <ul role="listbox" id={listID} aria-label="Tasks">
-            {filtered.map((item, index) => (
-              <li
-                role="option"
-                id={`${listID}-${index}`}
-                aria-selected={selected === item.id}
-                key={item.id}
-                className={index === active ? 'picker-active' : ''}
+      {open &&
+        typeof document !== 'undefined' &&
+        createPortal(
+          <div
+            className="picker-popover"
+            role="region"
+            aria-label={`${label} options`}
+            ref={popover}
+            style={{ position: 'fixed', inset: 'auto', visibility: 'hidden', zIndex: 1100 }}
+          >
+            <ul role="listbox" id={listID} aria-label="Tasks">
+              {filtered.map((item, index) => (
+                <li
+                  role="option"
+                  id={`${listID}-${index}`}
+                  aria-selected={selected === item.id}
+                  key={item.id}
+                  className={index === active ? 'picker-active' : ''}
+                  onPointerDown={(event) => event.preventDefault()}
+                  onClick={() => choose(item.id)}
+                >
+                  <strong>{item.title}</strong>
+                  <small>{item.repository?.name || 'Unspecified'}</small>
+                </li>
+              ))}
+              {filtered.length === 0 && (
+                <li role="option" aria-disabled="true">
+                  No matching tasks
+                </li>
+              )}
+            </ul>
+            {selected && (
+              <button
+                type="button"
                 onPointerDown={(event) => event.preventDefault()}
-                onClick={() => choose(item.id)}
+                onClick={() => choose('')}
               >
-                <strong>{item.title}</strong>
-                <small>{item.repository?.name || 'Unspecified'}</small>
-              </li>
-            ))}
-            {filtered.length === 0 && (
-              <li role="option" aria-disabled="true">
-                No matching tasks
-              </li>
+                Clear task
+              </button>
             )}
-          </ul>
-          {selected && (
-            <button
-              type="button"
-              onPointerDown={(event) => event.preventDefault()}
-              onClick={() => choose('')}
-            >
-              Clear task
-            </button>
-          )}
-        </div>
-      )}
+          </div>,
+          input.current?.closest('dialog') || document.body,
+        )}
     </div>
   );
 }
