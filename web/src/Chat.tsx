@@ -83,7 +83,10 @@ export function ChatPanel({
     scroll = useRef<HTMLDivElement>(null),
     textarea = useRef<HTMLTextAreaElement>(null),
     follow = useRef(true);
-  const selectedProvider = provider || String(asObject(bootstrap?.config.workspaceAgent)?.provider || 'claude');
+  const workspaceAgent = asObject(bootstrap?.config.workspaceAgent),
+    selectedProvider = provider || String(workspaceAgent?.provider || 'claude'),
+    configuredModel = selectedProvider === String(workspaceAgent?.provider || 'claude') ? workspaceAgent?.model : undefined,
+    displayModel = model || String(configuredModel || asObject(asObject(bootstrap?.config.harnesses)?.[selectedProvider])?.model || selectedProvider);
   const current = chat.data?.id === selected ? chat.data : null,
     running = current?.messages?.some((m) => m.status === 'running');
   const uploads = useImageUpload((text) => setDraft((value) => value + text));
@@ -247,7 +250,7 @@ export function ChatPanel({
               </button>
             )}
             <button className="text-button" onClick={() => setSettings(true)}>
-              {model || String(asObject(bootstrap?.config.workspaceAgent)?.model || selectedProvider)}
+              {displayModel}
               <Icon name="settings" size={14} />
             </button>
           </div>

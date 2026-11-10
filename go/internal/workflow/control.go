@@ -25,6 +25,9 @@ func fields(body map[string]any, allowed ...string) error {
 	return nil
 }
 func (c *Coordinator) inspected(id string, body map[string]any) (json.RawMessage, map[string]any, error) {
+	return c.inspectedMode(id, body, false)
+}
+func (c *Coordinator) inspectedMode(id string, body map[string]any, allowImported bool) (json.RawMessage, map[string]any, error) {
 	raw, err := c.store.Get(id)
 	if err != nil {
 		return nil, nil, err
@@ -35,6 +38,9 @@ func (c *Coordinator) inspected(id string, body map[string]any) (json.RawMessage
 	var value map[string]any
 	if json.Unmarshal(raw, &value) != nil || value == nil {
 		return nil, nil, errors.New("invalid task state")
+	}
+	if object(value["migration"])["readOnly"] == true && !allowImported {
+		return nil, nil, errors.New("imported history is read-only; create a fresh draft")
 	}
 	return raw, value, nil
 }
@@ -69,13 +75,46 @@ func (c *Coordinator) control(ctx context.Context, id, operation string, body ma
 	if c.closed {
 		return nil, errors.New("Relay is shutting down")
 	}
-	raw, value, err := c.inspected(id, body)
+	raw, value, err := c.inspectedMode(id, body, operation == "delete" || operation == "recreate" || operation == "status-override")
 	if err != nil {
 		return nil, err
 	}
 	active := c.jobs[id] != nil || value["status"] == "running" || value["status"] == "queued" || value["status"] == "manual"
 	summary := ""
 	switch operation {
+	case "recreate":
+		if err = fields(body); err != nil {
+			return nil, err
+		}
+		if object(value["migration"])["readOnly"] != true {
+			return nil, errors.New("only imported history can be recreated")
+		}
+		settings, err := (task.ConfigurationService{Store: c.store}).Read()
+		if err != nil {
+			return nil, err
+		}
+		draft := map[string]any{}
+		for _, key := range []string{"title", "description", "ticket", "demo", "preset", "routing", "models", "efforts", "execution", "dependencies", "smartRouting"} {
+			if v, ok := value[key]; ok {
+				draft[key] = v
+			}
+		}
+		ids := []any{}
+		for _, item := range array(value["repositories"]) {
+			ids = append(ids, object(object(item)["repository"])["id"])
+		}
+		if len(ids) == 0 && object(value["repository"])["id"] != nil {
+			ids = append(ids, object(value["repository"])["id"])
+		}
+		if value["demo"] != true {
+			draft["repositoryIds"], draft["repositoryId"] = ids, object(value["repository"])["id"]
+		}
+		created, err := (task.Service{Store: c.store}).Create(draft, settings.Value)
+		if err != nil {
+			return nil, err
+		}
+		_, _ = c.store.Event(id, mustJSON(map[string]any{"type": "migration", "source": "user", "summary": "Created a fresh draft from imported history.", "taskId": id, "newTaskId": created["id"]}))
+		return created, nil
 	case "delete":
 		if err = fields(body); err != nil {
 			return nil, err

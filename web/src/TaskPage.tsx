@@ -1,4 +1,6 @@
 import { SideChat } from './Chat';
+import { useMutation } from './Session';
+import { asObject } from './task-data';
 import { AutoControl, ForkLinks } from './WorkflowHistory';
 import { useEffect, useState } from 'react';
 import {
@@ -70,6 +72,7 @@ export function TaskPage({
   onBack: () => void;
   onDeck: () => void;
 }) {
+  const migrationMutation=useMutation();
   const [task, setTask] = useState<Details | null>(null),
     [error, setError] = useState(''),
     [actionError, setActionError] = useState(''),
@@ -296,11 +299,17 @@ export function TaskPage({
               </button>
             )}
           <TaskMenu task={task} onDeleted={onBack} />
-          <AutoControl task={task as FullTask} />
+          {asObject(task.migration)?.readOnly!==true && <AutoControl task={task as FullTask} />}
           <button onClick={onDeck}>Open task deck</button>
         </div>
       </div>
 
+
+      {asObject(task.migration)?.readOnly===true && <section className="surface imported-notice">
+        <div><h2>Imported history</h2><p>This snapshot cannot run against another instance’s worktrees. Create a draft to start in a new workspace.</p></div>
+        <button className="primary" disabled={migrationMutation.busy} onClick={()=>void migrationMutation.run<Task>(`/api/tasks/${task.id}/recreate`,{taskRevision:task.taskRevision}).then(created=>{location.hash=`task/${created.id}/overview`}).catch(()=>{})}>Create fresh draft</button>
+        {migrationMutation.error&&<p className="error" role="alert">{migrationMutation.error}</p>}
+      </section>}
       {actionError && (
         <p className="error" role="alert">
           {actionError}
@@ -509,7 +518,7 @@ export function TaskPage({
                 <p>No description provided.</p>
               )}
             </section>
-            <ContinueWork task={task as FullTask} />
+            {asObject(task.migration)?.readOnly!==true && <ContinueWork task={task as FullTask} />}
           </div>
         ) : (
           <div className="task-detail-panel">

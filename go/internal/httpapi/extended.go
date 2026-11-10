@@ -25,6 +25,9 @@ func result(w http.ResponseWriter, value any, err error, status int) {
 	}
 }
 func (s *Server) extended(w http.ResponseWriter, r *http.Request) bool {
+	if s.transferRoute(w, r) {
+		return true
+	}
 	if s.attachmentRoute(w, r) {
 		return true
 	}
@@ -169,7 +172,7 @@ func (s *Server) extended(w http.ResponseWriter, r *http.Request) bool {
 			}
 		} else if len(parts) == 2 && r.Method == "POST" {
 			switch parts[1] {
-			case "automation", "checkpoint", "status-override", "message", "request-changes", "replan", "review-comment", "monitor", "publication", "feedback", "followup":
+			case "automation", "checkpoint", "status-override", "message", "request-changes", "replan", "review-comment", "monitor", "publication", "feedback", "followup", "recreate":
 				operation = parts[1]
 			}
 		}

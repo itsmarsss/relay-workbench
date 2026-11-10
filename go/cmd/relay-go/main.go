@@ -3,14 +3,17 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"net/http"
 	"os"
 	"os/signal"
+	"relay.local/relay/internal/transfer"
 	"syscall"
 	"time"
 
@@ -27,12 +30,71 @@ func run(args []string) (result error) {
 	flags := flag.NewFlagSet("relay-go", flag.ContinueOnError)
 	dir := flags.String("data-dir", "", "Required: new isolated experimental state directory")
 	web := flags.String("web-dir", "", "Required: built React preview directory")
+	exportPath := flags.String("export-state", "", "Export isolated state to a new .tar.gz file and exit")
+	legacyPath := flags.String("export-legacy", "", "Export a stopped legacy state directory without modifying it")
+	importPath := flags.String("import-state", "", "Import an archive into an absent --data-dir and exit")
 	port := flags.Int("port", 4311, "Local preview port")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
 	if flags.NArg() != 0 {
 		return errors.New("unexpected positional arguments")
+	}
+	if *importPath != "" {
+		if *dir == "" || *exportPath != "" || *legacyPath != "" {
+			return errors.New("import requires only --data-dir and --import-state")
+		}
+		input, err := os.Open(*importPath)
+		if err != nil {
+			return err
+		}
+		defer input.Close()
+		info, err := input.Stat()
+		if err != nil || !info.Mode().IsRegular() {
+			return errors.New("import archive must be a regular file")
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+		return transfer.Restore(ctx, io.LimitReader(input, transfer.MaxBytes+1), *dir)
+	}
+	if *exportPath != "" {
+		output, err := os.OpenFile(*exportPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
+		if err != nil {
+			return err
+		}
+		succeeded := false
+		defer func() {
+			output.Close()
+			if !succeeded {
+				os.Remove(*exportPath)
+			}
+		}()
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+		if *legacyPath != "" {
+			err = transfer.ExportLegacy(ctx, *legacyPath, output)
+		} else {
+			if *dir == "" {
+				return errors.New("export requires --data-dir or --export-legacy")
+			}
+			db, e := store.Open(*dir)
+			if e != nil {
+				return e
+			}
+			err = transfer.Export(ctx, db, output)
+			err = errors.Join(err, db.Close())
+		}
+		if err != nil {
+			return err
+		}
+		if err = output.Sync(); err != nil {
+			return err
+		}
+		succeeded = true
+		return output.Close()
+	}
+	if *legacyPath != "" {
+		return errors.New("--export-legacy also requires --export-state")
 	}
 	if *dir == "" || *web == "" {
 		return errors.New("--data-dir and --web-dir are required; never use live Relay state")

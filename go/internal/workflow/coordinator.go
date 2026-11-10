@@ -290,6 +290,9 @@ func (c *Coordinator) enqueueMode(id string, resume, automatic bool) (map[string
 	if json.Unmarshal(rawDemo, &demoValue) != nil {
 		return nil, errors.New("invalid task")
 	}
+	if object(demoValue["migration"])["readOnly"] == true {
+		return nil, errors.New("imported history is read-only; create a fresh draft")
+	}
 	if demoValue["demo"] == true {
 		return c.enqueueDemoLocked(id, resume, automatic)
 	}

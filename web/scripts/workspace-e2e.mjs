@@ -146,8 +146,8 @@ let input='';process.stdin.on('data',d=>input+=d);process.stdin.on('end',()=>{
   const demo = await api('/api/tasks', {title:'Workflow demo',demo:true});
   await page.goto(origin + '/#task/' + demo.id + '/overview');
   await page.getByRole('button', {name:'Run demo',exact:true}).click();
-  await page.getByText('Focused repair', {exact:true}).first().waitFor();
-  await page.getByText('Focused repair', {exact:true}).first().click();
+  await page.getByRole('radio', {name:'Select Focused repair',exact:true}).waitFor();
+  await page.getByRole('radio', {name:'Select Focused repair',exact:true}).click();
   await page.getByRole('button', {name:'Approve approach',exact:true}).click();
   await page.getByRole('button', {name:'Accept result',exact:true}).waitFor();
   await page.getByRole('button', {name:'Accept result',exact:true}).click();

@@ -326,8 +326,7 @@ export function StoragePage({
               and worktrees are never removed automatically.
             </p>
             <p className="form-note">
-              Automatic cleanup and blocking new work on critical space are not connected to the Go
-              scheduler yet. Current work is not stopped by these warnings.
+              Critical space blocks new workspace and agent work. Running processes keep their workspace. Cleanup requires a separate action.
             </p>
           </section>
         </>

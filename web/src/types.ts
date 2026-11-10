@@ -47,6 +47,7 @@ export const taskViews: { id: TaskView; label: string }[] = [
 export const statusLabel = (status: TaskStatus): string =>
   ({
     draft: 'Backlog',
+    imported: 'Imported history',
     queued: 'Queued',
     running: 'In progress',
     awaiting_plan: 'Choose an approach',

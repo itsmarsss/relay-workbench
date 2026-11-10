@@ -36,7 +36,7 @@ export function TaskMenu({ task, onDeleted }: { task: Task; onDeleted?: () => vo
   return (
     <>
       {loadError && <Notice>{loadError}</Notice>}
-      <button onClick={() => void edit()} disabled={!bootstrap}>
+      <button onClick={() => void edit()} disabled={!bootstrap || asObject((task as FullTask).migration)?.readOnly === true}>
         Edit task
       </button>
       <button className="text-button danger" onClick={() => setConfirm(true)}>
@@ -303,6 +303,7 @@ export function PublicationPanel({ task }: { task: FullTask }) {
         const url = asText(publication?.url);
         const valid = /^https?:\/\//.test(url);
         const busy =
+          asObject(task.migration)?.readOnly===true ||
           delivery?.status === 'running' ||
           delivery?.status === 'queued' ||
           monitor?.status === 'running';

@@ -34,6 +34,7 @@ type Server struct {
 	store        *store.Store
 	host, webDir string
 	streams      chan struct{}
+	transfers    chan struct{}
 	token        [32]byte
 	workflow     Coordinator
 	assistant    Assistant
@@ -73,7 +74,7 @@ func NewWithCoordinator(db *store.Store, port int, webDir string, workflow Coord
 	if err != nil || !info.IsDir() {
 		return nil, errors.New("web directory must exist")
 	}
-	server := &Server{store: db, host: fmt.Sprintf("127.0.0.1:%d", port), webDir: root, streams: make(chan struct{}, 64), workflow: workflow}
+	server := &Server{store: db, host: fmt.Sprintf("127.0.0.1:%d", port), webDir: root, streams: make(chan struct{}, 64), transfers: make(chan struct{}, 1), workflow: workflow}
 	if _, err = rand.Read(server.token[:]); err != nil {
 		return nil, err
 	}

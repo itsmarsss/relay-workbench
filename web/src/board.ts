@@ -21,6 +21,7 @@ export function taskLane(task: Task): string {
   }
   const known: Record<string, string> = {
     draft: 'backlog',
+    imported: 'done',
     awaiting_plan: 'approach',
     awaiting_final: 'final',
     completed: 'done',
