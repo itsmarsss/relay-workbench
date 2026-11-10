@@ -2,6 +2,9 @@ import { useEffect, useRef, useState } from 'react';
 import { TaskPanel } from './TaskPanel';
 import { TaskPicker } from './TaskPicker';
 import { Icon } from './UI';
+import { Modal } from './Modal';
+import { TaskMonitor, needsDecision, isLive } from './TaskMonitor';
+import { statusLabel } from './types';
 import { taskViews, type Task, type TaskView } from './types';
 import {
   minimumSize,
@@ -28,10 +31,6 @@ function PaneView({
   hidden,
   onFocus,
   onOpen,
-  grid = false,
-  onDrag,
-  onDrop,
-  onMove,
   canSplit = true,
 }: {
   node: Pane;
@@ -44,10 +43,6 @@ function PaneView({
   hidden: boolean;
   onFocus: () => void;
   onOpen: (id: string, tab: TaskView) => void;
-  grid?: boolean;
-  onDrag?: (id: string) => void;
-  onDrop?: (id: string) => void;
-  onMove?: (offset: number) => void;
   canSplit?: boolean;
 }) {
   const task = tasks.find((item) => item.id === node.taskId);
@@ -59,39 +54,8 @@ function PaneView({
       className={`pane ${focus ? 'focused' : ''} ${!task ? 'pane-unassigned' : ''}`}
       data-view={node.view}
       aria-label={`Pane ${number}: ${task?.title || 'Choose a task'}`}
-      onDragOver={(event) => {
-        if (grid) event.preventDefault();
-      }}
-      onDrop={(event) => {
-        if (grid) {
-          event.preventDefault();
-          onDrop?.(node.id);
-        }
-      }}
     >
       <header className="pane-header">
-        {grid && (
-          <button
-            className="icon-button pane-drag-handle"
-            draggable={!focus}
-            aria-label={`Reorder pane ${number}`}
-            title="Drag to reorder · arrow keys to move"
-            onDragStart={(event) => {
-              event.dataTransfer.setData('text/plain', node.id);
-              event.dataTransfer.effectAllowed = 'move';
-              onDrag?.(node.id);
-            }}
-            onDragEnd={() => onDrag?.('')}
-            onKeyDown={(event) => {
-              if (['ArrowLeft', 'ArrowUp', 'ArrowRight', 'ArrowDown'].includes(event.key)) {
-                event.preventDefault();
-                onMove?.(['ArrowLeft', 'ArrowUp'].includes(event.key) ? -1 : 1);
-              }
-            }}
-          >
-            <Icon name="grip" size={15} />
-          </button>
-        )}
         <TaskPicker
           id={node.id}
           label={`Task for pane ${number}`}
@@ -120,28 +84,24 @@ function PaneView({
               <Icon name="expand" size={16} />
             </button>
           )}
-          {!grid && (
-            <button
-              className="icon-button"
-              disabled={!canSplit}
-              onClick={() => onSplit('horizontal')}
-              aria-label="Split side by side"
-              title="Split side by side"
-            >
-              <Icon name="split-horizontal" size={17} />
-            </button>
-          )}
-          {!grid && (
-            <button
-              className="icon-button"
-              disabled={!canSplit}
-              onClick={() => onSplit('vertical')}
-              aria-label="Split top and bottom"
-              title="Split top and bottom"
-            >
-              <Icon name="split-vertical" size={17} />
-            </button>
-          )}
+          <button
+            className="icon-button"
+            disabled={!canSplit}
+            onClick={() => onSplit('horizontal')}
+            aria-label="Split side by side"
+            title="Split side by side"
+          >
+            <Icon name="split-horizontal" size={17} />
+          </button>
+          <button
+            className="icon-button"
+            disabled={!canSplit}
+            onClick={() => onSplit('vertical')}
+            aria-label="Split top and bottom"
+            title="Split top and bottom"
+          >
+            <Icon name="split-vertical" size={17} />
+          </button>
           <button
             className="icon-button"
             onClick={onRemove}
@@ -154,6 +114,7 @@ function PaneView({
       </header>
       {task ? (
         <>
+          {node.view !== 'overview' && <h2 className="sr-only">{task.title}</h2>}
           <nav className="pane-tabs" aria-label={`Pane ${number} view`}>
             {taskViews.map((item) => (
               <button
@@ -334,10 +295,27 @@ export function TaskDeck({
 }) {
   const canvas = useRef<HTMLDivElement>(null),
     dragging = useRef('');
-  const [announcement, setAnnouncement] = useState('');
+  const [announcement, setAnnouncement] = useState(''),
+    [editing, setEditing] = useState(false),
+    [now, setNow] = useState(Date.now);
   const items = panes(active.root),
     grid = active.layout !== 'split',
-    taskCount = items.filter((pane) => tasks.some((task) => task.id === pane.taskId)).length;
+    watched = items.flatMap((pane) => {
+      const task = tasks.find((task) => task.id === pane.taskId);
+      return task ? [task] : [];
+    }),
+    taskCount = watched.length,
+    vacancy = items.find((pane) => !tasks.some((task) => task.id === pane.taskId)),
+    full = items.length >= 8 && !vacancy,
+    running = watched.some(isLive),
+    expanded = items.find((pane) => pane.id === focus),
+    expandedTask = tasks.find((task) => task.id === expanded?.taskId);
+  useEffect(() => {
+    if (!running) return;
+    setNow(Date.now());
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [running]);
   useEffect(() => {
     if (focus) canvas.current?.scrollTo(0, 0);
   }, [focus]);
@@ -358,47 +336,43 @@ export function TaskDeck({
       <header className="deck-toolbar">
         <div className="deck-title">
           <h1>Task deck</h1>
-          <span>{loading ? 'Loading…' : `${taskCount} task${taskCount === 1 ? '' : 's'}`}</span>
+          <span>{loading ? 'Loading…' : `${taskCount} watching`}</span>
         </div>
-        <div className="deck-add-task">
-          <TaskPicker
-            id={`add-${active.id}`}
-            label="Add task to grid"
-            placeholder={
-              items.length >= 8 && items.every((pane) => pane.taskId)
-                ? 'Grid full · 8 tasks'
-                : '+ Add task…'
-            }
-            disabled={loading || (items.length >= 8 && items.every((pane) => !!pane.taskId))}
-            tasks={tasks}
-            selected=""
-            onChange={(taskId) => {
-              if (taskId) {
-                onUpdate({ root: addPane(active.root, taskId) });
-                setFocus('');
-              }
-            }}
-          />
-        </div>
-        <div className="segmented deck-layout" role="group" aria-label="Grid layout">
-          {([1, 2, 3] as const).map((columns) => (
-            <button
-              key={columns}
-              aria-label={`${columns} column${columns > 1 ? 's' : ''}`}
-              title={`${columns} column${columns > 1 ? 's' : ''}`}
-              aria-pressed={grid && (active.columns || 2) === columns}
-              onClick={() => {
-                onUpdate({ layout: 'grid', columns });
-                setFocus('');
+        {watched.some(needsDecision) && (
+          <span className="deck-attention-count">
+            {watched.filter(needsDecision).length} need you
+          </span>
+        )}
+        {!full && (
+          <div className="deck-add-task">
+            <TaskPicker
+              id={`add-${active.id}`}
+              label="Add task to grid"
+              placeholder="+ Add task…"
+              disabled={loading}
+              tasks={tasks}
+              selected=""
+              onChange={(taskId) => {
+                if (taskId) {
+                  modify((root) =>
+                    vacancy
+                      ? updateNode(root, vacancy.id, () => ({ ...vacancy, taskId }))
+                      : addPane(root, taskId),
+                  );
+                  setFocus('');
+                }
               }}
-            >
-              {columns}
-            </button>
-          ))}
-          <button aria-pressed={!grid} onClick={() => onUpdate({ layout: 'split' })}>
-            Freeform
-          </button>
-        </div>
+            />
+          </div>
+        )}
+        <button
+          className="deck-edit-toggle"
+          aria-pressed={editing}
+          onClick={() => setEditing((value) => !value)}
+        >
+          <Icon name={editing ? 'check' : 'settings'} size={15} />
+          {editing ? 'Done editing' : 'Edit grid'}
+        </button>
       </header>
       {error && (
         <p className="error" role="status">
@@ -423,20 +397,54 @@ export function TaskDeck({
         >
           <Icon name="plus" size={16} />
         </button>
-        <span className="workspace-controls">
-          <button aria-label="Rename" title="Rename workspace" onClick={onRename}>
-            <Icon name="edit" size={15} />
-          </button>
-          <button
-            aria-label="Close tab"
-            title="Close workspace"
-            disabled={tabs.length <= 1}
-            onClick={onClose}
-          >
-            <Icon name="close" size={16} />
-          </button>
-        </span>
+        {editing && (
+          <span className="workspace-controls">
+            <button aria-label="Rename" title="Rename workspace" onClick={onRename}>
+              <Icon name="edit" size={15} />
+            </button>
+            <button
+              aria-label="Close tab"
+              title="Close workspace"
+              disabled={tabs.length <= 1}
+              onClick={onClose}
+            >
+              <Icon name="close" size={16} />
+            </button>
+          </span>
+        )}
       </nav>
+      {editing && (
+        <div className="deck-edit-tools">
+          <div className="segmented deck-layout" role="group" aria-label="Grid layout">
+            <button
+              aria-pressed={grid && active.density !== 'fixed'}
+              onClick={() => onUpdate({ layout: 'grid', density: 'auto' })}
+            >
+              Auto fit
+            </button>
+            {([1, 2, 3, 4] as const).map((columns) => (
+              <button
+                key={columns}
+                aria-label={`${columns} column${columns > 1 ? 's' : ''}`}
+                aria-pressed={grid && active.density === 'fixed' && active.columns === columns}
+                onClick={() => onUpdate({ layout: 'grid', density: 'fixed', columns })}
+              >
+                {columns}
+              </button>
+            ))}
+            <button
+              aria-pressed={!grid}
+              onClick={() => {
+                onUpdate({ layout: 'split' });
+                setFocus('');
+              }}
+            >
+              Freeform
+            </button>
+          </div>
+          <span>Drag tiles to reorder.</span>
+        </div>
+      )}
       <p className="sr-only" role="status">
         {announcement}
       </p>
@@ -447,36 +455,42 @@ export function TaskDeck({
           </p>
         ) : grid ? (
           <div
-            className={`deck-grid ${focus ? 'is-focused' : ''}`}
-            data-columns={active.columns || 2}
+            className="deck-monitor-grid"
+            data-columns={active.density === 'fixed' ? active.columns || 3 : 'auto'}
           >
-            {items.map((node, index) => (
-              <PaneView
-                key={node.id}
-                node={node}
-                number={index + 1}
-                tasks={tasks}
-                grid
-                onChange={(pane) => modify((root) => updateNode(root, node.id, () => pane))}
-                onSplit={(direction) => split(node.id, direction)}
-                onRemove={() => {
-                  modify((root) => removeNode(root, node.id));
-                  setFocus('');
-                }}
-                focus={focus === node.id}
-                hidden={!!focus && focus !== node.id}
-                onFocus={() => setFocus(focus === node.id ? '' : node.id)}
-                onOpen={onOpen}
-                onDrag={(id) => {
-                  dragging.current = id;
-                }}
-                onDrop={(id) => reorder(dragging.current, id)}
-                onMove={(offset) => {
-                  const target = items[index + offset];
-                  if (target) reorder(node.id, target.id);
-                }}
-              />
-            ))}
+            {items.map((node, index) =>
+              editing || tasks.some((task) => task.id === node.taskId) ? (
+                <TaskMonitor
+                  key={node.id}
+                  node={node}
+                  number={index + 1}
+                  task={tasks.find((task) => task.id === node.taskId)}
+                  tasks={tasks}
+                  editing={editing}
+                  now={now}
+                  onChange={(taskId) =>
+                    modify((root) => updateNode(root, node.id, () => ({ ...node, taskId })))
+                  }
+                  onExpand={(view) => {
+                    modify((root) => updateNode(root, node.id, () => ({ ...node, view })));
+                    setFocus(node.id);
+                  }}
+                  onRemove={() => {
+                    modify((root) => removeNode(root, node.id));
+                    setFocus('');
+                  }}
+                  onDrag={(id) => {
+                    dragging.current = id;
+                  }}
+                  onDrop={(id) => reorder(dragging.current, id)}
+                  onMove={(offset) => {
+                    const target = items[index + offset];
+                    if (target) reorder(node.id, target.id);
+                  }}
+                />
+              ) : null,
+            )}
+            {!editing && !watched.length && <p className="deck-empty">Add tasks to monitor.</p>}
           </div>
         ) : (
           <Tree
@@ -495,6 +509,41 @@ export function TaskDeck({
           />
         )}
       </div>
+      {grid && expanded && expandedTask && (
+        <Modal
+          title={expandedTask.title}
+          className="deck-detail-modal"
+          onClose={() => setFocus('')}
+        >
+          <div className="deck-detail-toolbar">
+            <span>{statusLabel(expandedTask.status)}</span>
+            <button onClick={() => onOpen(expandedTask.id, expanded.view)}>
+              <Icon name="external" size={14} />
+              Open task
+            </button>
+          </div>
+          <nav className="pane-tabs" aria-label="Task detail view">
+            {taskViews.map((item) => (
+              <button
+                key={item.id}
+                aria-pressed={expanded.view === item.id}
+                onClick={() =>
+                  modify((root) =>
+                    updateNode(root, expanded.id, () => ({ ...expanded, view: item.id })),
+                  )
+                }
+              >
+                {item.label}
+              </button>
+            ))}
+          </nav>
+          <TaskPanel
+            key={`${expandedTask.id}:${expanded.view}`}
+            task={expandedTask}
+            view={expanded.view}
+          />
+        </Modal>
+      )}
     </section>
   );
 }

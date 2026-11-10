@@ -14,14 +14,22 @@ export type Tab = {
   name: string;
   root: Node;
   layout?: 'grid' | 'split';
-  columns?: 1 | 2 | 3;
+  columns?: 1 | 2 | 3 | 4;
+  density?: 'auto' | 'fixed';
 };
 export type Deck = { tabs: Tab[]; active: string };
 const views: TaskView[] = ['overview', 'thread', 'terminals', 'diff', 'handoffs', 'transcript'];
 const id = () => crypto.randomUUID();
 export const emptyPane = (): Pane => ({ type: 'pane', id: id(), taskId: '', view: 'overview' });
 export function newDeck(): Deck {
-  const tab: Tab = { id: id(), name: 'Workspace 1', root: emptyPane(), layout: 'grid', columns: 2 };
+  const tab: Tab = {
+    id: id(),
+    name: 'Workspace 1',
+    root: emptyPane(),
+    layout: 'grid',
+    columns: 3,
+    density: 'auto',
+  };
   return { tabs: [tab], active: tab.id };
 }
 export function panes(node: Node): Pane[] {
@@ -141,7 +149,8 @@ export function parseDeck(value: string | null): Deck {
             : 'Workspace',
         root: decodeNode(tab.root, new Set()),
         layout: tab.layout === 'split' ? 'split' : 'grid',
-        columns: tab.columns === 1 || tab.columns === 3 ? tab.columns : 2,
+        columns: tab.columns === 1 || tab.columns === 3 || tab.columns === 4 ? tab.columns : 2,
+        density: tab.density === 'fixed' ? 'fixed' : 'auto',
       };
     });
     return {

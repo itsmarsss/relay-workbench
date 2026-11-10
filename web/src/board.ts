@@ -69,7 +69,7 @@ export function boardFilters(
     sort: ['priority', 'recent', 'title'].includes(q.get('sort') || '')
       ? q.get('sort')!
       : 'priority',
-    showEmpty: q.has('empty') ? q.get('empty') === '1' : (defaults.showEmpty ?? true),
+    showEmpty: q.has('empty') ? q.get('empty') === '1' : (defaults.showEmpty ?? false),
   };
 }
 

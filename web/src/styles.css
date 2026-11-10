@@ -422,17 +422,6 @@ button:disabled {
   font: inherit;
   font-size: 14px;
 }
-.task-board {
-  display: flex;
-  align-items: start;
-  gap: 14px;
-  overflow-x: auto;
-  padding: 0 0 16px;
-}
-.task-lane {
-  flex: 0 0 280px;
-  min-width: 0;
-}
 .task-lane h2 {
   display: flex;
   justify-content: space-between;
@@ -2304,15 +2293,6 @@ body:has(dialog[open]) .main-shell > main {
   overflow: hidden;
   margin: 0;
 }
-.task-board {
-  gap: 14px;
-}
-.task-lane {
-  min-width: 260px;
-  background: var(--sidebar);
-  padding: 10px;
-  border-radius: 6px;
-}
 .task-lane > h2 {
   font-size: 12px;
   font-weight: 600;
@@ -2451,11 +2431,6 @@ body:has(dialog[open]) .main-shell > main {
   width: 28px;
   min-height: 28px;
 }
-.task-lane {
-  min-width: 264px;
-  min-height: 280px;
-  transition: background 0.15s;
-}
 .task-lane.drop-target {
   background: var(--accent-soft);
   outline: 2px dashed var(--accent);
@@ -2482,14 +2457,6 @@ body:has(dialog[open]) .main-shell > main {
 }
 .task-context-menu > button {
   text-align: left;
-}
-.task-board {
-  grid-auto-columns: 264px;
-  grid-auto-flow: column;
-  grid-template-columns: none;
-  overflow-x: auto;
-  align-items: start;
-  padding: 4px 2px 24px;
 }
 .task-scopes {
   display: flex;

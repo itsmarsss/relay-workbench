@@ -1,16 +1,8 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { motion, useReducedMotion } from 'motion/react';
+import { motion } from 'motion/react';
 import { createPortal } from 'react-dom';
 import type { Task } from './types';
-import {
-  columns,
-  laneHints,
-  taskLane,
-  boardFilters,
-  filteredTasks,
-  taskScopes,
-  inTaskScope,
-} from './board';
+import { columns, taskLane, boardFilters, filteredTasks, taskScopes, inTaskScope } from './board';
 import { Select, Icon, ProviderIcon } from './UI';
 import { Notice, useMutation } from './Session';
 import { Modal } from './Modal';
@@ -19,10 +11,10 @@ export { taskLane } from './board';
 const useClientLayoutEffect = typeof window === 'undefined' ? useEffect : useLayoutEffect;
 function currentFilters() {
   let layout: 'board' | 'list' = 'list',
-    showEmpty = true;
+    showEmpty = false;
   try {
     layout = localStorage.getItem('relay-task-layout') === 'board' ? 'board' : 'list';
-    showEmpty = localStorage.getItem('relay-task-show-empty') !== 'false';
+    showEmpty = localStorage.getItem('relay-task-show-empty-v2') === 'true';
   } catch {}
   return boardFilters(typeof location === 'undefined' ? '' : location.hash, { layout, showEmpty });
 }
@@ -44,12 +36,7 @@ export function TasksPage({
     [deleting, setDeleting] = useState<Task | null>(null);
   const mutation = useMutation();
   const menuPanel = useRef<HTMLDivElement>(null),
-    menuTrigger = useRef<HTMLElement | null>(null),
-    board = useRef<HTMLDivElement>(null),
-    positionedBoard = useRef(''),
-    positionedLane = useRef(''),
-    boardInteracted = useRef(false);
-  const reduceMotion = useReducedMotion();
+    menuTrigger = useRef<HTMLElement | null>(null);
   function closeMenu(restoreFocus = true) {
     setMenu(null);
     if (restoreFocus) menuTrigger.current?.focus({ preventScroll: true });
@@ -66,7 +53,7 @@ export function TasksPage({
   useEffect(() => {
     try {
       localStorage.setItem('relay-task-layout', filters.layout);
-      localStorage.setItem('relay-task-show-empty', String(filters.showEmpty));
+      localStorage.setItem('relay-task-show-empty-v2', String(filters.showEmpty));
     } catch {}
   }, [filters.layout, filters.showEmpty]);
   useClientLayoutEffect(() => {
@@ -114,46 +101,13 @@ export function TasksPage({
     history.replaceState(null, '', '#tasks' + (p.size ? '?' + p.toString() : ''));
   }
   const visible = filteredTasks(tasks, filters);
-  const lanes = columns.filter(
-    ([lane]) => filters.showEmpty || dragging || visible.some((task) => taskLane(task) === lane),
-  );
-  useClientLayoutEffect(() => {
-    if (filters.layout !== 'board') {
-      positionedBoard.current = '';
-      positionedLane.current = '';
-      return;
-    }
-    const key = JSON.stringify([
-      filters.query,
-      filters.repository,
-      filters.scope,
-      filters.stage,
-      filters.showEmpty,
-    ]);
-    if (!board.current) return;
-    if (positionedBoard.current !== key) {
-      positionedBoard.current = key;
-      positionedLane.current = '';
-      boardInteracted.current = false;
-    }
-    if (boardInteracted.current) return;
-    const lane = board.current.querySelector<HTMLElement>('[data-populated="true"]');
-    if (!lane || positionedLane.current === lane.dataset.lane) return;
-    board.current.scrollLeft = lane.offsetLeft;
-    positionedLane.current = lane.dataset.lane || '';
-  }, [filters, tasks, loading]);
-  function showLane(lane: string) {
-    const column = board.current?.querySelector<HTMLElement>(`[data-lane="${lane}"]`);
-    if (!column || !board.current) return;
-    boardInteracted.current = true;
-    board.current.scrollTo({
-      left: column.offsetLeft,
-      behavior:
-        reduceMotion || document.documentElement.dataset.lowMotion === 'true'
-          ? 'instant'
-          : 'smooth',
-    });
-  }
+  const populated = columns.filter(([lane]) => visible.some((task) => taskLane(task) === lane));
+  const lanes =
+    filters.showEmpty || tasks.length === 0
+      ? columns
+      : dragging
+        ? [...populated, ...columns.filter((row) => !populated.includes(row))]
+        : populated;
   const repositories = [
     ...new Map(
       tasks
@@ -175,7 +129,7 @@ export function TasksPage({
   }
   const card = (task: Task) => (
     <motion.article
-      layout
+      layout={!dragging}
       key={task.id}
       className={`task-card ${filters.layout === 'board' ? 'board-task-card' : ''}`}
       draggable={!mutation.busy}
@@ -209,18 +163,22 @@ export function TasksPage({
       <button className="task-card-open" onClick={() => onOpen(task.id)}>
         {filters.layout === 'board' ? (
           <>
-            <span className={`task-status status-${task.statusOverride?.value || task.status}`}>
-              {columns.find((row) => row[0] === taskLane(task))?.[1]}
-            </span>
-            <strong className="board-task-title">{task.title}</strong>
+            <strong className="board-task-title" title={task.title}>
+              {task.title}
+            </strong>
             <span className="board-task-repository">
-              <Icon name="repository" size={14} />
-              {(task.repositories?.length
-                ? task.repositories
-                    .map((row) => row.repository?.name)
-                    .filter(Boolean)
-                    .join(' + ')
-                : task.repository?.name) || 'Unspecified'}
+              <Icon name="repository" size={13} />
+              <span>
+                {(task.repositories?.length
+                  ? task.repositories
+                      .map((row) => row.repository?.name)
+                      .filter(Boolean)
+                      .join(' + ')
+                  : task.repository?.name) || 'Unspecified'}
+              </span>
+              {task.ticket?.match(/\/(?:issues|pull|pulls)\/(\d+)/)?.[1] && (
+                <span>#{task.ticket.match(/\/(?:issues|pull|pulls)\/(\d+)/)![1]}</span>
+              )}
             </span>
             {(task.error || task.latestSummary) && (
               <span className={`task-card-summary ${task.error ? 'is-error' : ''}`}>
@@ -228,27 +186,10 @@ export function TasksPage({
               </span>
             )}
             <span className="board-task-next">
-              <Icon
-                name={
-                  ['approach', 'final', 'attention'].includes(taskLane(task))
-                    ? 'inbox'
-                    : taskLane(task) === 'done'
-                      ? 'check'
-                      : 'arrow'
-                }
-                size={15}
-              />
-              <span>{task.statusOverride ? 'Manual status · view task' : nextStep(task)}</span>
+              <span>{task.statusOverride ? 'Manual status' : nextStep(task)}</span>
               {task.currentRun?.harness && (
-                <ProviderIcon provider={task.currentRun.harness} size={23} />
+                <ProviderIcon provider={task.currentRun.harness} size={17} />
               )}
-            </span>
-            <span className="board-task-footer">
-              <span>
-                {task.ticket?.match(/\/(?:issues|pull|pulls)\/(\d+)/)?.[1]
-                  ? '#' + task.ticket.match(/\/(?:issues|pull|pulls)\/(\d+)/)![1]
-                  : task.id.slice(0, 8)}
-              </span>
               <time>{ago(task.updatedAt)}</time>
             </span>
           </>
@@ -300,9 +241,7 @@ export function TasksPage({
     <section className="tasks-page" aria-busy={loading}>
       <div className="page-title">
         <div>
-          <div className="eyebrow">Your work queue</div>
           <h1>Tasks</h1>
-          <p>Your work, from first investigation to final approval.</p>
         </div>
         <div className="segmented task-layout-switch" role="group" aria-label="Task layout">
           {(['board', 'list'] as const).map((layout) => (
@@ -344,7 +283,7 @@ export function TasksPage({
           />
         </label>
         <label className="task-filter-field">
-          Repository
+          <span className="sr-only">Repository</span>
           <Select
             label="Filter repository"
             value={filters.repository}
@@ -356,7 +295,7 @@ export function TasksPage({
           />
         </label>
         <label className="task-filter-field">
-          Stage
+          <span className="sr-only">Stage</span>
           <Select
             label="Filter stage"
             value={filters.stage}
@@ -368,7 +307,7 @@ export function TasksPage({
           />
         </label>
         <label className="task-filter-field">
-          Sort
+          <span className="sr-only">Sort</span>
           <Select
             label="Sort tasks"
             value={filters.sort}
@@ -407,7 +346,7 @@ export function TasksPage({
         </div>
       </div>
       {mutation.error && <Notice>{mutation.error}</Notice>}
-      {loading ? null : tasks.length === 0 && (filters.layout !== 'board' || !filters.showEmpty) ? (
+      {loading ? null : tasks.length === 0 && filters.layout !== 'board' ? (
         <div className="empty-state">
           <h2>No tasks yet</h2>
           <p>Create a draft to add requirements and repositories.</p>
@@ -416,7 +355,9 @@ export function TasksPage({
             Create task
           </button>
         </div>
-      ) : !visible.length && (filters.layout !== 'board' || !filters.showEmpty) ? (
+      ) : tasks.length > 0 &&
+        !visible.length &&
+        (filters.layout !== 'board' || !filters.showEmpty) ? (
         <div className="empty-state">
           <Icon name="search" size={28} />
           <h2>No matching tasks</h2>
@@ -429,35 +370,7 @@ export function TasksPage({
         <div className="task-list">{visible.map(card)}</div>
       ) : (
         <div className="task-board-workspace">
-          <nav className="board-stage-nav" aria-label="Board stages">
-            {lanes.map(([lane, label]) => {
-              const count = visible.filter((task) => taskLane(task) === lane).length;
-              return (
-                <button key={lane} onClick={() => showLane(lane)}>
-                  <span className={`lane-dot lane-dot-${lane}`} aria-hidden="true" />
-                  {label}
-                  <span>{count}</span>
-                </button>
-              );
-            })}
-          </nav>
-          <motion.div
-            layoutScroll
-            ref={board}
-            className="task-board"
-            role="region"
-            aria-label="Task board"
-            tabIndex={0}
-            onPointerDown={() => {
-              boardInteracted.current = true;
-            }}
-            onWheel={() => {
-              boardInteracted.current = true;
-            }}
-            onKeyDown={() => {
-              boardInteracted.current = true;
-            }}
-          >
+          <motion.div className="task-board" role="region" aria-label="Task board">
             {lanes.map(([lane, label]) => (
               <section
                 key={lane}
@@ -490,7 +403,6 @@ export function TasksPage({
                       {visible.filter((t) => taskLane(t) === lane).length}
                     </span>
                   </h2>
-                  <p>{laneHints[lane]}</p>
                 </header>
                 {visible.filter((t) => taskLane(t) === lane).map(card)}
                 {tasks.length === 0 && lane === 'backlog' && (
@@ -500,8 +412,8 @@ export function TasksPage({
                 )}
                 {!visible.some((task) => taskLane(task) === lane) &&
                   tasks.length > 0 &&
-                  !dragging && <p className="board-lane-empty">No tasks in this stage</p>}
-                <div className="lane-drop-hint">{dragging ? 'Move here' : ''}</div>
+                  !dragging && <p className="board-lane-empty">No tasks</p>}
+                {dragging && <div className="lane-drop-hint">Move here</div>}
               </section>
             ))}
           </motion.div>

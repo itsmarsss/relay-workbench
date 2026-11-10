@@ -447,7 +447,8 @@ export default function App() {
                         name: `Workspace ${deck.tabs.length + 1}`,
                         root: emptyPane(),
                         layout: 'grid' as const,
-                        columns: 2 as const,
+                        columns: 3 as const,
+                        density: 'auto' as const,
                       };
                       setDeck((current) => ({ tabs: [...current.tabs, tab], active: tab.id }));
                       setFocus('');
