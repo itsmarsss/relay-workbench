@@ -18,7 +18,6 @@ import (
 	"time"
 
 	"relay.local/relay/internal/harness"
-	"relay.local/relay/internal/process"
 	"relay.local/relay/internal/store"
 	"relay.local/relay/internal/task"
 )
@@ -371,25 +370,26 @@ func (s *Service) Send(id string, body map[string]any) (Chat, error) {
 	if provider == "" {
 		provider = "claude"
 	}
-	// Claude exposes an explicit empty native tool set and strict MCP allowlist.
-	// Other providers are enabled only when equivalent boundaries are implemented.
-	if provider != "claude" {
-		return Chat{}, errors.New("workspace chats currently require Claude; workflow agents support all configured providers")
+	if provider != "claude" && provider != "codex" && provider != "pi" {
+		return Chat{}, errors.New("select a supported chat provider")
 	}
 	agent := obj(obj(config.Value["harnesses"])[provider])
 	if agent["enabled"] != true || text(agent["command"]) == "" {
 		return Chat{}, errors.New("enable the selected provider in Settings")
 	}
 	model := text(body["model"])
-	if model == "" {
+	if model == "" && provider == text(settings["provider"]) {
 		model = text(settings["model"])
 	}
 	if model == "" {
 		model = text(agent["model"])
 	}
 	effort := text(body["effort"])
-	if effort == "" {
+	if effort == "" && provider == text(settings["provider"]) {
 		effort = text(settings["effort"])
+	}
+	if effort == "" {
+		effort = text(agent["effort"])
 	}
 	model, effort, err = harness.Options(provider, model, effort)
 	if err != nil {
@@ -488,14 +488,6 @@ func (s *Service) respond(ctx context.Context, chat Chat, message Message, confi
 		return err
 	}
 	defer server()
-	mcp, _ := json.Marshal(map[string]any{"mcpServers": map[string]any{"relay": map[string]any{"command": s.Worker, "args": []string{"--internal-assistant-mcp", socket, capability}}}})
-	args := []string{"--print", "--verbose", "--output-format", "stream-json", "--include-partial-messages", "--tools", "", "--disable-slash-commands", "--settings", `{"disableAllHooks":true,"sandbox":{"enabled":false}}`, "--strict-mcp-config", "--mcp-config", string(mcp), "--allowedTools", "mcp__relay__*", "--permission-prompts", "none"}
-	if config.Model != "" {
-		args = append(args, "--model", config.Model)
-	}
-	if config.Effort != "" {
-		args = append(args, "--effort", config.Effort)
-	}
 	contextData, err := s.context(chat, message)
 	if err != nil {
 		return err
@@ -515,20 +507,16 @@ func (s *Service) respond(ctx context.Context, chat Chat, message Message, confi
 		})
 		return err
 	})
-	result, err := process.Run(ctx, process.Options{WorkerExecutable: s.Worker, WorkerArgs: s.WorkerArgs, Environment: s.Environment, Command: config.Command, Args: args, Directory: directory, Input: []byte(prompt), Timeout: 10 * time.Minute, MaxOutputBytes: 16 * 1024 * 1024, OnLine: func(_ context.Context, line, channel string) error {
-		if channel == "stdout" {
-			return stream.consume(line)
-		}
-		return nil
-	}})
-	if err != nil {
-		return err
+	switch message.Provider {
+	case "codex":
+		return s.respondCodex(ctx, chat, config, directory, prompt, stream)
+	case "pi":
+		return s.respondPi(ctx, chat, config, directory, socket, capability, prompt, stream)
+	default:
+		return s.respondClaude(ctx, config, directory, socket, capability, prompt, stream)
 	}
-	if result.ExitCode != 0 {
-		return fmt.Errorf("assistant exited %d: %s", result.ExitCode, trim(result.Stderr, 3000))
-	}
-	return stream.finish()
 }
+
 func trim(s string, n int) string {
 	r := []rune(s)
 	if len(r) > n {

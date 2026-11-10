@@ -8,16 +8,76 @@ import (
 )
 
 type stream struct {
-	answer  string
-	final   string
-	calls   []ToolCall
-	last    time.Time
-	save    func(string, []ToolCall) error
-	failure string
+	answer      string
+	final       string
+	calls       []ToolCall
+	last        time.Time
+	save        func(string, []ToolCall) error
+	failure     string
+	piCompleted bool
 }
 
 func newStream(save func(string, []ToolCall) error) *stream {
 	return &stream{save: save, calls: []ToolCall{}}
+}
+func (s *stream) flush(force bool) error {
+	if len(s.answer) > 1024*1024 || len(s.calls) > 500 {
+		return errors.New("assistant response exceeded limits")
+	}
+	if force || time.Since(s.last) > 150*time.Millisecond {
+		s.last = time.Now()
+		return s.save(s.answer, s.calls)
+	}
+	return nil
+}
+func (s *stream) consumePi(line string) error {
+	var event map[string]any
+	if json.Unmarshal([]byte(line), &event) != nil {
+		return nil
+	}
+	switch event["type"] {
+	case "message_update":
+		e := obj(event["assistantMessageEvent"])
+		if e["type"] == "text_delta" {
+			s.answer += text(e["delta"])
+		}
+	case "tool_execution_start":
+		s.calls = append(s.calls, ToolCall{ID: text(event["toolCallId"]), Name: text(event["toolName"]), Input: event["args"], Status: "running"})
+	case "tool_execution_end":
+		for i := range s.calls {
+			if s.calls[i].ID == text(event["toolCallId"]) {
+				s.calls[i].Status = "complete"
+				if event["isError"] == true {
+					s.calls[i].Status = "failed"
+				}
+			}
+		}
+	case "message_end":
+		m := obj(event["message"])
+		if m["role"] == "assistant" {
+			if m["stopReason"] == "error" || m["stopReason"] == "aborted" {
+				s.failure = text(m["errorMessage"])
+				if s.failure == "" {
+					s.failure = "Pi response did not complete"
+				}
+			}
+			answer := ""
+			for _, raw := range array(m["content"]) {
+				b := obj(raw)
+				if b["type"] == "text" {
+					answer += text(b["text"])
+				}
+			}
+			if answer != "" {
+				s.answer = answer
+				s.final = answer
+			}
+		}
+	case "agent_end":
+		s.piCompleted = true
+		return s.flush(true)
+	}
+	return s.flush(event["type"] == "tool_execution_start" || event["type"] == "tool_execution_end")
 }
 func (s *stream) consume(line string) error {
 	var event map[string]any
@@ -89,4 +149,11 @@ func (s *stream) finish() error {
 		return errors.New("assistant returned no completed answer")
 	}
 	return s.save(s.final, s.calls)
+}
+
+func (s *stream) finishPi() error {
+	if !s.piCompleted {
+		return errors.New("Pi returned no completed agent turn")
+	}
+	return s.finish()
 }

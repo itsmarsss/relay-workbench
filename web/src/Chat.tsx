@@ -5,7 +5,7 @@ import { Icon, CopyButton, Select } from './UI';
 import { Markdown } from './Markdown';
 import { useImageUpload } from './ImageUpload';
 import { Modal } from './Modal';
-import { ModelSelect } from './WorkspacePages';
+import { ModelSelect, EffortSelect } from './WorkspacePages';
 import { asObject } from './task-data';
 import type { Task } from './types';
 type Call = { id: string; name: string; status: string; input: unknown };
@@ -76,12 +76,14 @@ export function ChatPanel({
     [renaming, setRenaming] = useState<Chat | null>(null),
     [rename, setRename] = useState(''),
     [deleting, setDeleting] = useState<Chat | null>(null),
+    [provider, setProvider] = useState(''),
     [model, setModel] = useState(''),
     [effort, setEffort] = useState('');
   const chat = useResource<Chat>(selected ? `/api/chats/${selected}` : null),
     scroll = useRef<HTMLDivElement>(null),
     textarea = useRef<HTMLTextAreaElement>(null),
     follow = useRef(true);
+  const selectedProvider = provider || String(asObject(bootstrap?.config.workspaceAgent)?.provider || 'claude');
   const current = chat.data?.id === selected ? chat.data : null,
     running = current?.messages?.some((m) => m.status === 'running');
   const uploads = useImageUpload((text) => setDraft((value) => value + text));
@@ -157,7 +159,7 @@ export function ChatPanel({
         question: draft,
         mentions,
         ...(editing ? { revisionOf: editing } : {}),
-        provider: 'claude',
+        provider: selectedProvider,
         model,
         effort,
       });
@@ -245,7 +247,7 @@ export function ChatPanel({
               </button>
             )}
             <button className="text-button" onClick={() => setSettings(true)}>
-              {model || String(asObject(bootstrap?.config.workspaceAgent)?.model || 'Claude')}
+              {model || String(asObject(bootstrap?.config.workspaceAgent)?.model || selectedProvider)}
               <Icon name="settings" size={14} />
             </button>
           </div>
@@ -531,20 +533,18 @@ export function ChatPanel({
         >
           <p className="muted">Model and effort apply to the next message in this view.</p>
           <label className="field">
+            Agent
+            <Select label="Chat agent" value={selectedProvider}
+              options={['codex', 'claude', 'pi'].map(value => ({value, label:value === 'codex' ? 'Codex' : value === 'claude' ? 'Claude' : 'Pi', disabled:asObject(asObject(bootstrap?.config.harnesses)?.[value])?.enabled !== true}))}
+              onChange={value => {setProvider(value);setModel('');setEffort('');}} />
+          </label>
+          <label className="field">
             Model
-            <ModelSelect provider="claude" value={model} onChange={setModel} />
+            <ModelSelect provider={selectedProvider} value={model} onChange={setModel} />
           </label>
           <label className="field">
             Effort
-            <Select
-              label="Relay effort"
-              value={effort}
-              options={['', 'low', 'medium', 'high', 'max'].map((value) => ({
-                value,
-                label: value || 'Configured default',
-              }))}
-              onChange={setEffort}
-            />
+            <EffortSelect provider={selectedProvider} value={effort} onChange={setEffort} />
           </label>
         </Modal>
       )}

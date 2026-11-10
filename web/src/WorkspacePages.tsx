@@ -143,7 +143,24 @@ export function SettingsPage({
         </div>
       </section>
       <section className="surface">
-        <h2>Relay permissions</h2>
+        <h2>Relay agent</h2>
+        <div className="form-grid">
+          <label className="field">Agent
+            <Select label="Default Relay agent" value={String(asObject(config.workspaceAgent)?.provider || 'claude')}
+              options={providers.map(value=>({value,label:value}))}
+              onChange={provider=>update('workspaceAgent',{...asObject(config.workspaceAgent),provider,model:'',effort:''})} />
+          </label>
+          <label className="field">Model
+            <ModelSelect provider={String(asObject(config.workspaceAgent)?.provider || 'claude')}
+              value={String(asObject(config.workspaceAgent)?.model || '')}
+              onChange={model=>update('workspaceAgent',{...asObject(config.workspaceAgent),model})} />
+          </label>
+          <label className="field">Effort
+            <EffortSelect provider={String(asObject(config.workspaceAgent)?.provider || 'claude')}
+              value={String(asObject(config.workspaceAgent)?.effort || '')}
+              onChange={effort=>update('workspaceAgent',{...asObject(config.workspaceAgent),effort})} />
+          </label>
+        </div>
         <p className="muted">Execution and settings proposals always need your approval.</p>
         {Object.entries(asObject(asObject(config.workspaceAgent)?.permissions) || {}).map(
           ([key, value]) => (
@@ -508,4 +525,9 @@ export function InboxPage({ onOpen }: { onOpen: (id: string) => void }) {
       </div>
     </section>
   );
+}
+
+export function EffortSelect({provider,value,onChange}:{provider:string;value:string;onChange:(value:string)=>void}) {
+ const levels=provider==='codex'?['none','minimal','low','medium','high','xhigh','max','ultra']:provider==='pi'?['off','minimal','low','medium','high','xhigh','max']:['low','medium','high','xhigh','max'];
+ return <Select label="Agent effort" value={value} onChange={onChange} options={['',...levels].map(value=>({value,label:value||'Configured default'}))} />;
 }

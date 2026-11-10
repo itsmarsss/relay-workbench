@@ -117,7 +117,11 @@ func ValidateConfig(raw map[string]any) (map[string]any, error) {
 	if err != nil {
 		return nil, err
 	}
-	if effort != "" && effort != "low" && effort != "medium" && effort != "high" && effort != "xhigh" && effort != "max" {
+	assistantProvider := textValue(assistant["provider"])
+	if assistantProvider == "" {
+		assistantProvider = "claude"
+	}
+	if _, _, err = harness.Options(assistantProvider, model, effort); err != nil {
 		return nil, errors.New("Unsupported Relay effort")
 	}
 	permissions := object(object(config["workspaceAgent"])["permissions"])
