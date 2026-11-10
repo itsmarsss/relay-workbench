@@ -3,6 +3,7 @@
 package workflow
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -16,6 +17,7 @@ import (
 	"testing"
 	"time"
 
+	"relay.local/relay/internal/harness"
 	"relay.local/relay/internal/verification"
 	"relay.local/relay/internal/workspace"
 )
@@ -180,5 +182,45 @@ func TestVerificationStageRejectsWorkspaceMutation(t *testing.T) {
 	value := readStageTask(t, runner.Store)
 	if value["status"] != "blocked" || value["verifiedFingerprint"] != nil {
 		t.Fatal("changed workspace passed verification")
+	}
+}
+
+func TestInterruptedVerificationDoesNotTriggerDebugger(t *testing.T) {
+	worker, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	checkRunner, err := verification.StartRunner(context.Background(), verification.RunnerOptions{WorkerExecutable: worker, WorkerArgs: []string{"-test.run=^TestStageWorker$", "--"}, Environment: map[string]string{"RELAY_STAGE_WORKER": "1"}, Repositories: []verification.Repository{{ID: "a", Root: root}}, SourceFingerprint: "snapshot", Timeout: 200 * time.Millisecond, OnEvent: func(context.Context, map[string]any) error { return nil }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	args := []string{"--socket", checkRunner.Socket(), "--token", checkRunner.Token(), "--repository", "a", "--cwd", root, "--", "/bin/sh", "-c", "sleep 5"}
+	if code := verification.RunClient(args, &stdout, &stderr); code == 0 {
+		t.Fatal("timed-out check succeeded")
+	}
+	session := verificationSession{runner: checkRunner, fingerprint: "snapshot"}
+	handoff := json.RawMessage(`{"verdict":"blocked","summary":"Check timed out"}`)
+	result := harness.RunResult{Handoff: handoff, Guard: workspace.GuardResult{Before: workspace.FingerprintSnapshot{Combined: "snapshot"}, After: workspace.FingerprintSnapshot{Combined: "snapshot"}}}
+	evidence, finishErr := session.finish(result, nil)
+	var interrupted *CheckInterruptedError
+	if !errors.As(finishErr, &interrupted) || interrupted.Kind != "timeout" {
+		t.Fatalf("timeout not classified: %v", finishErr)
+	}
+	runner, _, db := stageFixture(t, "verify", 1, "exit 0")
+	task := readStageTask(t, db)
+	task["status"] = "running"
+	task["attempts"] = []any{map[string]any{"id": "attempt", "stage": "verify", "role": "verifier", "status": "running"}}
+	raw, _ := json.Marshal(task)
+	if err := db.Save(raw, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := runner.finish(stageTaskID, "attempt", "verify", "codex", 1, 0, result, finishErr, map[string]bool{"codex": true}, evidence, 3, 2); err == nil {
+		t.Fatal("interrupted check succeeded")
+	}
+	task = readStageTask(t, db)
+	if task["status"] != "blocked" || object(task["recovery"])["active"] == true {
+		t.Fatalf("timeout triggered a debugger: %#v", task)
 	}
 }

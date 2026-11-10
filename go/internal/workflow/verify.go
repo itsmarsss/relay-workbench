@@ -17,6 +17,10 @@ type verificationSession struct {
 	entries     []any
 }
 
+type CheckInterruptedError struct{ Kind, Message string }
+
+func (e *CheckInterruptedError) Error() string { return e.Message }
+
 func startVerification(ctx context.Context, task map[string]any, id string, entries []stageWorkspace, lease *workspace.Lease, options StageOptions, event harness.EventSink) (*verificationSession, error) {
 	if !harness.HasApprovedApproach(task) {
 		return nil, errors.New("verification requires an approved approach")
@@ -105,9 +109,6 @@ func (s *verificationSession) finish(result harness.RunResult, runErr error) ([]
 	if json.Unmarshal(result.Handoff, &handoff) != nil || handoff == nil {
 		return journal, errors.New("verification did not return a structured handoff")
 	}
-	if text(handoff["verdict"]) != "complete" {
-		return journal, nil
-	}
 	latest := map[string]verification.CheckRecord{}
 	for _, record := range records {
 		if record.Purpose == "diagnostic" {
@@ -119,16 +120,19 @@ func (s *verificationSession) finish(result harness.RunResult, runErr error) ([]
 		}
 		latest[string(key)] = record
 	}
-	if len(latest) == 0 {
-		return journal, errors.New("verification needs a completed supervised check")
-	}
 	for _, record := range latest {
 		if record.Status != "complete" || record.Code == nil {
-			return journal, errors.New("a supervised verification check did not complete; inspect it before continuing")
+			return journal, &CheckInterruptedError{Kind: record.FailureKind, Message: "A supervised check did not complete; inspect its output before continuing. " + record.Error}
 		}
-		if *record.Code != 0 {
+		if *record.Code != 0 && text(handoff["verdict"]) == "complete" {
 			return journal, &verification.ValidationError{Code: "VERIFICATION_CHECK_FAILED", Message: fmt.Sprintf("A supervised check failed: %s exited %d", record.Command, *record.Code)}
 		}
+	}
+	if text(handoff["verdict"]) != "complete" {
+		return journal, nil
+	}
+	if len(latest) == 0 {
+		return journal, errors.New("verification needs a completed supervised check")
 	}
 	if err = verification.Validate(handoff, s.entries, true, map[string]any{"journal": journal, "sourceFingerprint": s.fingerprint}); err != nil {
 		return journal, err

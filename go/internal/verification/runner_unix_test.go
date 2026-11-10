@@ -201,7 +201,7 @@ func TestSupervisedCheckTimeoutIsNotAPassingResult(t *testing.T) {
 		t.Fatal("timed out check succeeded")
 	}
 	records := runner.Records()
-	if len(records) != 1 || records[0].Status != "interrupted" || records[0].Code != nil || !strings.Contains(records[0].Error, "budget") {
+	if len(records) != 1 || records[0].Status != "interrupted" || records[0].Code != nil || records[0].FailureKind != "timeout" || !strings.Contains(records[0].Error, "budget") {
 		t.Fatalf("timeout was misclassified: %#v", records)
 	}
 }

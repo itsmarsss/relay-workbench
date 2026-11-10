@@ -308,11 +308,21 @@ func (r *Runner) handle(conn net.Conn) {
 	record.FinishedAt = time.Now().UTC()
 	if runErr != nil {
 		record.Status, record.Error = "interrupted", runErr.Error()
+		switch {
+		case errors.Is(runErr, process.ErrBudgetExhausted), errors.Is(runErr, process.ErrTimeout):
+			record.FailureKind = "timeout"
+		case errors.Is(runErr, process.ErrCancelled), errors.Is(runErr, context.Canceled):
+			record.FailureKind = "cancelled"
+		case errors.Is(runErr, process.ErrCleanup):
+			record.FailureKind = "cleanup"
+		default:
+			record.FailureKind = "execution"
+		}
 	} else {
 		code := result.ExitCode
 		record.Status, record.Code = "complete", &code
 		if err = r.emit(ctx, map[string]any{"type": "activity", "kind": "tool", "summary": fmt.Sprintf("Supervised check exited %d", result.ExitCode), "repositoryId": request.RepositoryID, "details": request.Command}); err != nil {
-			record.Status, record.Error, record.Code, runErr = "interrupted", err.Error(), nil, err
+			record.Status, record.Error, record.Code, record.FailureKind, runErr = "interrupted", err.Error(), nil, "execution", err
 		}
 	}
 	r.mu.Lock()

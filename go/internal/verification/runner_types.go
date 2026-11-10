@@ -40,6 +40,7 @@ type CheckRecord struct {
 	StartedAt         time.Time `json:"startedAt"`
 	FinishedAt        time.Time `json:"finishedAt"`
 	Error             string    `json:"error,omitempty"`
+	FailureKind       string    `json:"failureKind,omitempty"`
 }
 
 type checkFrame struct {
