@@ -21,6 +21,18 @@ func configFixture() map[string]any {
 	c["repositories"] = []any{map[string]any{"id": "one", "name": "One", "path": "/example/one", "cwd": ".", "strategy": "worktree", "checks": []any{}, "setup": []any{}, "instructions": "", "verificationMode": "agent"}, map[string]any{"id": "two", "name": "Two", "path": "/example/two", "cwd": ".", "strategy": "worktree", "checks": []any{}, "setup": []any{}, "instructions": "", "verificationMode": "agent"}}
 	return c
 }
+func TestPerStageEffortValidation(t *testing.T) {
+	config := configFixture()
+	created, err := NewTask(map[string]any{"title": "Effort", "repositoryId": "one", "routing": map[string]any{"implement": "codex"}, "efforts": map[string]any{"implement": "ultra", "plan": "high"}}, config, time.Now())
+	if err != nil || object(created["efforts"])["implement"] != "ultra" {
+		t.Fatalf("efforts: %#v %v", created, err)
+	}
+	for _, bad := range []any{[]any{}, map[string]any{"unknown": "high"}, map[string]any{"plan": "ultra"}, map[string]any{"implement": true}} {
+		if _, err = NewTask(map[string]any{"title": "Bad effort", "repositoryId": "one", "efforts": bad}, config, time.Now()); err == nil {
+			t.Fatalf("invalid efforts accepted: %#v", bad)
+		}
+	}
+}
 func TestDraftConstructionMatchesLegacyForValidAndInvalidInputs(t *testing.T) {
 	node, err := exec.LookPath("node")
 	if err != nil {

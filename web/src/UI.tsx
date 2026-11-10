@@ -116,7 +116,7 @@ export function Select({
 }: {
   label: string;
   value: string;
-  options: { value: string; label: string; detail?: string }[];
+  options: { value: string; label: string; detail?: string; disabled?: boolean }[];
   onChange: (value: string) => void;
   custom?: boolean;
   disabled?: boolean;
@@ -130,7 +130,7 @@ export function Select({
     input = useRef<HTMLInputElement>(null),
     id = useId();
   const items = options.filter((o) =>
-    `${o.label} ${o.value}`.toLowerCase().includes(query.toLowerCase()),
+    !o.disabled && `${o.label} ${o.value}`.toLowerCase().includes(query.toLowerCase()),
   );
   function close(focus = false) {
     setOpen(false);

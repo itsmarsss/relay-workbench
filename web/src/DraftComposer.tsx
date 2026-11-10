@@ -3,6 +3,8 @@ import { Modal } from './Modal';
 import { Markdown } from './Markdown';
 import { useImageUpload } from './ImageUpload';
 import { draftRequest } from './forms';
+import { AgentSettings, agentOptions } from './AgentSettings';
+import { jsonObject } from './forms';
 import type { ImportedIssue, RelayConfig, Task } from './types';
 const presets = [
   { id: 'bugfix', label: 'Bug fix' },
@@ -36,6 +38,7 @@ export function DraftComposer({
     [primary, setPrimary] = useState(''),
     [preset, setPreset] = useState('bugfix'),
     [advanced, setAdvanced] = useState('{}'),
+    [agents, setAgents] = useState(agentOptions),
     [preview, setPreview] = useState(false),
     [error, setError] = useState(''),
     [busy, setBusy] = useState(false),
@@ -130,7 +133,7 @@ export function DraftComposer({
               repositories: selected,
               primary,
               preset: preset || null,
-              advanced,
+              advanced: JSON.stringify({...jsonObject(advanced),...agents}),
             },
             config,
           );
@@ -147,7 +150,7 @@ export function DraftComposer({
         <>
           <span className="form-note">
             {workflowPreview
-              ? 'Creates a draft. Investigation and planning are available in preview.'
+              ? 'Creates a draft. You approve the approach before implementation.'
               : 'Creates a draft. Agent execution is still being ported.'}
           </span>
           <button type="button" onClick={onClose} disabled={busy}>
@@ -305,9 +308,13 @@ export function DraftComposer({
         </fieldset>
       )}
       <details>
-        <summary>Agent, execution, and repository options</summary>
+        <summary>Agents and execution</summary>
+        <AgentSettings config={config} value={agents} onChange={setAgents} />
+      </details>
+      <details>
+        <summary>Repository and dependency overrides</summary>
         <p className="form-note">
-          JSON keys: routing, models, execution, dependencies, repositorySettings, smartRouting.
+          JSON keys: dependencies, repositorySettings.
         </p>
         <textarea
           aria-label="Advanced task options"

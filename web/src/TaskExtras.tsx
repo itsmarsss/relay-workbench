@@ -4,7 +4,8 @@ import { Markdown } from './Markdown';
 import { useImageUpload } from './ImageUpload';
 import { Modal } from './Modal';
 import { Icon, Select } from './UI';
-import { ModelSelect } from './WorkspacePages';
+import { ModelSelect, EffortSelect } from './WorkspacePages';
+import { AgentSettings, agentOptions } from './AgentSettings';
 import { Notice, useMutation, useResource, useSession, request } from './Session';
 import { asObject, asText } from './task-data';
 import type { Task } from './types';
@@ -74,9 +75,8 @@ function TaskEditor({ task, onClose }: { task: FullTask; onClose: () => void }) 
     [description, setDescription] = useState(asText(task.description, 50000)),
     [ticket, setTicket] = useState(asText(task.ticket, 2000)),
     [preview, setPreview] = useState(false),
-    [routing, setRouting] = useState(JSON.stringify(task.routing || {}, null, 2)),
-    [models, setModels] = useState(JSON.stringify(task.models || {}, null, 2)),
-    [execution, setExecution] = useState(JSON.stringify(task.execution || {}, null, 2));
+    [agents, setAgents] = useState(() => agentOptions(task));
+  const {bootstrap} = useSession();
   const mutation = useMutation();
   const uploads = useImageUpload((text) => setDescription((value) => value + text));
   const [parseError, setParseError] = useState('');
@@ -95,16 +95,14 @@ function TaskEditor({ task, onClose }: { task: FullTask; onClose: () => void }) 
             title,
             description,
             ticket,
-            routing: JSON.parse(routing),
-            models: JSON.parse(models),
-            execution: JSON.parse(execution),
+            ...agents,
           };
           void mutation
             .run(`/api/tasks/${task.id}`, body, 'PATCH')
             .then(onClose)
             .catch(() => {});
         } catch {
-          setParseError('Advanced settings must be valid JSON.');
+          setParseError('Could not save the task settings.');
         }
       }}
       footer={
@@ -155,21 +153,7 @@ function TaskEditor({ task, onClose }: { task: FullTask; onClose: () => void }) 
       {uploads.control}
       <details>
         <summary>Agent and execution overrides</summary>
-        {[
-          ['Routing', routing, setRouting],
-          ['Models', models, setModels],
-          ['Execution', execution, setExecution],
-        ].map(([label, value, setter]) => (
-          <label className="field" key={String(label)}>
-            {String(label)}
-            <textarea
-              rows={4}
-              spellCheck={false}
-              value={String(value)}
-              onChange={(e) => (setter as (s: string) => void)(e.target.value)}
-            />
-          </label>
-        ))}
+        {bootstrap && <AgentSettings config={bootstrap.config} value={agents} onChange={setAgents} />}
       </details>
     </Modal>
   );
@@ -261,15 +245,7 @@ export function ContinueWork({ task }: { task: FullTask }) {
                   ))}
                 </div>
                 <ModelSelect provider={provider} value={model} onChange={setModel} />
-                <Select
-                  label="Agent effort"
-                  value={effort}
-                  options={['', 'low', 'medium', 'high', 'xhigh', 'max'].map((value) => ({
-                    value,
-                    label: value || 'Default effort',
-                  }))}
-                  onChange={setEffort}
-                />
+                <EffortSelect provider={provider} value={effort} onChange={setEffort} />
               </div>
             )}
             {uploads.control}

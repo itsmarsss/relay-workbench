@@ -88,7 +88,7 @@ func (c *Coordinator) control(ctx context.Context, id, operation string, body ma
 		}
 		return map[string]any{"deleted": true, "id": id}, nil
 	case "edit":
-		if err = fields(body, "title", "description", "ticket", "preset", "repositoryId", "repositoryIds", "repositorySettings", "dependencies", "smartRouting", "routing", "models", "execution"); err != nil {
+		if err = fields(body, "title", "description", "ticket", "preset", "repositoryId", "repositoryIds", "repositorySettings", "dependencies", "smartRouting", "routing", "models", "efforts", "execution"); err != nil {
 			return nil, err
 		}
 		if active {
@@ -99,7 +99,7 @@ func (c *Coordinator) control(ctx context.Context, id, operation string, body ma
 			return nil, err
 		}
 		draft := map[string]any{}
-		for _, key := range []string{"title", "description", "ticket", "preset", "demo", "smartRouting", "routing", "models", "execution", "dependencies"} {
+		for _, key := range []string{"title", "description", "ticket", "preset", "demo", "smartRouting", "routing", "models", "efforts", "execution", "dependencies"} {
 			if item, ok := value[key]; ok {
 				draft[key] = item
 			}
@@ -144,7 +144,7 @@ func (c *Coordinator) control(ctx context.Context, id, operation string, body ma
 				value[key] = validated[key]
 			}
 		}
-		for _, key := range []string{"title", "description", "ticket", "routing", "models", "execution", "smartRouting"} {
+		for _, key := range []string{"title", "description", "ticket", "routing", "models", "efforts", "execution", "smartRouting"} {
 			value[key] = validated[key]
 		}
 		summary = "Task configuration updated."

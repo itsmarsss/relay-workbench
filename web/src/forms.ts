@@ -38,6 +38,7 @@ export function draftRequest(
   const allowed = new Set([
     'routing',
     'models',
+    'efforts',
     'execution',
     'dependencies',
     'repositorySettings',

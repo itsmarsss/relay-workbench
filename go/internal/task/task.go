@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"relay.local/relay/internal/harness"
 	"strings"
 	"time"
 	"unicode/utf16"
@@ -146,6 +147,27 @@ func selectedOptions(raw, config map[string]any) (map[string]any, error) {
 			models[stage] = m
 		}
 	}
+	efforts := map[string]any{}
+	if raw["efforts"] != nil {
+		incoming := object(raw["efforts"])
+		if incoming == nil {
+			return nil, errors.New("Invalid stage efforts")
+		}
+		for stage, value := range incoming {
+			if _, ok := routing[stage]; !ok {
+				return nil, errors.New("Invalid stage efforts")
+			}
+			effort, ok := value.(string)
+			if !ok {
+				return nil, errors.New("Invalid stage effort")
+			}
+			_, normalized, err := harness.Options(textValue(routing[stage]), "", effort)
+			if err != nil {
+				return nil, err
+			}
+			efforts[stage] = normalized
+		}
+	}
 	execution := map[string]any{}
 	if value := raw["execution"]; value != nil {
 		v := object(value)
@@ -179,7 +201,11 @@ func selectedOptions(raw, config map[string]any) (map[string]any, error) {
 			return nil, errors.New("Smart routing must be a boolean")
 		}
 	}
-	return map[string]any{"routing": routing, "models": models, "execution": execution}, nil
+	result := map[string]any{"routing": routing, "models": models, "execution": execution}
+	if raw["efforts"] != nil {
+		result["efforts"] = efforts
+	}
+	return result, nil
 }
 func applySettings(entries []map[string]any, value any) error {
 	if value == nil {
@@ -447,5 +473,9 @@ func NewTask(raw, config map[string]any, now time.Time) (map[string]any, error) 
 	if err != nil {
 		return nil, err
 	}
-	return map[string]any{"repositories": ordered, "dependencies": deps, "repositoryCursor": 0, "preset": presetValue, "workflowGuidance": guidance, "id": id, "title": title, "description": desc, "ticket": ref, "demo": demo, "repository": repo, "routing": options["routing"], "models": options["models"], "execution": options["execution"], "configRevision": 0, "smartRouting": raw["smartRouting"] == true, "status": "draft", "stage": "triage", "round": 0, "attempts": []any{}, "approvals": []any{}, "messages": []any{}, "workspace": nil, "baseCommit": nil, "branch": nil, "chosenApproach": nil, "reviewedFingerprint": nil, "createdAt": created, "updatedAt": created, "error": nil}, nil
+	result := map[string]any{"repositories": ordered, "dependencies": deps, "repositoryCursor": 0, "preset": presetValue, "workflowGuidance": guidance, "id": id, "title": title, "description": desc, "ticket": ref, "demo": demo, "repository": repo, "routing": options["routing"], "models": options["models"], "execution": options["execution"], "configRevision": 0, "smartRouting": raw["smartRouting"] == true, "status": "draft", "stage": "triage", "round": 0, "attempts": []any{}, "approvals": []any{}, "messages": []any{}, "workspace": nil, "baseCommit": nil, "branch": nil, "chosenApproach": nil, "reviewedFingerprint": nil, "createdAt": created, "updatedAt": created, "error": nil}
+	if options["efforts"] != nil {
+		result["efforts"] = options["efforts"]
+	}
+	return result, nil
 }
