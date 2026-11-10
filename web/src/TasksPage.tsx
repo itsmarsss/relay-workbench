@@ -6,7 +6,7 @@ import { columns, taskLane, boardFilters, filteredTasks, taskScopes, inTaskScope
 import { Select, Icon, ProviderIcon } from './UI';
 import { Notice, useMutation } from './Session';
 import { Modal } from './Modal';
-import { nextStep, ago } from './presentation';
+import { ago, nextStep, repositoryNames, stageNote, ticketRef, waitingKind } from './presentation';
 export { taskLane } from './board';
 const useClientLayoutEffect = typeof window === 'undefined' ? useEffect : useLayoutEffect;
 function currentFilters() {
@@ -102,12 +102,30 @@ export function TasksPage({
   }
   const visible = filteredTasks(tasks, filters);
   const populated = columns.filter(([lane]) => visible.some((task) => taskLane(task) === lane));
-  const lanes =
-    filters.showEmpty || tasks.length === 0
-      ? columns
-      : dragging
-        ? [...populated, ...columns.filter((row) => !populated.includes(row))]
-        : populated;
+  // The board never reflows mid-drag; every stage stays reachable from the dock instead.
+  const lanes = filters.showEmpty || tasks.length === 0 ? columns : populated;
+  const dragged = tasks.find((task) => task.id === dragging);
+  // Zones only claim the highlight; the page clears it once the pointer is over none of them,
+  // so crossing a zone's own children never flickers.
+  const dropZone = (id: string, lane: string) => {
+    const claim = (e: React.DragEvent) => {
+      if (!dragging) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      if (target !== id) setTarget(id);
+    };
+    return {
+      'data-drop-zone': id,
+      onDragEnter: claim,
+      onDragOver: claim,
+      onDrop: (e: React.DragEvent) => {
+        e.preventDefault();
+        setDragging('');
+        setTarget('');
+        if (dragged) void move(dragged, lane);
+      },
+    };
+  };
   const repositories = [
     ...new Map(
       tasks
@@ -131,7 +149,7 @@ export function TasksPage({
     <motion.article
       layout={!dragging}
       key={task.id}
-      className={`task-card ${filters.layout === 'board' ? 'board-task-card' : ''}`}
+      className={`task-card ${filters.layout === 'board' ? 'board-task-card' : ''} ${dragging === task.id ? 'is-dragging' : ''}`}
       data-lane={taskLane(task)}
       draggable={!mutation.busy}
       onDragStartCapture={(e) => {
@@ -169,17 +187,8 @@ export function TasksPage({
             </strong>
             <span className="board-task-repository">
               <Icon name="repository" size={13} />
-              <span>
-                {(task.repositories?.length
-                  ? task.repositories
-                      .map((row) => row.repository?.name)
-                      .filter(Boolean)
-                      .join(' + ')
-                  : task.repository?.name) || 'Unspecified'}
-              </span>
-              {task.ticket?.match(/\/(?:issues|pull|pulls)\/(\d+)/)?.[1] && (
-                <span>#{task.ticket.match(/\/(?:issues|pull|pulls)\/(\d+)/)![1]}</span>
-              )}
+              <span>{repositoryNames(task)}</span>
+              {ticketRef(task.ticket).startsWith('#') && <span>{ticketRef(task.ticket)}</span>}
             </span>
             {(task.error || task.latestSummary) && (
               <span className={`task-card-summary ${task.error ? 'is-error' : ''}`}>
@@ -187,7 +196,13 @@ export function TasksPage({
               </span>
             )}
             <span className="board-task-next">
-              <span>{task.statusOverride ? 'Manual status' : nextStep(task)}</span>
+              <span>
+                {task.statusOverride
+                  ? 'Manual status'
+                  : stageNote(task)
+                    ? `${waitingKind(task)} · ${stageNote(task)}`
+                    : nextStep(task)}
+              </span>
               {task.currentRun?.harness && (
                 <ProviderIcon provider={task.currentRun.harness} size={17} />
               )}
@@ -199,10 +214,9 @@ export function TasksPage({
             <span className="task-card-copy">
               <strong>{task.title}</strong>
               <small>
-                {task.repository?.name || 'Unspecified'}
-                {(task.repositories?.length || 0) > 1 && ` +${task.repositories!.length - 1}`}
-                {task.ticket &&
-                  ` · ${task.ticket.match(/\/issues\/(\d+)/)?.[1] ? '#' + task.ticket.match(/\/issues\/(\d+)/)![1] : task.ticket}`}
+                {repositoryNames(task)}
+                {ticketRef(task.ticket) && ` · ${ticketRef(task.ticket)}`}
+                {stageNote(task) && ` · ${stageNote(task)}`}
               </small>
               {(task.error || task.latestSummary) && (
                 <span className="task-card-summary">{task.error || task.latestSummary}</span>
@@ -239,7 +253,13 @@ export function TasksPage({
     </motion.article>
   );
   return (
-    <section className="tasks-page" aria-busy={loading}>
+    <section
+      className="tasks-page"
+      aria-busy={loading}
+      onDragOver={(e) => {
+        if (target && !(e.target as Element).closest('[data-drop-zone]')) setTarget('');
+      }}
+    >
       <div className="page-title">
         <div>
           <h1>Tasks</h1>
@@ -253,6 +273,9 @@ export function TasksPage({
             >
               <Icon name={layout === 'board' ? 'board' : 'list'} size={16} />
               {layout === 'board' ? 'Board' : 'List'}
+              {filters.layout === layout && (
+                <motion.span className="segmented-thumb" layoutId="task-layout" />
+              )}
             </button>
           ))}
         </div>
@@ -379,20 +402,7 @@ export function TasksPage({
                 data-populated={visible.some((task) => taskLane(task) === lane)}
                 aria-label={`${label} column`}
                 className={`task-lane ${target === lane ? 'drop-target' : ''}`}
-                onDragOver={(e) => {
-                  if (dragging) {
-                    e.preventDefault();
-                    e.dataTransfer.dropEffect = 'move';
-                    setTarget(lane);
-                  }
-                }}
-                onDrop={(e) => {
-                  e.preventDefault();
-                  const task = tasks.find((t) => t.id === dragging);
-                  setDragging('');
-                  setTarget('');
-                  if (task) void move(task, lane);
-                }}
+                {...dropZone(lane, lane)}
               >
                 <header className="board-lane-heading">
                   <h2>
@@ -411,13 +421,33 @@ export function TasksPage({
                     <Icon name="plus" size={16} /> Create task
                   </button>
                 )}
-                {!visible.some((task) => taskLane(task) === lane) &&
-                  tasks.length > 0 &&
-                  !dragging && <p className="board-lane-empty">No tasks</p>}
-                {dragging && <div className="lane-drop-hint">Move here</div>}
+                {!visible.some((task) => taskLane(task) === lane) && tasks.length > 0 && (
+                  <p className="board-lane-empty">No tasks</p>
+                )}
               </section>
             ))}
           </motion.div>
+        </div>
+      )}
+      {dragged && (
+        <div className="stage-dock" role="group" aria-label="Move to stage">
+          <p>
+            Drop on a stage to move <strong>{dragged.title}</strong>
+          </p>
+          <div className="stage-dock-targets">
+            {columns.map(([lane, label]) => (
+              <div
+                key={lane}
+                className={`stage-dock-target ${target === `dock:${lane}` ? 'drop-target' : ''}`}
+                aria-label={`Move to ${label}`}
+                aria-current={taskLane(dragged) === lane ? 'true' : undefined}
+                {...dropZone(`dock:${lane}`, lane)}
+              >
+                <span className={`lane-dot lane-dot-${lane}`} aria-hidden="true" />
+                {label}
+              </div>
+            ))}
+          </div>
         </div>
       )}
       {menu &&

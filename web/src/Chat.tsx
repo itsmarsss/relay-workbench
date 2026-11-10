@@ -9,8 +9,7 @@ import { useImageUpload } from './ImageUpload';
 import { Modal } from './Modal';
 import { ModelSelect, EffortSelect } from './WorkspacePages';
 import { asObject } from './task-data';
-import { statusLabel, type Task } from './types';
-import { inTaskScope } from './board';
+import type { Task } from './types';
 import { ago } from './presentation';
 import { useAnchoredPopover, revealOption } from './useAnchoredPopover';
 type Call = { id: string; name: string; status: string; input: unknown };
@@ -246,7 +245,7 @@ export function ChatPanel({
   }
   return (
     <section
-      className={`relay-conversations ${compact ? 'compact' : ''} ${chatListOpen ? 'chat-list-open' : ''} ${!current?.messages.length ? 'empty-conversation' : ''} ${!compact && (tasks.data || []).some((t) => inTaskScope(t, 'attention')) ? 'has-attention-queue' : ''}`}
+      className={`relay-conversations ${compact ? 'compact' : ''} ${chatListOpen ? 'chat-list-open' : ''} ${!current?.messages.length ? 'empty-conversation' : ''}`}
       aria-label={taskId ? 'Ask Relay' : 'Relay conversations'}
     >
       {!compact && (
@@ -665,35 +664,16 @@ export function ChatPanel({
               </button>
             )}
           </div>
-          {uploads.control}
-          <small className="composer-hint">
-            {taskId
-              ? 'Read only · Your pipeline keeps running'
-              : 'Enter to send · Shift+Enter for a new line'}
-          </small>
+          <div className="composer-meta">
+            {uploads.control}
+            <small className="composer-hint">
+              {taskId
+                ? 'Read only · Your pipeline keeps running'
+                : 'Enter to send · Shift+Enter for a new line'}
+            </small>
+          </div>
         </form>
       </div>
-      {!compact && (tasks.data || []).some((t) => inTaskScope(t, 'attention')) && (
-        <aside className="chat-attention-queue" aria-label="Tasks needing attention">
-          <h2>
-            Needs you{' '}
-            <span>{(tasks.data || []).filter((t) => inTaskScope(t, 'attention')).length}</span>
-          </h2>
-          {(tasks.data || [])
-            .filter((t) => inTaskScope(t, 'attention'))
-            .slice(0, 5)
-            .map((t) => (
-              <a key={t.id} href={`#task/${t.id}/overview`}>
-                <strong>{t.title}</strong>
-                <span className={`task-status status-${t.status}`}>{statusLabel(t.status)}</span>
-              </a>
-            ))}
-          <a href="#tasks?scope=attention">
-            All tasks
-            <Icon name="arrow" size={14} />
-          </a>
-        </aside>
-      )}
       {settings && (
         <Modal
           title="Relay agent"

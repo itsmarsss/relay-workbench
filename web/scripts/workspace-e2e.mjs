@@ -154,6 +154,43 @@ let input='';process.stdin.on('data',d=>input+=d);process.stdin.on('end',()=>{
     async () => !(await (await fetch(origin + '/api/tasks/' + task.id)).json()).statusOverride,
     'restore workflow presentation',
   );
+  // With empty stages hidden, a held card reaches every stage from the dock and the board
+  // keeps its shape.
+  await page.getByRole('checkbox', { name: 'Empty stages', exact: true }).uncheck();
+  assert.equal(await page.locator('.task-lane').count(), 1);
+  await page.locator('.task-board .task-card').first().hover();
+  await page.mouse.down();
+  await page.mouse.move(640, 420, { steps: 4 });
+  const dock = page.getByRole('group', { name: 'Move to stage', exact: true });
+  await dock.waitFor();
+  assert.equal(await page.locator('.task-lane').count(), 1, 'Board does not reflow mid-drag');
+  assert.equal(await dock.locator('.stage-dock-target').count(), 10);
+  assert.equal(
+    await dock.getByLabel('Move to Backlog', { exact: true }).getAttribute('aria-current'),
+    'true',
+  );
+  await dock.getByLabel('Move to In review', { exact: true }).hover();
+  await dock.locator('.stage-dock-target.drop-target').waitFor();
+  await page.mouse.up();
+  await until(
+    async () =>
+      (await (await fetch(origin + '/api/tasks/' + task.id)).json()).statusOverride?.lane ===
+      'review',
+    'drop on a dock stage',
+  );
+  assert.equal(await dock.count(), 0, 'Dock leaves with the drop');
+  assert.equal(
+    (await (await fetch(origin + '/api/tasks/' + task.id)).json()).status,
+    'draft',
+    'Dock drops never advance workflow approval',
+  );
+  await page.getByRole('button', { name: 'Actions for Workspace fixture', exact: true }).click();
+  await page.getByRole('button', { name: 'Follow workflow status', exact: true }).click();
+  await until(
+    async () => !(await (await fetch(origin + '/api/tasks/' + task.id)).json()).statusOverride,
+    'restore workflow presentation after dock drop',
+  );
+  await page.getByRole('checkbox', { name: 'Empty stages', exact: true }).check();
   await page.locator('.task-board .task-card-open').first().click();
   await page.getByRole('button', { name: 'All tasks', exact: true }).click();
   await page.getByRole('region', { name: 'Task board', exact: true }).waitFor();
@@ -354,7 +391,7 @@ let input='';process.stdin.on('data',d=>input+=d);process.stdin.on('end',()=>{
   await page.getByRole('heading', { name: /^Good (morning|afternoon|evening)$/ }).waitFor();
   await page
     .getByLabel('Workspace summary')
-    .getByRole('button', { name: /need you$|^Nothing needs you$/ })
+    .getByRole('button', { name: /^Need you/ })
     .click();
   assert.match(page.url(), /scope=attention/);
   const workspaceURL = page.url();

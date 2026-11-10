@@ -1,4 +1,4 @@
-import type { TaskView } from './types';
+import type { Task, TaskView } from './types.ts';
 export type Pane = { type: 'pane'; id: string; taskId: string; view: TaskView };
 export type Split = {
   type: 'split';
@@ -16,6 +16,8 @@ export type Tab = {
   layout?: 'grid' | 'split';
   columns?: 1 | 2 | 3 | 4;
   density?: 'auto' | 'fixed';
+  // 'live' follows current work on its own; 'pinned' shows only panes chosen by hand.
+  mode?: 'live' | 'pinned';
 };
 export type Deck = { tabs: Tab[]; active: string };
 const views: TaskView[] = ['overview', 'thread', 'terminals', 'diff', 'handoffs', 'transcript'];
@@ -29,8 +31,39 @@ export function newDeck(): Deck {
     layout: 'grid',
     columns: 3,
     density: 'auto',
+    mode: 'live',
   };
   return { tabs: [tab], active: tab.id };
+}
+export const needsDecision = (task: Task) =>
+  ['awaiting_plan', 'awaiting_final', 'blocked', 'interrupted', 'paused', 'manual'].includes(
+    task.status,
+  );
+export const isLive = (task: Task) =>
+  task.currentRun?.status === 'running' ||
+  (task.status === 'running' &&
+    !['completed', 'complete', 'failed', 'cancelled'].includes(task.currentRun?.status || ''));
+// What a live deck shows without any setup: decisions first, then running work, then a
+// short tail of recent tasks so the deck is never blank while work exists.
+export function liveGroups(tasks: Task[], tail = 6) {
+  const updated = (task: Task) => Date.parse(task.updatedAt || '') || 0;
+  const recent = (a: Task, b: Task) => updated(b) - updated(a) || a.id.localeCompare(b.id);
+  const needs = tasks.filter(needsDecision).sort(recent);
+  const running = tasks.filter((task) => !needsDecision(task) && isLive(task)).sort(recent);
+  const rest = tasks
+    .filter(
+      (task) =>
+        !needsDecision(task) && !isLive(task) && !['cancelled', 'finished'].includes(task.status),
+    )
+    .sort(recent)
+    .slice(0, tail);
+  return (
+    [
+      ['needs', 'Needs you', needs],
+      ['running', 'Running', running],
+      ['recent', 'Recently updated', rest],
+    ] as const
+  ).filter(([, , rows]) => rows.length > 0);
 }
 export function panes(node: Node): Pane[] {
   return node.type === 'pane' ? [node] : [...panes(node.first), ...panes(node.second)];
@@ -83,6 +116,10 @@ export function addPane(node: Node, taskId = ''): Node {
     first: node,
     second: { ...emptyPane(), taskId },
   };
+}
+// Fills a deck with the given tasks, at most eight, replacing its current panes.
+export function seedPanes(taskIds: string[]): Node {
+  return taskIds.slice(0, 8).reduce<Node>((root, taskId) => addPane(root, taskId), emptyPane());
 }
 export function movePane(node: Node, from: string, to: string): Node {
   const items = panes(node),
@@ -141,16 +178,24 @@ export function parseDeck(value: string | null): Deck {
       if (typeof tab.id !== 'string' || !/^[a-f0-9-]{36}$/.test(tab.id) || ids.has(tab.id))
         throw new Error('Invalid tab ID');
       ids.add(tab.id);
+      const root = decodeNode(tab.root, new Set());
       return {
         id: tab.id,
         name:
           typeof tab.name === 'string' && tab.name.trim()
             ? tab.name.trim().slice(0, 60)
             : 'Workspace',
-        root: decodeNode(tab.root, new Set()),
+        root,
         layout: tab.layout === 'split' ? 'split' : 'grid',
         columns: tab.columns === 1 || tab.columns === 3 || tab.columns === 4 ? tab.columns : 2,
         density: tab.density === 'fixed' ? 'fixed' : 'auto',
+        // Layouts saved before live decks stay pinned only when something was placed.
+        mode:
+          tab.mode === 'live' || tab.mode === 'pinned'
+            ? tab.mode
+            : tab.layout === 'split' || panes(root).some((pane) => pane.taskId)
+              ? 'pinned'
+              : 'live',
       };
     });
     return {

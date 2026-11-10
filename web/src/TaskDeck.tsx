@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { motion } from 'motion/react';
 import { TaskPanel } from './TaskPanel';
 import { TaskPicker } from './TaskPicker';
 import { Icon } from './UI';
@@ -10,8 +11,10 @@ import {
   minimumSize,
   panes,
   addPane,
+  liveGroups,
   movePane,
   removeNode,
+  seedPanes,
   splitNode,
   updateNode,
   type Node,
@@ -278,6 +281,7 @@ export function TaskDeck({
   onClose,
   onUpdate,
   onOpen,
+  onCreate,
 }: {
   active: Tab;
   tabs: Tab[];
@@ -292,24 +296,39 @@ export function TaskDeck({
   onClose: () => void;
   onUpdate: (patch: Partial<Tab>) => void;
   onOpen: (id: string, view: TaskView) => void;
+  onCreate: () => void;
 }) {
   const canvas = useRef<HTMLDivElement>(null),
     dragging = useRef('');
   const [announcement, setAnnouncement] = useState(''),
     [editing, setEditing] = useState(false),
+    [peek, setPeek] = useState<{ taskId: string; view: TaskView } | null>(null),
     [now, setNow] = useState(Date.now);
-  const items = panes(active.root),
-    grid = active.layout !== 'split',
-    watched = items.flatMap((pane) => {
-      const task = tasks.find((task) => task.id === pane.taskId);
-      return task ? [task] : [];
-    }),
+  // Alternating the attribute restarts the fade when the workspace or its contents change,
+  // without remounting tiles that hold drag and focus state.
+  const view = `${active.id}:${active.mode}`;
+  const [swap, setSwap] = useState({ view, count: 0 });
+  if (swap.view !== view) setSwap({ view, count: swap.count + 1 });
+  const live = active.mode === 'live',
+    groups = live ? liveGroups(tasks) : [],
+    items = panes(active.root),
+    grid = live || active.layout !== 'split',
+    watched = live
+      ? groups.flatMap(([, , rows]) => rows)
+      : items.flatMap((pane) => {
+          const task = tasks.find((task) => task.id === pane.taskId);
+          return task ? [task] : [];
+        }),
     taskCount = watched.length,
     vacancy = items.find((pane) => !tasks.some((task) => task.id === pane.taskId)),
     full = items.length >= 8 && !vacancy,
     running = watched.some(isLive),
-    expanded = items.find((pane) => pane.id === focus),
-    expandedTask = tasks.find((task) => task.id === expanded?.taskId);
+    expanded = live ? undefined : items.find((pane) => pane.id === focus),
+    detailTask = tasks.find((task) => task.id === (live ? peek?.taskId : expanded?.taskId)),
+    detailView = (live ? peek?.view : expanded?.view) || 'overview',
+    waiting = watched.filter(needsDecision).length,
+    working = watched.filter((task) => !needsDecision(task) && isLive(task)).length;
+  useEffect(() => setPeek(null), [active.id, live]);
   useEffect(() => {
     if (!running) return;
     setNow(Date.now());
@@ -336,14 +355,53 @@ export function TaskDeck({
       <header className="deck-toolbar">
         <div className="deck-title">
           <h1>Task deck</h1>
-          <span>{loading ? 'Loading…' : `${taskCount} watching`}</span>
+          <span>
+            {loading
+              ? 'Loading…'
+              : live
+                ? [working && `${working} running`, !waiting && !working && 'Nothing running']
+                    .filter(Boolean)
+                    .join(' · ')
+                : `${taskCount} watching`}
+          </span>
         </div>
-        {watched.some(needsDecision) && (
+        {waiting > 0 && (
           <span className="deck-attention-count">
-            {watched.filter(needsDecision).length} need you
+            {waiting} {waiting === 1 ? 'needs' : 'need'} you
           </span>
         )}
-        {!full && (
+        <div className="segmented deck-mode" role="group" aria-label="Deck contents">
+          <button
+            aria-pressed={live}
+            title="Shows what needs you and what is running, automatically"
+            onClick={() => {
+              setEditing(false);
+              setFocus('');
+              onUpdate({ mode: 'live' });
+            }}
+          >
+            Live
+            {live && <motion.span className="segmented-thumb" layoutId="deck-mode" />}
+          </button>
+          <button
+            aria-pressed={!live}
+            title="Shows only the tasks you pin"
+            onClick={() => {
+              if (!live) return;
+              setFocus('');
+              // A first visit starts from what the live deck is showing, not a blank grid.
+              onUpdate(
+                items.some((pane) => pane.taskId) || active.layout === 'split'
+                  ? { mode: 'pinned' }
+                  : { mode: 'pinned', root: seedPanes(watched.map((task) => task.id)) },
+              );
+            }}
+          >
+            Pinned
+            {!live && <motion.span className="segmented-thumb" layoutId="deck-mode" />}
+          </button>
+        </div>
+        {!live && !full && (
           <div className="deck-add-task">
             <TaskPicker
               id={`add-${active.id}`}
@@ -365,21 +423,23 @@ export function TaskDeck({
             />
           </div>
         )}
-        <button
-          className="deck-edit-toggle"
-          aria-pressed={editing}
-          onClick={() => setEditing((value) => !value)}
-        >
-          <Icon name={editing ? 'check' : 'settings'} size={15} />
-          {editing ? 'Done editing' : 'Edit grid'}
-        </button>
+        {!live && (
+          <button
+            className="deck-edit-toggle"
+            aria-pressed={editing}
+            onClick={() => setEditing((value) => !value)}
+          >
+            <Icon name={editing ? 'check' : 'settings'} size={15} />
+            {editing ? 'Done editing' : 'Edit grid'}
+          </button>
+        )}
       </header>
       {error && (
         <p className="error" role="status">
           {error}
         </p>
       )}
-      <nav className="workspace-tabs" aria-label="Workspaces">
+      <nav className="workspace-tabs" aria-label="Workspaces" hidden={live && tabs.length === 1}>
         {tabs.map((tab) => (
           <button
             key={tab.id}
@@ -387,6 +447,9 @@ export function TaskDeck({
             onClick={() => onSelect(tab.id)}
           >
             {tab.name}
+            {tab.id === active.id && (
+              <motion.span className="scope-indicator" layoutId="deck-workspace-tab" />
+            )}
           </button>
         ))}
         <button
@@ -448,11 +511,56 @@ export function TaskDeck({
       <p className="sr-only" role="status">
         {announcement}
       </p>
-      <div ref={canvas} className={`canvas deck-canvas ${grid ? 'is-grid' : 'is-freeform'}`}>
+      <div
+        ref={canvas}
+        className={`canvas deck-canvas ${grid ? 'is-grid' : 'is-freeform'}`}
+        data-swap={swap.count ? swap.count % 2 : undefined}
+      >
         {loading ? (
           <p role="status" className="form-note">
             Loading tasks…
           </p>
+        ) : live ? (
+          groups.length ? (
+            groups.map(([id, label, rows]) => (
+              <section key={id} className="deck-group" aria-label={label}>
+                <h2>
+                  {label} <span>{rows.length}</span>
+                </h2>
+                <div className="deck-monitor-grid" data-columns="auto">
+                  {rows.map((task, index) => (
+                    <TaskMonitor
+                      key={task.id}
+                      node={{ type: 'pane', id: task.id, taskId: task.id, view: 'overview' }}
+                      number={index + 1}
+                      task={task}
+                      tasks={tasks}
+                      editing={false}
+                      now={now}
+                      onChange={() => {}}
+                      onExpand={(view) => setPeek({ taskId: task.id, view })}
+                      onRemove={() => {}}
+                      onDrag={() => {}}
+                      onDrop={() => {}}
+                      onMove={() => {}}
+                    />
+                  ))}
+                </div>
+              </section>
+            ))
+          ) : (
+            <div className="deck-empty">
+              <p>
+                {tasks.length
+                  ? 'Nothing is running or waiting on you.'
+                  : 'Tasks appear here on their own as soon as you create one.'}
+              </p>
+              <button className="primary" onClick={onCreate}>
+                <Icon name="plus" size={15} />
+                New task
+              </button>
+            </div>
+          )
         ) : grid ? (
           <div
             className="deck-monitor-grid"
@@ -490,7 +598,11 @@ export function TaskDeck({
                 />
               ) : null,
             )}
-            {!editing && !watched.length && <p className="deck-empty">Add tasks to monitor.</p>}
+            {!editing && !watched.length && (
+              <div className="deck-empty">
+                <p>Add tasks to monitor.</p>
+              </div>
+            )}
           </div>
         ) : (
           <Tree
@@ -509,15 +621,15 @@ export function TaskDeck({
           />
         )}
       </div>
-      {grid && expanded && expandedTask && (
+      {grid && detailTask && (
         <Modal
-          title={expandedTask.title}
+          title={detailTask.title}
           className="deck-detail-modal"
-          onClose={() => setFocus('')}
+          onClose={() => (live ? setPeek(null) : setFocus(''))}
         >
           <div className="deck-detail-toolbar">
-            <span>{statusLabel(expandedTask.status)}</span>
-            <button onClick={() => onOpen(expandedTask.id, expanded.view)}>
+            <span>{statusLabel(detailTask.status)}</span>
+            <button onClick={() => onOpen(detailTask.id, detailView)}>
               <Icon name="external" size={14} />
               Open task
             </button>
@@ -526,22 +638,20 @@ export function TaskDeck({
             {taskViews.map((item) => (
               <button
                 key={item.id}
-                aria-pressed={expanded.view === item.id}
+                aria-pressed={detailView === item.id}
                 onClick={() =>
-                  modify((root) =>
-                    updateNode(root, expanded.id, () => ({ ...expanded, view: item.id })),
-                  )
+                  expanded
+                    ? modify((root) =>
+                        updateNode(root, expanded.id, () => ({ ...expanded, view: item.id })),
+                      )
+                    : setPeek({ taskId: detailTask.id, view: item.id })
                 }
               >
                 {item.label}
               </button>
             ))}
           </nav>
-          <TaskPanel
-            key={`${expandedTask.id}:${expanded.view}`}
-            task={expandedTask}
-            view={expanded.view}
-          />
+          <TaskPanel key={`${detailTask.id}:${detailView}`} task={detailTask} view={detailView} />
         </Modal>
       )}
     </section>

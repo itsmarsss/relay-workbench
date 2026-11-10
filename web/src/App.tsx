@@ -260,6 +260,9 @@ export default function App() {
                       )
                     }
                   >
+                    {(route.kind === kind || (kind === 'tasks' && route.kind === 'task')) && (
+                      <motion.i className="nav-pill" layoutId="nav-pill" aria-hidden="true" />
+                    )}
                     <Icon name={icon!} />
                     {!collapsed && (
                       <>
@@ -449,6 +452,7 @@ export default function App() {
                         layout: 'grid' as const,
                         columns: 3 as const,
                         density: 'auto' as const,
+                        mode: 'pinned' as const,
                       };
                       setDeck((current) => ({ tabs: [...current.tabs, tab], active: tab.id }));
                       setFocus('');
@@ -468,6 +472,7 @@ export default function App() {
                       }))
                     }
                     onOpen={(id, tab) => navigate(`#task/${id}/${tab}`)}
+                    onCreate={() => setDraftOpen(true)}
                   />
                 ) : route.kind === 'tasks' ? (
                   <TasksPage
@@ -477,7 +482,11 @@ export default function App() {
                     onCreate={() => setDraftOpen(true)}
                   />
                 ) : route.kind === 'inbox' ? (
-                  <InboxPage onOpen={(id) => navigate(`#task/${id}/overview`)} />
+                  <InboxPage
+                    tasks={tasks}
+                    loading={!bootstrap}
+                    onOpen={(id) => navigate(`#task/${id}/overview`)}
+                  />
                 ) : route.kind === 'memory' ? (
                   <MemoryPage />
                 ) : route.kind === 'settings' || route.kind === 'agents' ? (

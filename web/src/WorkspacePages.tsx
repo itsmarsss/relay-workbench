@@ -6,7 +6,9 @@ import { Markdown } from './Markdown';
 import { Modal } from './Modal';
 import { Select, ProviderIcon, ProviderName, providerName } from './UI';
 import { Notice, useMutation, useResource, useSession, request } from './Session';
-import type { RelayConfig, Bootstrap } from './types';
+import type { RelayConfig, Bootstrap, Task } from './types';
+import { AttentionList } from './AttentionList';
+import { inTaskScope } from './board';
 import { asObject } from './task-data';
 import { stageNames } from './presentation';
 const providers = ['codex', 'claude', 'pi'];
@@ -585,43 +587,59 @@ export function MemoryPage() {
     </section>
   );
 }
-export function InboxPage({ onOpen }: { onOpen: (id: string) => void }) {
-  const { data, error } = useResource<{
-    items: { taskId: string; title: string; status: string; stage: string; summary?: string }[];
-  }>('/api/inbox');
+export function InboxPage({
+  tasks,
+  loading,
+  onOpen,
+}: {
+  tasks: Task[];
+  loading: boolean;
+  onOpen: (id: string) => void;
+}) {
+  const waiting = tasks
+    .filter((task) => inTaskScope(task, 'attention'))
+    .sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''));
+  const approvals = waiting.filter((task) =>
+    ['awaiting_plan', 'awaiting_final'].includes(task.status),
+  );
+  const stopped = waiting.filter((task) => !approvals.includes(task));
+  const groups: [string, Task[]][] = [
+    ['Approvals', approvals],
+    ['Stopped', stopped],
+  ];
   return (
-    <section>
+    <section className="inbox-page" aria-busy={loading}>
       <div className="page-title">
         <div>
-          <h1>Inbox</h1>
-          <p>Decisions and work that need your attention.</p>
+          <h1>Approval inbox</h1>
+          <p>
+            {loading
+              ? 'Loading…'
+              : waiting.length
+                ? `${waiting.length} ${waiting.length === 1 ? 'task needs' : 'tasks need'} your input.`
+                : 'Nothing is waiting on you.'}
+          </p>
         </div>
       </div>
-      {error && <Notice>{error}</Notice>}
-      <div className="record-list">
-        {data?.items.map((item) => (
-          <button className="inbox-row" key={item.taskId} onClick={() => onOpen(item.taskId)}>
-            <span className="task-status">
-              {item.status === 'awaiting_plan'
-                ? 'Choose approach'
-                : item.status === 'awaiting_final'
-                  ? 'Accept changes'
-                  : 'Needs attention'}
-            </span>
-            <span>
-              <strong>{item.title}</strong>
-              {item.summary && <p>{item.summary}</p>}
-            </span>
-            <span>Open →</span>
-          </button>
-        ))}
-        {data?.items.length === 0 && (
-          <div className="empty-state">
-            <h2>All caught up</h2>
-            <p>Relay will surface the next decision here.</p>
-          </div>
-        )}
-      </div>
+      {groups.map(
+        ([label, rows]) =>
+          !!rows.length && (
+            <section className="overview-section" key={label} aria-label={label}>
+              <div className="section-heading">
+                <h2>
+                  {label} <span className="count-chip">{rows.length}</span>
+                </h2>
+              </div>
+              <AttentionList tasks={rows} onOpen={(task) => onOpen(task.id)} />
+            </section>
+          ),
+      )}
+      {!loading && !waiting.length && (
+        <div className="empty-state">
+          <h2>All caught up</h2>
+          <p>Relay will surface the next decision here.</p>
+        </div>
+      )}
     </section>
   );
 }

@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { newDeck, panes, parseDeck, removeNode, splitNode, updateNode } from './deck.ts';
+import type { Task } from './types.ts';
 
 test('layouts retain existing panes across nested splits, updates, and close', () => {
   const deck = newDeck(),
@@ -78,4 +79,63 @@ test('grid additions and reordering preserve every task and layout node', async 
   let bounded = moved;
   while (panes(bounded).length < 8) bounded = addPane(bounded, 'extra');
   assert.equal(addPane(bounded, 'overflow'), bounded);
+});
+
+test('decks follow live work unless panes were placed by hand', async () => {
+  const { addPane } = await import('./deck.ts');
+  const fresh = newDeck();
+  assert.equal(fresh.tabs[0]!.mode, 'live');
+  const { mode: _mode, ...legacy } = fresh.tabs[0]!;
+  const parse = (tab: object) => parseDeck(JSON.stringify({ ...fresh, tabs: [tab] })).tabs[0]!;
+  assert.equal(parse(legacy).mode, 'live', 'An untouched saved deck becomes live');
+  const taskId = 'a5f083b8-b291-4eb4-b5b1-16679076c777';
+  assert.equal(parse({ ...legacy, root: addPane(legacy.root, taskId) }).mode, 'pinned');
+  assert.equal(parse({ ...legacy, layout: 'split' }).mode, 'pinned');
+  assert.equal(parse({ ...legacy, mode: 'pinned' }).mode, 'pinned');
+  assert.equal(parse({ ...legacy, root: addPane(legacy.root, taskId), mode: 'live' }).mode, 'live');
+  assert.equal(parse({ ...legacy, mode: 'elsewhere' }).mode, 'live');
+});
+
+test('live groups put decisions first, then running work, then a short recent tail', async () => {
+  const { liveGroups } = await import('./deck.ts');
+  const task = (id: string, status: string, updatedAt: string, run?: string) =>
+    ({ id, title: id, status, updatedAt, currentRun: run ? { status: run } : undefined }) as Task;
+  const tasks = [
+    task('done-old', 'completed', '2026-01-01T00:00:00Z'),
+    task('done-new', 'completed', '2026-01-05T00:00:00Z'),
+    task('draft', 'draft', '2026-01-03T00:00:00Z'),
+    task('running', 'running', '2026-01-02T00:00:00Z', 'running'),
+    task('plan', 'awaiting_plan', '2026-01-02T00:00:00Z'),
+    task('blocked', 'blocked', '2026-01-04T00:00:00Z', 'running'),
+    task('cancelled', 'cancelled', '2026-01-06T00:00:00Z'),
+    task('finished', 'finished', '2026-01-06T00:00:00Z'),
+  ];
+  const ids = (rows: readonly Task[]) => rows.map((row) => row.id);
+  assert.deepEqual(
+    liveGroups(tasks, 2).map(([id, label, rows]) => [id, label, ids(rows)]),
+    [
+      ['needs', 'Needs you', ['blocked', 'plan']],
+      ['running', 'Running', ['running']],
+      ['recent', 'Recently updated', ['done-new', 'draft']],
+    ],
+  );
+  assert.deepEqual(
+    liveGroups([tasks[0]!]).map(([id]) => id),
+    ['recent'],
+    'Empty groups are left out',
+  );
+  assert.deepEqual(liveGroups([tasks[6]!, tasks[7]!]), []);
+});
+
+test('pinning a live deck carries over at most eight tasks', async () => {
+  const { seedPanes } = await import('./deck.ts');
+  const many = Array.from({ length: 10 }, (_, index) => `task-${index}`);
+  assert.deepEqual(
+    panes(seedPanes(many)).map((pane) => pane.taskId),
+    many.slice(0, 8),
+  );
+  assert.deepEqual(
+    panes(seedPanes([])).map((pane) => pane.taskId),
+    [''],
+  );
 });

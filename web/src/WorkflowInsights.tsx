@@ -4,7 +4,8 @@ import { Select, ProviderName } from './UI';
 import { Notice, useResource } from './Session';
 import { asObject, asText, externalURL } from './task-data';
 import type { FullTask } from './TaskExtras';
-import type { RelayConfig } from './types';
+import { ago, stageNames } from './presentation';
+import type { RelayConfig, TaskView } from './types';
 function duration(ms: number) {
   const seconds = Math.max(0, Math.floor(ms / 1000));
   return seconds >= 3600
@@ -60,43 +61,104 @@ export function WorkflowStatus({ task }: { task: FullTask }) {
     </div>
   );
 }
-export function TaskResult({ task }: { task: FullTask }) {
+export function TaskResult({ task, onTab }: { task: FullTask; onTab?: (tab: TaskView) => void }) {
   const attempts = (Array.isArray(task.attempts) ? task.attempts : []).map(asObject);
-  const latest = [...attempts].reverse().find((run) => run?.handoff);
+  const latest = attempts.findLast((run) => run?.handoff);
   const handoff = asObject(latest?.handoff);
   const entries = (
     Array.isArray(task.repositories) && task.repositories.length ? task.repositories : [task]
   ).map(asObject);
   const findStage = (stage: string) =>
-    [...attempts].reverse().find((run) => run?.stage === stage && run.role !== 'debug');
+    attempts.findLast((run) => run?.stage === stage && run.role !== 'debug');
   const verify = findStage('verify'),
-    review = findStage('review');
+    review = findStage('review'),
+    report = asObject(verify?.handoff);
+  const listed = [report?.checks, asObject(report?.verification)?.checks].find(Array.isArray);
+  const checks = (Array.isArray(listed) ? listed : []).map(asObject),
+    failing = checks.filter((check) => check?.code !== 0).length;
+  const delivered = ['awaiting_final', 'completed', 'finished'].includes(task.status);
+  const risks = Array.isArray(handoff?.risks) ? handoff.risks : [];
+  // A gate is only met when the fingerprint of the current files was recorded for it.
+  const gates: [string, boolean, string][] = [
+    ['Verified', !!task.verifiedFingerprint, asText(verify?.status)],
+    ['Reviewed', !!task.reviewedFingerprint, asText(review?.status)],
+  ];
   return (
     <>
       {handoff && (
         <section className="surface result-brief">
           <div className="section-heading">
-            <h2>Latest result</h2>
-            <span className="muted">{asText(latest?.stage)}</span>
+            <h2>{delivered ? 'Result' : 'Latest handoff'}</h2>
+            <span className="muted">
+              {latest?.role === 'debug'
+                ? 'Debugger'
+                : stageNames[asText(latest?.stage)] || asText(latest?.stage)}
+              {asText(latest?.finishedAt) && ` · ${ago(asText(latest?.finishedAt)).toLowerCase()}`}
+            </span>
           </div>
           <Markdown text={asText(handoff.summary)} />
-          {(!!verify || !!review || !!task.chosenApproach) && (
+          {(!!verify || !!review || delivered) && (
             <div className="result-evidence">
-              <span>Checks · {asText(verify?.status) || 'Pending'}</span>
-              <span>Review · {asText(review?.status) || 'Pending'}</span>
+              {gates.map(([label, met, status]) => (
+                <span key={label} className={met ? 'gate is-met' : 'gate'}>
+                  {met
+                    ? `${label} · current files`
+                    : status === 'complete'
+                      ? `${label} earlier · re-run needed`
+                      : `${label} · ${status ? status.replaceAll('_', ' ') : 'not yet'}`}
+                </span>
+              ))}
+              {!!checks.length && (
+                <span className={failing ? 'gate is-failing' : 'gate is-met'}>
+                  {failing
+                    ? `${failing} of ${checks.length} checks failing`
+                    : `${checks.length} ${checks.length === 1 ? 'check' : 'checks'} passed`}
+                </span>
+              )}
             </div>
           )}
-          {!!(Array.isArray(handoff.risks) && handoff.risks.length) && (
+          {!!checks.length && (
             <details>
-              <summary>Risks</summary>
+              <summary>Checks · {checks.length}</summary>
+              <ul className="result-checks">
+                {checks.map((check, index) => (
+                  <li key={index}>
+                    <strong className={check?.code === 0 ? 'is-met' : 'is-failing'}>
+                      {check?.code === 0 ? 'Passed' : 'Failed'}
+                    </strong>
+                    <span>
+                      {asText(check?.name) ||
+                        asText(check?.summary, 400) ||
+                        [
+                          asText(check?.command),
+                          ...(Array.isArray(check?.args) ? check.args : []),
+                        ].join(' ')}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </details>
+          )}
+          {!!risks.length && (
+            <details>
+              <summary>Risks and notes · {risks.length}</summary>
               <ul>
-                {handoff.risks.map((risk, i) => (
+                {risks.map((risk, i) => (
                   <li key={i}>
                     <Markdown text={asText(risk)} />
                   </li>
                 ))}
               </ul>
             </details>
+          )}
+          {onTab && (
+            <div className="result-actions">
+              {/* The review banner above already carries this next to Accept. */}
+              {task.status !== 'awaiting_final' && (
+                <button onClick={() => onTab('diff')}>View changes</button>
+              )}
+              <button onClick={() => onTab('handoffs')}>Full reports</button>
+            </div>
           )}
         </section>
       )}

@@ -2,16 +2,9 @@ import { Icon, ProviderIcon } from './UI';
 import { TaskPicker } from './TaskPicker';
 import { ago, nextStep, stageNames } from './presentation';
 import { statusLabel, type Task, type TaskView } from './types';
-import type { Pane } from './deck';
+import { isLive, needsDecision, type Pane } from './deck';
 
-export const needsDecision = (task: Task) =>
-  ['awaiting_plan', 'awaiting_final', 'blocked', 'interrupted', 'paused', 'manual'].includes(
-    task.status,
-  );
-export const isLive = (task: Task) =>
-  task.currentRun?.status === 'running' ||
-  (task.status === 'running' &&
-    !['completed', 'complete', 'failed', 'cancelled'].includes(task.currentRun?.status || ''));
+export { isLive, needsDecision };
 export function runTime(task: Task, now: number) {
   const start = Date.parse(task.currentRun?.startedAt || '');
   if (!isLive(task) || !Number.isFinite(start)) return null;

@@ -678,6 +678,53 @@ let input='';process.stdin.on('data',d=>input+=d);process.stdin.on('end',()=>{
 
   // Populated decks must remain usable with a keyboard and nested pane layouts.
   await page.goto(origin + '/#deck');
+  // A live deck fills itself; nothing has to be added by hand.
+  const deckMode = page.getByRole('group', { name: 'Deck contents', exact: true });
+  await page.locator('.deck-group .monitor-tile').first().waitFor();
+  assert.equal(
+    await deckMode.getByRole('button', { name: 'Live', exact: true }).getAttribute('aria-pressed'),
+    'true',
+    'A new deck starts live',
+  );
+  assert.equal(
+    await page.getByRole('combobox', { name: 'Add task to grid', exact: true }).count(),
+    0,
+    'A live deck has no manual picker',
+  );
+  await audit('live-deck');
+  await page.locator('.deck-group .monitor-task-title').first().click();
+  await page.getByRole('dialog').waitFor();
+  await page.keyboard.press('Escape');
+  await deckMode.getByRole('button', { name: 'Pinned', exact: true }).click();
+  await page.getByRole('button', { name: 'Edit grid', exact: true }).waitFor();
+  assert.ok(
+    (await page.locator('.deck-monitor-grid .monitor-tile').count()) > 0,
+    'Pinning starts from the tasks already on screen',
+  );
+  await deckMode.getByRole('button', { name: 'Live', exact: true }).click();
+  await page.locator('.deck-group').first().waitFor();
+  // The manual grid below starts from an empty pinned workspace.
+  await page.evaluate(() => {
+    const tab = crypto.randomUUID();
+    localStorage.setItem(
+      'relay-react-deck-v1',
+      JSON.stringify({
+        active: tab,
+        tabs: [
+          {
+            id: tab,
+            name: 'Workspace 1',
+            root: { type: 'pane', id: crypto.randomUUID(), taskId: '', view: 'overview' },
+            layout: 'grid',
+            columns: 3,
+            density: 'auto',
+            mode: 'pinned',
+          },
+        ],
+      }),
+    );
+  });
+  await page.reload();
   await page.getByText('Add tasks to monitor.', { exact: true }).waitFor();
   assert.equal(
     await page.locator('.monitor-tile').count(),

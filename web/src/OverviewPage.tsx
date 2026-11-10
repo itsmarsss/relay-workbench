@@ -1,19 +1,13 @@
-import { Fragment, useEffect, useState } from 'react';
-import { Icon, ProviderIcon, RelayMark } from './UI';
+import { useEffect, useState } from 'react';
+import { Icon, ProviderIcon, RelayMark, providerName } from './UI';
 import { inTaskScope, taskLane } from './board';
-import { ago, nextStep, stageNames } from './presentation';
+import { AttentionList, TaskFacts } from './AttentionList';
+import { ago, stageNames } from './presentation';
 import { isLive, runTime } from './TaskMonitor';
 import { statusLabel, type Task } from './types';
 
-const repositoryNames = (task: Task) =>
-  task.repositories?.length
-    ? task.repositories
-        .map((row) => row.repository?.name)
-        .filter(Boolean)
-        .join(' + ')
-    : task.repository?.name || 'Unspecified';
 const newest = (a: Task, b: Task) => (b.updatedAt || '').localeCompare(a.updatedAt || '');
-
+const plural = (count: number, one: string, many: string) => `${count} ${count === 1 ? one : many}`;
 export function OverviewPage({
   tasks,
   loading,
@@ -27,7 +21,7 @@ export function OverviewPage({
 }) {
   const waiting = tasks.filter((task) => inTaskScope(task, 'attention')).sort(newest);
   const active = tasks.filter((task) => inTaskScope(task, 'active')).sort(newest);
-  const backlog = tasks.filter((task) => taskLane(task) === 'backlog');
+  const backlog = tasks.filter((task) => taskLane(task) === 'backlog').sort(newest);
   const finished = tasks
     .filter((task) => ['done', 'finished'].includes(taskLane(task)))
     .sort(newest);
@@ -40,42 +34,76 @@ export function OverviewPage({
   }, [live]);
   const hour = new Date().getHours();
   const greeting = hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';
-  const summary = [
+  const approvals = waiting.filter((task) =>
+    ['awaiting_plan', 'awaiting_final'].includes(task.status),
+  ).length;
+  const runningStages = [
+    ...new Set(
+      active.map((task) => stageNames[task.currentRun?.stage || task.stage || ''] || 'Queued'),
+    ),
+  ];
+  const stats = [
     {
       scope: 'attention',
-      text: waiting.length
-        ? `${waiting.length} ${waiting.length === 1 ? 'task needs' : 'tasks need'} you`
-        : 'Nothing needs you',
+      count: waiting.length,
+      label: 'Need you',
+      detail: waiting.length
+        ? [
+            approvals && plural(approvals, 'approval', 'approvals'),
+            waiting.length - approvals && `${waiting.length - approvals} stopped`,
+          ]
+            .filter(Boolean)
+            .join(' · ')
+        : 'Nothing is waiting on you',
       tone: waiting.length ? 'attention' : '',
     },
     {
       scope: 'active',
-      text: active.length ? `${active.length} running` : 'nothing running',
+      count: active.length,
+      label: 'Running',
+      detail: active.length
+        ? runningStages.length > 2
+          ? `Across ${runningStages.length} stages`
+          : runningStages.join(', ')
+        : 'No agents working',
       tone: active.length ? 'running' : '',
     },
-    { scope: 'backlog', text: `${backlog.length} in backlog`, tone: '' },
-    { scope: 'done', text: `${finished.length} done`, tone: '' },
+    {
+      scope: 'backlog',
+      count: backlog.length,
+      label: 'Backlog',
+      detail: backlog.length ? 'Ready to start' : 'Nothing queued up',
+      tone: '',
+    },
+    {
+      scope: 'done',
+      count: finished.length,
+      label: 'Done',
+      detail: finished.length
+        ? `Latest ${ago(finished[0]?.updatedAt).toLowerCase()}`
+        : 'Nothing yet',
+      tone: '',
+    },
   ];
   const open = (task: Task) => onNavigate(`#task/${task.id}/overview`);
   return (
     <section className="overview-page" aria-busy={loading}>
       <div className="overview-heading">
         <h1>{greeting}</h1>
-        <p className="overview-summary" aria-label="Workspace summary">
-          {loading
-            ? 'Loading your workspace…'
-            : summary.map((item, index) => (
-                <Fragment key={item.scope}>
-                  {index > 0 && <span aria-hidden="true"> · </span>}
-                  <button
-                    className={`summary-link ${item.tone}`}
-                    onClick={() => onNavigate(`#tasks?scope=${item.scope}`)}
-                  >
-                    {item.text}
-                  </button>
-                </Fragment>
-              ))}
-        </p>
+      </div>
+      <div className="overview-stats" role="group" aria-label="Workspace summary">
+        {stats.map((stat) => (
+          <button
+            key={stat.scope}
+            className="overview-stat"
+            data-tone={stat.tone || undefined}
+            onClick={() => onNavigate(`#tasks?scope=${stat.scope}`)}
+          >
+            <span className="overview-stat-label">{stat.label}</span>
+            <strong>{loading ? '–' : stat.count}</strong>
+            <small>{loading ? 'Loading…' : stat.detail}</small>
+          </button>
+        ))}
       </div>
       {!!waiting.length && (
         <section className="overview-section" aria-labelledby="needs-you-heading">
@@ -88,106 +116,113 @@ export function OverviewPage({
               <Icon name="arrow" size={16} />
             </button>
           </div>
-          <div className="attention-list">
-            {waiting.map((task) => (
-              <button
-                className="attention-row"
-                data-lane={taskLane(task)}
-                key={task.id}
-                onClick={() => open(task)}
-              >
-                <span className="attention-main">
-                  <span className="attention-meta">
-                    <span className="attention-kind">{statusLabel(task.status)}</span>
-                    <span>{repositoryNames(task)}</span>
-                    <time>{ago(task.updatedAt)}</time>
-                  </span>
-                  <strong>{task.title}</strong>
-                  {(task.error || task.latestSummary) && (
-                    <span className="attention-reason">{task.error || task.latestSummary}</span>
-                  )}
-                </span>
-                <span className="attention-action">
-                  {nextStep(task)}
-                  <Icon name="arrow" size={15} />
-                </span>
-              </button>
-            ))}
-          </div>
+          <AttentionList tasks={waiting} onOpen={open} />
         </section>
       )}
-      <section className="overview-section" aria-labelledby="running-heading">
-        <div className="section-heading">
-          <h2 id="running-heading">
-            Running now <span className="count-chip">{active.length}</span>
-          </h2>
-          {!!active.length && (
+      {!!active.length && (
+        <section className="overview-section" aria-labelledby="running-heading">
+          <div className="section-heading">
+            <h2 id="running-heading">
+              Running now <span className="count-chip">{active.length}</span>
+            </h2>
             <button className="text-button" onClick={() => onNavigate('#deck')}>
               Task deck
               <Icon name="arrow" size={16} />
             </button>
-          )}
-        </div>
-        {active.length ? (
+          </div>
           <div className="quiet-list">
             {active.map((task) => {
               const stage = task.currentRun?.stage || task.stage || '';
               const time = runTime(task, now);
+              const model = task.currentRun?.actualModel || task.currentRun?.model;
               return (
-                <button className="quiet-row" key={task.id} onClick={() => open(task)}>
+                <button className="quiet-row running-row" key={task.id} onClick={() => open(task)}>
                   <span className={`live-dot ${isLive(task) ? 'is-live' : ''}`} />
-                  <strong>{task.title}</strong>
-                  <span className="quiet-detail">
-                    {stageNames[stage] || statusLabel(task.status)}
+                  <span className="quiet-copy">
+                    <strong>{task.title}</strong>
+                    <TaskFacts task={task} lead={stageNames[stage] || statusLabel(task.status)} />
                   </span>
-                  <span className="quiet-detail">{repositoryNames(task)}</span>
-                  <span className="quiet-end">
+                  <span className="quiet-agent">
                     {task.currentRun?.harness && (
-                      <ProviderIcon provider={task.currentRun.harness} size={18} />
+                      <>
+                        <ProviderIcon provider={task.currentRun.harness} size={18} />
+                        <span>
+                          {providerName(task.currentRun.harness)}
+                          {model && ` · ${model}`}
+                        </span>
+                      </>
                     )}
-                    <time>{time ? time.label : ago(task.updatedAt)}</time>
                   </span>
+                  <time>{time ? time.label : ago(task.updatedAt)}</time>
                 </button>
               );
             })}
           </div>
-        ) : (
-          <p className="overview-empty">
-            {backlog.length
-              ? 'No agents are working. Start a backlog task when you are ready.'
-              : 'No agents are working.'}
-          </p>
-        )}
-      </section>
-      {tasks.length ? (
-        <section className="overview-section" aria-labelledby="finished-heading">
-          <div className="section-heading">
-            <h2 id="finished-heading">
-              Recently finished <span className="count-chip">{finished.length}</span>
-            </h2>
-            <button className="text-button" onClick={() => onNavigate('#tasks')}>
-              View all tasks
-              <Icon name="arrow" size={16} />
-            </button>
-          </div>
-          {finished.length ? (
-            <div className="quiet-list">
-              {finished.slice(0, 6).map((task) => (
-                <button className="quiet-row" key={task.id} onClick={() => open(task)}>
-                  <Icon name="check" size={15} />
-                  <strong>{task.title}</strong>
-                  <span className="quiet-detail">{statusLabel(task.status)}</span>
-                  <span className="quiet-detail">{repositoryNames(task)}</span>
-                  <span className="quiet-end">
-                    <time>{ago(task.updatedAt)}</time>
-                  </span>
-                </button>
-              ))}
-            </div>
-          ) : (
-            <p className="overview-empty">Accepted work will appear here.</p>
-          )}
         </section>
+      )}
+      {tasks.length ? (
+        <div className="overview-columns">
+          <section className="overview-section" aria-labelledby="backlog-heading">
+            <div className="section-heading">
+              <h2 id="backlog-heading">
+                Up next <span className="count-chip">{backlog.length}</span>
+              </h2>
+              <button className="text-button" onClick={() => onNavigate('#tasks?scope=backlog')}>
+                Backlog
+                <Icon name="arrow" size={16} />
+              </button>
+            </div>
+            {backlog.length ? (
+              <div className="quiet-list">
+                {backlog.slice(0, 8).map((task) => (
+                  <button className="quiet-row" key={task.id} onClick={() => open(task)}>
+                    <span className="quiet-copy">
+                      <strong>{task.title}</strong>
+                      <TaskFacts task={task} lead="Not started" />
+                    </span>
+                    <time>{ago(task.updatedAt)}</time>
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <p className="overview-empty">
+                Nothing is queued up.{' '}
+                <button className="text-button" onClick={onCreate}>
+                  New task
+                </button>
+              </p>
+            )}
+          </section>
+          <section className="overview-section" aria-labelledby="finished-heading">
+            <div className="section-heading">
+              <h2 id="finished-heading">
+                Recently finished <span className="count-chip">{finished.length}</span>
+              </h2>
+              <button className="text-button" onClick={() => onNavigate('#tasks?scope=done')}>
+                All finished
+                <Icon name="arrow" size={16} />
+              </button>
+            </div>
+            {finished.length ? (
+              <div className="quiet-list">
+                {finished.slice(0, 8).map((task) => (
+                  <button className="quiet-row" key={task.id} onClick={() => open(task)}>
+                    <span className="quiet-copy">
+                      <strong>{task.title}</strong>
+                      <TaskFacts task={task} lead={statusLabel(task.status)} />
+                      {task.latestSummary && (
+                        <span className="quiet-summary">{task.latestSummary}</span>
+                      )}
+                    </span>
+                    <time>{ago(task.updatedAt)}</time>
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <p className="overview-empty">Accepted work will appear here.</p>
+            )}
+          </section>
+        </div>
       ) : (
         !loading && (
           <div className="welcome-card">

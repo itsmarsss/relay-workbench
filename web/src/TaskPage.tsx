@@ -1,15 +1,22 @@
 import { WorkflowStatus, TaskResult } from './WorkflowInsights';
 import { TaskSidebar } from './TaskSidebar';
-import { ago, stageNames, nextStep } from './presentation';
+import {
+  ago,
+  nextStep,
+  repositoryNames,
+  shortDate,
+  stageNames,
+  ticketLabel,
+  ticketURL,
+} from './presentation';
 import { useMutation } from './Session';
-import { asObject } from './task-data';
 import { AutoControl, ForkLinks } from './WorkflowHistory';
 import { useEffect, useState } from 'react';
 import { TaskMenu, ContinueWork, PublicationPanel, type FullTask } from './TaskExtras';
 import { motion } from 'motion/react';
 import { Markdown } from './Markdown';
 import { TaskPanel } from './TaskPanel';
-import { currentBlocker, latestPlan } from './task-data';
+import { asObject, asText, currentBlocker, latestPlan } from './task-data';
 import { isTask, statusLabel, taskViews, type Task, type TaskView } from './types';
 import { Icon } from './Icons';
 import { taskLane } from './board';
@@ -20,20 +27,29 @@ type Details = Task &
     demo?: boolean;
     preset?: string;
   };
-function ticketURL(value: string): string | null {
-  try {
-    const url = new URL(value);
-    return ['http:', 'https:'].includes(url.protocol) && !url.username && !url.password
-      ? url.href
-      : null;
-  } catch {
-    return null;
-  }
-}
-// GitHub-style issue URLs read better as owner/repo#number.
-function ticketLabel(url: string): string {
-  const match = /^https?:\/\/[^/]+\/([^/]+\/[^/]+)\/(?:issues|pull)\/(\d+)/.exec(url);
-  return match ? `${match[1]}#${match[2]}` : url.replace(/^https?:\/\//, '');
+// Issue templates leave HTML comments behind; they are instructions to the author, not content.
+const visibleDescription = (text: string) => text.replace(/<!--[\s\S]*?-->/g, '').trim();
+function Description({ text }: { text: string }) {
+  const body = visibleDescription(text),
+    long = body.length > 1400 || body.split('\n').length > 24;
+  const [open, setOpen] = useState(false);
+  return (
+    <section className="description-card">
+      <h2>Description &amp; requirements</h2>
+      {body ? (
+        <div className={long && !open ? 'description-body is-clipped' : 'description-body'}>
+          <Markdown text={body} />
+        </div>
+      ) : (
+        <p>No description provided.</p>
+      )}
+      {long && (
+        <button className="text-button" aria-expanded={open} onClick={() => setOpen(!open)}>
+          {open ? 'Show less' : 'Show full description'}
+        </button>
+      )}
+    </section>
+  );
 }
 function bannerTone(task: Task): { tone: string; kicker: string } {
   const lane = taskLane(task);
@@ -263,12 +279,19 @@ export function TaskPage({
   const banner = bannerTone(task);
   const stage = stageNames[task.currentRun?.stage || task.stage || ''] || '';
   const awaitingReview = implementationPreview && task.status === 'awaiting_final';
-  const repositories = task.repositories?.length
-    ? task.repositories
-        .map((row) => row.repository?.name)
-        .filter(Boolean)
-        .join(' + ')
-    : task.repository?.name || 'Unspecified';
+  const attempts = (Array.isArray(task.attempts) ? task.attempts : []).map(asObject);
+  const handoffs = attempts.filter((run) => run?.handoff).length;
+  // The list endpoint carries a summary; older and imported tasks only have it on the handoff.
+  const summary =
+    task.latestSummary ||
+    task.error ||
+    asText(asObject(attempts.findLast((run) => run?.handoff)?.handoff)?.summary, 600);
+  const kicker = (
+    <div className="status-kicker">
+      <span>{banner.kicker}</span>
+      {stage && <span>{stage}</span>}
+    </div>
+  );
   return (
     <section className="task-page">
       <button className="back" onClick={onBack}>
@@ -280,7 +303,7 @@ export function TaskPage({
           <h1>{task.title}</h1>
           <div className="task-meta">
             <span className={`task-status status-${task.status}`}>{statusLabel(task.status)}</span>
-            <span>{repositories}</span>
+            <span>{repositoryNames(task)}</span>
             {task.ticket &&
               (url ? (
                 <a href={url} target="_blank" rel="noopener noreferrer" title={task.ticket}>
@@ -290,6 +313,9 @@ export function TaskPage({
                 <span>{task.ticket}</span>
               ))}
             <span className="task-id">{task.id.slice(0, 8)}</span>
+            {shortDate(asText(task.createdAt)) && (
+              <span>Created {shortDate(asText(task.createdAt))}</span>
+            )}
             {task.updatedAt && <span>Updated {ago(task.updatedAt).toLowerCase()}</span>}
             {task.currentRun?.role === 'debug' && task.currentRun.status === 'running' && (
               <span>
@@ -336,35 +362,36 @@ export function TaskPage({
 
       <div className="task-layout">
         <div className="task-main">
-          <section className={`status-banner tone-${banner.tone}`} aria-label="Current status">
-            <div className="status-banner-body">
-              <div className="status-kicker">
-                <span>{banner.kicker}</span>
-                {stage && <span>{stage}</span>}
+          {/* The decision panels below state the same thing with the controls attached. */}
+          {!blocker && !plan && (
+            <section className={`status-banner tone-${banner.tone}`} aria-label="Current status">
+              <div className="status-banner-body">
+                {kicker}
+                <h2>{awaitingReview ? 'Ready for your review' : nextStep(task)}</h2>
+                <p>
+                  {summary ||
+                    (task.status === 'draft'
+                      ? 'Relay will investigate, propose an approach and ask before implementing.'
+                      : 'No update yet.')}
+                </p>
+                {task.currentRun?.status === 'running' && (
+                  <WorkflowStatus task={task as FullTask} />
+                )}
               </div>
-              <h2>{awaitingReview ? 'Ready for your review' : nextStep(task)}</h2>
-              <p>
-                {task.latestSummary ||
-                  task.error ||
-                  (task.status === 'draft'
-                    ? 'Relay will investigate, propose an approach and ask before implementing.'
-                    : 'No update yet.')}
-              </p>
-              {task.currentRun?.status === 'running' && <WorkflowStatus task={task as FullTask} />}
-            </div>
-            {awaitingReview && (
-              <div className="task-page-actions">
-                <button onClick={() => onTab('diff')}>View changes</button>
-                <button
-                  className="primary"
-                  disabled={busy || !task.taskRevision}
-                  onClick={() => void decide('accept')}
-                >
-                  {busy ? 'Checking…' : 'Accept result'}
-                </button>
-              </div>
-            )}
-          </section>
+              {awaitingReview && (
+                <div className="task-page-actions">
+                  <button onClick={() => onTab('diff')}>View changes</button>
+                  <button
+                    className="primary"
+                    disabled={busy || !task.taskRevision}
+                    onClick={() => void decide('accept')}
+                  >
+                    {busy ? 'Checking…' : 'Accept result'}
+                  </button>
+                </div>
+              )}
+            </section>
+          )}
           {asObject(task.migration)?.readOnly === true && (
             <section className="surface imported-notice">
               <div>
@@ -409,17 +436,33 @@ export function TaskPage({
           )}
           {blocker && (
             <section className="blocker-panel" aria-label="Blocker decision">
+              {kicker}
               <h2>Needs your decision</h2>
               <p>{blocker.summary || 'The debugger needs direction.'}</p>
-              {blocker.explanation && <Markdown text={blocker.explanation} />}
-              {(blocker.evidence.length > 0 || blocker.required.length > 0) && (
-                <details>
-                  <summary>Evidence and required help</summary>
+              {blocker.required.length > 0 && (
+                <div className="blocker-required">
+                  <h3>What needs your input</h3>
                   <ul>
-                    {[...blocker.evidence, ...blocker.required].map((item, index) => (
+                    {blocker.required.map((item, index) => (
                       <li key={index}>{item}</li>
                     ))}
                   </ul>
+                </div>
+              )}
+              {(blocker.explanation || blocker.evidence.length > 0) && (
+                <details>
+                  <summary>
+                    Full explanation
+                    {blocker.evidence.length > 0 && ` and evidence · ${blocker.evidence.length}`}
+                  </summary>
+                  {blocker.explanation && <Markdown text={blocker.explanation} />}
+                  {blocker.evidence.length > 0 && (
+                    <ul>
+                      {blocker.evidence.map((item, index) => (
+                        <li key={index}>{item}</li>
+                      ))}
+                    </ul>
+                  )}
                 </details>
               )}
               {blocker.options.length > 0 && (
@@ -489,6 +532,7 @@ export function TaskPage({
           )}
           {plan && (
             <section className="plan-preview" aria-label="Proposed approaches">
+              {kicker}
               <h2>Proposed approaches</h2>
               {plan.summary && <p>{plan.summary}</p>}
               {plan.reason && <Markdown text={plan.reason} />}
@@ -578,6 +622,9 @@ export function TaskPage({
                   size={16}
                 />
                 {view.label}
+                {view.id === 'handoffs' && !!handoffs && (
+                  <span className="count-chip">{handoffs}</span>
+                )}
                 {tab === view.id && (
                   <motion.span className="scope-indicator" layoutId={`task-view-${task.id}`} />
                 )}
@@ -594,15 +641,8 @@ export function TaskPage({
               <div className="task-overview">
                 <ForkLinks task={task as FullTask} />
                 <PublicationPanel task={task as FullTask} />
-                <TaskResult task={task as FullTask} />
-                <section className="description-card">
-                  <h2>Description &amp; requirements</h2>
-                  {task.description ? (
-                    <Markdown text={task.description} />
-                  ) : (
-                    <p>No description provided.</p>
-                  )}
-                </section>
+                <TaskResult task={task as FullTask} onTab={onTab} />
+                <Description text={task.description || ''} />
                 {asObject(task.migration)?.readOnly !== true && !task.demo && (
                   <ContinueWork task={task as FullTask} />
                 )}
