@@ -4,7 +4,7 @@ import { CopyButton, Select } from './UI';
 import { Notice, request, useResource } from './Session';
 import { asObject, asText } from './task-data';
 import type { FullTask } from './TaskExtras';
-import { activityWindow } from './activity-window';
+import { activityEntries, activityWindow } from './activity-window';
 
 type Row = Record<string, unknown> & { seq: number };
 function rows(value: unknown): Row[] {
@@ -236,7 +236,7 @@ export function ActivityPanel({ taskId, logs = false }: { taskId: string; logs?:
     }
   }
   const stages = [...new Set(events.map((row) => asText(row.stage)).filter(Boolean))];
-  const visible = events.filter(
+  const visible = activityEntries(events).filter(
     (row) =>
       (logs
         ? row.type === 'transcript'
@@ -296,7 +296,8 @@ export function ActivityPanel({ taskId, logs = false }: { taskId: string; logs?:
           {visible.map((row) => {
             const text = asText(row.summary || row.activity || row.message || row.text, 50000),
               detail = asText(row.details, 100000),
-              passoff = row.type === 'handoff';
+              passoff = row.type === 'handoff',
+              tool = row.kind === 'tool';
             return (
               <li key={row.seq} className={`activity-entry ${passoff ? 'is-handoff' : ''}`}>
                 <div className="activity-entry-meta">
@@ -311,11 +312,11 @@ export function ActivityPanel({ taskId, logs = false }: { taskId: string; logs?:
                     {when(row.at || row.timestamp)}
                   </time>
                 </div>
-                {logs ? <pre>{text || detail}</pre> : <Markdown text={text || detail} />}{' '}
+                {logs || tool ? <pre>{text || detail}</pre> : <Markdown text={text || detail} />}{' '}
                 {!!text && !!detail && text !== detail && !logs && (
                   <details>
                     <summary>Details</summary>
-                    <Markdown text={detail} />
+                    {tool ? <pre>{detail}</pre> : <Markdown text={detail} />}
                   </details>
                 )}
               </li>

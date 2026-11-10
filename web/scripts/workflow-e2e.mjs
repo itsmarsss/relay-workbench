@@ -138,6 +138,7 @@ if (prompt.includes('SUPERVISED VERIFICATION:')) {
   if (check.status !== (failing ? 7 : 0)) process.exit(check.status || 1);
   handoff.verification = { checks: [{ repositoryId: 'fixture', cwd, command, args, code: check.status, summary: failing ? 'Focused check failed' : 'Focused check passed' }], requirements: [{ repositoryId: 'fixture', source: 'fixture instructions', requirement: 'Check changed behavior', checkIndices: [0] }], reuse: [] };
 }
+console.log(JSON.stringify({ type: 'item.started', item: { type: 'command_execution', command: "inspect __init__.py --glob '*[test]*'" } }));
 console.log(JSON.stringify({ type: 'item.completed', item: { type: 'agent_message', text: JSON.stringify(handoff) } }));
 `;
   await writeFile(agent, agentProgram, { mode: 0o700 });
@@ -324,6 +325,17 @@ console.log(JSON.stringify({ type: 'item.completed', item: { type: 'agent_messag
     .getByText('Fixture investigation complete', { exact: true })
     .first()
     .waitFor({ timeout: 10000 });
+  const activity = page.getByLabel('Task activity', { exact: true });
+  const validatedHandoffs = firstTask.attempts.filter((attempt) => attempt.handoff).length;
+  assert.equal(
+    await activity.getByText('Fixture investigation complete', { exact: true }).count(),
+    validatedHandoffs,
+    'Each provider result must appear once after its handoff is saved',
+  );
+  await activity
+    .getByText("Running: inspect __init__.py --glob '*[test]*'", { exact: true })
+    .first()
+    .waitFor();
 
   await page.getByRole('button', { name: 'Overview', exact: true }).click();
   await page.getByRole('radio', { name: 'Select Small change' }).check();
