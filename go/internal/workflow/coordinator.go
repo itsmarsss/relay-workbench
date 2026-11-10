@@ -14,6 +14,7 @@ import (
 	"unicode/utf16"
 
 	"relay.local/relay/internal/harness"
+	"relay.local/relay/internal/issue"
 	"relay.local/relay/internal/process"
 	"relay.local/relay/internal/recovery"
 	"relay.local/relay/internal/storage"
@@ -773,6 +774,64 @@ func (c *Coordinator) Diff(ctx context.Context, id string) (map[string]any, erro
 		result = append(result, row)
 	}
 	return map[string]any{"repositories": result}, nil
+}
+
+// ImportIssue uses only a configured provider command and treats the ticket as
+// a literal argument. No task or source files are modified by Relay.
+func (c *Coordinator) ImportIssue(ctx context.Context, repositoryID, revision, ticket string) (issue.Result, error) {
+	if ctx == nil {
+		return issue.Result{}, errors.New("issue import context is required")
+	}
+	configService := task.ConfigurationService{Store: c.store}
+	config, err := configService.Read()
+	if err != nil {
+		return issue.Result{}, err
+	}
+	if revision == "" || revision != config.Revision {
+		return issue.Result{}, store.ErrConfigChanged
+	}
+	var profile map[string]any
+	for _, value := range array(config.Value["repositories"]) {
+		candidate := object(value)
+		if text(candidate["id"]) == repositoryID {
+			profile = candidate
+			break
+		}
+	}
+	if profile == nil {
+		return issue.Result{}, errors.New("repository profile not found")
+	}
+	command := object(profile["issueCommand"])
+	args, valid := stringsFromArray(command["args"])
+	if !valid || text(command["command"]) == "" {
+		return issue.Result{}, errors.New("configure an issue import command for this repository")
+	}
+	invocation := issue.Command{Executable: text(command["command"]), Args: args}
+	if _, _, err = issue.Invocation(invocation, ticket); err != nil {
+		return issue.Result{}, err
+	}
+	environment := map[string]string{}
+	for key, value := range c.env {
+		environment[key] = value
+	}
+	environment["GIT_OPTIONAL_LOCKS"] = "0"
+	runner := workspace.Runner{WorkerExecutable: c.worker, WorkerArgs: c.args, Environment: environment}
+	info, err := runner.Inspect(ctx, workspace.Profile{Path: text(profile["path"]), Cwd: text(profile["cwd"])})
+	if err != nil {
+		return issue.Result{}, err
+	}
+	result, err := issue.Import(ctx, invocation, ticket, info.Cwd, issue.ProcessExecutor(c.worker, c.args, environment))
+	if err != nil {
+		return issue.Result{}, err
+	}
+	current, err := configService.Read()
+	if err != nil {
+		return issue.Result{}, err
+	}
+	if current.Revision != revision {
+		return issue.Result{}, store.ErrConfigChanged
+	}
+	return result, nil
 }
 
 func (c *Coordinator) acquire(ctx context.Context, limit int) error {

@@ -5,11 +5,12 @@ import {
   createTask,
   fetchBootstrap,
   fetchTasks,
+  importIssue,
   saveConfig,
   taskAction,
   resolveBlocker,
 } from './api';
-import type { Bootstrap, RelayConfig, Task } from './types';
+import type { Bootstrap, ImportedIssue, RelayConfig, Task } from './types';
 
 export function useRelay() {
   const [tasks, setTasks] = useState<Task[]>([]),
@@ -161,6 +162,25 @@ export function useRelay() {
       void refreshRef.current();
     }
   }
+  async function importTicket(
+    repositoryId: string,
+    ticket: string,
+    signal?: AbortSignal,
+  ): Promise<ImportedIssue> {
+    if (!bootstrap?.issueImportPreview) throw new Error('Issue import is unavailable.');
+    try {
+      return await importIssue(
+        bootstrap.token,
+        repositoryId,
+        bootstrap.configRevision,
+        ticket,
+        signal,
+      );
+    } catch (failure) {
+      void refreshRef.current();
+      throw failure;
+    }
+  }
   return {
     tasks,
     bootstrap,
@@ -172,6 +192,7 @@ export function useRelay() {
     approve,
     accept,
     resolve,
+    importTicket,
     refresh: () => refreshRef.current(),
   };
 }

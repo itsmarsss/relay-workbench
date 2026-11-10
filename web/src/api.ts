@@ -1,4 +1,11 @@
-import { isConfig, isTask, type Bootstrap, type RelayConfig, type Task } from './types.ts';
+import {
+  isConfig,
+  isTask,
+  type Bootstrap,
+  type ImportedIssue,
+  type RelayConfig,
+  type Task,
+} from './types.ts';
 export class ApiError extends Error {
   status: number;
   constructor(message: string, status: number) {
@@ -54,6 +61,47 @@ export async function fetchBootstrap(signal?: AbortSignal): Promise<Bootstrap> {
     implementationPreview:
       'implementationPreview' in result && result.implementationPreview === true,
     debugRecoveryPreview: 'debugRecoveryPreview' in result && result.debugRecoveryPreview === true,
+    issueImportPreview: 'issueImportPreview' in result && result.issueImportPreview === true,
+  };
+}
+export async function importIssue(
+  token: string,
+  repositoryId: string,
+  configRevision: string,
+  ticket: string,
+  signal?: AbortSignal,
+): Promise<ImportedIssue> {
+  const result = await json(
+    await fetch('/api/issues/import', {
+      method: 'POST',
+      signal,
+      headers: { 'Content-Type': 'application/json', 'X-Relay-Token': token },
+      body: JSON.stringify({ repositoryId, configRevision, ticket }),
+    }),
+  );
+  if (
+    !result ||
+    typeof result !== 'object' ||
+    !('title' in result) ||
+    typeof result.title !== 'string' ||
+    !result.title ||
+    result.title.length > 240 ||
+    !('description' in result) ||
+    typeof result.description !== 'string' ||
+    result.description.length > 50000 ||
+    !('ticket' in result) ||
+    typeof result.ticket !== 'string' ||
+    result.ticket.length > 2000 ||
+    !('warnings' in result) ||
+    !Array.isArray(result.warnings) ||
+    !result.warnings.every((warning: unknown) => typeof warning === 'string')
+  )
+    throw new Error('Imported issue data is invalid.');
+  return {
+    title: result.title,
+    description: result.description,
+    ticket: result.ticket,
+    warnings: result.warnings,
   };
 }
 export async function resolveBlocker(

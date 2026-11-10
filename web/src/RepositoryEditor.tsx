@@ -203,8 +203,8 @@ export function RepositoryEditor({
       <details>
         <summary>Managed workspace and provider commands</summary>
         <p className="form-note">
-          Configure workspaceCommand and workspacePath for managed workspaces. Optional issueCommand
-          and prCommand remain provider-agnostic.
+          Configure workspaceCommand and workspacePath for managed workspaces. An issueCommand must
+          include <code>{'{ticket}'}</code> as a separate argument.
         </p>
         <textarea
           aria-label="Advanced repository options"

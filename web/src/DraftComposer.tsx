@@ -1,8 +1,8 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Modal } from './Modal';
 import { Markdown } from './Markdown';
 import { draftRequest } from './forms';
-import type { RelayConfig, Task } from './types';
+import type { ImportedIssue, RelayConfig, Task } from './types';
 const presets = [
   { id: 'bugfix', label: 'Bug fix' },
   { id: 'small', label: 'Small change' },
@@ -13,12 +13,16 @@ const presets = [
 export function DraftComposer({
   config,
   workflowPreview,
+  issueImportPreview,
+  onImport,
   onCreate,
   onClose,
   onCreated,
 }: {
   config: RelayConfig;
   workflowPreview: boolean;
+  issueImportPreview: boolean;
+  onImport: (repositoryId: string, ticket: string, signal?: AbortSignal) => Promise<ImportedIssue>;
   onCreate: (request: Record<string, unknown>) => Promise<Task>;
   onClose: () => void;
   onCreated: (task: Task) => void;
@@ -34,7 +38,68 @@ export function DraftComposer({
     [preview, setPreview] = useState(false),
     [error, setError] = useState(''),
     [busy, setBusy] = useState(false),
+    [importing, setImporting] = useState(false),
+    [importWarnings, setImportWarnings] = useState<string[]>([]),
     [query, setQuery] = useState('');
+  const importController = useRef<AbortController | null>(null);
+  const priorImport = useRef<{
+    repositoryId: string;
+    references: string[];
+    description: string;
+    title: string;
+  } | null>(null);
+  const current = useRef({ title, description, ticket, primary });
+  current.current = { title, description, ticket, primary };
+  useEffect(() => () => importController.current?.abort(), []);
+  const primaryProfile = config.repositories.find((repository) => repository.id === primary);
+  const hasImporter =
+    !!primaryProfile?.issueCommand && typeof primaryProfile.issueCommand === 'object';
+  async function importContext() {
+    if (!primary || !ticket.trim() || importing || busy) return;
+    const repositoryId = primary,
+      reference = ticket.trim(),
+      controller = new AbortController();
+    importController.current = controller;
+    setImporting(true);
+    setError('');
+    setImportWarnings([]);
+    try {
+      const result = await onImport(repositoryId, reference, controller.signal);
+      if (current.current.primary !== repositoryId || current.current.ticket.trim() !== reference) {
+        throw new Error('Repository or issue changed while importing. Try again.');
+      }
+      const previous = priorImport.current;
+      const sameIssue =
+        previous?.repositoryId === repositoryId && previous.references.includes(reference);
+      const existing = current.current.description;
+      const prefix =
+        sameIssue && previous?.description && existing.endsWith(previous.description)
+          ? existing.slice(0, -previous.description.length)
+          : existing.trim() && result.description
+            ? `${existing.trimEnd()}\n\n---\n\n`
+            : existing;
+      const nextDescription = prefix + result.description;
+      if (nextDescription.length > 50000)
+        throw new Error('Combined description exceeds 50,000 characters. Existing text was kept.');
+      if (!current.current.title.trim() || (sameIssue && current.current.title === previous?.title))
+        setTitle(result.title);
+      setDescription(nextDescription);
+      setTicket(result.ticket);
+      priorImport.current = {
+        repositoryId,
+        references: [reference, result.ticket],
+        description: result.description,
+        title: result.title,
+      };
+      setImportWarnings(result.warnings);
+    } catch (failure) {
+      if (!(failure instanceof DOMException && failure.name === 'AbortError'))
+        setError(failure instanceof Error ? failure.message : 'Could not import issue context.');
+    } finally {
+      if (importController.current === controller) importController.current = null;
+      setImporting(false);
+    }
+  }
   function choose(id: string, checked: boolean) {
     const next = checked ? [...selected, id] : selected.filter((item) => item !== id);
     setSelected(next);
@@ -44,11 +109,14 @@ export function DraftComposer({
     <Modal
       title="New task"
       onClose={() => {
-        if (!busy) onClose();
+        if (!busy) {
+          importController.current?.abort();
+          onClose();
+        }
       }}
       onSubmit={async (event) => {
         event.preventDefault();
-        if (busy) return;
+        if (busy || importing) return;
         setError('');
         try {
           const request = draftRequest(
@@ -83,7 +151,7 @@ export function DraftComposer({
           <button type="button" onClick={onClose} disabled={busy}>
             Cancel
           </button>
-          <button className="primary" type="submit" disabled={busy}>
+          <button className="primary" type="submit" disabled={busy || importing}>
             {busy ? 'Creating…' : 'Create draft'}
           </button>
         </>
@@ -139,6 +207,29 @@ export function DraftComposer({
           maxLength={2000}
         />
       </label>
+      {issueImportPreview && !demo && (
+        <div className="issue-import">
+          <button
+            type="button"
+            disabled={!primary || !hasImporter || !ticket.trim() || importing || busy}
+            onClick={() => void importContext()}
+          >
+            {importing ? 'Importing…' : 'Import issue context'}
+          </button>
+          <small>
+            {!primary
+              ? 'Select a repository first.'
+              : !hasImporter
+                ? 'Configure an issue import command for this repository.'
+                : 'Imports the issue and available discussion into the description.'}
+          </small>
+          {importWarnings.map((warning) => (
+            <p role="status" key={warning}>
+              {warning}
+            </p>
+          ))}
+        </div>
+      )}
       <fieldset>
         <legend>Workflow</legend>
         <div className="choice-row">

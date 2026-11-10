@@ -261,6 +261,7 @@ export default function App() {
       approve,
       accept,
       resolve,
+      importTicket,
     } = useRelay(),
     [deck, setDeck] = useState(initialDeck),
     [focus, setFocus] = useState(''),
@@ -533,6 +534,8 @@ export default function App() {
         <DraftComposer
           config={bootstrap.config}
           workflowPreview={bootstrap.workflowPreview}
+          issueImportPreview={bootstrap.issueImportPreview}
+          onImport={importTicket}
           onCreate={create}
           onClose={() => setDraftOpen(false)}
           onCreated={(task) => {

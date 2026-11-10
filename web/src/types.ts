@@ -107,6 +107,13 @@ export type Bootstrap = {
   workflowPreview: boolean;
   implementationPreview: boolean;
   debugRecoveryPreview: boolean;
+  issueImportPreview: boolean;
+};
+export type ImportedIssue = {
+  title: string;
+  description: string;
+  ticket: string;
+  warnings: string[];
 };
 export function isConfig(value: unknown): value is RelayConfig {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
