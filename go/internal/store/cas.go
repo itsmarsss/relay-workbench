@@ -38,6 +38,11 @@ func (s *Store) CompareAndSwap(id string, expected, next, event json.RawMessage)
 // CompareAndSwapWithMeta also guards exact metadata snapshots inside the same
 // transaction, so revoked delegation cannot race a committed decision.
 func (s *Store) CompareAndSwapWithMeta(id string, expected, next, event json.RawMessage, guards map[string]MetaSnapshot) (json.RawMessage, error) {
+	return s.CompareAndSwapMetadata(id, expected, next, event, guards, nil)
+}
+
+// CompareAndSwapMetadata commits a task, event and metadata together.
+func (s *Store) CompareAndSwapMetadata(id string, expected, next, event json.RawMessage, guards map[string]MetaSnapshot, writes map[string]string) (json.RawMessage, error) {
 	var fields map[string]json.RawMessage
 	if json.Unmarshal(next, &fields) != nil || fields == nil {
 		return nil, errors.New("invalid task")
@@ -141,6 +146,11 @@ func (s *Store) CompareAndSwapWithMeta(id string, expected, next, event json.Raw
 		}
 		C.sqlite3_finalize(stmt)
 		if err != nil {
+			return nil, err
+		}
+	}
+	for key, value := range writes {
+		if err = s.setMeta(key, value); err != nil {
 			return nil, err
 		}
 	}

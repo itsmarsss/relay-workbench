@@ -9,3 +9,4 @@ createRoot(root).render(
     <App />
   </React.StrictMode>,
 );
+import '@xterm/xterm/css/xterm.css';

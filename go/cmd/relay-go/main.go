@@ -18,6 +18,7 @@ import (
 	"relay.local/relay/internal/httpapi"
 	"relay.local/relay/internal/process"
 	"relay.local/relay/internal/store"
+	"relay.local/relay/internal/terminal"
 	"relay.local/relay/internal/verification"
 	"relay.local/relay/internal/workflow"
 )
@@ -59,6 +60,7 @@ func run(args []string) (result error) {
 		return err
 	}
 	defer coordinator.Close()
+	coordinator.EnableTerminals()
 	chats, err := assistant.New(db, worker, []string{"--internal-worker"}, nil, coordinator)
 	if err != nil {
 		return err
@@ -90,6 +92,12 @@ func run(args []string) (result error) {
 	return nil
 }
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "--internal-terminal-worker" {
+		os.Exit(terminal.Worker(os.Args[2:]))
+	}
+	if len(os.Args) > 1 && os.Args[1] == "--internal-terminal-pane" {
+		os.Exit(terminal.Pane(os.Args[2:]))
+	}
 	if len(os.Args) > 1 && os.Args[1] == "--internal-assistant-mcp" {
 		os.Exit(assistant.MCPClient(os.Args[2:], os.Stdin, os.Stdout, os.Stderr))
 	}

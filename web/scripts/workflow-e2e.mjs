@@ -342,6 +342,30 @@ console.log(JSON.stringify({ type: 'item.completed', item: { type: 'agent_messag
     'preserve changes',
   );
 
+  // Take over from the browser, type into the PTY, then return control.
+  await page.getByRole('button', { name: 'Terminal', exact: true }).click();
+  await page.getByRole('button', { name: 'Take control', exact: true }).click();
+  await page
+    .getByRole('dialog', { name: 'Take control' })
+    .getByRole('button', { name: 'Open terminal' })
+    .click();
+  await page.getByText('You have control', { exact: true }).waitFor({ timeout: 15000 });
+  await page.getByLabel('Interactive terminal', { exact: true }).focus();
+  await page.keyboard.type('printf terminal-ok > manual.txt');
+  await page.keyboard.press('Enter');
+  await until(async () => {
+    try {
+      return (await readFile(join(resumed.workspaceRoot, 'manual.txt'), 'utf8')) === 'terminal-ok';
+    } catch {
+      return false;
+    }
+  }, 'browser terminal input');
+  await page.getByRole('button', { name: 'Return control', exact: true }).click();
+  await until(
+    async () => (await (await fetch(`${base}/api/tasks/${second.id}`)).json()).status === 'paused',
+    'manual release',
+  );
+  assert.equal(await readFile(join(resumed.workspaceRoot, 'manual.txt'), 'utf8'), 'terminal-ok');
   async function approveTask(title) {
     const created = await draft(title);
     await page.goto(`${base}/#task/${created.id}/overview`);
@@ -407,6 +431,54 @@ console.log(JSON.stringify({ type: 'item.completed', item: { type: 'agent_messag
         message.text.includes('newly available capability') && message.delivery === 'delivered',
     ),
   );
+  // Restore a plan choice into a separate task without losing later edits.
+  await page.goto(`${base}/#task/${first.id}/overview`);
+  const originalFinal = await (await fetch(`${base}/api/tasks/${first.id}`)).json();
+  await writeFile(join(originalFinal.workspaceRoot, 'source.txt'), 'preserve later edits\n');
+  await page.getByRole('button', { name: /^Checkpoints/ }).click();
+  const checkpointDialog = page.getByRole('dialog', { name: 'Continue from a checkpoint' });
+  await checkpointDialog.getByRole('button', { name: 'Continue with', exact: true }).click();
+  await page
+    .getByRole('option', { name: 'Choose a different saved approach', exact: true })
+    .click();
+  await checkpointDialog.getByRole('button', { name: 'Create continuation' }).click();
+  await until(
+    async () => /#task\/(?!${first.id})/.test(page.url()) && !page.url().includes(first.id),
+    'continuation navigation',
+  );
+  await page.getByRole('heading', { name: 'Proposed approaches' }).waitFor({ timeout: 45000 });
+  const forkID = page.url().match(/#task\/([^/]+)/)[1];
+  const restored = await until(async () => {
+    const t = await (await fetch(`${base}/api/tasks/${forkID}`)).json();
+    return t.checkpointRestore?.status === 'complete' ? t : null;
+  }, 'checkpoint restore');
+  assert.notEqual(restored.workspaceRoot, originalFinal.workspaceRoot);
+  assert.equal(
+    await readFile(join(originalFinal.workspaceRoot, 'source.txt'), 'utf8'),
+    'preserve later edits\n',
+  );
+  assert.equal(restored.verifiedFingerprint, undefined);
+  assert.equal(restored.chosenApproach, null);
+  // Auto is an explicit task-scoped delegation, separate from ordinary approval.
+  const automatic = await draft('Automatic fixture');
+  await page.goto(`${base}/#task/${automatic.id}/overview`);
+  await page.getByRole('button', { name: 'Auto off', exact: true }).click();
+  await page
+    .getByRole('dialog', { name: 'Authorize Auto mode' })
+    .getByRole('button', { name: 'Authorize for this task' })
+    .click();
+  await page.getByRole('button', { name: 'Auto on', exact: true }).waitFor();
+  await page.getByRole('button', { name: 'Start investigation' }).click();
+  const automated = await until(
+    async () => {
+      const t = await (await fetch(`${base}/api/tasks/${automatic.id}`)).json();
+      return t.status === 'completed' ? t : null;
+    },
+    'delegated workflow',
+    45000,
+  );
+  assert.equal(automated.approvals.length, 2);
+  assert.ok(automated.approvals.every((a) => a.automation?.authorizationId));
   assert.deepEqual(errors, []);
   console.log(
     'React/Go workflow: issue import, approval, verification, repair, debugger recovery, blocker decisions, review, diff, acceptance, pause and resume passed.',

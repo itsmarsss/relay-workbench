@@ -1,4 +1,5 @@
 import { SideChat } from './Chat';
+import { AutoControl, ForkLinks } from './WorkflowHistory';
 import { useEffect, useState } from 'react';
 import {
   TaskMenu,
@@ -282,6 +283,7 @@ export function TaskPage({
               </button>
             )}
           <TaskMenu task={task} onDeleted={onBack} />
+          <AutoControl task={task as FullTask} />
           <button onClick={onDeck}>Open task deck</button>
         </div>
       </div>
@@ -483,6 +485,7 @@ export function TaskPage({
         {tab === 'overview' ? (
           <div className="task-overview">
             <ExecutionGraph task={task as FullTask} />
+            <ForkLinks task={task as FullTask} />
             <PublicationPanel task={task as FullTask} />
             <TaskPanel task={task} view="overview" />
             <section className="description-card">

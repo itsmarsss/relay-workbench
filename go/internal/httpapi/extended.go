@@ -25,6 +25,9 @@ func result(w http.ResponseWriter, value any, err error, status int) {
 	}
 }
 func (s *Server) extended(w http.ResponseWriter, r *http.Request) bool {
+	if s.terminalRoute(w, r) {
+		return true
+	}
 	if s.assistantRoute(w, r) {
 		return true
 	}
@@ -133,6 +136,22 @@ func (s *Server) extended(w http.ResponseWriter, r *http.Request) bool {
 		respond(w, 200, map[string]any{"items": items})
 		return true
 	}
+	if strings.HasPrefix(path, "/api/tasks/") && strings.HasSuffix(path, "/history") && r.Method == "GET" {
+		id := strings.TrimSuffix(strings.TrimPrefix(path, "/api/tasks/"), "/history")
+		if !taskID.MatchString(id) {
+			respond(w, 400, map[string]string{"error": "Invalid task ID"})
+			return true
+		}
+		if history, ok := s.workflow.(interface {
+			History(string) (map[string]any, error)
+		}); ok {
+			value, err := history.History(id)
+			result(w, value, err, 200)
+		} else {
+			respond(w, 503, map[string]string{"error": "History unavailable"})
+		}
+		return true
+	}
 	if strings.HasPrefix(path, "/api/tasks/") {
 		parts := strings.Split(strings.TrimPrefix(path, "/api/tasks/"), "/")
 		if !taskID.MatchString(parts[0]) {
@@ -147,7 +166,7 @@ func (s *Server) extended(w http.ResponseWriter, r *http.Request) bool {
 			}
 		} else if len(parts) == 2 && r.Method == "POST" {
 			switch parts[1] {
-			case "status-override", "message", "request-changes", "replan", "review-comment", "monitor", "publication", "feedback":
+			case "automation", "checkpoint", "status-override", "message", "request-changes", "replan", "review-comment", "monitor", "publication", "feedback":
 				operation = parts[1]
 			}
 		}

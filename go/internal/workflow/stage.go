@@ -39,6 +39,7 @@ type StageRunner struct {
 }
 
 type StageOptions struct {
+	Terminals           bool
 	Config              harness.Config
 	EnabledProviders    map[string]bool
 	Admission           workspace.Admission
@@ -327,7 +328,7 @@ func (s *StageRunner) Run(ctx context.Context, taskID string, options StageOptio
 	if session != nil {
 		expected = session.fingerprint
 	}
-	result, runErr := harness.Execute(ctx, harness.RunRequest{Store: s.Store, TaskID: taskID, AttemptID: id, Stage: stage, Provider: provider, Config: config, Prompt: prompt, Cwd: active.cwd, ActiveRepositoryID: active.id, Workspaces: workspaces, Lease: lease, Admission: options.Admission, Inspector: options.Inspector, WorkerExecutable: options.WorkerExecutable, WorkerArgs: options.WorkerArgs, Environment: options.Environment, Timeout: options.Timeout, OnEvent: onEvent, Debug: debugging, ExpectedBefore: expected})
+	result, runErr := harness.Execute(ctx, harness.RunRequest{Terminals: options.Terminals, Store: s.Store, TaskID: taskID, AttemptID: id, Stage: stage, Provider: provider, Config: config, Prompt: prompt, Cwd: active.cwd, ActiveRepositoryID: active.id, Workspaces: workspaces, Lease: lease, Admission: options.Admission, Inspector: options.Inspector, WorkerExecutable: options.WorkerExecutable, WorkerArgs: options.WorkerArgs, Environment: options.Environment, Timeout: options.Timeout, OnEvent: onEvent, Debug: debugging, ExpectedBefore: expected})
 	var evidence []any
 	if session != nil {
 		evidence, runErr = session.finish(result, runErr)

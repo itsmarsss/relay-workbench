@@ -48,6 +48,7 @@ type Coordinator struct {
 	active      int
 	changed     chan struct{}
 	closed      bool
+	terminals   bool
 	catalog     *catalog.Catalog
 	monitorStop chan struct{}
 	monitorDone chan struct{}
@@ -62,7 +63,7 @@ func NewCoordinator(db *store.Store, worker string, args []string, env map[strin
 		return nil, err
 	}
 	registry := workspace.NewRegistry()
-	c := &Coordinator{store: db, worker: worker, args: append([]string(nil), args...), env: map[string]string{}, area: area, registry: registry, repos: workspace.NewRegistry(), checks: make(chan struct{}, 1), jobs: map[string]*coordinatorJob{}, scans: make(chan struct{}, 4), changed: make(chan struct{})}
+	c := &Coordinator{store: db, worker: worker, args: append([]string(nil), args...), env: map[string]string{}, area: area, registry: registry, repos: workspace.NewWriterRegistry(), checks: make(chan struct{}, 1), jobs: map[string]*coordinatorJob{}, scans: make(chan struct{}, 4), changed: make(chan struct{})}
 	for key, value := range env {
 		c.env[key] = value
 	}
@@ -151,13 +152,21 @@ func (c *Coordinator) recoverInterrupted() error {
 				}
 			}
 		}
-		if status != "running" && status != "queued" && !auxiliary {
+		if status != "running" && status != "queued" && status != "manual" && object(item["checkpointRestore"])["status"] != "preparing" && !auxiliary {
 			continue
 		}
 		_, err = c.update(id, func(current map[string]any) error {
-			if current["status"] == "running" || current["status"] == "queued" {
+			if current["status"] == "running" || current["status"] == "queued" || current["status"] == "manual" {
 				current["status"] = "interrupted"
 				current["error"] = "Relay stopped before this stage finished. Inspect the retained workspace before resuming."
+			}
+			if restore := object(current["checkpointRestore"]); restore["status"] == "preparing" {
+				restore["status"] = "interrupted"
+				current["status"] = "blocked"
+				current["error"] = "Checkpoint restoration was interrupted. Retained worktrees need inspection before retrying."
+			}
+			if err := c.store.SetMeta("terminal:"+id, `{"active":false}`); err != nil {
+				return err
 			}
 			entries := array(current["repositories"])
 			if len(entries) <= 1 {
@@ -248,6 +257,10 @@ func (c *Coordinator) Resume(id string) (map[string]any, error) {
 }
 
 func (c *Coordinator) enqueue(id string, resume bool) (map[string]any, error) {
+	return c.enqueueMode(id, resume, false)
+}
+
+func (c *Coordinator) enqueueMode(id string, resume, automatic bool) (map[string]any, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.closed {
@@ -277,13 +290,21 @@ func (c *Coordinator) enqueue(id string, resume bool) (map[string]any, error) {
 	var publicationResume *publicationPrepared
 	result, err := c.update(id, func(value map[string]any) error {
 		status := text(value["status"])
+		autoGate := automatic && (status == "awaiting_plan" || status == "awaiting_final")
+		if autoGate {
+			meta, exists, err := c.store.GetMeta("automation:" + id)
+			var delegation map[string]any
+			if err != nil || !exists || json.Unmarshal([]byte(meta), &delegation) != nil || delegation["enabled"] != true {
+				return errors.New("Auto delegation is no longer enabled")
+			}
+		}
 		if value["demo"] == true {
 			return errors.New("simulated workflows are not ported yet")
 		}
 		if !resume && status != "draft" {
 			return errors.New("start requires a draft task")
 		}
-		if resume && status != "paused" && status != "interrupted" && status != "blocked" {
+		if resume && !autoGate && status != "paused" && status != "interrupted" && status != "blocked" {
 			return errors.New("task cannot resume in its current state")
 		}
 		entries, err := profiles(value)
@@ -299,7 +320,7 @@ func (c *Coordinator) enqueue(id string, resume bool) (map[string]any, error) {
 				return errors.New("implementation requires an approved approach")
 			}
 			for _, entry := range entries {
-				if text(entry["workspaceRoot"]) == "" || entry["workspaceDraft"] != nil || entry["setupCompleted"] != true {
+				if text(entry["workspaceRoot"]) == "" || entry["workspaceDraft"] != nil || entry["setupCompleted"] != true && object(value["checkpointRestore"])["status"] != "complete" {
 					return errors.New("workspace or setup is incomplete; inspect retained work before continuing")
 				}
 			}
@@ -363,7 +384,10 @@ func (c *Coordinator) enqueue(id string, resume bool) (map[string]any, error) {
 				value["stage"] = "triage"
 			}
 		}
-		value["status"], value["error"] = "queued", nil
+		if !autoGate {
+			value["status"] = "queued"
+		}
+		value["error"] = nil
 		return nil
 	}, map[string]any{"type": "queued", "summary": "Workflow queued for investigation or planning."})
 	if err != nil {
@@ -466,7 +490,7 @@ func (c *Coordinator) Approve(ctx context.Context, id, optionID, note, attemptID
 		return nil, err
 	}
 	for _, entry := range entries {
-		if text(entry["workspaceRoot"]) == "" || entry["workspaceDraft"] != nil || entry["setupCompleted"] != true {
+		if text(entry["workspaceRoot"]) == "" || entry["workspaceDraft"] != nil || entry["setupCompleted"] != true && object(value["checkpointRestore"])["status"] != "complete" {
 			return nil, errors.New("workspace or setup is incomplete; inspect retained work before continuing")
 		}
 	}
@@ -676,7 +700,7 @@ func (c *Coordinator) Resolve(ctx context.Context, id, revision, decisionID, res
 			return nil, err
 		}
 		for _, entry := range entries {
-			if text(entry["workspaceRoot"]) == "" || entry["workspaceDraft"] != nil || entry["setupCompleted"] != true {
+			if text(entry["workspaceRoot"]) == "" || entry["workspaceDraft"] != nil || entry["setupCompleted"] != true && object(value["checkpointRestore"])["status"] != "complete" {
 				return nil, errors.New("workspace or setup is incomplete; inspect retained work before continuing")
 			}
 		}
@@ -962,6 +986,7 @@ func (c *Coordinator) reserveRepositories(ctx context.Context, id string) (*work
 		case <-ctx.Done():
 			return nil, nil, ctx.Err()
 		case <-changed:
+		case <-time.After(500 * time.Millisecond):
 		}
 	}
 }
@@ -1003,6 +1028,7 @@ func (c *Coordinator) run(ctx context.Context, id string, limit int, timeout tim
 		c.notifyLocked()
 		close(job.done)
 		c.mu.Unlock()
+		go c.autoPublish(id)
 	}()
 	repoLease, repoRoots, err := c.reserveRepositories(ctx, id)
 	if err != nil {
@@ -1036,6 +1062,16 @@ func (c *Coordinator) run(ctx context.Context, id string, limit int, timeout tim
 				err = errors.New("invalid task state")
 				break
 			}
+			if value["status"] == "awaiting_plan" || value["status"] == "awaiting_final" {
+				decided, autoErr := c.automate(ctx, id, value, revalidate)
+				if autoErr != nil {
+					err = autoErr
+					break
+				}
+				if decided {
+					continue
+				}
+			}
 			if text(value["status"]) != "queued" {
 				break
 			}
@@ -1054,7 +1090,10 @@ func (c *Coordinator) run(ctx context.Context, id string, limit int, timeout tim
 				break
 			}
 			inspector := workspace.Runner{WorkerExecutable: c.worker, WorkerArgs: c.args, Environment: c.env}
-			err = c.stages.Run(ctx, id, StageOptions{Config: configs[provider], Harnesses: configs, EnabledProviders: enabled, Admission: guard, Inspector: inspector, WorkerExecutable: c.worker, WorkerArgs: c.args, Environment: c.env, Timeout: timeout, CheckGate: c.checks, MaxRepairRounds: repairLimit, MaxRecoveryAttempts: recoveryLimit})
+			err = c.stages.Run(ctx, id, StageOptions{Terminals: c.terminals, Config: configs[provider], Harnesses: configs, EnabledProviders: enabled, Admission: guard, Inspector: inspector, WorkerExecutable: c.worker, WorkerArgs: c.args, Environment: c.env, Timeout: timeout, CheckGate: c.checks, MaxRepairRounds: repairLimit, MaxRecoveryAttempts: recoveryLimit})
+			if err == nil {
+				err = c.captureCheckpoint(ctx, id, revalidate)
+			}
 		}
 		if err != nil {
 			return err
@@ -1160,7 +1199,7 @@ func (c *Coordinator) prepare(ctx context.Context, id string, guard storage.Guar
 		profile := object(entry["repository"])
 		repositoryID := text(profile["id"])
 		if text(entry["workspaceRoot"]) != "" {
-			if entry["workspaceDraft"] != nil || entry["setupCompleted"] != true {
+			if entry["workspaceDraft"] != nil || entry["setupCompleted"] != true && object(value["checkpointRestore"])["status"] != "complete" {
 				return errors.New("workspace or setup is incomplete; inspect retained work before continuing")
 			}
 			if err = runner.VerifyExisting(ctx, workspace.Profile{Path: text(profile["path"]), Cwd: text(profile["cwd"])}, text(entry["workspaceRoot"]), text(entry["workspace"]), text(entry["branch"]), text(entry["baseCommit"])); err != nil {

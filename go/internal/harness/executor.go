@@ -17,6 +17,7 @@ import (
 	"relay.local/relay/internal/process"
 	"relay.local/relay/internal/storage"
 	"relay.local/relay/internal/store"
+	"relay.local/relay/internal/terminal"
 	"relay.local/relay/internal/workspace"
 )
 
@@ -43,6 +44,7 @@ type RunRequest struct {
 	OnEvent                                       EventSink
 	Debug                                         bool
 	Auxiliary                                     bool
+	Terminals                                     bool
 	ExpectedBefore                                string
 }
 type RunResult struct {
@@ -421,6 +423,28 @@ func Execute(ctx context.Context, request RunRequest) (RunResult, error) {
 			}
 			if err = verifyArtifacts(); err != nil {
 				return err
+			}
+			if request.Terminals && terminal.Available() {
+				spec, path, terminalErr := terminal.Prepare(request.WorkerExecutable, nil, invocation.Command, invocation.Args, cwd, request.Environment, []byte(request.Prompt), false)
+				if terminalErr != nil {
+					return terminalErr
+				}
+				defer os.RemoveAll(spec.Directory)
+				record := map[string]any{"terminal": spec.Info, "attemptId": request.AttemptID, "active": true}
+				encoded, _ := json.Marshal(record)
+				if err = request.Store.SetMeta("terminal:"+request.TaskID, string(encoded)); err != nil {
+					return err
+				}
+				defer func() {
+					record["active"] = false
+					encoded, _ := json.Marshal(record)
+					_ = request.Store.SetMeta("terminal:"+request.TaskID, string(encoded))
+					request.Store.NotifyChange()
+				}()
+				if err = request.OnEvent(runCtx, map[string]any{"type": "terminal", "terminal": spec.Info, "summary": "Agent terminal is available."}); err != nil {
+					return err
+				}
+				invocation.Command, invocation.Args = request.WorkerExecutable, []string{"--internal-terminal-worker", path}
 			}
 			result.Process, err = process.Run(runCtx, process.Options{WorkerExecutable: request.WorkerExecutable, WorkerArgs: request.WorkerArgs, Command: invocation.Command, Args: invocation.Args, Directory: cwd, Input: []byte(request.Prompt), Environment: request.Environment, Timeout: request.Timeout, Progress: &process.ProgressPolicy{LastProgressUnixMillis: &progress}, MaxOutputBytes: 8 * 1024 * 1024, OnLine: onLine})
 			if ownershipErr := verifyArtifacts(); ownershipErr != nil {

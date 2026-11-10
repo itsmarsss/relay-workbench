@@ -49,6 +49,12 @@ func (c *Coordinator) control(ctx context.Context, id, operation string, body ma
 	if ctx == nil || ctx.Err() != nil {
 		return nil, errors.New("request was cancelled")
 	}
+	if operation == "automation" {
+		return c.setAutomation(id, body)
+	}
+	if operation == "checkpoint" {
+		return c.ForkCheckpoint(ctx, id, body)
+	}
 	if operation == "monitor" {
 		if err := fields(body, "repositoryId"); err != nil {
 			return nil, err

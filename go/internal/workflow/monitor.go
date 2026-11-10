@@ -162,7 +162,7 @@ func (c *Coordinator) runMonitor(ctx context.Context, id, repositoryID, attemptI
 				_, err := c.store.Event(id, encoded)
 				return err
 			}
-			result, err := harness.Execute(ctx, harness.RunRequest{Store: c.store, TaskID: id, AttemptID: attemptID, Stage: "monitor", Provider: provider, Config: config, Prompt: prompt, Cwd: active.cwd, ActiveRepositoryID: repositoryID, Workspaces: workspaces, Lease: lease, Admission: guard, Inspector: workspace.Runner{WorkerExecutable: c.worker, WorkerArgs: c.args, Environment: c.env}, WorkerExecutable: c.worker, WorkerArgs: c.args, Environment: c.env, Timeout: 5 * time.Minute, OnEvent: onEvent, Auxiliary: true})
+			result, err := harness.Execute(ctx, harness.RunRequest{Terminals: c.terminals, Store: c.store, TaskID: id, AttemptID: attemptID, Stage: "monitor", Provider: provider, Config: config, Prompt: prompt, Cwd: active.cwd, ActiveRepositoryID: repositoryID, Workspaces: workspaces, Lease: lease, Admission: guard, Inspector: workspace.Runner{WorkerExecutable: c.worker, WorkerArgs: c.args, Environment: c.env}, WorkerExecutable: c.worker, WorkerArgs: c.args, Environment: c.env, Timeout: 5 * time.Minute, OnEvent: onEvent, Auxiliary: true})
 			if err != nil {
 				return err
 			}

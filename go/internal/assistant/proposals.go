@@ -43,7 +43,7 @@ func (s *Service) propose(chat Chat, name string, input map[string]any) (Proposa
 		}
 		p.Body = map[string]any{"config": validated, "configRevision": config.Revision}
 	} else {
-		allowed := map[string]bool{"edit": true, "status-override": true, "message": true, "request-changes": true, "replan": true, "publication": true, "feedback": true, "monitor": true, "start": true, "resume": true, "pause": true}
+		allowed := map[string]bool{"automation": true, "checkpoint": true, "edit": true, "status-override": true, "message": true, "request-changes": true, "replan": true, "publication": true, "feedback": true, "monitor": true, "start": true, "resume": true, "pause": true}
 		if !allowed[p.Operation] || p.Body == nil {
 			return p, errors.New("unsupported task proposal operation")
 		}

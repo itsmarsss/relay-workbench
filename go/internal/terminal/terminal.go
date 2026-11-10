@@ -1,0 +1,230 @@
+// Package terminal hosts private tmux sessions without evaluating task text.
+package terminal
+
+import (
+	"context"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"os"
+	"os/exec"
+	"os/signal"
+	"path/filepath"
+	"strconv"
+	"strings"
+	"syscall"
+	"time"
+)
+
+type Info struct {
+	Session       string `json:"session"`
+	Socket        string `json:"socket"`
+	AttachCommand string `json:"attachCommand"`
+	Interactive   bool   `json:"interactive"`
+}
+type Spec struct {
+	Info       Info              `json:"terminal"`
+	Command    string            `json:"command"`
+	Args       []string          `json:"args"`
+	Cwd        string            `json:"cwd"`
+	Env        map[string]string `json:"env"`
+	Worker     string            `json:"worker"`
+	WorkerArgs []string          `json:"workerArgs"`
+	Directory  string            `json:"directory"`
+}
+type Result struct {
+	Code  int    `json:"code"`
+	Error string `json:"error,omitempty"`
+}
+
+func Available() bool { _, err := exec.LookPath("tmux"); return err == nil }
+func Prepare(worker string, args []string, command string, commandArgs []string, cwd string, env map[string]string, prompt []byte, interactive bool) (Spec, string, error) {
+	if worker == "" || command == "" || !filepath.IsAbs(cwd) {
+		return Spec{}, "", errors.New("invalid terminal invocation")
+	}
+	if !Available() {
+		return Spec{}, "", errors.New("install tmux to use live terminals")
+	}
+	dir, err := os.MkdirTemp("", "relay-tty-")
+	if err != nil {
+		return Spec{}, "", err
+	}
+	session := "relay-" + filepath.Base(dir)[len("relay-tty-"):]
+	socket := filepath.Join(dir, "tmux.sock")
+	quote := func(s string) string { return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'" }
+	spec := Spec{Info: Info{session, socket, "tmux -S " + quote(socket) + " attach-session -t " + quote(session), interactive}, Command: command, Args: commandArgs, Cwd: cwd, Env: env, Worker: worker, WorkerArgs: args, Directory: dir}
+	encoded, err := json.Marshal(spec)
+	if err == nil {
+		err = os.WriteFile(filepath.Join(dir, "spec.json"), encoded, 0600)
+	}
+	if err == nil {
+		err = os.WriteFile(filepath.Join(dir, "input"), prompt, 0600)
+	}
+	for _, name := range []string{"stdout", "stderr"} {
+		if err == nil {
+			err = os.WriteFile(filepath.Join(dir, name), nil, 0600)
+		}
+	}
+	if err != nil {
+		os.RemoveAll(dir)
+		return Spec{}, "", err
+	}
+	return spec, filepath.Join(dir, "spec.json"), nil
+}
+func readSpec(path string) (Spec, error) {
+	var spec Spec
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return spec, err
+	}
+	if len(data) > 1024*1024 || json.Unmarshal(data, &spec) != nil || spec.Directory != filepath.Dir(path) || !filepath.IsAbs(spec.Cwd) || !strings.HasPrefix(spec.Info.Session, "relay-") || spec.Info.Socket != filepath.Join(spec.Directory, "tmux.sock") {
+		return spec, errors.New("invalid private terminal specification")
+	}
+	return spec, nil
+}
+func command(ctx context.Context, info Info, args ...string) ([]byte, error) {
+	if !strings.HasPrefix(info.Session, "relay-") || !filepath.IsAbs(info.Socket) {
+		return nil, errors.New("invalid terminal")
+	}
+	bounded, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	child := exec.CommandContext(bounded, "tmux", append([]string{"-S", info.Socket}, args...)...)
+	return child.CombinedOutput()
+}
+func Input(ctx context.Context, info Info, data string) error {
+	if len(data) == 0 || len(data) > 8192 {
+		return errors.New("terminal input must contain 1 to 8192 bytes")
+	}
+	encoded := hex.EncodeToString([]byte(data))
+	args := []string{"send-keys", "-t", info.Session, "-H"}
+	for i := 0; i < len(encoded); i += 2 {
+		args = append(args, encoded[i:i+2])
+	}
+	_, err := command(ctx, info, args...)
+	return err
+}
+func Resize(ctx context.Context, info Info, cols, rows int) error {
+	if cols < 20 || cols > 500 || rows < 5 || rows > 200 {
+		return errors.New("invalid terminal dimensions")
+	}
+	_, err := command(ctx, info, "resize-window", "-t", info.Session, "-x", strconv.Itoa(cols), "-y", strconv.Itoa(rows))
+	return err
+}
+func Capture(ctx context.Context, info Info) (string, error) {
+	out, err := command(ctx, info, "capture-pane", "-e", "-p", "-t", info.Session)
+	if len(out) > 1024*1024 {
+		return "", errors.New("terminal preview is too large")
+	}
+	return string(out), err
+}
+
+// Worker is itself run under the liveness-supervised process worker. Its
+// foreground tmux server is never shared with another task or application.
+func Worker(args []string) int {
+	if len(args) != 1 {
+		return 127
+	}
+	spec, err := readSpec(args[0])
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 127
+	}
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
+	defer cancel()
+	server := exec.Command("tmux", "-D", "-S", spec.Info.Socket, "-f", "/dev/null")
+	server.Stderr = os.Stderr
+	if err = server.Start(); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 127
+	}
+	done := make(chan error, 1)
+	go func() { done <- server.Wait() }()
+	defer func() {
+		_, _ = command(context.Background(), spec.Info, "kill-server")
+		_ = server.Process.Kill()
+		select {
+		case <-done:
+		case <-time.After(2 * time.Second):
+		}
+	}()
+	ready := false
+	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); {
+		if _, err = command(ctx, spec.Info, "show-options", "-s"); err == nil {
+			ready = true
+			break
+		}
+		select {
+		case <-ctx.Done():
+			return 130
+		case <-time.After(20 * time.Millisecond):
+		}
+	}
+	if !ready {
+		fmt.Fprintln(os.Stderr, "tmux did not start")
+		return 127
+	}
+	paneArgs := append([]string{"new-session", "-d", "-s", spec.Info.Session, "-x", "120", "-y", "35", "-c", spec.Cwd, "--", spec.Worker}, spec.WorkerArgs...)
+	paneArgs = append(paneArgs, "--internal-terminal-pane", args[0])
+	if out, err := command(ctx, spec.Info, paneArgs...); err != nil {
+		fmt.Fprintln(os.Stderr, string(out), err)
+		return 127
+	}
+	_, _ = command(ctx, spec.Info, "set-option", "-t", spec.Info.Session, "remain-on-exit", "on")
+	offsets := map[string]int64{}
+	flush := func() error {
+		for _, item := range []struct {
+			name string
+			dst  io.Writer
+		}{{"stdout", os.Stdout}, {"stderr", os.Stderr}} {
+			f, err := os.Open(filepath.Join(spec.Directory, item.name))
+			if err != nil {
+				return err
+			}
+			stat, err := f.Stat()
+			if err != nil {
+				f.Close()
+				return err
+			}
+			if stat.Size() > 8*1024*1024 {
+				f.Close()
+				return errors.New("terminal output exceeded limit")
+			}
+			n, err := io.Copy(item.dst, io.NewSectionReader(f, offsets[item.name], stat.Size()-offsets[item.name]))
+			f.Close()
+			offsets[item.name] += n
+			if err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	ticker := time.NewTicker(60 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return 130
+		case <-done:
+			fmt.Fprintln(os.Stderr, "terminal server stopped")
+			return 1
+		case <-ticker.C:
+			if err = flush(); err != nil {
+				fmt.Fprintln(os.Stderr, err)
+				return 1
+			}
+			if raw, readErr := os.ReadFile(filepath.Join(spec.Directory, "result.json")); readErr == nil {
+				var result Result
+				if json.Unmarshal(raw, &result) != nil {
+					return 1
+				}
+				_ = flush()
+				if result.Error != "" {
+					fmt.Fprintln(os.Stderr, result.Error)
+				}
+				return result.Code
+			}
+		}
+	}
+}

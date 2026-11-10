@@ -75,6 +75,10 @@ func publicationPrevious(value map[string]any) map[string]any {
 // Publish records an explicit user request before an agent may perform remote
 // writes. The configured implementation provider handles publication.
 func (c *Coordinator) Publish(ctx context.Context, id, revision, repositoryID string) (map[string]any, error) {
+	return c.publish(ctx, id, revision, repositoryID, nil)
+}
+
+func (c *Coordinator) publish(ctx context.Context, id, revision, repositoryID string, guards map[string]store.MetaSnapshot) (map[string]any, error) {
 	if err := c.waitAtGate(ctx, id, "completed"); err != nil {
 		return nil, err
 	}
@@ -158,7 +162,7 @@ func (c *Coordinator) Publish(ctx context.Context, id, revision, repositoryID st
 		return nil, err
 	}
 	event, _ := json.Marshal(map[string]any{"type": "publication", "stage": "publish", "source": "user", "repositoryId": repositoryID, "attemptId": attemptID, "summary": "Publication agent queued."})
-	saved, err := c.store.CompareAndSwap(id, raw, next, event)
+	saved, err := c.store.CompareAndSwapWithMeta(id, raw, next, event, guards)
 	if err != nil {
 		return nil, err
 	}
@@ -187,6 +191,7 @@ func (c *Coordinator) runPublication(ctx context.Context, id, repositoryID, atte
 		c.notifyLocked()
 		close(job.done)
 		c.mu.Unlock()
+		go c.autoPublish(id)
 	}()
 	var roots []string
 	var err error
@@ -366,7 +371,7 @@ func (c *Coordinator) revalidatePublication(ctx context.Context, id string, prep
 			return false, err
 		}
 		inspector := workspace.Runner{WorkerExecutable: c.worker, WorkerArgs: c.args, Environment: c.env}
-		if err = c.stages.Run(ctx, id, StageOptions{Config: configs[provider], Harnesses: configs, EnabledProviders: enabled, Admission: guard, Inspector: inspector, WorkerExecutable: c.worker, WorkerArgs: c.args, Environment: c.env, Timeout: timeout, CheckGate: c.checks, MaxRepairRounds: repairLimit, MaxRecoveryAttempts: recoveryLimit}); err != nil {
+		if err = c.stages.Run(ctx, id, StageOptions{Terminals: c.terminals, Config: configs[provider], Harnesses: configs, EnabledProviders: enabled, Admission: guard, Inspector: inspector, WorkerExecutable: c.worker, WorkerArgs: c.args, Environment: c.env, Timeout: timeout, CheckGate: c.checks, MaxRepairRounds: repairLimit, MaxRecoveryAttempts: recoveryLimit}); err != nil {
 			return false, err
 		}
 	}
@@ -583,7 +588,7 @@ func (c *Coordinator) publishOnce(ctx context.Context, id, repositoryID, attempt
 			_, err = c.store.Event(id, encoded)
 			return err
 		}
-		result, err := harness.Execute(ctx, harness.RunRequest{Store: c.store, TaskID: id, AttemptID: attemptID, Stage: "publish", Provider: text(object(value["routing"])["implement"]), Config: config, Prompt: prompt, Cwd: active.cwd, ActiveRepositoryID: repositoryID, Workspaces: workspaces, Lease: lease, Admission: guard, Inspector: inspector, WorkerExecutable: c.worker, WorkerArgs: c.args, Environment: c.env, Timeout: timeout, OnEvent: onEvent, Auxiliary: true, ExpectedBefore: snapshot.Combined})
+		result, err := harness.Execute(ctx, harness.RunRequest{Terminals: c.terminals, Store: c.store, TaskID: id, AttemptID: attemptID, Stage: "publish", Provider: text(object(value["routing"])["implement"]), Config: config, Prompt: prompt, Cwd: active.cwd, ActiveRepositoryID: repositoryID, Workspaces: workspaces, Lease: lease, Admission: guard, Inspector: inspector, WorkerExecutable: c.worker, WorkerArgs: c.args, Environment: c.env, Timeout: timeout, OnEvent: onEvent, Auxiliary: true, ExpectedBefore: snapshot.Combined})
 		if err != nil {
 			return err
 		}

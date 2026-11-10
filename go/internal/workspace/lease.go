@@ -14,8 +14,9 @@ var ErrWorkspaceBusy = errors.New("workspace is already reserved")
 var ErrInvalidLease = errors.New("workspace lease is no longer valid")
 
 type Registry struct {
-	mu     sync.Mutex
-	owners map[string]string
+	mu      sync.Mutex
+	owners  map[string]string
+	durable bool
 }
 type Lease struct {
 	mu           sync.RWMutex
@@ -24,9 +25,14 @@ type Lease struct {
 	roots        []string
 	identities   []os.FileInfo
 	released     bool
+	locks        []*os.File
 }
 
 func NewRegistry() *Registry { return &Registry{owners: map[string]string{}} }
+
+// NewWriterRegistry also holds OS locks on the shared Git directories. All
+// linked worktrees of a repository therefore share a writer across processes.
+func NewWriterRegistry() *Registry { return &Registry{owners: map[string]string{}, durable: true} }
 func normalizeRoots(paths []string) ([]string, error) {
 	if len(paths) == 0 {
 		return nil, errors.New("workspace roots are required")
@@ -140,10 +146,23 @@ func (r *Registry) Acquire(owner string, paths []string) (*Lease, error) {
 		}
 		identities[i] = info
 	}
+	locks := []*os.File{}
+	if r.durable {
+		for _, root := range roots {
+			lock, err := lockWriter(root, owner)
+			if err != nil {
+				for _, file := range locks {
+					file.Close()
+				}
+				return nil, err
+			}
+			locks = append(locks, lock)
+		}
+	}
 	for _, root := range roots {
 		r.owners[root] = token
 	}
-	return &Lease{registry: r, token: token, owner: owner, roots: roots, identities: identities}, nil
+	return &Lease{registry: r, token: token, owner: owner, roots: roots, identities: identities, locks: locks}, nil
 }
 
 // Protect prevents release until fn completes. Revalidate must be called after
@@ -190,6 +209,11 @@ func (l *Lease) Protect(owner string, paths []string, fn func(revalidate func() 
 				return ErrInvalidLease
 			}
 		}
+		for _, file := range l.locks {
+			if err := verifyWriter(file); err != nil {
+				return err
+			}
+		}
 		return nil
 	}
 	if err := verify(); err != nil {
@@ -221,5 +245,8 @@ func (l *Lease) Release() {
 		}
 	}
 	l.registry.mu.Unlock()
+	for _, file := range l.locks {
+		file.Close()
+	}
 	l.released = true
 }

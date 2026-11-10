@@ -7,6 +7,7 @@ import { ModelSelect } from './WorkspacePages';
 import { Notice, useMutation, useResource, useSession, request } from './Session';
 import { asObject, asText } from './task-data';
 import type { Task } from './types';
+import { CheckpointControls, type History } from './WorkflowHistory';
 export type FullTask = Task & Record<string, unknown>;
 export function TaskMenu({ task, onDeleted }: { task: Task; onDeleted?: () => void }) {
   const mutation = useMutation(),
@@ -390,6 +391,7 @@ export function PublicationPanel({ task }: { task: FullTask }) {
   );
 }
 export function ExecutionGraph({ task }: { task: FullTask }) {
+  const history = useResource<History>(`/api/tasks/${task.id}/history`);
   const attempts = [
     ...(Array.isArray(task.attempts) ? task.attempts : []),
     ...(Array.isArray(task.deliveryRuns) ? task.deliveryRuns : []),
@@ -421,6 +423,7 @@ export function ExecutionGraph({ task }: { task: FullTask }) {
           </small>
         </div>
         <div className="inline">
+          <CheckpointControls task={task} history={history.data} />
           <button aria-label="Zoom out" onClick={() => setZoom(Math.max(0.5, zoom - 0.1))}>
             −
           </button>

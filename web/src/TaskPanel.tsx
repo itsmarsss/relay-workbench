@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { TerminalPanel } from './TerminalPanel';
 import {
   asObject,
   asText,
@@ -35,7 +36,7 @@ export function TaskPanel({ task, view }: { task: Task; view: TaskView }) {
   useEffect(() => {
     setData({});
     setError('');
-    if (view === 'overview') return;
+    if (view === 'overview' || view === 'terminals') return;
     let alive = true,
       running = false,
       controller: AbortController | null = null,
@@ -125,6 +126,7 @@ export function TaskPanel({ task, view }: { task: Task; view: TaskView }) {
       window.removeEventListener('relay-data-change', onData);
     };
   }, [task.id, view, refreshVersion]);
+  if (view === 'terminals') return <TerminalPanel taskId={task.id} />;
   if (view === 'overview')
     return (
       <div className="pane-content">
@@ -195,15 +197,6 @@ export function TaskPanel({ task, view }: { task: Task; view: TaskView }) {
             );
           })}
         </div>
-      )}
-      {view === 'terminals' && (
-        <>
-          <p className="placeholder">
-            Read-only preview. Interactive terminal control is not ported.
-          </p>
-          {data.label && <strong>{data.label}</strong>}
-          <pre className="terminal">{data.output || data.message || 'Waiting for output…'}</pre>
-        </>
       )}
       {data.entries &&
         (data.entries.length ? (
