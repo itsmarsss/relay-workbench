@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Markdown } from './Markdown';
-import { CopyButton, Select } from './UI';
+import { CopyButton, Select, ProviderName } from './UI';
 import { Notice, request, useResource } from './Session';
 import { asObject, asText } from './task-data';
 import type { FullTask } from './TaskExtras';
@@ -91,7 +91,8 @@ export function HandoffsPanel({ taskId }: { taskId: string }) {
               {row?.role === 'debug' ? 'Debugger' : label(row?.stage)}
             </span>
             <span className="muted">
-              {asText(row?.harness)} · {label(row?.status)} · {when(row?.finishedAt)}
+              <ProviderName provider={asText(row?.harness)} size={22} /> · {label(row?.status)} ·{' '}
+              {when(row?.finishedAt)}
             </span>
           </header>
           <Markdown text={asText(asObject(row?.handoff)?.summary || row?.error)} />
@@ -307,7 +308,7 @@ export function ActivityPanel({ taskId, logs = false }: { taskId: string; logs?:
                   {!!row.stage && (
                     <span>{row.role === 'debug' ? 'Debugger' : label(row.stage)}</span>
                   )}
-                  {!!row.harness && <span>{asText(row.harness)}</span>}
+                  {!!row.harness && <ProviderName provider={asText(row.harness)} size={18} />}
                   <time dateTime={asText(row.at || row.timestamp)}>
                     {when(row.at || row.timestamp)}
                   </time>

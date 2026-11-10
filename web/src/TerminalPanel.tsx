@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useMutation, useResource, useSession, request, Notice } from './Session';
 import { Modal } from './Modal';
-import { Select } from './UI';
+import { Select, ProviderIcon, providerName } from './UI';
 import { ModelSelect } from './WorkspacePages';
 import { asObject, asText } from './task-data';
 import type { FullTask } from './TaskExtras';
@@ -305,7 +305,11 @@ export function TerminalPanel({ taskId }: { taskId: string }) {
             }}
             options={[
               { value: '', label: 'Shell' },
-              ...['codex', 'claude', 'pi'].map((value) => ({ value, label: value })),
+              ...['codex', 'claude', 'pi'].map((value) => ({
+                value,
+                label: providerName(value),
+                icon: <ProviderIcon provider={value} size={22} />,
+              })),
             ]}
           />
           {provider && (

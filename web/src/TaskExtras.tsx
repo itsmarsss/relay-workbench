@@ -3,7 +3,7 @@ import { motion } from 'motion/react';
 import { Markdown } from './Markdown';
 import { useImageUpload } from './ImageUpload';
 import { Modal } from './Modal';
-import { Icon, Select } from './UI';
+import { Icon, Select, ProviderName } from './UI';
 import { ModelSelect, EffortSelect } from './WorkspacePages';
 import { AgentSettings, agentOptions } from './AgentSettings';
 import { Notice, useMutation, useSession, request } from './Session';
@@ -375,7 +375,7 @@ export function ContinueWork({ task }: { task: FullTask }) {
                         setEffort('');
                       }}
                     >
-                      {id}
+                      <ProviderName provider={id} size={22} />
                     </button>
                   ))}
                 </div>

@@ -2,7 +2,7 @@ import { ReviewChanges } from './ReviewChanges';
 import { useEffect, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import { useMutation, useResource, useSession, Notice } from './Session';
-import { Icon, CopyButton, Select } from './UI';
+import { Icon, CopyButton, Select, ProviderIcon, RelayMark } from './UI';
 import { Markdown } from './Markdown';
 import { useImageUpload } from './ImageUpload';
 import { Modal } from './Modal';
@@ -246,7 +246,7 @@ export function ChatPanel({
       <div className="chat-conversation">
         <header className="chat-header">
           <div>
-            <Icon name="relay" size={20} />
+            <RelayMark size={28} />
             <strong>{current?.name || (taskId ? 'Ask Relay' : 'New conversation')}</strong>
             {taskId && <span className="task-status">Read only</span>}
           </div>
@@ -261,6 +261,7 @@ export function ChatPanel({
               </button>
             )}
             <button className="text-button" onClick={() => setSettings(true)}>
+              <ProviderIcon provider={selectedProvider} size={20} />
               {displayModel}
               <Icon name="settings" size={14} />
             </button>
@@ -276,7 +277,7 @@ export function ChatPanel({
         >
           {(!current || current.messages.length === 0) && (
             <div className="chat-welcome">
-              <Icon name="relay" size={40} />
+              <RelayMark size={48} />
               <h2>{taskId ? 'Ask about this task' : 'What are we working on?'}</h2>
               <p>
                 {taskId
@@ -558,6 +559,7 @@ export function ChatPanel({
               options={['codex', 'claude', 'pi'].map((value) => ({
                 value,
                 label: value === 'codex' ? 'Codex' : value === 'claude' ? 'Claude' : 'Pi',
+                icon: <ProviderIcon provider={value} size={22} />,
                 disabled:
                   asObject(asObject(bootstrap?.config.harnesses)?.[value])?.enabled !== true,
               }))}

@@ -81,6 +81,14 @@ let input='';process.stdin.on('data',d=>input+=d);process.stdin.on('end',()=>{
     demo: true,
   });
   browser = await chromium.launch({ executablePath: process.env.RELAY_CHROME, headless: true });
+  for (const [asset, contentType] of [
+    ['theme.js', 'text/javascript'],
+    ['relay.svg', 'image/svg+xml'],
+  ]) {
+    const response = await fetch(origin + '/' + asset);
+    assert.equal(response.status, 200, asset + ' must be served');
+    assert.ok(response.headers.get('Content-Type').startsWith(contentType));
+  }
   const page = await browser.newPage({ viewport: { width: 1440, height: 950 } });
   const errors = [];
   page.on('pageerror', (e) => errors.push(e.message));
@@ -103,6 +111,55 @@ let input='';process.stdin.on('data',d=>input+=d);process.stdin.on('end',()=>{
   assert.match(await input.inputValue(), /#task\//);
   await input.fill('');
   await page.goto(origin + '/#tasks');
+  await page.locator('.task-list').getByText('Workspace fixture', { exact: true }).waitFor();
+  assert.equal(await page.getByRole('button', { name: 'New task', exact: true }).count(), 1);
+  const scopes = page.getByRole('navigation', { name: 'Task status filters' });
+  await scopes.getByRole('button', { name: /^Backlog/ }).click();
+  assert.match(page.url(), /scope=backlog/);
+  await page.reload();
+  await scopes.getByRole('button', { name: /^Backlog/ }).waitFor();
+  assert.equal(
+    await scopes.getByRole('button', { name: /^Backlog/ }).getAttribute('aria-pressed'),
+    'true',
+  );
+  await scopes.getByRole('button', { name: /^All tasks/ }).click();
+  await page.getByRole('button', { name: 'Board', exact: true }).click();
+  assert.match(page.url(), /view=board/);
+  assert.equal(await page.locator('.task-lane').count(), 1, 'Board opens on populated stages');
+  await page.getByRole('checkbox', { name: 'Empty stages', exact: true }).check();
+  assert.equal(await page.locator('.task-lane').count(), 10);
+  await page.reload();
+  await page.getByRole('checkbox', { name: 'Empty stages', exact: true }).waitFor();
+  assert.ok(await page.getByRole('checkbox', { name: 'Empty stages', exact: true }).isChecked());
+  await page.getByRole('button', { name: 'List', exact: true }).click();
+  const sidebarResize = page.getByRole('separator', { name: 'Resize sidebar' });
+  await sidebarResize.focus();
+  await sidebarResize.press('End');
+  await until(
+    async () => (await page.locator('.sidebar').boundingBox()).width === 340,
+    'sidebar keyboard resize',
+  );
+  await page.reload();
+  await until(
+    async () => (await page.locator('.sidebar').boundingBox()).width === 340,
+    'saved sidebar width',
+  );
+  await page.getByRole('button', { name: 'Collapse sidebar', exact: true }).click();
+  await until(
+    async () => (await page.locator('.sidebar').boundingBox()).width === 64,
+    'collapsed sidebar',
+  );
+  await page.getByRole('button', { name: 'Expand sidebar', exact: true }).click();
+  await until(
+    async () => (await page.locator('.sidebar').boundingBox()).width === 340,
+    'restored sidebar width',
+  );
+  await sidebarResize.dblclick();
+  await until(
+    async () => (await page.locator('.sidebar').boundingBox()).width === 232,
+    'reset sidebar width',
+  );
+  await capture(page, 'task-list');
   await page.getByRole('button', { name: 'Actions for Workspace fixture' }).click();
   await page.getByRole('button', { name: 'Move to column', exact: true }).click();
   await page.getByRole('option', { name: 'Completed', exact: true }).click();
@@ -191,7 +248,9 @@ let input='';process.stdin.on('data',d=>input+=d);process.stdin.on('end',()=>{
   const editor = page.getByRole('dialog', { name: 'Edit task', exact: true });
   await editor.waitFor();
   assert.equal(
-    await page.evaluate(() => getComputedStyle(document.querySelector('.app > main')).overflow),
+    await page.evaluate(
+      () => getComputedStyle(document.querySelector('.main-shell > main')).overflow,
+    ),
     'hidden',
   );
   await editor.getByRole('button', { name: 'Workflow preset', exact: true }).click();
@@ -226,6 +285,14 @@ let input='';process.stdin.on('data',d=>input+=d);process.stdin.on('end',()=>{
   await page.getByRole('heading', { name: 'Execution', exact: true }).waitFor();
   await page.getByRole('heading', { name: 'Execution', exact: true }).scrollIntoViewIfNeeded();
   await capture(page, 'execution');
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.getByRole('heading', { name: 'Execution', exact: true }).scrollIntoViewIfNeeded();
+  for (const control of await page.locator('.execution-tools > button').all()) {
+    const box = await control.boundingBox();
+    assert.ok(box.x >= 0 && box.x + box.width <= 390, 'Graph controls remain accessible on mobile');
+  }
+  await capture(page, 'execution-mobile');
+  await page.setViewportSize({ width: 1440, height: 950 });
   await page.goto(origin + '/#relay');
   await capture(page, 'relay-light');
   await page.screenshot({ path: join(directory, 'light.png') });
@@ -279,7 +346,7 @@ let input='';process.stdin.on('data',d=>input+=d);process.stdin.on('end',()=>{
   await page.screenshot({ path: join(directory, 'mobile.png') });
   assert.equal(errors.length, 0, errors.join('\n'));
   console.log(
-    'Workspace browser checks passed: persistent streaming chats, mentions, edit, board overrides, context deletion, modal controls, side chat, resizing, saved URL state and repeat settings saves.',
+    'Workspace browser checks passed: persistent streaming chats, mentions, edit, task filters, sidebar resizing, board overrides, context deletion, modal controls, side chat, resizing, saved URL state and repeat settings saves.',
   );
 } catch (error) {
   console.error('Workspace fixture output:', output);

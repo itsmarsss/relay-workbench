@@ -4,6 +4,7 @@ import { ActivityPanel, HandoffsPanel } from './ActivityPanel';
 import { TerminalPanel } from './TerminalPanel';
 import { asObject, asText, parseDiff, type DiffRepository } from './task-data';
 import { statusLabel, taskViews, type Task, type TaskView } from './types';
+import { ProviderName } from './Icons';
 
 type Data = { diffs?: DiffRepository[]; diffRevision?: string; diffFingerprint?: string };
 async function get(path: string, signal: AbortSignal): Promise<unknown> {
@@ -67,7 +68,9 @@ export function TaskPanel({ task, view }: { task: Task; view: TaskView }) {
           {task.currentRun?.harness && (
             <div>
               <dt>Agent</dt>
-              <dd>{task.currentRun.harness}</dd>
+              <dd>
+                <ProviderName provider={task.currentRun.harness} />
+              </dd>
             </div>
           )}
         </dl>

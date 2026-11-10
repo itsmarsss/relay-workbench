@@ -12,3 +12,4 @@ await build({
   define: { 'process.env.NODE_ENV': '"production"' },
 });
 await cp('index.html', 'dist/index.html');
+await cp('public', 'dist', { recursive: true });

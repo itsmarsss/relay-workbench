@@ -262,16 +262,38 @@ func TestTasksAndEventsSanitizeAndRejectInvalidCursors(t *testing.T) {
 		t.Fatal("workflow mutation accepted")
 	}
 }
+func TestAppearanceAssetsServeWithCorrectTypes(t *testing.T) {
+	app, _ := setup(t)
+	for _, tc := range []struct{ name, content, contentType string }{
+		{"theme.js", "document.documentElement.dataset.theme='dark';", "text/javascript; charset=utf-8"},
+		{"relay.svg", `<svg xmlns="http://www.w3.org/2000/svg"/>`, "image/svg+xml"},
+	} {
+		if err := os.WriteFile(filepath.Join(app.webDir, tc.name), []byte(tc.content), 0600); err != nil {
+			t.Fatal(err)
+		}
+		for _, method := range []string{http.MethodGet, http.MethodHead} {
+			w := request(app, method, "/"+tc.name, "127.0.0.1:4311", "", "")
+			if w.Code != http.StatusOK || w.Header().Get("Content-Type") != tc.contentType {
+				t.Fatalf("%s %s: %d %s", method, tc.name, w.Code, w.Header().Get("Content-Type"))
+			}
+			if method == http.MethodGet && w.Body.String() != tc.content || method == http.MethodHead && w.Body.Len() != 0 {
+				t.Fatalf("%s %s: unexpected asset body", method, tc.name)
+			}
+		}
+	}
+}
 func TestAssetsCannotEscapeRoot(t *testing.T) {
 	app, _ := setup(t)
 	target := filepath.Join(t.TempDir(), "private")
 	if err := os.WriteFile(target, []byte("secret"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Symlink(target, filepath.Join(app.webDir, "main.js")); err != nil {
-		t.Fatal(err)
+	for _, name := range []string{"main.js", "theme.js", "relay.svg"} {
+		if err := os.Symlink(target, filepath.Join(app.webDir, name)); err != nil {
+			t.Fatal(err)
+		}
 	}
-	for _, path := range []string{"/main.js", "/../private", "/config.json"} {
+	for _, path := range []string{"/main.js", "/theme.js", "/relay.svg", "/../private", "/config.json"} {
 		w := request(app, "GET", path, "127.0.0.1:4311", "", "")
 		if w.Code != 404 || strings.Contains(w.Body.String(), "secret") {
 			t.Fatalf("%s: %d %s", path, w.Code, w.Body.String())

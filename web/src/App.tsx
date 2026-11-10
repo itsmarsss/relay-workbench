@@ -1,9 +1,9 @@
 import { useTaskNotifications } from './Notifications';
 import { useEffect, useRef, useState } from 'react';
-import { MotionConfig, motion } from 'motion/react';
+import { MotionConfig, motion, useReducedMotion } from 'motion/react';
 import { SessionProvider } from './Session';
 import { RelayPage } from './Chat';
-import { Icon } from './UI';
+import { Icon, RelayMark } from './UI';
 import { SettingsPage, MemoryPage, InboxPage } from './WorkspacePages';
 import {
   emptyPane,
@@ -263,6 +263,7 @@ function Tree({
   );
 }
 export default function App() {
+  const prefersReducedMotion = useReducedMotion();
   const {
       tasks,
       bootstrap,
@@ -279,6 +280,10 @@ export default function App() {
     } = useRelay(),
     [deck, setDeck] = useState(initialDeck),
     [collapsed, setCollapsed] = useState(() => preference('relay-sidebar-collapsed') === 'true'),
+    [sidebarWidth, setSidebarWidth] = useState(() =>
+      Math.max(208, Math.min(340, Number(preference('relay-sidebar-width')) || 232)),
+    ),
+    [resizingSidebar, setResizingSidebar] = useState(false),
     [dark, setDark] = useState(() => preference('relay-theme') === 'dark'),
     [lowMotion, setLowMotion] = useState(() => preference('relay-low-motion') === 'true'),
     [focus, setFocus] = useState(''),
@@ -293,6 +298,7 @@ export default function App() {
       revision: string;
       profile?: RepositoryProfile;
     } | null>(null);
+  const motionDisabled = lowMotion || prefersReducedMotion;
   useTaskNotifications(tasks, !!bootstrap);
   useEffect(() => {
     document.documentElement.dataset.theme = dark ? 'dark' : 'light';
@@ -309,9 +315,11 @@ export default function App() {
   useEffect(() => {
     try {
       localStorage.setItem('relay-sidebar-collapsed', String(collapsed));
+      localStorage.setItem('relay-sidebar-width', String(sidebarWidth));
     } catch {}
-  }, [collapsed]);
+  }, [collapsed, sidebarWidth]);
   const storage = useStorage();
+  const sidebarDrag = useRef<{ x: number; width: number } | null>(null);
   const dialog = useRef<HTMLDialogElement>(null);
   const canvas = useRef<HTMLDivElement>(null);
   const active = deck.tabs.find((tab) => tab.id === deck.active) || deck.tabs[0]!;
@@ -375,271 +383,368 @@ export default function App() {
   }
   return (
     <SessionProvider value={{ bootstrap, refresh }}>
-      <MotionConfig reducedMotion={lowMotion ? 'always' : 'user'} transition={{ duration: 0.18 }}>
+      <MotionConfig
+        reducedMotion={lowMotion ? 'always' : 'user'}
+        transition={{ duration: motionDisabled ? 0 : 0.18 }}
+      >
         <div className={`app ${collapsed ? 'sidebar-collapsed' : ''}`}>
-          <motion.aside animate={{ width: collapsed ? 72 : 224 }} className="sidebar">
+          <motion.aside
+            animate={{ width: collapsed ? 64 : sidebarWidth }}
+            transition={{ duration: resizingSidebar || motionDisabled ? 0 : 0.22 }}
+            className="sidebar"
+            aria-label="Workspace sidebar"
+          >
             <div className="brand">
-              <Icon name="relay" size={26} />
-              {!collapsed && <span>Relay</span>}
               <button
-                className="icon-button"
+                className="brand-home"
+                aria-label="Relay home"
+                onClick={() => navigate('#deck')}
+              >
+                <RelayMark />
+                {!collapsed && <span>relay</span>}
+              </button>
+              <button
+                className="icon-button sidebar-toggle"
                 aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+                aria-expanded={!collapsed}
                 onClick={() => setCollapsed(!collapsed)}
               >
-                <Icon name="chevron" size={14} />
+                <Icon name="sidebar" />
               </button>
             </div>
-            {!collapsed && <p className="preview-label">React + Go preview</p>}
-            <nav className="app-nav">
+            <div className="sidebar-section-label">Workspace</div>
+            <nav className="app-nav" aria-label="Workspace">
               {[
-                ['inbox', 'Inbox', 'inbox'],
-                ['relay', 'Relay', 'chat'],
-              ].map(([kind, label, icon]) => (
-                <button
-                  title={label}
-                  aria-current={route.kind === kind ? 'page' : undefined}
-                  key={kind}
-                  onClick={() => navigate('#' + kind)}
-                >
-                  <Icon name={icon!} />
-                  {!collapsed && label}
-                </button>
-              ))}
-              <button
-                aria-current={route.kind === 'deck' ? 'page' : undefined}
-                onClick={() => navigate(`#deck?tab=${encodeURIComponent(deck.active)}`)}
-              >
-                <Icon name="terminal" />
-                {!collapsed && 'Task deck'}
-              </button>
-              <button
-                aria-current={route.kind === 'tasks' || route.kind === 'task' ? 'page' : undefined}
-                onClick={() => navigate('#tasks')}
-              >
-                <Icon name="tasks" />
-                {!collapsed && (
-                  <>
-                    All tasks <span>{tasks.length}</span>
-                  </>
-                )}
-              </button>
-              <button
-                aria-current={route.kind === 'repositories' ? 'page' : undefined}
-                onClick={() => navigate('#repositories')}
-              >
-                <Icon name="repository" />
-                {!collapsed && 'Repositories'}
-              </button>
-              <button
-                aria-current={route.kind === 'storage' ? 'page' : undefined}
-                onClick={() => navigate('#storage')}
-              >
-                <Icon name="memory" />
-                {!collapsed && 'Storage'}
-              </button>
-              {[
+                ['deck', 'Task deck', 'grid'],
+                ['relay', 'Relay agent', 'relay'],
+                ['tasks', 'All tasks', 'tasks'],
+                ['inbox', 'Approval inbox', 'inbox'],
+                ['repositories', 'Repositories', 'repository'],
+                ['storage', 'Storage', 'storage'],
                 ['memory', 'Memory', 'memory'],
-                ['settings', 'Settings', 'settings'],
               ].map(([kind, label, icon]) => (
                 <button
+                  aria-label={label}
                   title={label}
+                  aria-current={
+                    route.kind === kind || (kind === 'tasks' && route.kind === 'task')
+                      ? 'page'
+                      : undefined
+                  }
                   key={kind}
-                  aria-current={route.kind === kind ? 'page' : undefined}
-                  onClick={() => navigate('#' + kind)}
+                  onClick={() =>
+                    navigate(
+                      kind === 'deck' ? `#deck?tab=${encodeURIComponent(deck.active)}` : '#' + kind,
+                    )
+                  }
                 >
                   <Icon name={icon!} />
-                  {!collapsed && label}
+                  {!collapsed && (
+                    <>
+                      {label}
+                      {kind === 'tasks' && <span className="nav-count">{tasks.length}</span>}
+                    </>
+                  )}
                 </button>
               ))}
             </nav>
-            <div className="sidebar-preferences">
+            <div className="sidebar-bottom">
               <button
-                className="icon-button"
-                aria-label={dark ? 'Use light theme' : 'Use dark theme'}
-                onClick={() => setDark(!dark)}
+                className="sidebar-settings"
+                aria-label="Settings"
+                title="Settings"
+                aria-current={route.kind === 'settings' ? 'page' : undefined}
+                onClick={() => navigate('#settings')}
               >
-                <Icon name={dark ? 'sun' : 'moon'} />
+                <Icon name="settings" />
+                {!collapsed && 'Settings'}
               </button>
-              {!collapsed && (
-                <label className="inline">
-                  <input
-                    type="checkbox"
-                    checked={lowMotion}
-                    onChange={(e) => setLowMotion(e.target.checked)}
-                  />
-                  Low motion
-                </label>
-              )}
-            </div>
-            {storage.report && ['warning', 'critical'].includes(storage.report.pressure.state) && (
-              <button className="storage-alert" onClick={() => navigate('#storage')}>
-                Low disk space
-              </button>
-            )}
-            <div className="connection">● {connected ? 'Connected' : 'Reconnecting'}</div>
-          </motion.aside>
-          <motion.main layout className={route.kind === 'deck' ? 'deck-main' : 'page-main'}>
-            {storage.report && ['warning', 'critical'].includes(storage.report.pressure.state) && (
-              <button className="mobile-storage-alert" onClick={() => navigate('#storage')}>
-                Low disk space · Review storage
-              </button>
-            )}
-            {route.kind === 'deck' ? (
-              <>
-                <header>
-                  <div>
-                    <h1>Task deck</h1>
-                    <p>Watch tasks side by side.</p>
-                  </div>
-                  <div className="page-header-actions">
-                    <span className="preview">Isolated preview</span>
-                    <button
-                      className="primary"
-                      disabled={!bootstrap}
-                      onClick={() => setDraftOpen(true)}
-                    >
-                      New task
-                    </button>
-                  </div>
-                </header>
-                {error && (
-                  <div className="error" role="status">
-                    {error}
-                  </div>
+              <div className="sidebar-preferences">
+                <button
+                  className="icon-button"
+                  aria-label={dark ? 'Use light theme' : 'Use dark theme'}
+                  onClick={() => setDark(!dark)}
+                >
+                  <Icon name={dark ? 'sun' : 'moon'} />
+                </button>
+                {!collapsed && (
+                  <label className="inline">
+                    <input
+                      type="checkbox"
+                      checked={lowMotion}
+                      onChange={(e) => setLowMotion(e.target.checked)}
+                    />
+                    Low motion
+                  </label>
                 )}
-                <nav className="workspace-tabs" aria-label="Workspaces">
-                  {deck.tabs.map((tab) => (
-                    <button
-                      key={tab.id}
-                      aria-current={tab.id === deck.active ? 'page' : undefined}
-                      onClick={() => {
-                        selectTab(tab.id);
-                      }}
-                    >
-                      {tab.name}
-                    </button>
-                  ))}
-                  <button
-                    aria-label="Add workspace"
-                    disabled={deck.tabs.length >= 10}
-                    onClick={() => {
-                      const tab = {
-                        id: crypto.randomUUID(),
-                        name: `Workspace ${deck.tabs.length + 1}`,
-                        root: emptyPane(),
-                      };
-                      setDeck((current) => ({ tabs: [...current.tabs, tab], active: tab.id }));
-                      setFocus('');
-                      history.pushState(null, '', `#deck?tab=${encodeURIComponent(tab.id)}`);
-                    }}
-                  >
-                    ＋
+              </div>
+              {storage.report &&
+                ['warning', 'critical'].includes(storage.report.pressure.state) && (
+                  <button className="storage-alert" onClick={() => navigate('#storage')}>
+                    Low disk space
                   </button>
-                  <span className="workspace-controls">
+                )}
+              <div
+                className="connection"
+                title={connected ? 'Connected locally · Rewrite preview' : 'Reconnecting'}
+              >
+                <span className={`connection-dot ${connected ? '' : 'offline'}`} />
+                {!collapsed && (
+                  <>
+                    <span>{connected ? 'Connected locally' : 'Reconnecting'}</span>
+                    <small>Preview</small>
+                  </>
+                )}
+              </div>
+            </div>
+            {!collapsed && (
+              <div
+                className="sidebar-resize"
+                role="separator"
+                tabIndex={0}
+                aria-label="Resize sidebar"
+                aria-orientation="vertical"
+                aria-valuemin={208}
+                aria-valuemax={340}
+                aria-valuenow={sidebarWidth}
+                onDoubleClick={() => setSidebarWidth(232)}
+                onKeyDown={(e) => {
+                  if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) return;
+                  e.preventDefault();
+                  setSidebarWidth((width) =>
+                    e.key === 'Home'
+                      ? 208
+                      : e.key === 'End'
+                        ? 340
+                        : Math.max(208, Math.min(340, width + (e.key === 'ArrowLeft' ? -16 : 16))),
+                  );
+                }}
+                onPointerDown={(e) => {
+                  if (e.button !== 0) return;
+                  e.preventDefault();
+                  sidebarDrag.current = { x: e.clientX, width: sidebarWidth };
+                  e.currentTarget.setPointerCapture(e.pointerId);
+                  setResizingSidebar(true);
+                }}
+                onPointerMove={(e) => {
+                  const start = sidebarDrag.current;
+                  if (start)
+                    setSidebarWidth(
+                      Math.max(208, Math.min(340, start.width + e.clientX - start.x)),
+                    );
+                }}
+                onLostPointerCapture={() => {
+                  sidebarDrag.current = null;
+                  setResizingSidebar(false);
+                }}
+                onPointerUp={(e) => {
+                  if (e.currentTarget.hasPointerCapture(e.pointerId))
+                    e.currentTarget.releasePointerCapture(e.pointerId);
+                }}
+              />
+            )}
+          </motion.aside>
+          <div className="main-shell">
+            <header className="app-topbar">
+              <nav className="breadcrumb" aria-label="Breadcrumb">
+                <span>Workspace</span>
+                <Icon name="chevron" size={13} />
+                <span>
+                  {
+                    {
+                      deck: 'Task deck',
+                      tasks: 'Tasks',
+                      task: 'Task workspace',
+                      relay: 'Relay agent',
+                      inbox: 'Approval inbox',
+                      repositories: 'Repositories',
+                      storage: 'Storage',
+                      memory: 'Memory',
+                      settings: 'Settings',
+                    }[route.kind]
+                  }
+                </span>
+              </nav>
+              <div className="topbar-actions">
+                <button
+                  className="relay-shortcut"
+                  aria-label="Open Relay agent"
+                  onClick={() => navigate('#relay')}
+                >
+                  <Icon name="relay" size={17} />
+                  <span>Relay</span>
+                </button>
+                <button
+                  className="primary"
+                  aria-label="New task"
+                  disabled={!bootstrap}
+                  onClick={() => setDraftOpen(true)}
+                >
+                  <Icon name="plus" size={16} />
+                  <span>New task</span>
+                </button>
+              </div>
+            </header>
+            <motion.main
+              layout={!resizingSidebar}
+              className={route.kind === 'deck' ? 'deck-main' : 'page-main'}
+            >
+              {storage.report &&
+                ['warning', 'critical'].includes(storage.report.pressure.state) && (
+                  <button className="mobile-storage-alert" onClick={() => navigate('#storage')}>
+                    Low disk space · Review storage
+                  </button>
+                )}
+              {route.kind === 'deck' ? (
+                <>
+                  <header>
+                    <div>
+                      <h1>Task deck</h1>
+                      <p>Watch tasks side by side.</p>
+                    </div>
+                    <div className="page-header-actions">
+                      <span className="preview">Isolated preview</span>
+                    </div>
+                  </header>
+                  {error && (
+                    <div className="error" role="status">
+                      {error}
+                    </div>
+                  )}
+                  <nav className="workspace-tabs" aria-label="Workspaces">
+                    {deck.tabs.map((tab) => (
+                      <button
+                        key={tab.id}
+                        aria-current={tab.id === deck.active ? 'page' : undefined}
+                        onClick={() => {
+                          selectTab(tab.id);
+                        }}
+                      >
+                        {tab.name}
+                      </button>
+                    ))}
                     <button
-                      type="button"
+                      aria-label="Add workspace"
+                      disabled={deck.tabs.length >= 10}
                       onClick={() => {
-                        setTabName(active.name);
-                        setModal({ kind: 'rename', tabId: active.id });
+                        const tab = {
+                          id: crypto.randomUUID(),
+                          name: `Workspace ${deck.tabs.length + 1}`,
+                          root: emptyPane(),
+                        };
+                        setDeck((current) => ({ tabs: [...current.tabs, tab], active: tab.id }));
+                        setFocus('');
+                        history.pushState(null, '', `#deck?tab=${encodeURIComponent(tab.id)}`);
                       }}
                     >
-                      Rename
+                      ＋
                     </button>
-                    <button
-                      type="button"
-                      disabled={deck.tabs.length <= 1}
-                      onClick={() => setModal({ kind: 'close', tabId: active.id })}
-                    >
-                      Close tab
-                    </button>
-                  </span>
-                </nav>
-                <div ref={canvas} className="canvas">
-                  <Tree
-                    node={active.root}
-                    tasks={tasks}
-                    focus={focus}
-                    setFocus={setFocus}
-                    onOpen={(id, tab) => navigate(`#task/${id}/${tab}`)}
-                    update={(id, change) => modify((root) => updateNode(root, id, change))}
-                    split={(id, direction) => {
-                      if (panes(active.root).length < 8) {
-                        modify((root) => splitNode(root, id, direction));
+                    <span className="workspace-controls">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setTabName(active.name);
+                          setModal({ kind: 'rename', tabId: active.id });
+                        }}
+                      >
+                        Rename
+                      </button>
+                      <button
+                        type="button"
+                        disabled={deck.tabs.length <= 1}
+                        onClick={() => setModal({ kind: 'close', tabId: active.id })}
+                      >
+                        Close tab
+                      </button>
+                    </span>
+                  </nav>
+                  <div ref={canvas} className="canvas">
+                    <Tree
+                      node={active.root}
+                      tasks={tasks}
+                      focus={focus}
+                      setFocus={setFocus}
+                      onOpen={(id, tab) => navigate(`#task/${id}/${tab}`)}
+                      update={(id, change) => modify((root) => updateNode(root, id, change))}
+                      split={(id, direction) => {
+                        if (panes(active.root).length < 8) {
+                          modify((root) => splitNode(root, id, direction));
+                          setFocus('');
+                        }
+                      }}
+                      remove={(id) => {
+                        modify((root) => removeNode(root, id));
                         setFocus('');
-                      }
-                    }}
-                    remove={(id) => {
-                      modify((root) => removeNode(root, id));
-                      setFocus('');
-                    }}
+                      }}
+                    />
+                  </div>
+                </>
+              ) : route.kind === 'tasks' ? (
+                <TasksPage
+                  tasks={tasks}
+                  onOpen={(id) => navigate(`#task/${id}/overview`)}
+                  onCreate={() => setDraftOpen(true)}
+                />
+              ) : route.kind === 'inbox' ? (
+                <InboxPage onOpen={(id) => navigate(`#task/${id}/overview`)} />
+              ) : route.kind === 'memory' ? (
+                <MemoryPage />
+              ) : route.kind === 'settings' ? (
+                bootstrap ? (
+                  <SettingsPage onSave={updateConfig} />
+                ) : (
+                  <p>Loading settings…</p>
+                )
+              ) : route.kind === 'relay' ? (
+                <RelayPage />
+              ) : route.kind === 'repositories' ? (
+                bootstrap ? (
+                  <RepositoriesPage
+                    config={bootstrap.config}
+                    onAdd={editRepository}
+                    onEdit={editRepository}
                   />
-                </div>
-              </>
-            ) : route.kind === 'tasks' ? (
-              <TasksPage
-                tasks={tasks}
-                onOpen={(id) => navigate(`#task/${id}/overview`)}
-                onCreate={() => setDraftOpen(true)}
-              />
-            ) : route.kind === 'inbox' ? (
-              <InboxPage onOpen={(id) => navigate(`#task/${id}/overview`)} />
-            ) : route.kind === 'memory' ? (
-              <MemoryPage />
-            ) : route.kind === 'settings' ? (
-              bootstrap ? (
-                <SettingsPage onSave={updateConfig} />
+                ) : (
+                  <p role="status">{error || 'Loading repository profiles…'}</p>
+                )
+              ) : route.kind === 'storage' ? (
+                bootstrap ? (
+                  <StoragePage
+                    token={bootstrap.token}
+                    report={storage.report}
+                    loadError={storage.error}
+                    refresh={storage.refresh}
+                  />
+                ) : (
+                  <p role="status">{error || 'Loading storage…'}</p>
+                )
               ) : (
-                <p>Loading settings…</p>
-              )
-            ) : route.kind === 'relay' ? (
-              <RelayPage />
-            ) : route.kind === 'repositories' ? (
-              bootstrap ? (
-                <RepositoriesPage
-                  config={bootstrap.config}
-                  onAdd={editRepository}
-                  onEdit={editRepository}
+                <TaskPage
+                  key={route.id}
+                  id={route.id}
+                  tab={route.tab}
+                  workflowPreview={bootstrap?.workflowPreview === true}
+                  implementationPreview={bootstrap?.implementationPreview === true}
+                  debugRecoveryPreview={bootstrap?.debugRecoveryPreview === true}
+                  onAction={act}
+                  onApprove={approve}
+                  onAccept={accept}
+                  onResolve={resolve}
+                  onTab={(tab) => {
+                    const q = location.hash.split('?')[1];
+                    navigate(`#task/${route.id}/${tab}${q ? '?' + q : ''}`);
+                  }}
+                  onBack={() => navigate('#tasks')}
+                  onDeck={() => navigate(`#deck?tab=${encodeURIComponent(deck.active)}`)}
                 />
-              ) : (
-                <p role="status">{error || 'Loading repository profiles…'}</p>
-              )
-            ) : route.kind === 'storage' ? (
-              bootstrap ? (
-                <StoragePage
-                  token={bootstrap.token}
-                  report={storage.report}
-                  loadError={storage.error}
-                  refresh={storage.refresh}
-                />
-              ) : (
-                <p role="status">{error || 'Loading storage…'}</p>
-              )
-            ) : (
-              <TaskPage
-                key={route.id}
-                id={route.id}
-                tab={route.tab}
-                workflowPreview={bootstrap?.workflowPreview === true}
-                implementationPreview={bootstrap?.implementationPreview === true}
-                debugRecoveryPreview={bootstrap?.debugRecoveryPreview === true}
-                onAction={act}
-                onApprove={approve}
-                onAccept={accept}
-                onResolve={resolve}
-                onTab={(tab) => {
-                  const q = location.hash.split('?')[1];
-                  navigate(`#task/${route.id}/${tab}${q ? '?' + q : ''}`);
-                }}
-                onBack={() => navigate('#tasks')}
-                onDeck={() => navigate(`#deck?tab=${encodeURIComponent(deck.active)}`)}
-              />
-            )}
-            {route.kind !== 'deck' && error && (
-              <p className="error" role="status">
-                {error}
-              </p>
-            )}
-          </motion.main>
+              )}
+              {route.kind !== 'deck' && error && (
+                <p className="error" role="status">
+                  {error}
+                </p>
+              )}
+            </motion.main>
+          </div>
           {draftOpen && bootstrap && (
             <DraftComposer
               config={bootstrap.config}

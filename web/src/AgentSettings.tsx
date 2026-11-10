@@ -1,4 +1,4 @@
-import { Select } from './UI';
+import { Select, ProviderIcon } from './UI';
 import { EffortSelect, ModelSelect } from './WorkspacePages';
 import { asObject } from './task-data';
 import type { RelayConfig } from './types';
@@ -64,6 +64,7 @@ export function AgentSettings({
                       options={['codex', 'claude', 'pi'].map((value) => ({
                         value,
                         label: value === 'pi' ? 'Pi' : value === 'codex' ? 'Codex' : 'Claude',
+                        icon: <ProviderIcon provider={value} size={22} />,
                         disabled: asObject(asObject(config.harnesses)?.[value])?.enabled === false,
                       }))}
                       onChange={(provider) =>

@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
 import { motion } from 'motion/react';
 import type { Task } from './types';
-import { columns, taskLane, boardFilters } from './board';
-import { Select, Icon } from './UI';
+import { columns, taskLane, boardFilters, filteredTasks, taskScopes, inTaskScope } from './board';
+import { Select, Icon, ProviderName } from './UI';
 import { Notice, useMutation } from './Session';
 import { Modal } from './Modal';
 export { taskLane } from './board';
@@ -51,18 +51,14 @@ export function TasksPage({
     const p = new URLSearchParams();
     if (next.query) p.set('q', next.query);
     if (next.repository) p.set('repo', next.repository);
-    if (next.layout === 'list') p.set('view', 'list');
+    if (next.layout === 'board') p.set('view', 'board');
+    if (next.scope !== 'all') p.set('scope', next.scope);
+    if (next.stage) p.set('stage', next.stage);
+    if (next.sort !== 'priority') p.set('sort', next.sort);
+    if (next.showEmpty) p.set('empty', '1');
     history.replaceState(null, '', '#tasks' + (p.size ? '?' + p.toString() : ''));
   }
-  const visible = tasks.filter(
-    (task) =>
-      (!filters.repository ||
-        task.repository?.id === filters.repository ||
-        task.repositories?.some((row) => row.repository?.id === filters.repository)) &&
-      `${task.title} ${task.repository?.name || ''} ${task.id} ${task.ticket || ''}`
-        .toLowerCase()
-        .includes(filters.query.toLowerCase()),
-  );
+  const visible = filteredTasks(tasks, filters);
   const repositories = [
     ...new Map(
       tasks
@@ -106,17 +102,29 @@ export function TasksPage({
       }}
     >
       <button className="task-card-open" onClick={() => onOpen(task.id)}>
-        <span className={`task-status status-${task.status}`}>
-          {columns.find((row) => row[0] === taskLane(task))?.[1]}
+        <span className="task-card-copy">
+          <strong>{task.title}</strong>
+          <small>
+            {task.repository?.name || 'Unspecified'}
+            {(task.repositories?.length || 0) > 1 && ` +${task.repositories!.length - 1}`}
+            {task.ticket &&
+              ` · ${task.ticket.match(/\/issues\/(\d+)/)?.[1] ? '#' + task.ticket.match(/\/issues\/(\d+)/)![1] : task.ticket}`}
+          </small>
+          {(task.error || task.latestSummary) && (
+            <span className="task-card-summary">{task.error || task.latestSummary}</span>
+          )}
         </span>
-        <strong>{task.title}</strong>
-        <small>
-          {task.repository?.name || 'Unspecified'}
-          {(task.repositories?.length || 0) > 1 && ` +${task.repositories!.length - 1}`}
-        </small>
-        {(task.error || task.latestSummary) && <p>{task.error || task.latestSummary}</p>}
-        <span className="task-reference">
-          {task.id.slice(0, 8)} · {task.currentRun?.harness || task.stage || 'Draft'}
+        <span className="task-card-state">
+          <span className={`task-status status-${task.statusOverride?.value || task.status}`}>
+            {columns.find((row) => row[0] === taskLane(task))?.[1]}
+          </span>
+          {task.currentRun?.harness && (
+            <ProviderName provider={task.currentRun.harness} size={20} />
+          )}
+          <span className="task-reference">{task.id.slice(0, 8)}</span>
+        </span>
+        <span className="task-card-chevron">
+          <Icon name="chevron" size={18} />
         </span>
       </button>
       <button
@@ -140,39 +148,108 @@ export function TasksPage({
       <div className="page-title">
         <div>
           <h1>All tasks</h1>
-          <p>{tasks.length} tasks</p>
+          <p>Your work, from investigation to final approval.</p>
         </div>
-        <button className="primary" onClick={onCreate}>
-          New task
-        </button>
       </div>
-      <div className="page-toolbar">
-        <input
-          type="search"
-          aria-label="Search tasks"
-          placeholder="Search tasks…"
-          value={filters.query}
-          onChange={(e) => filter({ query: e.target.value })}
-        />
-        <Select
-          label="Filter repository"
-          value={filters.repository}
-          options={[
-            { value: '', label: 'All repositories' },
-            ...repositories.map((r) => ({ value: r.id, label: r.name })),
-          ]}
-          onChange={(repository) => filter({ repository })}
-        />
-        <div className="segmented" role="group" aria-label="Task layout">
-          {(['board', 'list'] as const).map((layout) => (
+      <nav className="task-scopes" aria-label="Task status filters">
+        {taskScopes.map(([scope, label]) => (
+          <button
+            key={scope}
+            aria-pressed={filters.scope === scope}
+            onClick={() => filter({ scope })}
+          >
+            {label}
+            <span>{tasks.filter((task) => inTaskScope(task, scope)).length}</span>
+            {filters.scope === scope && (
+              <motion.span className="scope-indicator" layoutId="task-scope" />
+            )}
+          </button>
+        ))}
+      </nav>
+      <div className="task-filters">
+        <label className="task-search">
+          <Icon name="search" size={17} />
+          <input
+            type="search"
+            aria-label="Search tasks"
+            placeholder="Search title, repository, or issue…"
+            value={filters.query}
+            onChange={(e) => filter({ query: e.target.value })}
+          />
+        </label>
+        <label className="task-filter-field">
+          Repository
+          <Select
+            label="Filter repository"
+            value={filters.repository}
+            options={[
+              { value: '', label: 'All repositories' },
+              ...repositories.map((r) => ({ value: r.id, label: r.name })),
+            ]}
+            onChange={(repository) => filter({ repository })}
+          />
+        </label>
+        <label className="task-filter-field">
+          Stage
+          <Select
+            label="Filter stage"
+            value={filters.stage}
+            options={[
+              { value: '', label: 'All stages' },
+              ...columns.map(([value, label]) => ({ value, label })),
+            ]}
+            onChange={(stage) => filter({ stage })}
+          />
+        </label>
+        <label className="task-filter-field">
+          Sort
+          <Select
+            label="Sort tasks"
+            value={filters.sort}
+            options={[
+              { value: 'priority', label: 'Next action' },
+              { value: 'recent', label: 'Recently updated' },
+              { value: 'title', label: 'Title' },
+            ]}
+            onChange={(sort) => filter({ sort })}
+          />
+        </label>
+      </div>
+      <div className="task-results-toolbar">
+        <p role="status">
+          {visible.length} of {tasks.length} tasks
+        </p>
+        <div className="inline">
+          {(filters.query || filters.repository || filters.stage || filters.scope !== 'all') && (
             <button
-              key={layout}
-              aria-pressed={filters.layout === layout}
-              onClick={() => filter({ layout })}
+              className="text-button"
+              onClick={() => filter({ query: '', repository: '', stage: '', scope: 'all' })}
             >
-              {layout === 'board' ? 'Board' : 'List'}
+              Clear filters
             </button>
-          ))}
+          )}
+          {filters.layout === 'board' && (
+            <label className="inline">
+              <input
+                type="checkbox"
+                checked={filters.showEmpty}
+                onChange={(e) => filter({ showEmpty: e.target.checked })}
+              />
+              Empty stages
+            </label>
+          )}
+          <div className="segmented" role="group" aria-label="Task layout">
+            {(['list', 'board'] as const).map((layout) => (
+              <button
+                key={layout}
+                aria-pressed={filters.layout === layout}
+                onClick={() => filter({ layout })}
+              >
+                <Icon name={layout === 'board' ? 'grid' : 'list'} size={15} />
+                {layout === 'board' ? 'Board' : 'List'}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
       {mutation.error && <Notice>{mutation.error}</Notice>}
@@ -180,37 +257,55 @@ export function TasksPage({
         <div className="empty-state">
           <h2>No tasks yet</h2>
           <p>Create a draft to add requirements and repositories.</p>
+          <button className="primary" onClick={onCreate}>
+            <Icon name="plus" size={16} />
+            Create task
+          </button>
+        </div>
+      ) : !visible.length ? (
+        <div className="empty-state">
+          <Icon name="search" size={28} />
+          <h2>No matching tasks</h2>
+          <p>Try another filter or clear your search.</p>
+          <button onClick={() => filter({ query: '', repository: '', stage: '', scope: 'all' })}>
+            Clear filters
+          </button>
         </div>
       ) : filters.layout === 'list' ? (
         <div className="task-list">{visible.map(card)}</div>
       ) : (
         <div className="task-board">
-          {columns.map(([lane, label]) => (
-            <section
-              key={lane}
-              className={`task-lane ${target === lane ? 'drop-target' : ''}`}
-              onDragOver={(e) => {
-                if (dragging) {
+          {columns
+            .filter(
+              ([lane]) =>
+                filters.showEmpty || dragging || visible.some((task) => taskLane(task) === lane),
+            )
+            .map(([lane, label]) => (
+              <section
+                key={lane}
+                className={`task-lane ${target === lane ? 'drop-target' : ''}`}
+                onDragOver={(e) => {
+                  if (dragging) {
+                    e.preventDefault();
+                    setTarget(lane);
+                  }
+                }}
+                onDrop={(e) => {
                   e.preventDefault();
-                  setTarget(lane);
-                }
-              }}
-              onDrop={(e) => {
-                e.preventDefault();
-                const task = tasks.find((t) => t.id === dragging);
-                setDragging('');
-                setTarget('');
-                if (task) void move(task, lane);
-              }}
-            >
-              <h2>
-                {label}
-                <span>{visible.filter((t) => taskLane(t) === lane).length}</span>
-              </h2>
-              {visible.filter((t) => taskLane(t) === lane).map(card)}
-              <div className="lane-drop-hint">{dragging ? 'Move here' : ''}</div>
-            </section>
-          ))}
+                  const task = tasks.find((t) => t.id === dragging);
+                  setDragging('');
+                  setTarget('');
+                  if (task) void move(task, lane);
+                }}
+              >
+                <h2>
+                  {label}
+                  <span>{visible.filter((t) => taskLane(t) === lane).length}</span>
+                </h2>
+                {visible.filter((t) => taskLane(t) === lane).map(card)}
+                <div className="lane-drop-hint">{dragging ? 'Move here' : ''}</div>
+              </section>
+            ))}
         </div>
       )}
       {menu && (

@@ -722,7 +722,10 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 	}
 }
 func (s *Server) asset(w http.ResponseWriter, r *http.Request) {
-	names := map[string]string{"/": "index.html", "/main.js": "main.js", "/main.css": "main.css"}
+	names := map[string]string{
+		"/": "index.html", "/main.js": "main.js", "/main.css": "main.css",
+		"/theme.js": "theme.js", "/relay.svg": "relay.svg",
+	}
 	name, ok := names[r.URL.Path]
 	if !ok {
 		http.NotFound(w, r)
@@ -750,6 +753,8 @@ func (s *Server) asset(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
 	case ".css":
 		w.Header().Set("Content-Type", "text/css; charset=utf-8")
+	case ".svg":
+		w.Header().Set("Content-Type", "image/svg+xml")
 	}
 	if r.Method != http.MethodHead {
 		_, _ = w.Write(data)

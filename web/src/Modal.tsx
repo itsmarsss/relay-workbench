@@ -1,5 +1,6 @@
 import { useEffect, useRef, type FormEvent, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
+import { Icon } from './Icons';
 export function Modal({
   title,
   onClose,
@@ -40,7 +41,7 @@ export function Modal({
         <header>
           <h2>{title}</h2>
           <button type="button" aria-label="Close dialog" onClick={onClose}>
-            ×
+            <Icon name="close" size={18} />
           </button>
         </header>
         <div className="editor-modal-body">{children}</div>

@@ -16,6 +16,7 @@ import { Markdown } from './Markdown';
 import { TaskPanel } from './TaskPanel';
 import { currentBlocker, latestPlan } from './task-data';
 import { isTask, statusLabel, taskViews, type Task, type TaskView } from './types';
+import { Icon } from './Icons';
 type Details = Task &
   Record<string, unknown> & {
     description?: string;
@@ -237,7 +238,8 @@ export function TaskPage({
     return (
       <section className="task-page">
         <button className="back" onClick={onBack}>
-          ← All tasks
+          <Icon name="back" size={16} />
+          All tasks
         </button>
         <p role="status">{error || 'Loading task…'}</p>
       </section>
@@ -249,7 +251,8 @@ export function TaskPage({
     <section className="task-page">
       <SideChat taskId={task.id} />
       <button className="back" onClick={onBack}>
-        ← All tasks
+        <Icon name="back" size={16} />
+        All tasks
       </button>
       <div className="task-page-heading">
         <div>
@@ -519,7 +522,23 @@ export function TaskPage({
             aria-current={tab === view.id ? 'page' : undefined}
             onClick={() => onTab(view.id)}
           >
+            <Icon
+              name={
+                {
+                  overview: 'grid',
+                  thread: 'clock',
+                  terminals: 'terminal',
+                  diff: 'code',
+                  handoffs: 'git',
+                  transcript: 'list',
+                }[view.id]
+              }
+              size={16}
+            />
             {view.label}
+            {tab === view.id && (
+              <motion.span className="scope-indicator" layoutId={`task-view-${task.id}`} />
+            )}
           </button>
         ))}
       </nav>

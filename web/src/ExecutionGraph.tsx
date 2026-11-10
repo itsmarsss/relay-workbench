@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Markdown } from './Markdown';
-import { Icon } from './UI';
+import { Icon, ProviderName } from './UI';
 import { Notice, useResource } from './Session';
 import { CheckpointControls, type History } from './WorkflowHistory';
 import { executionLayout } from './execution';
@@ -49,7 +49,7 @@ export function ExecutionGraph({ task }: { task: FullTask }) {
             {task.currentRun?.harness || 'No active agent'}
           </small>
         </div>
-        <div className="inline">
+        <div className="execution-tools">
           <CheckpointControls task={task} history={history.data} />
           <button
             className="icon-button"
@@ -69,7 +69,7 @@ export function ExecutionGraph({ task }: { task: FullTask }) {
             disabled={zoom <= 0.5}
             onClick={() => setZoom((z) => Math.max(0.5, z - 0.1))}
           >
-            −
+            <Icon name="minus" size={16} />
           </button>
           <button
             className="text-button graph-zoom"
@@ -84,7 +84,7 @@ export function ExecutionGraph({ task }: { task: FullTask }) {
             disabled={zoom >= 1.5}
             onClick={() => setZoom((z) => Math.min(1.5, z + 0.1))}
           >
-            +
+            <Icon name="plus" size={16} />
           </button>
         </div>
       </div>
@@ -179,9 +179,11 @@ export function ExecutionGraph({ task }: { task: FullTask }) {
                           : names[asText(node.row.stage)] || asText(node.row.stage)}
                     </span>
                     <strong>
-                      {node.kind === 'fork'
-                        ? asText(node.row.title)
-                        : asText(node.row.harness) || 'Relay'}
+                      {node.kind === 'fork' ? (
+                        asText(node.row.title)
+                      ) : (
+                        <ProviderName provider={asText(node.row.harness)} size={22} />
+                      )}
                     </strong>
                     <small>
                       <span className={`graph-status ${asText(node.row.status)}`} />
@@ -207,7 +209,7 @@ export function ExecutionGraph({ task }: { task: FullTask }) {
                     : active.row.role === 'debug'
                       ? 'Debugger'
                       : names[asText(active.row.stage)] || asText(active.row.stage)}{' '}
-                  · {asText(active.row.harness) || 'Relay'}
+                  · <ProviderName provider={asText(active.row.harness)} size={22} />
                 </h3>
                 <small>{asText(active.row.model) || 'Provider default model'}</small>
               </div>

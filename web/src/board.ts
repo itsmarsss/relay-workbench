@@ -46,6 +46,72 @@ export function boardFilters(hash: string) {
   return {
     query: q.get('q') || '',
     repository: q.get('repo') || '',
-    layout: q.get('view') === 'list' ? ('list' as const) : ('board' as const),
+    layout: q.get('view') === 'board' ? ('board' as const) : ('list' as const),
+    scope: taskScopes.some(([id]) => id === q.get('scope')) ? q.get('scope')! : 'all',
+    stage: columns.some(([id]) => id === q.get('stage')) ? q.get('stage')! : '',
+    sort: ['priority', 'recent', 'title'].includes(q.get('sort') || '')
+      ? q.get('sort')!
+      : 'priority',
+    showEmpty: q.get('empty') === '1',
   };
+}
+
+export const taskScopes = [
+  ['all', 'All tasks'],
+  ['attention', 'Needs you'],
+  ['active', 'Running'],
+  ['backlog', 'Backlog'],
+  ['done', 'Done'],
+  ['finished', 'Completed'],
+] as const;
+
+export function inTaskScope(task: Task, scope: string) {
+  const lane = taskLane(task);
+  return (
+    scope === 'all' ||
+    (scope === 'attention'
+      ? ['approach', 'final', 'attention'].includes(lane)
+      : scope === 'active'
+        ? ['discovery', 'progress', 'review'].includes(lane)
+        : lane === scope)
+  );
+}
+
+export function filteredTasks(tasks: Task[], filters: ReturnType<typeof boardFilters>) {
+  const rank = (task: Task) =>
+    inTaskScope(task, 'attention')
+      ? 0
+      : inTaskScope(task, 'active')
+        ? 1
+        : taskLane(task) === 'backlog'
+          ? 2
+          : 3;
+  const updated = (task: Task) => Date.parse(task.updatedAt || '') || 0;
+  return tasks
+    .filter(
+      (task) =>
+        inTaskScope(task, filters.scope) &&
+        (!filters.stage || taskLane(task) === filters.stage) &&
+        (!filters.repository ||
+          task.repository?.id === filters.repository ||
+          task.repositories?.some((row) => row.repository?.id === filters.repository)) &&
+        [
+          task.title,
+          task.repository?.name,
+          ...(task.repositories || []).map((row) => row.repository?.name),
+          task.id,
+          task.ticket,
+          task.latestSummary,
+        ]
+          .join(' ')
+          .toLowerCase()
+          .includes(filters.query.trim().toLowerCase()),
+    )
+    .sort(
+      (a, b) =>
+        (filters.sort === 'title'
+          ? a.title.localeCompare(b.title)
+          : (filters.sort === 'priority' ? rank(a) - rank(b) : 0) || updated(b) - updated(a)) ||
+        a.id.localeCompare(b.id),
+    );
 }

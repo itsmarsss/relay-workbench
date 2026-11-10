@@ -1,123 +1,8 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { AnimatePresence, motion } from 'motion/react';
-export function Icon({ name, size = 18 }: { name: string; size?: number }) {
-  const paths: Record<string, ReactNode> = {
-    send: (
-      <>
-        <path d="m3 11 18-8-8 18-2-8-8-2Z" />
-        <path d="m11 13 10-10" />
-      </>
-    ),
-    resize: (
-      <>
-        <path d="M4 4h5M4 4v5m16 11h-5m5 0v-5M4 4l6 6m10 10-6-6" />
-      </>
-    ),
-    relay: (
-      <>
-        <path d="m4 7 8-4 8 4-8 4-8-4Zm0 5 8 4 8-4M4 17l8 4 8-4" />
-        <path d="M12 11v10" />
-      </>
-    ),
-    chevron: <path d="m9 5 7 7-7 7" />,
-    search: (
-      <>
-        <circle cx="10.5" cy="10.5" r="6.5" />
-        <path d="m16 16 5 5" />
-      </>
-    ),
-    storage: (
-      <>
-        <rect x="3" y="4" width="18" height="16" rx="2" />
-        <path d="M3 12h18M7 8h1m-1 8h1m4 0h5" />
-      </>
-    ),
-    close: <path d="m6 6 12 12M6 18 18 6" />,
-    plus: <path d="M12 5v14M5 12h14" />,
-    tasks: (
-      <>
-        <rect x="4" y="4" width="6" height="16" rx="1" />
-        <rect x="14" y="4" width="6" height="10" rx="1" />
-      </>
-    ),
-    chat: <path d="M20 11a8 8 0 0 1-8 8H8l-5 2 1-5a8 8 0 1 1 16-5Z" />,
-    inbox: (
-      <>
-        <path d="M4 4h16l2 12v4H2v-4L4 4Z" />
-        <path d="M2 14h6l2 3h4l2-3h6" />
-      </>
-    ),
-    repository: (
-      <>
-        <path d="M5 3h13a2 2 0 0 1 2 2v16H6a3 3 0 0 1-3-3V5a2 2 0 0 1 2-2Z" />
-        <path d="M3 17h17M7 7h9M7 10h6" />
-      </>
-    ),
-    settings: (
-      <>
-        <circle cx="12" cy="12" r="3" />
-        <path d="m9 3-1 3-3 1-2 5 2 5 3 1 1 3h6l1-3 3-1 2-5-2-5-3-1-1-3H9Z" />
-      </>
-    ),
-    memory: (
-      <>
-        <rect x="5" y="5" width="14" height="14" rx="2" />
-        <path d="M9 1v4m6-4v4M9 19v4m6-4v4M1 9h4m-4 6h4m14-6h4m-4 6h4M9 9h6v6H9z" />
-      </>
-    ),
-    sun: (
-      <>
-        <circle cx="12" cy="12" r="4" />
-        <path d="M12 1v2m0 18v2M1 12h2m18 0h2M4 4l2 2m12 12 2 2M4 20l2-2M18 6l2-2" />
-      </>
-    ),
-    moon: <path d="M20 15.5A9 9 0 0 1 8.5 4a9 9 0 1 0 11.5 11.5Z" />,
-    more: (
-      <>
-        <circle cx="5" cy="12" r="1" />
-        <circle cx="12" cy="12" r="1" />
-        <circle cx="19" cy="12" r="1" />
-      </>
-    ),
-    copy: (
-      <>
-        <rect x="8" y="8" width="12" height="12" rx="2" />
-        <path d="M16 8V4H4v12h4" />
-      </>
-    ),
-    terminal: (
-      <>
-        <rect x="3" y="4" width="18" height="16" rx="2" />
-        <path d="m7 9 3 3-3 3m6 0h4" />
-      </>
-    ),
-    expand: <path d="M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5" />,
-    graph: (
-      <>
-        <rect x="8" y="2" width="8" height="5" rx="1" />
-        <rect x="1" y="17" width="8" height="5" rx="1" />
-        <rect x="15" y="17" width="8" height="5" rx="1" />
-        <path d="M12 7v5H5v5m7-5h7v5" />
-      </>
-    ),
-  };
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.7"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      {paths[name] || paths.tasks}
-    </svg>
-  );
-}
+import { Icon } from './Icons';
+export { Icon, ProviderIcon, ProviderName, RelayMark, providerName } from './Icons';
 export function Select({
   label,
   value,
@@ -128,7 +13,13 @@ export function Select({
 }: {
   label: string;
   value: string;
-  options: { value: string; label: string; detail?: string; disabled?: boolean }[];
+  options: {
+    value: string;
+    label: string;
+    detail?: string;
+    disabled?: boolean;
+    icon?: ReactNode;
+  }[];
   onChange: (value: string) => void;
   custom?: boolean;
   disabled?: boolean;
@@ -215,8 +106,11 @@ export function Select({
         }}
         onClick={() => (open ? close() : show())}
       >
-        <span>{options.find((o) => o.value === value)?.label || value || 'Default'}</span>
-        <span className={open ? 'rotate-down' : 'rotate-right'}>
+        <span className="select-value">
+          {options.find((o) => o.value === value)?.icon}
+          {options.find((o) => o.value === value)?.label || value || 'Default'}
+        </span>
+        <span className={`select-caret ${open ? 'is-open' : ''}`}>
           <Icon name="chevron" size={14} />
         </span>
       </button>
@@ -295,7 +189,10 @@ export function Select({
                       onPointerMove={() => setIndex(i)}
                       onClick={() => choose(item.value)}
                     >
-                      <span>{item.label}</span>
+                      <span className="select-option-label">
+                        {item.icon}
+                        {item.label}
+                      </span>
                       {item.detail && <small>{item.detail}</small>}
                     </button>
                   ))}

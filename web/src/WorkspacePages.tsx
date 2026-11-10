@@ -3,7 +3,7 @@ import { RoutingEvidence } from './WorkflowInsights';
 import { useState } from 'react';
 import { Markdown } from './Markdown';
 import { Modal } from './Modal';
-import { Select } from './UI';
+import { Select, ProviderIcon, ProviderName, providerName } from './UI';
 import { Notice, useMutation, useResource, useSession, request } from './Session';
 import type { RelayConfig, Bootstrap } from './types';
 import { asObject } from './task-data';
@@ -65,7 +65,9 @@ export function SettingsPage({
             return (
               <article key={id}>
                 <div className="section-heading">
-                  <h3>{id[0]!.toUpperCase() + id.slice(1)}</h3>
+                  <h3>
+                    <ProviderName provider={id} size={30} />
+                  </h3>
                   <label className="inline">
                     <input
                       type="checkbox"
@@ -113,7 +115,11 @@ export function SettingsPage({
               <Select
                 label={`${stage} provider`}
                 value={String(routing[stage] || 'codex')}
-                options={providers.map((value) => ({ value, label: value }))}
+                options={providers.map((value) => ({
+                  value,
+                  label: providerName(value),
+                  icon: <ProviderIcon provider={value} size={22} />,
+                }))}
                 onChange={(value) => update('routing', { ...routing, [stage]: value })}
               />
             </label>
@@ -156,7 +162,11 @@ export function SettingsPage({
             <Select
               label="Default Relay agent"
               value={String(asObject(config.workspaceAgent)?.provider || 'claude')}
-              options={providers.map((value) => ({ value, label: value }))}
+              options={providers.map((value) => ({
+                value,
+                label: providerName(value),
+                icon: <ProviderIcon provider={value} size={22} />,
+              }))}
               onChange={(provider) =>
                 update('workspaceAgent', {
                   ...asObject(config.workspaceAgent),

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Markdown } from './Markdown';
-import { Select } from './UI';
+import { Select, ProviderName } from './UI';
 import { Notice, useResource } from './Session';
 import { asObject, asText, externalURL } from './task-data';
 import type { FullTask } from './TaskExtras';
@@ -43,7 +43,8 @@ export function WorkflowStatus({ task }: { task: FullTask }) {
         </strong>
         {active && (
           <span>
-            {run?.harness} · {run?.actualModel || run?.model || 'CLI default'}
+            <ProviderName provider={run?.harness || ''} size={22} /> ·{' '}
+            {run?.actualModel || run?.model || 'CLI default'}
           </span>
         )}
       </div>
@@ -223,7 +224,7 @@ export function RoutingEvidence({
                   <tr key={index}>
                     <td>{row.stage}</td>
                     <td>
-                      {row.harness}
+                      <ProviderName provider={row.harness} size={22} />
                       <small>{row.model || 'Model not recorded'}</small>
                     </td>
                     <td>
