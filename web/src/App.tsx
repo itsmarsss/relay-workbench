@@ -1,3 +1,4 @@
+import { useTaskNotifications } from './Notifications';
 import { useEffect, useRef, useState } from 'react';
 import { MotionConfig, motion } from 'motion/react';
 import { SessionProvider } from './Session';
@@ -292,6 +293,7 @@ export default function App() {
       revision: string;
       profile?: RepositoryProfile;
     } | null>(null);
+  useTaskNotifications(tasks, !!bootstrap);
   useEffect(() => {
     document.documentElement.dataset.theme = dark ? 'dark' : 'light';
     try {

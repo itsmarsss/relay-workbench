@@ -57,8 +57,7 @@ export function executionLayout(
         from: parent.id,
         to: id,
         label:
-          asText(row.relation) ||
-          (row.role === 'debug'
+          row.role === 'debug'
             ? 'Diagnose'
             : parent.row.role === 'debug'
               ? 'Continue'
@@ -66,7 +65,7 @@ export function executionLayout(
                 ? 'Repair'
                 : row.stage === parent.row.stage
                   ? 'Retry'
-                  : 'Handoff'),
+                  : 'Handoff',
         branch: row.role === 'debug' || parent !== previous || repair,
       });
     }

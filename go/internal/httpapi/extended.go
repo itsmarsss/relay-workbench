@@ -8,7 +8,9 @@ import (
 	"os"
 	"strings"
 
+	"relay.local/relay/internal/insights"
 	"relay.local/relay/internal/memory"
+	"relay.local/relay/internal/task"
 )
 
 type controller interface {
@@ -38,6 +40,30 @@ func (s *Server) extended(w http.ResponseWriter, r *http.Request) bool {
 		return true
 	}
 	path := r.URL.Path
+	if path == "/api/outcomes" && r.Method == "GET" {
+		rows, err := s.store.All()
+		if err != nil {
+			result(w, nil, err, 200)
+			return true
+		}
+		values := []map[string]any{}
+		for _, row := range rows {
+			var value map[string]any
+			if json.Unmarshal(row, &value) != nil {
+				respond(w, 500, map[string]string{"error": "Invalid task evidence"})
+				return true
+			}
+			values = append(values, value)
+		}
+		config, err := (task.ConfigurationService{Store: s.store}).Read()
+		if err != nil {
+			result(w, nil, err, 200)
+			return true
+		}
+		result(w, insights.Outcomes(values, config.Value, r.URL.Query().Get("repositoryId")), nil, 200)
+		return true
+	}
+
 	if path == "/api/models" || path == "/api/models/discover" || path == "/api/repositories/discover" || path == "/api/repositories/suggestions" {
 		if !s.authorized(r) {
 			respond(w, 403, map[string]string{"error": "Session token required"})

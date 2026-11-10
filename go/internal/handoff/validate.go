@@ -1,5 +1,4 @@
-// Package handoff ports the legacy handoff validator. It is not yet wired to a
-// workflow runner; schema, verification evidence and gate parity are separate.
+// Package handoff validates structured stage output before workflow progression.
 package handoff
 
 import (

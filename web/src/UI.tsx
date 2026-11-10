@@ -21,6 +21,18 @@ export function Icon({ name, size = 18 }: { name: string; size?: number }) {
       </>
     ),
     chevron: <path d="m9 5 7 7-7 7" />,
+    search: (
+      <>
+        <circle cx="10.5" cy="10.5" r="6.5" />
+        <path d="m16 16 5 5" />
+      </>
+    ),
+    storage: (
+      <>
+        <rect x="3" y="4" width="18" height="16" rx="2" />
+        <path d="M3 12h18M7 8h1m-1 8h1m4 0h5" />
+      </>
+    ),
     close: <path d="m6 6 12 12M6 18 18 6" />,
     plus: <path d="M12 5v14M5 12h14" />,
     tasks: (

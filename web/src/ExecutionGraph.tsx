@@ -38,6 +38,7 @@ export function ExecutionGraph({ task }: { task: FullTask }) {
       });
     }
   }, [selected, zoom]);
+  const graphHeight = Math.min(460, Math.max(210, graph.height * zoom + 16));
   return (
     <section className="surface execution-section">
       <div className="section-heading">
@@ -99,7 +100,12 @@ export function ExecutionGraph({ task }: { task: FullTask }) {
             {(history.data?.forks.length || 0) > 0 && <span>Checkpoint branches</span>}
             {asObject(task.automation)?.enabled === true && <strong>Auto authorized</strong>}
           </div>
-          <div className="execution-canvas" ref={canvas} aria-label="Execution graph">
+          <div
+            className="execution-canvas"
+            ref={canvas}
+            aria-label="Execution graph"
+            style={{ height: graphHeight }}
+          >
             <div
               className="execution-world"
               style={{ width: graph.width * zoom, height: graph.height * zoom }}

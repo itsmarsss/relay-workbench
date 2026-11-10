@@ -4,6 +4,7 @@ package workflow
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"relay.local/relay/internal/store"
@@ -96,5 +97,48 @@ func TestReviewCommentsRejectUnrecordedWorkspaceChanges(t *testing.T) {
 	}
 	if len(array(coordinatorTask(t, db, id)["reviewComments"])) != 0 {
 		t.Fatal("stale comment persisted")
+	}
+}
+
+func TestEditedRequirementsRevokeApprovalAndAuto(t *testing.T) {
+	c, db, id, _, _ := acceptedPublicationFixture(t)
+	if err := db.SetMeta("automation:"+id, `{"enabled":true}`); err != nil {
+		t.Fatal(err)
+	}
+	body := revisionBody(t, db, id)
+	body["description"] = "A different requirement that needs a new plan"
+	if _, err := c.Control(context.Background(), id, "edit", body); err != nil {
+		t.Fatal(err)
+	}
+	value := coordinatorTask(t, db, id)
+	if value["status"] != "paused" || value["stage"] != "plan" || value["chosenApproach"] != nil || value["verifiedFingerprint"] != nil || value["reviewedFingerprint"] != nil {
+		t.Fatal("changed requirements retained accepted authority")
+	}
+	raw, exists, err := db.GetMeta("automation:" + id)
+	var delegation map[string]any
+	json.Unmarshal([]byte(raw), &delegation)
+	if err != nil || !exists || delegation["enabled"] != false {
+		t.Fatal("Auto remained authorized")
+	}
+}
+
+func TestPartialWorkspacePreparationFreezesRepositoryScope(t *testing.T) {
+	c, db, id, _, _ := acceptedPublicationFixture(t)
+	value := coordinatorTask(t, db, id)
+	value["status"] = "blocked"
+	delete(value, "workspaceRoot")
+	value["workspaceDraft"] = map[string]any{"root": "retained"}
+	saved(t, db, value)
+	body := revisionBody(t, db, id)
+	body["repositoryIds"] = []any{"repo"}
+	if _, err := c.Control(context.Background(), id, "edit", body); err == nil {
+		t.Fatal("partial workspace scope changed")
+	}
+}
+
+func TestWorkloadSeparatesMonitoringFromTaskAgents(t *testing.T) {
+	c := &Coordinator{jobs: map[string]*coordinatorJob{"task": {}, "pr": {kind: "monitor"}}}
+	if running, monitoring := c.Workload(); running != 1 || monitoring != 1 || c.Running() != 2 {
+		t.Fatalf("incorrect workload: %d %d", running, monitoring)
 	}
 }

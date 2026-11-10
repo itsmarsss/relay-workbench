@@ -226,8 +226,7 @@ func ApprovePlan(task map[string]any, optionID, note string, auth Authorization,
 }
 
 // AcceptFinal requires fingerprints produced by a trusted workspace inspection.
-// The function cannot establish those fingerprints itself and must not be
-// exposed until the scanner and HTTP authentication are implemented.
+// Callers must inspect the leased workspace and authenticate approval authority.
 func AcceptFinal(task map[string]any, fingerprints Fingerprints, auth Authorization, automation map[string]any, now time.Time) (GateResult, error) {
 	if task == nil {
 		return GateResult{}, errors.New("task not found")

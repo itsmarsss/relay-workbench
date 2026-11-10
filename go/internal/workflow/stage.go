@@ -179,7 +179,7 @@ func (s *StageRunner) Run(ctx context.Context, taskID string, options StageOptio
 	switch stage {
 	case "triage", "investigate", "plan", "implement", "verify", "review":
 	default:
-		return errors.New("stage execution is not yet supported")
+		return errors.New("stage execution is not supported")
 	}
 	routeStage := stage
 	if stage == "verify" {

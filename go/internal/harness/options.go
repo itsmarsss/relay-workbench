@@ -6,8 +6,7 @@ import (
 	"unicode/utf16"
 )
 
-// Options validates user-selected model and effort before Build. The runner is
-// not yet implemented; it must never execute unvalidated Build output.
+// Options validates user-selected model and effort before invocation building.
 func Options(provider, model, effort string) (string, string, error) {
 	if len(utf16.Encode([]rune(model))) > 200 {
 		return "", "", errors.New("Model must be a string of at most 200 characters")

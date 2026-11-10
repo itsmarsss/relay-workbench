@@ -1,3 +1,4 @@
+import { WorkflowStatus, TaskResult } from './WorkflowInsights';
 import { SideChat } from './Chat';
 import { useMutation } from './Session';
 import { asObject } from './task-data';
@@ -522,6 +523,7 @@ export function TaskPage({
           </button>
         ))}
       </nav>
+      <WorkflowStatus task={task as FullTask} />
       <motion.div
         key={tab}
         initial={{ opacity: 0, y: 4 }}
@@ -533,7 +535,7 @@ export function TaskPage({
             <ExecutionGraph task={task as FullTask} />
             <ForkLinks task={task as FullTask} />
             <PublicationPanel task={task as FullTask} />
-            <TaskPanel task={task} view="overview" />
+            <TaskResult task={task as FullTask} />
             <section className="description-card">
               <h2>Description &amp; requirements</h2>
               {task.description ? (
@@ -542,7 +544,7 @@ export function TaskPage({
                 <p>No description provided.</p>
               )}
             </section>
-            {asObject(task.migration)?.readOnly !== true && (
+            {asObject(task.migration)?.readOnly !== true && !task.demo && (
               <ContinueWork task={task as FullTask} />
             )}
           </div>

@@ -4,6 +4,7 @@ import { CopyButton, Select } from './UI';
 import { Notice, request, useResource } from './Session';
 import { asObject, asText } from './task-data';
 import type { FullTask } from './TaskExtras';
+import { activityWindow } from './activity-window';
 
 type Row = Record<string, unknown> & { seq: number };
 function rows(value: unknown): Row[] {
@@ -118,23 +119,29 @@ export function ActivityPanel({ taskId, logs = false }: { taskId: string; logs?:
     [older, setOlder] = useState(false),
     [loading, setLoading] = useState(true),
     [stage, setStage] = useState(''),
-    [all, setAll] = useState(false);
-  const state = useRef({ first: 0, last: 0, busy: false, taskId }),
+    [all, setAll] = useState(false),
+    [historical, setHistorical] = useState(false),
+    [refresh, setRefresh] = useState(0);
+  const state = useRef({ first: 0, last: 0, busy: false, taskId, rows: [] as Row[] }),
     scroll = useRef<HTMLDivElement>(null),
-    following = useRef(true);
+    following = useRef(true),
+    browsing = useRef(false);
   useEffect(() => {
     let alive = true,
       again = false;
     const controller = new AbortController();
-    const cursor = { first: 0, last: 0, busy: false, taskId };
+    const cursor = { first: 0, last: 0, busy: false, taskId, rows: [] as Row[] };
     state.current = cursor;
     setEvents([]);
     setLoading(true);
     setError('');
     setStage('');
     setOlder(false);
+    setHistorical(false);
+    browsing.current = false;
     following.current = true;
     async function load() {
+      if (browsing.current) return;
       if (cursor.busy) {
         again = true;
         return;
@@ -154,9 +161,13 @@ export function ActivityPanel({ taskId, logs = false }: { taskId: string; logs?:
         if (alive) {
           if (initial) setOlder(result.length === 200);
           if (result.length) {
-            cursor.first = cursor.first || result[0]!.seq;
-            cursor.last = result.at(-1)!.seq;
-            setEvents((current) => [...current, ...result].slice(-2000));
+            const next = activityWindow(cursor.rows, result, 'later');
+            cursor.first = next.first;
+            cursor.last = next.last;
+            cursor.rows = next.rows;
+            if (next.trimmed) setOlder(true);
+            setEvents(next.rows);
+            if (result.length === 200) again = true;
           }
           setError('');
         }
@@ -188,7 +199,7 @@ export function ActivityPanel({ taskId, logs = false }: { taskId: string; logs?:
       clearInterval(timer);
       window.removeEventListener('relay-data-change', changed);
     };
-  }, [taskId]);
+  }, [taskId, refresh]);
   useEffect(() => {
     if (following.current && scroll.current) scroll.current.scrollTop = scroll.current.scrollHeight;
   }, [events, logs, stage, all]);
@@ -196,6 +207,9 @@ export function ActivityPanel({ taskId, logs = false }: { taskId: string; logs?:
     const cursor = state.current;
     if (cursor.busy || cursor.taskId !== taskId) return;
     cursor.busy = true;
+    browsing.current = true;
+    setHistorical(true);
+    following.current = false;
     const el = scroll.current,
       height = el?.scrollHeight || 0,
       top = el?.scrollTop || 0;
@@ -204,8 +218,11 @@ export function ActivityPanel({ taskId, logs = false }: { taskId: string; logs?:
       if (state.current !== cursor) return;
       setOlder(result.length === 200);
       if (result.length) {
-        cursor.first = result[0]!.seq;
-        setEvents((current) => [...result, ...current].slice(0, 2000));
+        const next = activityWindow(cursor.rows, result, 'earlier');
+        cursor.first = next.first;
+        cursor.last = next.last;
+        cursor.rows = next.rows;
+        setEvents(next.rows);
       }
       following.current = false;
       requestAnimationFrame(() => {
@@ -247,7 +264,13 @@ export function ActivityPanel({ taskId, logs = false }: { taskId: string; logs?:
         <CopyButton
           text={visible.map((row) => asText(row.summary || row.text || row.details)).join('\n\n')}
         />
+        {historical && (
+          <button onClick={() => setRefresh((value) => value + 1)}>Jump to latest</button>
+        )}
       </div>
+      {historical && (
+        <p className="form-note">Viewing earlier activity. Live updates are paused.</p>
+      )}
       {error && <Notice>{error}</Notice>}
       <div
         className="activity-scroll"
@@ -259,7 +282,7 @@ export function ActivityPanel({ taskId, logs = false }: { taskId: string; logs?:
           if (el) following.current = el.scrollHeight - el.scrollTop - el.clientHeight < 60;
         }}
       >
-        {older && events.length < 2000 && (
+        {older && (
           <button className="load-older" onClick={() => void previous()}>
             Load earlier activity
           </button>

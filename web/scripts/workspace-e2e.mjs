@@ -10,6 +10,12 @@ const directory = await mkdtemp(join(tmpdir(), 'relay-workspace-e2e-')),
   binary = join(directory, 'relay-go');
 let server, browser;
 let output = '';
+async function capture(page, name) {
+  if (!process.env.RELAY_TEST_ARTIFACTS) return;
+  await mkdir(process.env.RELAY_TEST_ARTIFACTS, { recursive: true });
+  await page.waitForTimeout(250);
+  await page.screenshot({ path: join(process.env.RELAY_TEST_ARTIFACTS, name + '.png') });
+}
 async function until(fn, label) {
   const end = Date.now() + 15000;
   while (Date.now() < end) {
@@ -138,13 +144,63 @@ let input='';process.stdin.on('data',d=>input+=d);process.stdin.on('end',()=>{
     await page.getByRole('button', { name: 'Ask Relay', exact: true }).boundingBox(),
     launcher,
   );
+  await page.goto(origin + '/#repositories');
+  await page.getByRole('button', { name: 'Add repository', exact: true }).click();
+  const profileEditor = page.getByRole('dialog', { name: 'Add repository', exact: true });
+  await profileEditor.getByRole('textbox', { name: 'Name', exact: true }).fill('Portable project');
+  await profileEditor
+    .getByRole('textbox', { name: 'Repository path', exact: true })
+    .fill(directory);
+  await profileEditor.getByRole('tab', { name: 'Checks & setup', exact: true }).click();
+  const commands = profileEditor
+    .locator('.command-list-editor')
+    .filter({ has: page.getByRole('heading', { name: 'Required checks', exact: true }) });
+  await commands.getByRole('button', { name: 'Add command', exact: true }).click();
+  await profileEditor
+    .getByRole('textbox', { name: 'Required checks 1 executable', exact: true })
+    .fill('fixture-check');
+  await commands.getByRole('button', { name: 'Add argument', exact: true }).click();
+  const literal = 'literal; $(never-execute)';
+  await profileEditor
+    .getByRole('textbox', { name: 'Required checks 1 argument 1', exact: true })
+    .fill(literal);
+  await capture(page, 'repository-checks');
+  await profileEditor.getByRole('tab', { name: 'General', exact: true }).click();
+  await profileEditor.getByRole('button', { name: 'Save repository', exact: true }).click();
+  await page.getByRole('heading', { name: 'Portable project', exact: true }).waitFor();
+  const profile = (await (await fetch(origin + '/api/bootstrap')).json()).config.repositories.find(
+    (profile) => profile.name === 'Portable project',
+  );
+  assert.deepEqual(profile.checks, [{ command: 'fixture-check', args: [literal] }]);
   await page.goto(origin + '/#settings');
   await page.getByRole('button', { name: 'Save settings', exact: true }).click();
   await page.getByText('Settings saved.', { exact: true }).waitFor();
   await page.getByRole('button', { name: 'Save settings', exact: true }).click();
   await page.getByText('Settings saved.', { exact: true }).waitFor();
+  await page.getByRole('heading', { name: 'Notifications', exact: true }).waitFor();
+  await page.getByText('Routing evidence', { exact: true }).click();
+  await page
+    .getByText('Run workflows to collect evidence. No routing changes are automatic.', {
+      exact: true,
+    })
+    .waitFor();
+  await capture(page, 'settings');
   const demo = await api('/api/tasks', { title: 'Workflow demo', demo: true });
   await page.goto(origin + '/#task/' + demo.id + '/overview');
+  await page.getByRole('button', { name: 'Edit task', exact: true }).click();
+  const editor = page.getByRole('dialog', { name: 'Edit task', exact: true });
+  await editor.waitFor();
+  assert.equal(
+    await page.evaluate(() => getComputedStyle(document.querySelector('.app > main')).overflow),
+    'hidden',
+  );
+  await editor.getByRole('button', { name: 'Workflow preset', exact: true }).click();
+  await page.getByRole('option', { name: 'Small change', exact: true }).click();
+  await editor.getByRole('button', { name: 'Save changes', exact: true }).click();
+  await until(
+    async () => (await (await fetch(origin + '/api/tasks/' + demo.id)).json()).preset === 'small',
+    'editable draft preset',
+  );
   await page.getByRole('button', { name: 'Run demo', exact: true }).click();
   await page.getByRole('radio', { name: 'Select Focused repair', exact: true }).waitFor();
   await page.getByRole('radio', { name: 'Select Focused repair', exact: true }).click();
@@ -156,11 +212,70 @@ let input='';process.stdin.on('data',d=>input+=d);process.stdin.on('end',()=>{
       (await (await fetch(origin + '/api/tasks/' + demo.id)).json()).status === 'completed',
     'demo acceptance',
   );
+  assert.equal(
+    await page.getByRole('button', { name: 'Publish draft PR', exact: true }).count(),
+    0,
+    'Demos cannot publish real changes',
+  );
+  assert.equal(
+    await page.getByRole('button', { name: 'Run agent', exact: true }).count(),
+    0,
+    'Demos cannot start live follow-ups',
+  );
+  await capture(page, 'task-overview');
+  await page.getByRole('heading', { name: 'Execution', exact: true }).waitFor();
+  await page.getByRole('heading', { name: 'Execution', exact: true }).scrollIntoViewIfNeeded();
+  await capture(page, 'execution');
   await page.goto(origin + '/#relay');
+  await capture(page, 'relay-light');
   await page.screenshot({ path: join(directory, 'light.png') });
   await page.getByRole('button', { name: 'Use dark theme' }).click();
+  const unreadable = await page.evaluate(() => {
+    const luminance = (color) => {
+      const values = color
+        .match(/[\d.]+/g)
+        .slice(0, 3)
+        .map(Number)
+        .map((v) => {
+          const c = v / 255;
+          return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+        });
+      return values[0] * 0.2126 + values[1] * 0.7152 + values[2] * 0.0722;
+    };
+    return [...document.querySelectorAll('main button:not(:disabled), main a')]
+      .filter((element) => {
+        if (!element.getBoundingClientRect().width) return false;
+        let parent = element;
+        let bg;
+        while (parent) {
+          bg = getComputedStyle(parent).backgroundColor;
+          if (!bg.endsWith(', 0)') && bg !== 'transparent') break;
+          parent = parent.parentElement;
+        }
+        const a = luminance(getComputedStyle(element).color),
+          b = luminance(bg);
+        return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05) < 4.5;
+      })
+      .map((element) => element.getAttribute('aria-label') || element.textContent);
+  });
+  assert.deepEqual(unreadable, [], 'Dark controls need readable contrast');
+  await capture(page, 'relay-dark');
   await page.screenshot({ path: join(directory, 'dark.png') });
   await page.setViewportSize({ width: 390, height: 844 });
+  await until(
+    async () => (await page.locator('.sidebar').boundingBox()).height <= 64,
+    'compact mobile navigation',
+  );
+  const composer = await page.getByRole('textbox', { name: 'Message Relay' }).boundingBox();
+  assert.ok(
+    composer.width >= 250 && composer.y + composer.height <= 844,
+    'Mobile composer stays usable within the viewport',
+  );
+  assert.ok(
+    await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
+    'No page-wide horizontal overflow',
+  );
+  await capture(page, 'relay-mobile');
   await page.screenshot({ path: join(directory, 'mobile.png') });
   assert.equal(errors.length, 0, errors.join('\n'));
   console.log(

@@ -1,4 +1,4 @@
-// Package httpapi exposes the isolated migration API. Workflow execution is not yet available.
+// Package httpapi serves the isolated Relay API and React application.
 package httpapi
 
 import (
@@ -20,6 +20,7 @@ import (
 	"strings"
 	"time"
 
+	"relay.local/relay/internal/insights"
 	"relay.local/relay/internal/issue"
 	"relay.local/relay/internal/storage"
 	"relay.local/relay/internal/store"
@@ -172,15 +173,18 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			respond(w, 500, map[string]string{"error": "Could not evaluate storage pressure"})
 			return
 		}
-		respond(w, 200, map[string]any{"pressure": pressure, "policy": policy.Policy, "revision": policy.Revision, "scope": "Relay data volume", "admissionEnforced": false, "automaticCleanup": false})
+		respond(w, 200, map[string]any{"pressure": pressure, "policy": policy.Policy, "revision": policy.Revision, "scope": "Relay data volume", "admissionEnforced": s.workflow != nil, "automaticCleanup": false})
 		return
 	}
 	if path == "/api/health" {
-		running := 0
+		running, monitoring := 0, 0
 		if s.workflow != nil {
 			running = s.workflow.Running()
+			if stats, ok := s.workflow.(interface{ Workload() (int, int) }); ok {
+				running, monitoring = stats.Workload()
+			}
 		}
-		respond(w, http.StatusOK, map[string]any{"ok": true, "running": running, "monitoring": 0, "version": "experimental-go"})
+		respond(w, http.StatusOK, map[string]any{"ok": true, "running": running, "monitoring": monitoring, "version": "experimental-go"})
 		return
 	}
 	if path == "/api/events" {
@@ -200,7 +204,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			summary["taskRevision"] = store.TaskRevision(row)
 			var value map[string]any
 			if json.Unmarshal(row, &value) == nil {
-				for _, key := range []string{"statusOverride", "ticket", "repositories"} {
+				for _, key := range []string{"statusOverride", "ticket", "repositories", "migration"} {
 					if item, ok := value[key]; ok {
 						summary[key] = item
 					}
@@ -247,6 +251,15 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				if value, exists := summary[key]; exists {
 					body[key], _ = json.Marshal(value)
 				}
+			}
+			var value map[string]any
+			if json.Unmarshal(task, &value) == nil {
+				evidence, healthErr := s.store.RecentActivity(parts[0])
+				if healthErr != nil {
+					respond(w, 500, map[string]string{"error": "Could not read workflow health"})
+					return
+				}
+				body["health"], _ = json.Marshal(insights.Health(value, evidence, time.Now()))
 			}
 			respond(w, 200, body)
 			return

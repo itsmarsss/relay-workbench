@@ -1,5 +1,5 @@
-// Package tasksummary implements the read-only subset needed by the preview.
-// Full list metadata, workflow health and authorization remain unported.
+// Package tasksummary selects current runs and compact task list metadata.
+// HTTP and assistant boundaries add authorization and live workflow evidence.
 package tasksummary
 
 import (

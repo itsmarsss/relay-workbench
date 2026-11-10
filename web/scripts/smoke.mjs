@@ -18,6 +18,7 @@ await build({
     'src/RepositoryEditor.tsx',
     'src/Markdown.tsx',
     'src/StoragePage.tsx',
+    'src/WorkflowInsights.tsx',
   ],
   bundle: true,
   packages: 'external',
@@ -42,6 +43,23 @@ const { RepositoryEditor } = await import(
 );
 const { Markdown } = await import(pathToFileURL(resolve('dist/ssr-smoke/Markdown.js')).href);
 const { StoragePage } = await import(pathToFileURL(resolve('dist/ssr-smoke/StoragePage.js')).href);
+const { WorkflowStatus } = await import(
+  pathToFileURL(resolve('dist/ssr-smoke/WorkflowInsights.js')).href
+);
+assert.equal(
+  renderToStaticMarkup(
+    React.createElement(WorkflowStatus, {
+      task: {
+        id: 'task',
+        title: 'Completed',
+        status: 'completed',
+        currentRun: { id: 'run', status: 'complete' },
+        health: { state: 'awaiting_final', summary: 'Waiting for final review' },
+      },
+    }),
+  ),
+  '',
+);
 const shell = renderToStaticMarkup(React.createElement(App));
 assert.match(shell, /Task deck/);
 assert.match(shell, /Isolated preview/);

@@ -1,3 +1,5 @@
+import { NotificationSettings } from './Notifications';
+import { RoutingEvidence } from './WorkflowInsights';
 import { useState } from 'react';
 import { Markdown } from './Markdown';
 import { Modal } from './Modal';
@@ -50,6 +52,7 @@ export function SettingsPage({
         </button>
       </div>
       {message && <p role="status">{message}</p>}
+      <NotificationSettings />
       <StateTransfer />
       <section className="surface">
         <h2>Agents</h2>
@@ -116,6 +119,12 @@ export function SettingsPage({
             </label>
           ))}
         </div>
+      </section>
+      <section className="surface">
+        <RoutingEvidence
+          config={config}
+          onApply={(stage, provider) => update('routing', { ...routing, [stage]: provider })}
+        />
       </section>
       <section className="surface">
         <h2>Workflow limits</h2>

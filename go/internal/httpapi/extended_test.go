@@ -14,6 +14,18 @@ type extendedCoordinator struct {
 	calls int
 }
 
+func (c *extendedCoordinator) Workload() (int, int) { return 2, 1 }
+
+func TestHealthIncludesActivePRMonitoring(t *testing.T) {
+	app, _ := setup(t)
+	app.SetCoordinator(&extendedCoordinator{})
+	w := request(app, "GET", "/api/health", "127.0.0.1:4311", "", "")
+	var value struct{ Running, Monitoring int }
+	if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &value) != nil || value.Running != 2 || value.Monitoring != 1 {
+		t.Fatalf("incorrect workload response: %s", w.Body.String())
+	}
+}
+
 func (c *extendedCoordinator) Control(_ context.Context, id, op string, body map[string]any) (any, error) {
 	c.calls++
 	return map[string]any{"id": id, "operation": op}, nil
@@ -73,5 +85,36 @@ func TestExtendedBoundaries(t *testing.T) {
 	}
 	if w = do("PATCH", "/api/tasks/"+id, `{} {}`, token); w.Code != 400 {
 		t.Fatal("trailing JSON accepted")
+	}
+}
+
+func TestWorkflowInsightsReadRecordedEvidence(t *testing.T) {
+	app, db := setup(t)
+	task := map[string]any{"id": id, "title": "Evidence fixture"}
+	task["status"] = "awaiting_plan"
+	task["attempts"] = []any{map[string]any{"id": "run", "stage": "investigate", "harness": "codex", "model": "fixture-model", "status": "complete", "handoff": map[string]any{"verdict": "complete"}}}
+	raw, _ := json.Marshal(task)
+	if err := db.Save(raw, json.RawMessage(`{"type":"handoff"}`)); err != nil {
+		t.Fatal(err)
+	}
+	w := request(app, "GET", "/api/tasks/"+id, "127.0.0.1:4311", "", "")
+	var detail map[string]json.RawMessage
+	if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &detail) != nil {
+		t.Fatalf("task: %d %s", w.Code, w.Body.String())
+	}
+	var health map[string]any
+	if json.Unmarshal(detail["health"], &health) != nil || health["state"] != "awaiting_plan" || health["quiet"] != false {
+		t.Fatalf("health: %s", detail["health"])
+	}
+	w = request(app, "GET", "/api/outcomes", "127.0.0.1:4311", "", "")
+	var outcomes struct {
+		Rows []struct{ Successful int }
+	}
+	if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &outcomes) != nil || len(outcomes.Rows) != 1 || outcomes.Rows[0].Successful != 1 {
+		t.Fatalf("outcomes: %d %s", w.Code, w.Body.String())
+	}
+	w = request(app, "GET", "/api/outcomes?repositoryId=missing", "127.0.0.1:4311", "", "")
+	if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &outcomes) != nil || len(outcomes.Rows) != 0 {
+		t.Fatalf("filtered outcomes: %d %s", w.Code, w.Body.String())
 	}
 }

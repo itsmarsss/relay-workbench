@@ -4,11 +4,24 @@ import {
   currentBlocker,
   diffPreviewLines,
   eventPage,
+  externalURL,
   latestHandoffs,
   latestPlan,
   liveTerminal,
   parseDiff,
 } from './task-data.ts';
+test('external result links permit only credential-free web URLs', () => {
+  assert.equal(externalURL('https://example.com/pull/1'), 'https://example.com/pull/1');
+  for (const value of [
+    'javascript:alert(1)',
+    'file:///tmp/file',
+    'https://user:secret@example.com',
+    'bad',
+    null,
+  ]) {
+    assert.equal(externalURL(value), null);
+  }
+});
 test('terminal selection respects manual control and live process status', () => {
   assert.deepEqual(liveTerminal({ status: 'manual', manual: { active: true, session: 'abc' } }), {
     id: 'manual',

@@ -159,7 +159,13 @@ func (c *Coordinator) control(ctx context.Context, id, operation string, body ma
 		if value["demo"] != true {
 			draft["repositoryIds"], draft["repositoryId"] = ids, object(value["repository"])["id"]
 		}
-		hasWorkspace := text(value["workspaceRoot"]) != ""
+		hasWorkspace := text(value["workspaceRoot"]) != "" || value["workspaceDraft"] != nil
+		for _, item := range entries {
+			entry := object(item)
+			if text(entry["workspaceRoot"]) != "" || entry["workspaceDraft"] != nil {
+				hasWorkspace = true
+			}
+		}
 		for key, item := range body {
 			if key == "taskRevision" {
 				continue
@@ -188,10 +194,22 @@ func (c *Coordinator) control(ctx context.Context, id, operation string, body ma
 				value[key] = validated[key]
 			}
 		}
+		requirementsChanged := value["description"] != validated["description"]
 		for _, key := range []string{"title", "description", "ticket", "routing", "models", "efforts", "execution", "smartRouting"} {
 			value[key] = validated[key]
 		}
 		summary = "Task configuration updated."
+		if requirementsChanged && hasWorkspace && value["status"] != "draft" {
+			delegation := map[string]any{"enabled": false, "updatedAt": nowCheckpoint(), "reason": "Task requirements changed"}
+			if err := c.store.SetMeta("automation:"+id, string(mustJSON(delegation))); err != nil {
+				return nil, err
+			}
+			value["automation"] = delegation
+
+			value["chosenApproach"], value["verifiedFingerprint"], value["reviewedFingerprint"], value["publicationRecovery"] = nil, nil, nil, nil
+			value["status"], value["stage"], value["recovery"], value["blockerDecision"] = "paused", "plan", nil, nil
+			summary = "Requirements changed; resume planning and approve a new approach before implementation."
+		}
 	case "publication", "feedback":
 		if err = fields(body, "repositoryId", "enabled"); err != nil {
 			return nil, err

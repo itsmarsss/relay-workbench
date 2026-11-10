@@ -27,6 +27,7 @@ import (
 type coordinatorJob struct {
 	cancel context.CancelFunc
 	done   chan struct{}
+	kind   string
 }
 
 var errTaskNoLongerActive = errors.New("task no longer active")
@@ -86,6 +87,20 @@ func (c *Coordinator) Running() int {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return len(c.jobs)
+}
+
+// Workload separates short PR observations from task agents in health reports.
+func (c *Coordinator) Workload() (running, monitoring int) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for _, job := range c.jobs {
+		if job.kind == "monitor" {
+			monitoring++
+		} else {
+			running++
+		}
+	}
+	return
 }
 
 func (c *Coordinator) update(id string, change func(map[string]any) error, event map[string]any) (map[string]any, error) {

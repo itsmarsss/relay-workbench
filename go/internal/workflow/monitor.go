@@ -76,7 +76,7 @@ func (c *Coordinator) Monitor(ctx context.Context, id, revision, repositoryID st
 		return nil, errors.New("invalid saved task")
 	}
 	jobCtx, cancel := context.WithCancel(context.Background())
-	job := &coordinatorJob{cancel: cancel, done: make(chan struct{})}
+	job := &coordinatorJob{cancel: cancel, done: make(chan struct{}), kind: "monitor"}
 	c.jobs[id] = job
 	go c.runMonitor(jobCtx, id, repositoryID, attemptID, provider, configs[provider], job)
 	return value, nil

@@ -26,8 +26,11 @@ The first state directory must be absent or empty. Thereafter its marker and exc
 - Persistent workspace and task chats, streamed text/tools, task mentions, source/Git/GitHub reads, approved memory, task/settings/storage proposals and exact human approval.
 - Git checkpoints, staged/unstaged/untracked restoration into fresh continuation worktrees, alternate saved approach/debugger decisions, execution branches and history.
 - React board/list, task deck with tabs/splits, rich Markdown/images, inline revision-bound diff comments, activity pagination, inbox, settings, themes, low motion and searchable controls.
+- Live elapsed/progress indicators, observational routing evidence, opt-in desktop decision notifications, structured repository command editors and multi-repository delivery summaries.
 
 A task's board override only changes its displayed column. It never grants implementation or final acceptance. Auto mode is a recorded, task-scoped human delegation. Failed checks, missing structured handoffs, unresolved reviews and modified accepted source block progression.
+
+Editing prepared task requirements revokes the selected approach and Auto delegation and returns the task to planning. Repository scope stays fixed after any workspace preparation; use a continuation for another scope. Long activity histories use bounded windows: loading earlier events pauses live appends until **Jump to latest**.
 
 One Go writer at a time reserves a shared Git repository across linked worktrees and Go processes. The legacy Node server does not participate in that lock protocol. Use separate fixture repositories while both versions run.
 

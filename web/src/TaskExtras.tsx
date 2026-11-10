@@ -7,7 +7,7 @@ import { Icon, Select } from './UI';
 import { ModelSelect, EffortSelect } from './WorkspacePages';
 import { AgentSettings, agentOptions } from './AgentSettings';
 import { Notice, useMutation, useSession, request } from './Session';
-import { asObject, asText } from './task-data';
+import { asObject, asText, externalURL } from './task-data';
 import type { Task } from './types';
 export type FullTask = Task & Record<string, unknown>;
 export function TaskMenu({ task, onDeleted }: { task: Task; onDeleted?: () => void }) {
@@ -80,6 +80,23 @@ function TaskEditor({ task, onClose }: { task: FullTask; onClose: () => void }) 
     [preview, setPreview] = useState(false),
     [agents, setAgents] = useState(() => agentOptions(task));
   const { bootstrap } = useSession();
+  const entries = (
+    Array.isArray(task.repositories) && task.repositories.length ? task.repositories : [task]
+  ).map(asObject);
+  const scopeFixed =
+    !!task.workspaceRoot ||
+    !!task.workspaceDraft ||
+    entries.some((entry) => !!entry?.workspaceRoot || !!entry?.workspaceDraft);
+  const [repositoryIds, setRepositoryIds] = useState(() =>
+      entries.map((entry) => asText(asObject(entry?.repository)?.id)).filter(Boolean),
+    ),
+    [preset, setPreset] = useState(asText(task.preset) || 'bugfix'),
+    [smartRouting, setSmartRouting] = useState(task.smartRouting === true),
+    [dependencies, setDependencies] = useState(() =>
+      (Array.isArray(task.dependencies) ? task.dependencies : [])
+        .map(asObject)
+        .filter((edge): edge is Record<string, unknown> => !!edge),
+    );
   const mutation = useMutation();
   const uploads = useImageUpload((text) => setDescription((value) => value + text));
   const [parseError, setParseError] = useState('');
@@ -99,6 +116,18 @@ function TaskEditor({ task, onClose }: { task: FullTask; onClose: () => void }) 
             description,
             ticket,
             ...agents,
+            smartRouting,
+            ...(!scopeFixed
+              ? {
+                  preset,
+                  dependencies: dependencies.filter(
+                    (edge) =>
+                      repositoryIds.includes(asText(edge.repositoryId)) &&
+                      repositoryIds.includes(asText(edge.dependsOn)),
+                  ),
+                  ...(task.demo === true ? {} : { repositoryIds, repositoryId: repositoryIds[0] }),
+                }
+              : {}),
           };
           void mutation
             .run(`/api/tasks/${task.id}`, body, 'PATCH')
@@ -154,6 +183,99 @@ function TaskEditor({ task, onClose }: { task: FullTask; onClose: () => void }) 
         />
       )}
       {uploads.control}
+      {!scopeFixed && (
+        <>
+          <label className="field">
+            Workflow
+            <Select
+              label="Workflow preset"
+              value={preset}
+              onChange={setPreset}
+              options={[
+                { value: 'bugfix', label: 'Bug fix' },
+                { value: 'small', label: 'Small change' },
+                { value: 'investigate', label: 'Investigate only' },
+                { value: 'cross-repo', label: 'Cross-repo feature' },
+              ]}
+            />
+          </label>
+          {task.demo !== true && bootstrap && (
+            <fieldset>
+              <legend>Repositories</legend>
+              {bootstrap.config.repositories.map((repo) => (
+                <label className="check-row" key={repo.id}>
+                  <input
+                    type="checkbox"
+                    checked={repositoryIds.includes(repo.id)}
+                    onChange={(event) =>
+                      setRepositoryIds((current) =>
+                        event.target.checked
+                          ? [...current, repo.id]
+                          : current.filter((id) => id !== repo.id),
+                      )
+                    }
+                  />
+                  {repo.name}
+                </label>
+              ))}
+            </fieldset>
+          )}
+        </>
+      )}
+      {!scopeFixed && repositoryIds.length > 1 && (
+        <details>
+          <summary>Repository prerequisites</summary>
+          <p className="form-note">
+            Choose which repositories must be implemented and published first. Cycles are rejected
+            when saving.
+          </p>
+          {repositoryIds.map((id) => (
+            <fieldset key={id}>
+              <legend>
+                {bootstrap?.config.repositories.find((repo) => repo.id === id)?.name || id} depends
+                on
+              </legend>
+              {repositoryIds
+                .filter((other) => other !== id)
+                .map((other) => (
+                  <label className="check-row" key={other}>
+                    <input
+                      type="checkbox"
+                      checked={dependencies.some(
+                        (edge) => edge.repositoryId === id && edge.dependsOn === other,
+                      )}
+                      onChange={(event) =>
+                        setDependencies((current) =>
+                          event.target.checked
+                            ? [...current, { repositoryId: id, dependsOn: other }]
+                            : current.filter(
+                                (edge) => edge.repositoryId !== id || edge.dependsOn !== other,
+                              ),
+                        )
+                      }
+                    />
+                    {bootstrap?.config.repositories.find((repo) => repo.id === other)?.name ||
+                      other}
+                  </label>
+                ))}
+            </fieldset>
+          ))}
+        </details>
+      )}
+      <label className="check-row">
+        <input
+          type="checkbox"
+          checked={smartRouting}
+          onChange={(event) => setSmartRouting(event.target.checked)}
+        />
+        Let a routing agent choose specialists
+      </label>
+      {scopeFixed && (
+        <p className="form-note">
+          Repository scope is fixed after workspace preparation. Changing requirements returns the
+          workflow to planning for a new approval.
+        </p>
+      )}
       <details>
         <summary>Agent and execution overrides</summary>
         {bootstrap && (
@@ -298,6 +420,7 @@ function entries(task: FullTask): Record<string, unknown>[] {
 export function PublicationPanel({ task }: { task: FullTask }) {
   const mutation = useMutation();
   const rows = entries(task);
+  if (task.demo === true) return null;
   if (task.status !== 'completed' && !rows.some((row) => row.publication || row.delivery))
     return null;
   return (
@@ -314,8 +437,7 @@ export function PublicationPanel({ task }: { task: FullTask }) {
           delivery = asObject(row.delivery),
           monitor = asObject(row.publicationMonitor),
           feedback = Array.isArray(row.feedback) ? row.feedback : [];
-        const url = asText(publication?.url);
-        const valid = /^https?:\/\//.test(url);
+        const url = externalURL(publication?.url);
         const busy =
           asObject(task.migration)?.readOnly === true ||
           delivery?.status === 'running' ||
@@ -335,7 +457,7 @@ export function PublicationPanel({ task }: { task: FullTask }) {
             <div className="section-heading">
               <div>
                 <strong>{asText(repo?.name) || 'Repository'}</strong>
-                {valid ? (
+                {url ? (
                   <a href={url} target="_blank" rel="noopener noreferrer">
                     {asText(publication?.title) || `Pull request ${asText(publication?.number)}`} ↗
                   </a>

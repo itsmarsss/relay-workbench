@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"relay.local/relay/internal/attachments"
+	"relay.local/relay/internal/insights"
 	"relay.local/relay/internal/memory"
 	"relay.local/relay/internal/process"
 	"relay.local/relay/internal/storage"
@@ -42,6 +43,7 @@ func tools() []tool {
 	return []tool{
 		makeTool("list_tasks", "Read current workspace tasks.", map[string]any{}),
 		makeTool("get_task", "Read a task's full current context and workflow state.", map[string]any{"taskId": str}, "taskId"),
+		makeTool("read_routing_evidence", "Read observed provider results and cautious routing recommendations. Never changes routing automatically.", map[string]any{"repositoryId": str}),
 		makeTool("read_task_history", "Read saved checkpoints, approach choices and workflow continuations.", map[string]any{"taskId": str}, "taskId"),
 		makeTool("read_task_changes", "Read current structured Git diffs and their revision. Requires prepared source access.", map[string]any{"taskId": str}, "taskId"),
 		makeTool("read_task_activity", "Read recent task activity, handoffs and failures.", map[string]any{"taskId": str}, "taskId"),
@@ -255,7 +257,16 @@ func (s *Service) call(ctx context.Context, chat Chat, name string, input map[st
 		}
 		return result, nil
 	case "get_task":
-		return readTask()
+		value, err := readTask()
+		if err != nil {
+			return nil, err
+		}
+		evidence, err := s.Store.RecentActivity(taskID)
+		if err != nil {
+			return nil, err
+		}
+		value["health"] = insights.Health(value, evidence, time.Now())
+		return value, nil
 	case "read_task_activity":
 		if taskID == "" {
 			return nil, errors.New("select a task")
@@ -289,6 +300,25 @@ func (s *Service) call(ctx context.Context, chat Chat, name string, input map[st
 			return nil, errors.New("task diffs are unavailable")
 		}
 		return reader.Diff(ctx, taskID)
+	case "read_routing_evidence":
+		if permissions["readSettings"] != true {
+			return nil, errors.New("readSettings permission is disabled")
+		}
+		rows, err := s.Store.All()
+		if err != nil {
+			return nil, err
+		}
+		tasks := []map[string]any{}
+		for _, raw := range rows {
+			var value map[string]any
+			if json.Unmarshal(raw, &value) != nil {
+				return nil, errors.New("invalid task evidence")
+			}
+			if chat.TaskID == "" || value["id"] == chat.TaskID {
+				tasks = append(tasks, value)
+			}
+		}
+		return insights.Outcomes(tasks, config, text(input["repositoryId"])), nil
 	case "read_storage":
 		if permissions["readSettings"] != true {
 			return nil, errors.New("readSettings permission is disabled")

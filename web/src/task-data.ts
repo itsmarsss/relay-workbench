@@ -290,3 +290,14 @@ export function eventPage(value: unknown, after: number, stream: 'activity' | 'l
   }
   return { cursor, more: value.length >= 1000, entries: visibleEvents(value, stream) };
 }
+
+export function externalURL(value: unknown): string | null {
+  try {
+    const url = new URL(asText(value));
+    return ['http:', 'https:'].includes(url.protocol) && !url.username && !url.password
+      ? url.href
+      : null;
+  } catch {
+    return null;
+  }
+}

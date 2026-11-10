@@ -1,5 +1,5 @@
-// relay-go is an isolated migration preview. It is not a replacement
-// for the legacy server and must not use the running instance's state.
+// relay-go serves the standalone rewrite. Keep its state and active repositories
+// separate from any running legacy instance while evaluating migration.
 package main
 
 import (
