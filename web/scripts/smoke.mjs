@@ -62,7 +62,7 @@ assert.equal(
 );
 const shell = renderToStaticMarkup(React.createElement(App));
 assert.match(shell, /Task deck/);
-assert.match(shell, /Your development, orchestrated/);
+assert.match(shell, /aria-label="Workspace summary"/);
 assert.match(shell, /All tasks/);
 assert.match(shell, /Repositories/);
 const panel = renderToStaticMarkup(

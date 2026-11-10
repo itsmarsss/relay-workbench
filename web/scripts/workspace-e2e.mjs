@@ -351,8 +351,11 @@ let input='';process.stdin.on('data',d=>input+=d);process.stdin.on('end',()=>{
     .waitFor();
   await capture(page, 'agents');
   await page.goto(origin + '/#overview');
-  await page.getByRole('heading', { name: /Let’s make progress/ }).waitFor();
-  await page.locator('.stat-card.attention').click();
+  await page.getByRole('heading', { name: /^Good (morning|afternoon|evening)$/ }).waitFor();
+  await page
+    .getByLabel('Workspace summary')
+    .getByRole('button', { name: /need you$|^Nothing needs you$/ })
+    .click();
   assert.match(page.url(), /scope=attention/);
   const workspaceURL = page.url();
   await page.getByRole('button', { name: 'Open Relay agent', exact: true }).click();
@@ -381,6 +384,17 @@ let input='';process.stdin.on('data',d=>input+=d);process.stdin.on('end',()=>{
   await shortcutDraft.waitFor({ state: 'hidden' });
   const demo = await api('/api/tasks', { title: 'Workflow demo', demo: true });
   await page.goto(origin + '/#task/' + demo.id + '/overview');
+  const moreActions = page.getByRole('button', { name: 'More task actions', exact: true });
+  // The lowest item overlaps the sidebar; it must stay clickable above it.
+  await moreActions.click();
+  await page.getByRole('button', { name: 'Delete task', exact: true }).click();
+  const deletion = page.getByRole('dialog', { name: 'Delete task?', exact: true });
+  await deletion.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await deletion.waitFor({ state: 'hidden' });
+  await moreActions.click();
+  await page.keyboard.press('Escape');
+  assert.equal(await moreActions.getAttribute('aria-expanded'), 'false');
+  await moreActions.click();
   await page.getByRole('button', { name: 'Edit task', exact: true }).click();
   const editor = page.getByRole('dialog', { name: 'Edit task', exact: true });
   await editor.waitFor();
