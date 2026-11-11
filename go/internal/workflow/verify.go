@@ -85,7 +85,7 @@ func (s *verificationSession) prompt(worker string, entries []stageWorkspace) (s
 	if err != nil {
 		return "", err
 	}
-	return "\nSUPERVISED VERIFICATION:\nUse this helper for every verification check. Choose checks appropriate to the touched surfaces and repository guidance; do not infer whole-repository coverage. Each reported check must exactly match its supervised repository, cwd, command, argument list and exit code. Include requirements and their check indices in the structured verification report. Diagnostic checks may be marked --purpose diagnostic and do not satisfy verification requirements. Never claim a check ran unless the helper completed it.\n" + string(encoded), nil
+	return "\nSUPERVISED VERIFICATION:\nUse this helper for every verification check. Choose checks appropriate to the touched surfaces and repository guidance; do not infer whole-repository coverage. Each reported check must exactly match its supervised repository, cwd, command, argument list and exit code. Include requirements and their check indices in the structured verification report. Diagnostic checks may be marked --purpose diagnostic and do not satisfy verification requirements. Never claim a check ran unless the helper completed it. Results from earlier attempts cannot be reused in this stage, whatever prior handoffs suggest: run every check you report through the helper in this session and return an empty verification.reuse list.\n" + string(encoded), nil
 }
 
 func (s *verificationSession) finish(result harness.RunResult, runErr error) ([]any, error) {
