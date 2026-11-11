@@ -2,7 +2,16 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { motion } from 'motion/react';
 import { createPortal } from 'react-dom';
 import type { Task } from './types';
-import { columns, taskLane, boardFilters, filteredTasks, taskScopes, inTaskScope } from './board';
+import {
+  columns,
+  taskLane,
+  boardFilters,
+  filteredTasks,
+  taskScopes,
+  inTaskScope,
+  foldedLanes,
+  toggleLane,
+} from './board';
 import { Select, Icon, ProviderIcon } from './UI';
 import { Notice, useMutation } from './Session';
 import { Modal } from './Modal';
@@ -17,6 +26,13 @@ function currentFilters() {
     showEmpty = localStorage.getItem('relay-task-show-empty-v2') === 'true';
   } catch {}
   return boardFilters(typeof location === 'undefined' ? '' : location.hash, { layout, showEmpty });
+}
+function savedFolds() {
+  try {
+    return foldedLanes(localStorage.getItem('relay-task-folded-stages'));
+  } catch {
+    return [];
+  }
 }
 export function TasksPage({
   tasks,
@@ -33,7 +49,8 @@ export function TasksPage({
     [dragging, setDragging] = useState(''),
     [target, setTarget] = useState(''),
     [menu, setMenu] = useState<{ task: Task; x: number; y: number; move?: boolean } | null>(null),
-    [deleting, setDeleting] = useState<Task | null>(null);
+    [deleting, setDeleting] = useState<Task | null>(null),
+    [folded, setFolded] = useState(savedFolds);
   const mutation = useMutation();
   const menuPanel = useRef<HTMLDivElement>(null),
     menuTrigger = useRef<HTMLElement | null>(null);
@@ -56,6 +73,13 @@ export function TasksPage({
       localStorage.setItem('relay-task-show-empty-v2', String(filters.showEmpty));
     } catch {}
   }, [filters.layout, filters.showEmpty]);
+  function fold(lane: string) {
+    const next = toggleLane(folded, lane);
+    setFolded(next);
+    try {
+      localStorage.setItem('relay-task-folded-stages', JSON.stringify(next));
+    } catch {}
+  }
   useClientLayoutEffect(() => {
     if (!menu || !menuPanel.current) return;
     const panel = menuPanel.current,
@@ -395,36 +419,70 @@ export function TasksPage({
       ) : (
         <div className="task-board-workspace">
           <motion.div className="task-board" role="region" aria-label="Task board">
-            {lanes.map(([lane, label]) => (
-              <section
-                key={lane}
-                data-lane={lane}
-                data-populated={visible.some((task) => taskLane(task) === lane)}
-                aria-label={`${label} column`}
-                className={`task-lane ${target === lane ? 'drop-target' : ''}`}
-                {...dropZone(lane, lane)}
-              >
-                <header className="board-lane-heading">
-                  <h2>
-                    <span>
+            {lanes.map(([lane, label]) => {
+              const rows = visible.filter((task) => taskLane(task) === lane);
+              // An empty workspace keeps every stage open so the create action stays in view.
+              const isFolded = tasks.length > 0 && folded.includes(lane);
+              return (
+                <section
+                  key={lane}
+                  data-lane={lane}
+                  data-populated={rows.length > 0}
+                  aria-label={`${label} column`}
+                  className={`task-lane ${isFolded ? 'is-folded' : ''} ${target === lane ? 'drop-target' : ''}`}
+                  {...dropZone(lane, lane)}
+                >
+                  {isFolded ? (
+                    <button
+                      className="board-lane-strip"
+                      aria-expanded={false}
+                      aria-label={`Expand ${label}, ${rows.length} ${rows.length === 1 ? 'task' : 'tasks'}`}
+                      title={`Expand ${label}`}
+                      onClick={() => fold(lane)}
+                    >
                       <span className={`lane-dot lane-dot-${lane}`} aria-hidden="true" />
-                      {label}
-                    </span>
-                    <span className="lane-count">
-                      {visible.filter((t) => taskLane(t) === lane).length}
-                    </span>
-                  </h2>
-                </header>
-                {visible.filter((t) => taskLane(t) === lane).map(card)}
-                {tasks.length === 0 && lane === 'backlog' && (
-                  <button className="board-create-task" onClick={onCreate}>
-                    <Icon name="plus" size={16} /> Create task
-                  </button>
-                )}
-                {!visible.some((task) => taskLane(task) === lane) && tasks.length > 0 && (
-                  <p className="board-lane-empty">No tasks</p>
-                )}
-              </section>
+                      <span className="lane-count">{rows.length}</span>
+                      <span className="board-lane-strip-label">{label}</span>
+                    </button>
+                  ) : (
+                    <>
+                      <header className="board-lane-heading">
+                        <h2>
+                          <span>
+                            <span className={`lane-dot lane-dot-${lane}`} aria-hidden="true" />
+                            {label}
+                          </span>
+                          <span className="lane-count">{rows.length}</span>
+                        </h2>
+                        {tasks.length > 0 && (
+                          <button
+                            className="icon-button board-lane-fold"
+                            aria-expanded
+                            aria-label={`Collapse ${label}`}
+                            title={`Collapse ${label}`}
+                            onClick={() => fold(lane)}
+                          >
+                            <Icon name="fold" size={14} />
+                          </button>
+                        )}
+                      </header>
+                      {rows.map(card)}
+                      {tasks.length === 0 && lane === 'backlog' && (
+                        <button className="board-create-task" onClick={onCreate}>
+                          <Icon name="plus" size={16} /> Create task
+                        </button>
+                      )}
+                      {!rows.length && tasks.length > 0 && (
+                        <p className="board-lane-empty">No tasks</p>
+                      )}
+                    </>
+                  )}
+                </section>
+              );
+            })}
+            {/* Zero-height spacers keep a wrapped last row at the same stage width as a full row. */}
+            {Array.from({ length: 8 }, (_, index) => (
+              <span key={index} className="task-lane-spacer" aria-hidden="true" />
             ))}
           </motion.div>
         </div>

@@ -61,6 +61,7 @@ function bannerTone(task: Task): { tone: string; kicker: string } {
       : { tone: 'running', kicker: 'Relay is working' };
   if (['done', 'finished'].includes(lane))
     return { tone: 'done', kicker: statusLabel(task.status) };
+  if (lane === 'parked') return { tone: 'neutral', kicker: 'Parked' };
   return { tone: 'neutral', kicker: lane === 'backlog' ? 'Not started' : statusLabel(task.status) };
 }
 export function TaskPage({

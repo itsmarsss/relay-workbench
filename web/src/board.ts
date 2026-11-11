@@ -3,6 +3,7 @@ import type { Task } from './types.ts';
 export const columns = [
   ['attention', 'Needs attention', 'blocked'],
   ['backlog', 'Backlog', 'draft'],
+  ['parked', 'Parked', 'parked'],
   ['discovery', 'Investigation & design', 'running'],
   ['approach', 'Approach approval', 'awaiting_plan'],
   ['progress', 'In progress', 'running'],
@@ -14,6 +15,7 @@ export const columns = [
 ] as const;
 export const laneHints: Record<string, string> = {
   backlog: 'Ready when you are',
+  parked: 'Set aside for later',
   discovery: 'Evidence and possible approaches',
   approach: 'Your decision before coding',
   progress: 'Implementation and verification',
@@ -54,6 +56,19 @@ export function taskLane(task: Task): string {
         : 'discovery')
   );
 }
+// Stages folded into a strip on the board. Saved ids that no longer name a column are dropped.
+export function foldedLanes(saved: string | null): string[] {
+  try {
+    const ids: unknown = JSON.parse(saved || '[]');
+    return Array.isArray(ids)
+      ? columns.map(([lane]) => lane as string).filter((lane) => ids.includes(lane))
+      : [];
+  } catch {
+    return [];
+  }
+}
+export const toggleLane = (folded: string[], lane: string) =>
+  folded.includes(lane) ? folded.filter((id) => id !== lane) : [...folded, lane];
 export function boardFilters(
   hash: string,
   defaults: { layout?: 'list' | 'board'; showEmpty?: boolean } = {},
@@ -79,6 +94,7 @@ export const taskScopes = [
   ['attention', 'Needs you'],
   ['active', 'Running'],
   ['backlog', 'Backlog'],
+  ['parked', 'Parked'],
   ['done', 'Done'],
   ['finished', 'Completed'],
 ] as const;

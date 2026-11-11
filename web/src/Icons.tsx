@@ -64,6 +64,7 @@ const paths: Record<string, ReactNode> = {
     </>
   ),
   chevron: <path d="m9 5 7 7-7 7" />,
+  fold: <path d="m4 6 5 6-5 6M20 6l-5 6 5 6" />,
   arrow: <path d="M5 12h14m-5-5 5 5-5 5" />,
   back: <path d="M19 12H5m5-5-5 5 5 5" />,
   check: <path d="m5 12 4 4L19 6" />,

@@ -297,7 +297,12 @@ select {
   text-overflow: ellipsis;
 }
 .task-list
-  .task-card:is([data-lane='done'], [data-lane='finished'], [data-lane='backlog'])
+  .task-card:is(
+    [data-lane='done'],
+    [data-lane='finished'],
+    [data-lane='backlog'],
+    [data-lane='parked']
+  )
   .task-card-state
   > strong {
   color: var(--muted);
@@ -321,14 +326,13 @@ select {
   color: var(--nav-ink);
   font-weight: 650;
 }
-/* The board uses the page scroll only; stages wrap to available width. */
+/* The board uses the page scroll only. Stages wrap to available width; folding one into a
+   strip is how a wide board is kept on a single row. */
 .task-board {
-  display: grid;
-  grid-auto-flow: row;
-  grid-auto-columns: auto;
-  grid-template-columns: repeat(auto-fill, minmax(min(100%, 250px), 1fr));
-  gap: 18px;
-  align-items: start;
+  display: flex;
+  flex-wrap: wrap;
+  column-gap: 18px;
+  align-items: flex-start;
   overflow: visible;
   position: relative;
   min-height: 0;
@@ -2240,28 +2244,83 @@ main.page-main:has(> .tasks-page) {
   padding: 3px 7px;
   font-size: 12px;
 }
+.task-board .task-lane,
+.task-lane-spacer {
+  flex: 1 1 250px;
+  min-width: min(100%, 250px);
+}
 .task-board .task-lane {
-  min-width: 0;
   min-height: 0;
   border: 0;
   border-radius: 0;
   background: transparent;
   padding: 0;
+  margin: 0 0 18px;
   overflow: visible;
 }
+.task-board .task-lane.is-folded {
+  display: flex;
+  flex: 0 0 34px;
+  min-width: 34px;
+  align-self: stretch;
+}
+.board-lane-strip {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+  min-width: 0;
+  min-height: 0;
+  padding: 10px 0;
+  border: 1px solid var(--line);
+  border-radius: 2px;
+  background: var(--soft);
+  color: var(--nav-ink);
+  font-size: 12px;
+  font-weight: 600;
+}
+.board-lane-strip:hover {
+  border-color: var(--line-strong);
+}
+.board-lane-strip .lane-count {
+  background: var(--surface);
+  font-weight: 400;
+}
+.board-lane-strip-label {
+  writing-mode: vertical-rl;
+  white-space: nowrap;
+}
 .board-lane-heading {
+  display: flex;
+  align-items: center;
+  gap: 4px;
   padding: 0 0 8px;
   position: static;
   border-bottom: 1px solid var(--line);
   margin: 0 0 8px;
 }
 .board-lane-heading h2 {
+  flex: 1;
+  min-width: 0;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
   margin: 0;
   font-size: 12px;
+  color: var(--nav-ink);
+}
+.board-lane-fold {
+  flex: none;
+  min-width: 24px;
+  min-height: 24px;
+  margin: -4px 0;
+  padding: 4px;
+  color: var(--muted);
+}
+.board-lane-fold:hover {
   color: var(--nav-ink);
 }
 .board-lane-heading h2 > span:first-child {
@@ -2358,7 +2417,12 @@ main.page-main:has(> .tasks-page) {
   color: var(--status-attention-ink);
 }
 .task-board
-  .task-card:is([data-lane='done'], [data-lane='finished'], [data-lane='backlog'])
+  .task-card:is(
+    [data-lane='done'],
+    [data-lane='finished'],
+    [data-lane='backlog'],
+    [data-lane='parked']
+  )
   .board-task-next
   > span:first-child {
   color: var(--muted);

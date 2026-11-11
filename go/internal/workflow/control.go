@@ -257,7 +257,7 @@ func (c *Coordinator) control(ctx context.Context, id, operation string, body ma
 		if err = fields(body, "value", "lane"); err != nil {
 			return nil, err
 		}
-		lanes := map[string]string{"backlog": "draft", "discovery": "running", "approach": "awaiting_plan", "progress": "running", "review": "review", "final": "awaiting_final", "done": "completed", "finished": "finished", "attention": "blocked", "cancelled": "cancelled"}
+		lanes := map[string]string{"backlog": "draft", "parked": "parked", "discovery": "running", "approach": "awaiting_plan", "progress": "running", "review": "review", "final": "awaiting_final", "done": "completed", "finished": "finished", "attention": "blocked", "cancelled": "cancelled"}
 		if body["value"] == nil {
 			value["statusOverride"] = nil
 		} else {

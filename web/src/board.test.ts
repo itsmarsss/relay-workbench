@@ -1,6 +1,13 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { boardFilters, taskLane, filteredTasks } from './board.ts';
+import {
+  boardFilters,
+  taskLane,
+  filteredTasks,
+  foldedLanes,
+  inTaskScope,
+  toggleLane,
+} from './board.ts';
 test('board overrides change presentation without advancing workflow gates', () => {
   const task = { id: 'x', title: 'Gate', status: 'awaiting_plan', stage: 'plan' };
   assert.equal(taskLane(task), 'approach');
@@ -94,4 +101,24 @@ test('task queue prioritizes decisions and searches every selected repository', 
     0,
   );
   assert.deepEqual(tasks, original, 'Filtering and sorting must not change workflow state');
+});
+
+test('parked tasks leave the attention queue without changing workflow status', () => {
+  const task = { id: 'x', title: 'Later', status: 'blocked', stage: 'verify' };
+  const parked = { ...task, statusOverride: { value: 'parked', lane: 'parked' } };
+  assert.equal(taskLane(task), 'attention');
+  assert.equal(taskLane(parked), 'parked');
+  assert.equal(inTaskScope(parked, 'attention'), false);
+  assert.equal(inTaskScope(parked, 'parked'), true);
+  assert.equal(boardFilters('#tasks?scope=parked&stage=parked').scope, 'parked');
+  assert.equal(boardFilters('#tasks?scope=parked&stage=parked').stage, 'parked');
+  assert.equal(parked.status, 'blocked');
+});
+
+test('folded stages restore in board order and ignore unusable saved values', () => {
+  assert.deepEqual(foldedLanes('["done","unknown","backlog","done"]'), ['backlog', 'done']);
+  for (const saved of [null, '', 'not json', '{"done":true}', '"done"'])
+    assert.deepEqual(foldedLanes(saved), []);
+  assert.deepEqual(toggleLane(['backlog'], 'done'), ['backlog', 'done']);
+  assert.deepEqual(toggleLane(['backlog', 'done'], 'backlog'), ['done']);
 });

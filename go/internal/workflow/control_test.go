@@ -30,6 +30,15 @@ func TestControlsPreserveGatesAndRejectStaleOrPrivilegedEdits(t *testing.T) {
 	if value["status"] != "draft" || object(value["statusOverride"])["value"] != "finished" {
 		t.Fatal("board override changed workflow")
 	}
+	if _, err := edit("status-override", map[string]any{"value": "parked", "lane": "parked"}); err != nil {
+		t.Fatal(err)
+	}
+	if value = coordinatorTask(t, db, id); value["status"] != "draft" || object(value["statusOverride"])["lane"] != "parked" {
+		t.Fatal("parking changed workflow")
+	}
+	if _, err := edit("status-override", map[string]any{"value": "parked", "lane": "done"}); err == nil {
+		t.Fatal("mismatched board column accepted")
+	}
 	if _, err := edit("request-changes", map[string]any{"message": "implement"}); err == nil {
 		t.Fatal("unapproved implementation accepted")
 	}
