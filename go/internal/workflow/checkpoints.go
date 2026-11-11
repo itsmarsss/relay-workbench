@@ -36,6 +36,9 @@ type Checkpoint struct {
 
 var objectID = regexp.MustCompile(`^(?:[a-f0-9]{40}|[a-f0-9]{64})$`)
 
+// Monorepo indexes run past 100 MB; the bound only stops a runaway copy.
+var maxCheckpointIndexBytes int64 = 4 << 30
+
 func (c *Coordinator) checkpointRecords(id string) ([]Checkpoint, error) {
 	raw, exists, err := c.store.GetMeta("checkpoints:" + id)
 	if err != nil {
@@ -173,7 +176,7 @@ func (c *Coordinator) captureCheckpoint(ctx context.Context, id string, revalida
 			return err
 		} else {
 			info, statErr := input.Stat()
-			if statErr != nil || !info.Mode().IsRegular() || info.Size() > 64*1024*1024 {
+			if statErr != nil || !info.Mode().IsRegular() || info.Size() > maxCheckpointIndexBytes {
 				input.Close()
 				return errors.New("checkpoint index cannot be safely copied")
 			}
@@ -182,7 +185,7 @@ func (c *Coordinator) captureCheckpoint(ctx context.Context, id string, revalida
 				input.Close()
 				return createErr
 			}
-			_, copyErr := io.Copy(target, io.LimitReader(input, 64*1024*1024+1))
+			_, copyErr := io.Copy(target, io.LimitReader(input, maxCheckpointIndexBytes))
 			closeErr := target.Close()
 			input.Close()
 			if err = errors.Join(copyErr, closeErr); err != nil {

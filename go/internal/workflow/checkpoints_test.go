@@ -125,6 +125,46 @@ func TestCheckpointRejectsStaleAndInvalidContinuations(t *testing.T) {
 	}
 }
 
+func TestCheckpointIndexLimitBlocksOnlyOversizedIndexes(t *testing.T) {
+	c, _, id, _ := coordinatorFixture(t, "cat >/dev/null\nprintf '%s\\n' '"+stageFinal()+"'")
+	if _, err := c.Start(id); err != nil {
+		t.Fatal(err)
+	}
+	waitCoordinator(t, c, id)
+	before, err := c.checkpointRecords(id)
+	if err != nil || len(before) == 0 {
+		t.Fatalf("checkpoints missing: %v", err)
+	}
+	if _, err = c.update(id, func(value map[string]any) error {
+		attempts := array(value["attempts"])
+		object(attempts[len(attempts)-1])["id"] = "large-index"
+		return nil
+	}, nil); err != nil {
+		t.Fatal(err)
+	}
+	limit := maxCheckpointIndexBytes
+	t.Cleanup(func() { maxCheckpointIndexBytes = limit })
+	if limit < 1<<30 {
+		t.Fatalf("limit rejects monorepo indexes: %d", limit)
+	}
+	maxCheckpointIndexBytes = 1
+	if err = c.captureCheckpoint(context.Background(), id, func() error { return nil }); err == nil {
+		t.Fatal("oversized index copied")
+	}
+	// A refused capture must not leave a record or refs behind.
+	rows, err := c.checkpointRecords(id)
+	if err != nil || len(rows) != len(before) {
+		t.Fatalf("refused capture recorded: %d %v", len(rows), err)
+	}
+	maxCheckpointIndexBytes = limit
+	if err = c.captureCheckpoint(context.Background(), id, func() error { return nil }); err != nil {
+		t.Fatal(err)
+	}
+	if rows, err = c.checkpointRecords(id); err != nil || len(rows) != len(before)+1 {
+		t.Fatalf("checkpoint not captured: %d %v", len(rows), err)
+	}
+}
+
 func TestAutomationDelegationIsAtomicAndRevocable(t *testing.T) {
 	c, db, id, _ := coordinatorFixture(t, "cat >/dev/null\nprintf '%s\\n' '"+stageFinal()+"'")
 	body := revisionBody(t, db, id)
