@@ -396,3 +396,23 @@ func TestReviewRepairIsBoundedAndInvalidatesEvidence(t *testing.T) {
 		t.Fatalf("review repair limit did not stop: %#v %v", task, err)
 	}
 }
+
+func TestVerifierChangeRequestReturnsToImplementation(t *testing.T) {
+	guard := workspace.GuardResult{Before: workspace.FingerprintSnapshot{Combined: "same"}, After: workspace.FingerprintSnapshot{Combined: "same"}}
+	check := map[string]any{"command": "test", "code": float64(1)}
+	handoff := map[string]any{"verdict": "changes_requested", "summary": "Fix the issue", "verification": map[string]any{"checks": []any{check}}}
+	task := map[string]any{"status": "running", "stage": "verify", "verifiedFingerprint": "old", "round": float64(0)}
+	if err := advanceStage(task, "verify", handoff, 1, 0, guard, nil, 1); err != nil || task["stage"] != "implement" || task["status"] != "queued" || task["round"] != float64(1) || task["verifiedFingerprint"] != nil {
+		t.Fatalf("verifier feedback did not request repair: %#v %v", task, err)
+	}
+	task["status"], task["stage"] = "running", "verify"
+	if err := advanceStage(task, "verify", handoff, 1, 0, guard, nil, 1); err != nil || task["status"] != "blocked" {
+		t.Fatalf("verify repair limit did not stop: %#v %v", task, err)
+	}
+	// A missing command cannot be repaired by editing source.
+	check["code"] = float64(127)
+	task = map[string]any{"status": "running", "stage": "verify", "round": float64(0)}
+	if err := advanceStage(task, "verify", handoff, 1, 0, guard, nil, 1); err != nil || task["status"] != "blocked" || task["stage"] != "verify" || task["round"] != float64(0) {
+		t.Fatalf("missing command queued a repair: %#v %v", task, err)
+	}
+}

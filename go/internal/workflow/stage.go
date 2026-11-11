@@ -490,7 +490,8 @@ func (s *StageRunner) finish(taskID, attemptID, stage, provider string, count, c
 		} else if handoff != nil {
 			summary = text(handoff["summary"])
 		}
-		if scheduledRepair || (stage == "review" && text(task["status"]) == "queued" && text(task["stage"]) == "implement") {
+		requested := stage == "review" || (stage == "verify" && text(handoff["verdict"]) == "changes_requested")
+		if scheduledRepair || (requested && text(task["status"]) == "queued" && text(task["stage"]) == "implement") {
 			eventType = "repair"
 			summary = "Returning to implementation to address feedback. " + summary
 		}
@@ -532,6 +533,15 @@ func queueRepair(task map[string]any, reason string, limit int) bool {
 	}
 	task["stage"], task["status"], task["error"] = "implement", "queued", nil
 	return true
+}
+
+func reportsMissingCommand(handoff map[string]any) bool {
+	for _, value := range array(object(handoff["verification"])["checks"]) {
+		if code, ok := object(value)["code"].(float64); ok && code == 127 {
+			return true
+		}
+	}
+	return false
 }
 
 func applyDebugResult(task, handoff map[string]any, guard workspace.GuardResult, repairLimit, recoveryLimit int) error {
@@ -600,6 +610,11 @@ func advanceStage(task map[string]any, stage string, handoff map[string]any, cou
 			queueRepair(task, text(handoff["summary"]), repairLimit)
 			return nil
 		}
+	}
+	// A missing command is an environment problem, not work for the implementer.
+	if stage == "verify" && verdict == "changes_requested" && !reportsMissingCommand(handoff) {
+		queueRepair(task, text(handoff["summary"]), repairLimit)
+		return nil
 	}
 	if verdict != "complete" {
 		task["status"], task["error"] = "blocked", text(handoff["summary"])
