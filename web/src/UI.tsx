@@ -4,6 +4,71 @@ import { AnimatePresence, motion } from 'motion/react';
 import { Icon } from './Icons';
 import { useAnchoredPopover, revealOption } from './useAnchoredPopover';
 export { Icon, ProviderIcon, ProviderName, RelayMark, providerName } from './Icons';
+export type ListOption = { value: string; label: string; detail?: string; icon?: ReactNode };
+// Every word typed must appear somewhere in the option, in any order.
+export function matchesQuery(text: string, query: string) {
+  const haystack = text.toLocaleLowerCase();
+  return query
+    .trim()
+    .toLocaleLowerCase()
+    .split(/\s+/)
+    .every((word) => haystack.includes(word));
+}
+// The one list every dropdown shows: Select, the task picker and chat mentions. The field that
+// owns it keeps focus and points at the highlighted row with aria-activedescendant.
+export function OptionList({
+  id,
+  label,
+  items,
+  selected,
+  active,
+  onActive,
+  onChoose,
+  empty,
+  children,
+}: {
+  id: string;
+  label: string;
+  items: ListOption[];
+  selected?: string;
+  active: number;
+  onActive: (index: number) => void;
+  onChoose: (value: string) => void;
+  empty: string;
+  children?: ReactNode;
+}) {
+  return (
+    <div role="listbox" id={id} aria-label={label}>
+      {items.map((item, i) => (
+        <button
+          type="button"
+          role="option"
+          id={`${id}-${i}`}
+          tabIndex={-1}
+          aria-selected={item.value === selected}
+          data-highlighted={i === active}
+          className={i === active ? 'highlighted' : ''}
+          key={item.value}
+          onPointerDown={(event) => event.preventDefault()}
+          onPointerMove={() => onActive(i)}
+          onClick={() => onChoose(item.value)}
+        >
+          <span className="select-option-label">
+            {item.icon}
+            {item.label}
+          </span>
+          {item.detail && <small>{item.detail}</small>}
+        </button>
+      ))}
+      {!items.length && (
+        <p className="muted" role="option" aria-disabled="true">
+          {empty}
+        </p>
+      )}
+      {children}
+    </div>
+  );
+}
 export function Select({
   label,
   value,
@@ -14,13 +79,7 @@ export function Select({
 }: {
   label: string;
   value: string;
-  options: {
-    value: string;
-    label: string;
-    detail?: string;
-    disabled?: boolean;
-    icon?: ReactNode;
-  }[];
+  options: (ListOption & { disabled?: boolean })[];
   onChange: (value: string) => void;
   custom?: boolean;
   disabled?: boolean;
@@ -33,7 +92,7 @@ export function Select({
     input = useRef<HTMLInputElement>(null),
     id = useId();
   const items = options.filter(
-    (o) => !o.disabled && `${o.label} ${o.value}`.toLowerCase().includes(query.toLowerCase()),
+    (o) => !o.disabled && matchesQuery(`${o.label} ${o.value} ${o.detail || ''}`, query),
   );
   const selected = options.find((option) => option.value === value),
     displayLabel = selected?.label || value || 'Default';
@@ -108,7 +167,11 @@ export function Select({
               <motion.div
                 ref={popover}
                 data-framer-portal-id={id}
-                className="select-popover"
+                className={
+                  custom || options.length > 7 || query
+                    ? 'select-popover'
+                    : 'select-popover select-short'
+                }
                 role="region"
                 aria-label={`${label} options`}
                 style={{
@@ -171,32 +234,16 @@ export function Select({
                     }
                   }}
                 />
-                <div role="listbox" id={id} aria-label={label}>
-                  {items.map((item, i) => (
-                    <button
-                      type="button"
-                      role="option"
-                      id={`${id}-${i}`}
-                      tabIndex={-1}
-                      aria-selected={item.value === value}
-                      data-highlighted={i === index}
-                      className={i === index ? 'highlighted' : ''}
-                      key={item.value}
-                      onPointerMove={() => setIndex(i)}
-                      onClick={() => choose(item.value)}
-                    >
-                      <span className="select-option-label">
-                        {item.icon}
-                        {item.label}
-                      </span>
-                      {item.detail && <small>{item.detail}</small>}
-                    </button>
-                  ))}
-                  {!items.length && (
-                    <p className="muted" role="option" aria-disabled="true">
-                      {custom ? 'Press Enter to use this value.' : 'No matches.'}
-                    </p>
-                  )}
+                <OptionList
+                  id={id}
+                  label={label}
+                  items={items}
+                  selected={value}
+                  active={index}
+                  onActive={setIndex}
+                  onChoose={choose}
+                  empty={custom ? 'Press Enter to use this value.' : 'No matches.'}
+                >
                   {custom && query.trim() && !options.some((o) => o.value === query.trim()) && (
                     <button
                       type="button"
@@ -207,7 +254,7 @@ export function Select({
                       Use “{query.trim()}”
                     </button>
                   )}
-                </div>
+                </OptionList>
               </motion.div>
             )}
           </AnimatePresence>,

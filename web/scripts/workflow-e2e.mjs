@@ -336,6 +336,9 @@ console.log(JSON.stringify({ type: 'item.completed', item: { type: 'agent_messag
     validatedHandoffs,
     'Each provider result must appear once after its handoff is saved',
   );
+  // Runs of tool calls are folded into one timeline item.
+  for (const group of await activity.locator('details.activity-tools > summary').all())
+    await group.click();
   await activity
     .getByText("Running: inspect __init__.py --glob '*[test]*'", { exact: true })
     .first()
@@ -441,9 +444,9 @@ console.log(JSON.stringify({ type: 'item.completed', item: { type: 'agent_messag
     },
     { times: 1 },
   );
-  await page.getByRole('button', { name: 'Take control', exact: true }).click();
+  await page.getByRole('button', { name: 'New terminal', exact: true }).click();
   await page
-    .getByRole('dialog', { name: 'Take control' })
+    .getByRole('dialog', { name: 'New terminal' })
     .getByRole('button', { name: 'Open terminal' })
     .click();
   await page
@@ -468,6 +471,33 @@ console.log(JSON.stringify({ type: 'item.completed', item: { type: 'agent_messag
       return false;
     }
   }, 'browser terminal input');
+  // A second terminal opens beside the first, takes the typing, and closes on its own tab.
+  const tabs = page.getByRole('tablist', { name: 'Terminals' }).getByRole('tab');
+  assert.equal(await tabs.count(), 1);
+  await page.getByRole('button', { name: 'New terminal', exact: true }).click();
+  await page
+    .getByRole('dialog', { name: 'New terminal' })
+    .getByRole('button', { name: 'Open terminal' })
+    .click();
+  await until(async () => (await tabs.count()) === 2, 'second terminal tab');
+  assert.equal(await tabs.nth(1).getAttribute('aria-selected'), 'true');
+  await page.getByLabel('Interactive terminal', { exact: true }).focus();
+  await page.keyboard.type('printf second-ok > second.txt');
+  await page.keyboard.press('Enter');
+  await until(async () => {
+    try {
+      return (await readFile(join(resumed.workspaceRoot, 'second.txt'), 'utf8')) === 'second-ok';
+    } catch {
+      return false;
+    }
+  }, 'second terminal input');
+  await tabs.nth(0).click();
+  await until(
+    async () => (await tabs.nth(0).getAttribute('aria-selected')) === 'true',
+    'first terminal chosen',
+  );
+  await page.getByRole('button', { name: 'Close Shell terminal', exact: true }).click();
+  await until(async () => (await tabs.count()) === 1, 'second terminal closed');
   await page.getByRole('button', { name: 'Return control', exact: true }).click();
   await until(
     async () => (await (await fetch(`${base}/api/tasks/${second.id}`)).json()).status === 'paused',

@@ -1,6 +1,48 @@
-import { useEffect, useRef, type FormEvent, type ReactNode } from 'react';
+import { useEffect, useLayoutEffect, useRef, type FormEvent, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { Icon } from './Icons';
+type Scrolled = [Element, number, number][];
+// The server render has no layout to measure, and React warns about a layout effect there.
+const useLeaveEffect = typeof document === 'undefined' ? useEffect : useLayoutEffect;
+// React removes a closed dialog at once, so it cannot animate out in place. The removed element is
+// shown again as an inert popover instead: it joins the top layer above any dialog still open,
+// takes no focus and blocks nothing, and removes itself once its closing animation has run.
+function leave(element: HTMLDialogElement, box: DOMRect, scrolled: Scrolled) {
+  if (
+    element.isConnected ||
+    typeof element.showPopover !== 'function' ||
+    document.documentElement.dataset.lowMotion === 'true' ||
+    matchMedia('(prefers-reduced-motion: reduce)').matches
+  )
+    return;
+  element.removeAttribute('open');
+  element.removeAttribute('aria-label');
+  element.setAttribute('aria-hidden', 'true');
+  element.setAttribute('popover', 'manual');
+  element.inert = true;
+  element.classList.add('is-leaving');
+  Object.assign(element.style, {
+    inset: 'auto',
+    left: `${box.left}px`,
+    top: `${box.top}px`,
+    width: `${box.width}px`,
+    height: `${box.height}px`,
+    margin: '0',
+  });
+  document.body.append(element);
+  try {
+    element.showPopover();
+  } catch {
+    element.remove();
+    return;
+  }
+  for (const [node, top, left] of scrolled) node.scrollTo(left, top);
+  const done = () => element.remove();
+  element.addEventListener('animationend', (event) => {
+    if (event.target === element) done();
+  });
+  setTimeout(done, 400);
+}
 export function Modal({
   title,
   onClose,
@@ -9,6 +51,7 @@ export function Modal({
   footer,
   returnFocus,
   className = '',
+  variant = 'dialog',
 }: {
   title: string;
   onClose: () => void;
@@ -17,8 +60,23 @@ export function Modal({
   footer?: ReactNode;
   returnFocus?: HTMLElement | null;
   className?: string;
+  // A drawer is the same modal dialog docked to the right edge at full height.
+  variant?: 'dialog' | 'drawer';
 }) {
-  const dialog = useRef<HTMLDialogElement>(null);
+  const dialog = useRef<HTMLDialogElement>(null),
+    pressedBackdrop = useRef(false);
+  useLeaveEffect(() => {
+    const element = dialog.current;
+    return () => {
+      if (!element) return;
+      const box = element.getBoundingClientRect();
+      const scrolled: Scrolled = [...element.querySelectorAll('*')]
+        .filter((node) => node.scrollTop || node.scrollLeft)
+        .map((node) => [node, node.scrollTop, node.scrollLeft]);
+      // By the time this runs React has taken the element out of the page.
+      queueMicrotask(() => leave(element, box, scrolled));
+    };
+  }, []);
   useEffect(() => {
     const element = dialog.current;
     const previous =
@@ -45,7 +103,22 @@ export function Modal({
   const content = (
     <dialog
       ref={dialog}
-      className={`editor-modal ${className}`.trim()}
+      className={`editor-modal ${variant === 'drawer' ? 'editor-drawer' : ''} ${className}`
+        .replace(/\s+/g, ' ')
+        .trim()}
+      // Pressing the dimmed page beside a drawer closes it, unless that would drop a form's edits.
+      onPointerDown={(event) => {
+        pressedBackdrop.current = event.target === event.currentTarget;
+      }}
+      onClick={(event) => {
+        if (
+          variant === 'drawer' &&
+          !onSubmit &&
+          pressedBackdrop.current &&
+          event.target === event.currentTarget
+        )
+          onClose();
+      }}
       onKeyDown={(event) => {
         if (
           event.key !== 'Tab' ||

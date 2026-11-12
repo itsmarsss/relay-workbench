@@ -1,13 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useAnchoredPopover, revealOption } from './useAnchoredPopover';
+import { OptionList, matchesQuery } from './UI';
 import type { Task } from './types';
 export function matchTasks(tasks: Task[], query: string): Task[] {
-  const words = query.trim().toLocaleLowerCase().split(/\s+/).filter(Boolean);
   return tasks.filter((task) =>
-    words.every((word) =>
-      `${task.title} ${task.repository?.name || ''} ${task.id}`.toLocaleLowerCase().includes(word),
-    ),
+    matchesQuery(`${task.title} ${task.repository?.name || ''} ${task.id}`, query),
   );
 }
 export function TaskPicker({
@@ -125,42 +123,39 @@ export function TaskPicker({
         typeof document !== 'undefined' &&
         createPortal(
           <div
-            className="picker-popover"
+            className="select-popover picker-popover"
             role="region"
             aria-label={`${label} options`}
             ref={popover}
             style={{ position: 'fixed', inset: 'auto', visibility: 'hidden', zIndex: 1100 }}
           >
-            <ul role="listbox" id={listID} aria-label="Tasks">
-              {filtered.map((item, index) => (
-                <li
+            <OptionList
+              id={listID}
+              label="Tasks"
+              items={filtered.map((item) => ({
+                value: item.id,
+                label: item.title,
+                detail: item.repository?.name || 'Unspecified',
+              }))}
+              selected={selected}
+              active={active}
+              onActive={setActive}
+              onChoose={choose}
+              empty="No matching tasks"
+            >
+              {selected && (
+                <button
+                  type="button"
                   role="option"
-                  id={`${listID}-${index}`}
-                  aria-selected={selected === item.id}
-                  key={item.id}
-                  className={index === active ? 'picker-active' : ''}
+                  aria-selected="false"
+                  className="picker-clear"
                   onPointerDown={(event) => event.preventDefault()}
-                  onClick={() => choose(item.id)}
+                  onClick={() => choose('')}
                 >
-                  <strong>{item.title}</strong>
-                  <small>{item.repository?.name || 'Unspecified'}</small>
-                </li>
-              ))}
-              {filtered.length === 0 && (
-                <li role="option" aria-disabled="true">
-                  No matching tasks
-                </li>
+                  Clear task
+                </button>
               )}
-            </ul>
-            {selected && (
-              <button
-                type="button"
-                onPointerDown={(event) => event.preventDefault()}
-                onClick={() => choose('')}
-              >
-                Clear task
-              </button>
-            )}
+            </OptionList>
           </div>,
           input.current?.closest('dialog') || document.body,
         )}

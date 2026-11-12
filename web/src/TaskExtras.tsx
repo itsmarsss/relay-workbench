@@ -17,7 +17,8 @@ export function TaskMenu({ task, onDeleted }: { task: Task; onDeleted?: () => vo
   const [confirm, setConfirm] = useState(false),
     [editing, setEditing] = useState<FullTask | null>(null),
     [loadError, setLoadError] = useState(''),
-    [open, setOpen] = useState(false);
+    [open, setOpen] = useState(false),
+    [fromStart, setFromStart] = useState(false);
   const root = useRef<HTMLDivElement>(null),
     trigger = useRef<HTMLButtonElement>(null);
   useEffect(() => {
@@ -67,12 +68,18 @@ export function TaskMenu({ task, onDeleted }: { task: Task; onDeleted?: () => vo
           className="icon-button"
           aria-label="More task actions"
           aria-expanded={open}
-          onClick={() => setOpen((value) => !value)}
+          onClick={(event) => {
+            // The menu hangs from the button's right edge unless that would push it off screen,
+            // as when the actions wrap and the button lands on the left.
+            setFromStart(event.currentTarget.getBoundingClientRect().right < 232);
+            setOpen((value) => !value);
+          }}
         >
           <Icon name="more" />
         </button>
         <div
           className="task-more-menu surface"
+          data-align={fromStart ? 'start' : undefined}
           role="group"
           aria-label="More task actions"
           hidden={!open}
@@ -88,6 +95,7 @@ export function TaskMenu({ task, onDeleted }: { task: Task; onDeleted?: () => vo
             Edit task
           </button>
           <WorkspaceCleanup task={task as FullTask} />
+          <hr />
           <button className="danger" onClick={() => setConfirm(true)}>
             <Icon name="trash" size={15} />
             Delete task
@@ -150,6 +158,7 @@ function TaskEditor({ task, onClose }: { task: FullTask; onClose: () => void }) 
   return (
     <Modal
       title="Edit task"
+      variant="drawer"
       onClose={() => {
         if (!mutation.busy) onClose();
       }}
@@ -575,7 +584,10 @@ function WorkspaceCleanup({ task }: { task: FullTask }) {
     return null;
   return (
     <>
-      <button onClick={() => setOpen(true)}>Clean up workspace</button>
+      <button onClick={() => setOpen(true)}>
+        <Icon name="storage" size={15} />
+        Clean up workspace
+      </button>
       {open && (
         <Modal
           title="Remove published worktrees?"

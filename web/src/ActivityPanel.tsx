@@ -24,6 +24,58 @@ function when(value: unknown) {
     ? date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
     : '';
 }
+function day(value: unknown) {
+  const date = new Date(asText(value));
+  return Number.isFinite(date.getTime())
+    ? date.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })
+    : '';
+}
+const rowText = (row: Row) => asText(row.summary || row.activity || row.message || row.text, 50000);
+// What an agent or Relay wrote for a person reads as a comment; everything else is one line on
+// the timeline.
+function isComment(row: Row) {
+  const text = rowText(row);
+  return (
+    row.type === 'handoff' ||
+    row.kind === 'message' ||
+    row.kind === 'handoff' ||
+    text.length > 180 ||
+    text.includes('\n')
+  );
+}
+type TimelineItem =
+  | { kind: 'day'; key: string; label: string }
+  | { kind: 'tools'; key: string; rows: Row[] }
+  | { kind: 'row'; key: string; row: Row };
+// Newest first, with a heading where the day changes and each run of tool calls folded into one
+// item so the conversation is not buried under them.
+function timeline(visible: Row[]): TimelineItem[] {
+  const items: TimelineItem[] = [];
+  let current = '';
+  for (let i = visible.length - 1; i >= 0; i--) {
+    const row = visible[i]!,
+      date = day(row.at || row.timestamp),
+      last = items.at(-1);
+    if (date && date !== current) {
+      current = date;
+      items.push({ kind: 'day', key: `day-${row.seq}`, label: date });
+    } else if (
+      row.kind === 'tool' &&
+      last?.kind === 'tools' &&
+      last.rows[0]!.stage === row.stage &&
+      last.rows[0]!.harness === row.harness
+    ) {
+      last.rows.push(row);
+      continue;
+    }
+    items.push(
+      row.kind === 'tool'
+        ? { kind: 'tools', key: `tools-${row.seq}`, rows: [row] }
+        : { kind: 'row', key: String(row.seq), row },
+    );
+  }
+  return items;
+}
 function Strings({ title, value }: { title: string; value: unknown }) {
   if (!Array.isArray(value) || !value.length) return null;
   return (
@@ -201,8 +253,10 @@ export function ActivityPanel({ taskId, logs = false }: { taskId: string; logs?:
       window.removeEventListener('relay-data-change', changed);
     };
   }, [taskId, refresh]);
+  // Logs read like a terminal and follow their end; activity is newest first and stays put.
   useEffect(() => {
-    if (following.current && scroll.current) scroll.current.scrollTop = scroll.current.scrollHeight;
+    if (logs && following.current && scroll.current)
+      scroll.current.scrollTop = scroll.current.scrollHeight;
   }, [events, logs, stage, all]);
   async function previous() {
     const cursor = state.current;
@@ -227,7 +281,7 @@ export function ActivityPanel({ taskId, logs = false }: { taskId: string; logs?:
       }
       following.current = false;
       requestAnimationFrame(() => {
-        if (state.current === cursor && el) el.scrollTop = top + el.scrollHeight - height;
+        if (logs && state.current === cursor && el) el.scrollTop = top + el.scrollHeight - height;
       });
     } catch (e) {
       if (state.current === cursor)
@@ -245,8 +299,23 @@ export function ActivityPanel({ taskId, logs = false }: { taskId: string; logs?:
           (all || row.stage !== 'monitor' || row.observationChange === true)) &&
       (!stage || row.stage === stage),
   );
+  const meta = (row: Row) => (
+    <div className="activity-entry-meta">
+      {!!row.harness && <ProviderName provider={asText(row.harness)} size={18} />}
+      <span className="activity-kind">
+        {row.type === 'handoff' || row.kind === 'handoff' ? 'Handoff' : label(row.kind || row.type)}
+      </span>
+      {!!row.stage && <span>{row.role === 'debug' ? 'Debugger' : label(row.stage)}</span>}
+      <time dateTime={asText(row.at || row.timestamp)}>{when(row.at || row.timestamp)}</time>
+    </div>
+  );
+  const earlier = older && (
+    <button className="load-older" onClick={() => void previous()}>
+      Load earlier activity
+    </button>
+  );
   return (
-    <div className="pane-content activity-panel">
+    <div className={`pane-content activity-panel ${logs ? 'is-logs' : 'is-timeline'}`}>
       <div className="activity-toolbar">
         <Select
           label="Filter activity stage"
@@ -283,47 +352,98 @@ export function ActivityPanel({ taskId, logs = false }: { taskId: string; logs?:
           if (el) following.current = el.scrollHeight - el.scrollTop - el.clientHeight < 60;
         }}
       >
-        {older && (
-          <button className="load-older" onClick={() => void previous()}>
-            Load earlier activity
-          </button>
-        )}
-        {!visible.length && (
-          <p className="placeholder">
-            {loading ? 'Loading activity…' : logs ? 'No execution output yet.' : 'No activity yet.'}
-          </p>
-        )}
-        <ol className="activity-list">
-          {visible.map((row) => {
-            const text = asText(row.summary || row.activity || row.message || row.text, 50000),
-              detail = asText(row.details, 100000),
-              passoff = row.type === 'handoff',
-              tool = row.kind === 'tool';
-            return (
-              <li key={row.seq} className={`activity-entry ${passoff ? 'is-handoff' : ''}`}>
-                <div className="activity-entry-meta">
-                  <span className="activity-kind">
-                    {passoff ? 'Handoff' : label(row.kind || row.type)}
-                  </span>
-                  {!!row.stage && (
-                    <span>{row.role === 'debug' ? 'Debugger' : label(row.stage)}</span>
-                  )}
-                  {!!row.harness && <ProviderName provider={asText(row.harness)} size={18} />}
-                  <time dateTime={asText(row.at || row.timestamp)}>
-                    {when(row.at || row.timestamp)}
-                  </time>
-                </div>
-                {logs || tool ? <pre>{text || detail}</pre> : <Markdown text={text || detail} />}{' '}
-                {!!text && !!detail && text !== detail && !logs && (
-                  <details>
-                    <summary>Details</summary>
-                    {tool ? <pre>{detail}</pre> : <Markdown text={detail} />}
-                  </details>
-                )}
+        {logs && earlier}
+        {!visible.length &&
+          (loading ? (
+            <div className="activity-loading" role="status" aria-label="Loading activity">
+              <span />
+              <span />
+              <span />
+            </div>
+          ) : (
+            <p className="placeholder">{logs ? 'No execution output yet.' : 'No activity yet.'}</p>
+          ))}
+        {logs ? (
+          <ol className="activity-list">
+            {visible.map((row) => (
+              <li key={row.seq} className="activity-entry">
+                {meta(row)}
+                <pre>{rowText(row) || asText(row.details, 100000)}</pre>
               </li>
-            );
-          })}
-        </ol>
+            ))}
+          </ol>
+        ) : (
+          <ol className="activity-timeline">
+            {timeline(visible).map((item) => {
+              if (item.kind === 'day')
+                return (
+                  <li key={item.key} className="activity-day">
+                    {item.label}
+                  </li>
+                );
+              if (item.kind === 'tools') {
+                const first = item.rows[0]!;
+                if (item.rows.length === 1)
+                  return (
+                    <li key={item.key} className="activity-line">
+                      {meta(first)}
+                      <pre>{rowText(first) || asText(first.details, 100000)}</pre>
+                    </li>
+                  );
+                return (
+                  <li key={item.key} className="activity-line">
+                    <details className="activity-tools">
+                      <summary>
+                        {!!first.harness && (
+                          <ProviderName provider={asText(first.harness)} size={18} />
+                        )}
+                        <span>{item.rows.length} tool calls</span>
+                        {!!first.stage && <small>{label(first.stage)}</small>}
+                        <time dateTime={asText(first.at || first.timestamp)}>
+                          {when(first.at || first.timestamp)}
+                        </time>
+                      </summary>
+                      <ol>
+                        {item.rows.map((row) => (
+                          <li key={row.seq}>
+                            <time dateTime={asText(row.at || row.timestamp)}>
+                              {when(row.at || row.timestamp)}
+                            </time>
+                            <pre>{rowText(row) || asText(row.details, 100000)}</pre>
+                          </li>
+                        ))}
+                      </ol>
+                    </details>
+                  </li>
+                );
+              }
+              const row = item.row,
+                text = rowText(row),
+                detail = asText(row.details, 100000),
+                comment = isComment(row);
+              return (
+                <li
+                  key={item.key}
+                  className={`${comment ? 'activity-comment' : 'activity-line'} ${
+                    row.type === 'handoff' ? 'is-handoff' : ''
+                  }`}
+                >
+                  {meta(row)}
+                  <div className="activity-body">
+                    <Markdown text={text || detail} />
+                    {!!text && !!detail && text !== detail && (
+                      <details>
+                        <summary>Details</summary>
+                        <Markdown text={detail} />
+                      </details>
+                    )}
+                  </div>
+                </li>
+              );
+            })}
+          </ol>
+        )}
+        {!logs && earlier}
       </div>
     </div>
   );

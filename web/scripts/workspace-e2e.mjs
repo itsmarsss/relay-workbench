@@ -305,16 +305,23 @@ let input='';process.stdin.on('data',d=>input+=d);process.stdin.on('end',()=>{
   await page.getByText('Finished answer', { exact: true }).waitFor();
   await page.getByRole('button', { name: 'Activity', exact: true }).click();
   assert.match(page.url(), /ask=1/);
-  const launcher = await page.getByRole('button', { name: 'Ask Relay', exact: true }).boundingBox(),
-    handle = await page.getByRole('button', { name: 'Resize Ask Relay' }).boundingBox();
-  await page.mouse.move(handle.x + 6, handle.y + 6);
-  await page.mouse.down();
-  await page.mouse.move(handle.x - 30, handle.y - 20, { steps: 5 });
-  await page.mouse.up();
-  assert.deepEqual(
-    await page.getByRole('button', { name: 'Ask Relay', exact: true }).boundingBox(),
-    launcher,
+  // The conversation is a column beside the page: dragging its edge widens it and the page yields.
+  const askDock = page.locator('.ask-dock');
+  await until(
+    () => askDock.evaluate((el) => Math.abs(el.getBoundingClientRect().right - innerWidth) < 1),
+    'Ask Relay finishes opening',
   );
+  const handle = await page.getByRole('separator', { name: 'Resize Ask Relay' }).boundingBox(),
+    docked = await askDock.boundingBox();
+  await page.mouse.move(handle.x + 4, handle.y + 200);
+  await page.mouse.down();
+  await page.mouse.move(handle.x - 26, handle.y + 180, { steps: 5 });
+  await page.mouse.up();
+  const widened = await askDock.boundingBox(),
+    shell = await page.locator('.main-shell').boundingBox();
+  assert.equal(widened.width, docked.width + 30, 'Ask Relay follows its resize handle');
+  assert.equal(widened.x + widened.width, 1440, 'Ask Relay stays on the right edge');
+  assert.ok(Math.abs(shell.x + shell.width - widened.x) <= 1, 'The page sits beside Ask Relay');
   await page.goto(origin + '/#repositories');
   await page.getByRole('button', { name: 'Add repository', exact: true }).click();
   const profileEditor = page.getByRole('dialog', { name: 'Add repository', exact: true });

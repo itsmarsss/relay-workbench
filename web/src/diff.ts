@@ -50,7 +50,7 @@ function headerPaths(value: string): string[] {
     ? [pathName(value.slice(0, separator)), pathName(value.slice(separator + 1))]
     : [];
 }
-export function splitDiff(text: string, limit = 4000): DiffFile[] {
+export function splitDiff(text: string, limit = 40000): DiffFile[] {
   if (!text.trim()) return [];
   const files: DiffFile[] = [];
   let file: DiffFile | undefined,

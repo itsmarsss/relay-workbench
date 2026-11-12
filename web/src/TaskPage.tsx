@@ -9,7 +9,10 @@ import {
   ticketLabel,
   ticketURL,
 } from './presentation';
-import { useMutation } from './Session';
+import { Notice, useMutation } from './Session';
+import { MarkdownEditor } from './MarkdownEditor';
+import { SideChat } from './Chat';
+import { useImageUpload } from './ImageUpload';
 import { AutoControl, ForkLinks } from './WorkflowHistory';
 import { useEffect, useState } from 'react';
 import { TaskMenu, ContinueWork, PublicationPanel, type FullTask } from './TaskExtras';
@@ -30,21 +33,96 @@ type Details = Task &
   };
 // Issue templates leave HTML comments behind; they are instructions to the author, not content.
 const visibleDescription = (text: string) => text.replace(/<!--[\s\S]*?-->/g, '').trim();
-function Description({ text }: { text: string }) {
-  const body = visibleDescription(text),
+// The description is edited where it is read. The server accepts the change only while the task
+// is idle, and a task that already has a workspace goes back to planning when its text changes.
+function Description({ task }: { task: Details }) {
+  const text = task.description || '',
+    body = visibleDescription(text),
     long = body.length > 1400 || body.split('\n').length > 24;
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(false),
+    [draft, setDraft] = useState<string | null>(null);
+  const mutation = useMutation();
+  const uploads = useImageUpload((added) => setDraft((value) => (value ?? '') + added));
+  const locked = asObject(task.migration)?.readOnly === true,
+    active = ['running', 'queued', 'manual'].includes(task.status);
+  const entries = [task, ...(Array.isArray(task.repositories) ? task.repositories : [])].map(
+    asObject,
+  );
+  const replans =
+    task.status !== 'draft' &&
+    entries.some((entry) => !!entry?.workspaceRoot || !!entry?.workspaceDraft);
+  function save() {
+    if (draft === null || uploads.busy) return;
+    if (draft === text) return setDraft(null);
+    void mutation
+      .run(
+        `/api/tasks/${task.id}`,
+        { taskRevision: task.taskRevision, description: draft },
+        'PATCH',
+      )
+      .then(() => setDraft(null))
+      .catch(() => {});
+  }
   return (
     <section className="description-card">
-      <h2>Description &amp; requirements</h2>
-      {body ? (
+      <div className="section-heading">
+        <h2>Description &amp; requirements</h2>
+        {!locked &&
+          draft === null &&
+          (active ? (
+            <span className="muted">Pause the task to edit</span>
+          ) : (
+            <button
+              className="text-button"
+              aria-label="Edit description"
+              onClick={() => {
+                mutation.clearError();
+                setDraft(text);
+              }}
+            >
+              <Icon name="edit" size={14} />
+              Edit
+            </button>
+          ))}
+      </div>
+      {draft !== null ? (
+        <form
+          className="description-edit"
+          onSubmit={(event) => {
+            event.preventDefault();
+            save();
+          }}
+        >
+          <MarkdownEditor
+            value={draft}
+            onChange={setDraft}
+            uploads={uploads}
+            label="Description and requirements"
+          />
+          {replans && (
+            <p className="form-note">
+              Saving a change pauses this task and returns it to planning. You approve a new
+              approach before work continues.
+            </p>
+          )}
+          {mutation.error && <Notice>{mutation.error}</Notice>}
+          <div className="description-edit-actions">
+            <button type="button" disabled={mutation.busy} onClick={() => setDraft(null)}>
+              Cancel
+            </button>
+            <button className="primary" disabled={mutation.busy || uploads.busy}>
+              Save description
+            </button>
+          </div>
+        </form>
+      ) : body ? (
         <div className={long && !open ? 'description-body is-clipped' : 'description-body'}>
           <Markdown text={body} />
         </div>
       ) : (
         <p>No description provided.</p>
       )}
-      {long && (
+      {draft === null && long && (
         <button className="text-button" aria-expanded={open} onClick={() => setOpen(!open)}>
           {open ? 'Show less' : 'Show full description'}
         </button>
@@ -354,6 +432,7 @@ export function TaskPage({
               </button>
             )}
           {asObject(task.migration)?.readOnly !== true && <AutoControl task={task as FullTask} />}
+          <SideChat taskId={task.id} />
           <button onClick={onDeck}>
             <Icon name="grid" size={15} />
             Open task deck
@@ -603,7 +682,7 @@ export function TaskPage({
                 <ForkLinks task={task as FullTask} />
                 <PublicationPanel task={task as FullTask} />
                 <TaskResult task={task as FullTask} onTab={onTab} />
-                <Description text={task.description || ''} />
+                <Description task={task} />
                 {asObject(task.migration)?.readOnly !== true && !task.demo && (
                   <ContinueWork task={task as FullTask} />
                 )}

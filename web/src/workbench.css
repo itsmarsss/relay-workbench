@@ -19,7 +19,8 @@ h3 {
   font-weight: 600;
 }
 main.page-main {
-  padding: 44px 40px 45px 55px;
+  --page-pad-top: 44px;
+  padding: var(--page-pad-top) 40px 45px 55px;
   scrollbar-gutter: stable;
 }
 .page-title {
@@ -390,19 +391,6 @@ select {
 }
 .task-board .task-card-chevron {
   display: none;
-}
-.picker-popover {
-  display: flex;
-  flex-direction: column;
-  margin: 0;
-  overflow: hidden;
-}
-.picker-popover ul {
-  min-height: 0;
-  overscroll-behavior: contain;
-}
-.picker-popover > button {
-  flex-shrink: 0;
 }
 .select-popover {
   min-width: 0;
@@ -915,6 +903,10 @@ select {
   padding: 6px;
   box-shadow: 0 12px 32px #0002;
 }
+.task-more-menu.surface[data-align='start'] {
+  left: 0;
+  right: auto;
+}
 .task-more-menu[hidden] {
   display: none;
 }
@@ -940,6 +932,10 @@ select {
   min-height: 20px;
   padding: 0;
   margin-bottom: 14px;
+}
+.task-page .back:hover:not(:disabled) {
+  background: transparent;
+  color: var(--text);
 }
 .task-layout {
   display: grid;
@@ -1020,24 +1016,6 @@ select {
   margin: 0;
   padding: 16px;
   border-radius: 0;
-}
-.task-sidebar .ask-relay-launcher {
-  position: static;
-  /* A static flex item still honours z-index; keep it from covering header menus. */
-  z-index: auto;
-  width: 100%;
-  justify-content: flex-start;
-  gap: 10px;
-  color: var(--muted);
-  background: var(--surface);
-  border: 1px solid var(--line-strong);
-  border-radius: 6px;
-  box-shadow: none;
-  padding: 9px 14px;
-}
-.task-sidebar .ask-relay-launcher:hover {
-  color: var(--text);
-  background: var(--soft);
 }
 .task-sidebar .section-heading {
   margin: 0 0 16px;
@@ -1121,8 +1099,9 @@ select {
   min-width: 0;
   text-align: left;
   border: 0;
-  border-radius: 4px;
-  padding: 0;
+  border-radius: 6px;
+  margin: -4px -8px -4px -6px;
+  padding: 4px 8px 4px 6px;
   background: none;
   min-height: 32px;
 }
@@ -1174,20 +1153,53 @@ select {
 .task-main .description-card {
   padding: 22px 24px;
 }
-.description-card > h2 {
+.description-card h2 {
   text-transform: uppercase;
   letter-spacing: 1px;
   font-size: 12px;
-  margin: 0 0 16px;
+  margin: 0;
 }
-.editor-modal.execution-map-modal {
-  width: min(1200px, calc(100vw - 32px));
-  max-width: none;
+.description-card > .section-heading {
+  min-height: 28px;
+  margin-bottom: 12px;
 }
-.execution-map-modal .execution {
+.description-card > .section-heading > .muted {
+  font-size: 12px;
+}
+.description-card > .section-heading > .text-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+/* The card's heading already names the field. */
+.description-edit .markdown-field > label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+}
+.description-edit .markdown-editor > textarea {
+  min-height: 300px;
+}
+.description-edit > .form-note {
+  margin: 10px 0 0;
+}
+.description-edit-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 14px;
+}
+.editor-drawer.execution-map-modal {
+  width: min(1080px, calc(100vw - 56px));
+}
+/* The drawer already frames the graph; a second box inside it is noise. */
+.execution-map-modal .execution-section {
   padding: 0;
   margin: 0;
   border: 0;
+  background: transparent;
 }
 main.page-main:has(> .relay-conversations) {
   padding: 0;
@@ -1339,16 +1351,19 @@ main.page-main:has(> .relay-conversations) {
   border-color: var(--focus);
   box-shadow: 0 0 0 2px var(--accent-soft);
 }
+/* One line of text is exactly as tall as the send button, so the two share a centre line. */
 .composer-input textarea {
   border: 0;
   background: transparent;
   box-shadow: none;
   outline: none;
-  padding: 3px 0;
+  min-height: 30px;
+  padding: 4px 0;
   line-height: 22px;
 }
 .composer-input .send-message {
-  min-height: 30px;
+  min-height: 30px !important;
+  margin-bottom: 0;
   height: 30px;
   min-width: 30px;
   width: 30px;
@@ -1506,19 +1521,9 @@ main.page-main:has(> .relay-conversations) {
 .chat-mobile-bar {
   display: none;
 }
-.editor-modal.orchestrator-dialog {
-  position: fixed;
-  inset: 16px 16px 16px auto;
-  margin: 0;
-  width: min(640px, calc(100vw - 32px));
-  height: calc(100dvh - 32px);
-  max-height: none;
-  max-width: none;
-  border-radius: 12px;
+.editor-drawer.orchestrator-dialog {
+  width: min(640px, 100vw);
   background: var(--page);
-}
-.orchestrator-dialog > .modal-content {
-  height: 100%;
 }
 .orchestrator-dialog .editor-modal-body {
   display: flex;
@@ -1546,55 +1551,6 @@ main.page-main:has(> .relay-conversations) {
 .compact .chat-composer {
   padding: 0;
 }
-/* The floating task conversation has no dialog body around it, so it brings its own gutters. */
-.side-chat-window .chat-header {
-  justify-content: space-between;
-  flex-wrap: nowrap;
-  margin: 0;
-  padding: 10px 10px 8px 16px;
-}
-.side-chat-window .chat-header > div:first-child {
-  min-width: 0;
-}
-.side-chat-window .chat-header h2 {
-  font-size: 16px;
-}
-.side-chat-window .chat-scroll {
-  padding: 6px 16px 16px;
-}
-.side-chat-window .chat-welcome {
-  margin: 20px 0 16px;
-}
-.side-chat-window .chat-welcome h2 {
-  font-size: 17px;
-  margin: 0 0 6px;
-}
-.side-chat-window .chat-welcome p {
-  margin: 0;
-  color: var(--muted);
-}
-.side-chat-window .chat-composer {
-  padding: 0 14px 8px;
-}
-.side-chat-drag .icon-button {
-  width: 28px;
-  height: 28px;
-  min-height: 28px;
-  border: 0;
-}
-.side-chat-window .side-chat-resize {
-  top: 5px;
-  left: 6px;
-}
-/* The narrow-screen sidebar rules match every aside; the floating window is not a sidebar. */
-@media (max-width: 700px) {
-  .side-chat-window {
-    padding: 0;
-  }
-  .side-chat-window p {
-    display: block;
-  }
-}
 @media (max-width: 1200px) {
   .relay-conversations:not(.compact) {
     grid-template-columns: 220px minmax(0, 1fr);
@@ -1617,20 +1573,13 @@ main.page-main:has(> .relay-conversations) {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
-  .task-sidebar > .ask-relay-launcher {
-    position: fixed;
-    right: 20px;
-    bottom: 20px;
-    width: auto;
-    z-index: 20;
-    gap: 12px;
-  }
   .repository-grid {
     grid-template-columns: minmax(0, 1fr);
   }
 }
 @media (max-width: 800px) {
   main.page-main {
+    --page-pad-top: 24px;
     padding: 24px 20px;
   }
   .keyboard-hint {
@@ -1770,14 +1719,10 @@ main.page-main:has(> .relay-conversations) {
   .settings-page:not(.agents-page) .form-grid {
     grid-template-columns: minmax(0, 1fr);
   }
-  .editor-modal.orchestrator-dialog {
-    inset: 8px;
-    width: calc(100vw - 16px);
-    height: calc(100dvh - 16px);
-  }
 }
 @media (max-width: 480px) {
   main.page-main {
+    --page-pad-top: 24px;
     padding: 24px 12px;
   }
   .page-title {
@@ -2453,6 +2398,9 @@ main.page-main:has(> .tasks-page) {
   color: inherit;
   text-decoration: none;
 }
+.task-card-meta a.task-ticket {
+  font-weight: 600;
+}
 a.task-ticket:hover,
 a.task-ticket:focus-visible {
   color: var(--text);
@@ -2533,6 +2481,13 @@ a.task-ticket:focus-visible {
 .task-card-meta .icon {
   flex: none;
 }
+/* Links and buttons on the line are a full 24px tall to press, without making the line taller. */
+.task-card-meta :is(a, button) {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  margin-block: -4px;
+}
 .pr-chip,
 .task-size {
   display: inline-flex;
@@ -2550,7 +2505,6 @@ a.pr-chip:hover > span {
 }
 .pr-chip.pr-none {
   font-weight: 400;
-  opacity: 0.7;
 }
 .pr-chip.pr-draft {
   color: var(--status-neutral-ink);
@@ -2580,10 +2534,10 @@ a.pr-chip:hover > span {
   background: var(--status-attention-ink);
 }
 .task-card-meta .task-id {
-  min-height: 0;
   border: 0;
-  border-radius: 2px;
-  padding: 0 2px;
+  border-radius: 4px;
+  margin: 0 -5px;
+  padding: 0 5px;
   background: transparent;
   color: inherit;
   font: inherit;
@@ -2996,14 +2950,10 @@ main > .relay-conversations {
 }
 .blocker-panel > details.decision-reference,
 .plan-preview > details.decision-reference {
+  --details-inset: 10px;
   margin: 16px 0 0;
-  padding-top: 12px;
+  padding-top: var(--details-inset);
   border-top: 1px solid var(--line);
-}
-.decision-reference > summary {
-  font-size: 13px;
-  color: var(--muted);
-  cursor: pointer;
 }
 .decision-reference > .prose,
 .decision-reference > ul {
@@ -3166,14 +3116,19 @@ main > .relay-conversations {
   font-size: 12px;
 }
 .task-sidebar details > summary {
-  color: var(--muted);
-  cursor: pointer;
+  font-size: 12px;
+}
+.task-sidebar details[open] {
+  padding-left: 16px;
+}
+.task-sidebar details[open] > summary {
+  margin-left: -16px;
 }
 .approved-approach > details {
-  margin-top: 8px;
+  margin-top: 6px;
 }
 .task-memory-summary > details {
-  margin: 0 0 14px;
+  margin: 0 0 12px;
 }
 .task-memory-summary > details ul {
   display: grid;
@@ -3182,16 +3137,21 @@ main > .relay-conversations {
   padding-left: 16px;
 }
 .run-health {
-  margin: 0 0 12px;
-  padding-top: 12px;
+  --details-inset: 8px;
+  margin: 0 0 4px;
+  padding-top: var(--details-inset);
   border-top: 1px solid var(--line);
 }
 .task-sidebar .run-health > summary {
   color: var(--text);
 }
 .run-health > summary small {
-  float: right;
   color: var(--muted);
+}
+/* The failed-run row and the history link share the one rule above them. */
+.page-main .workflow-sidebar > .run-health + button.diagnostic-history {
+  padding-top: 4px;
+  border-top: 0;
 }
 .run-health ul {
   display: grid;
@@ -3259,4 +3219,855 @@ main > .relay-conversations {
   border-radius: inherit;
   background: var(--surface);
   box-shadow: 0 1px 3px #0001;
+}
+/* Dialogs rise into place and drawers slide in from the right. Both leave the way they came. */
+@keyframes modal-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.98);
+  }
+}
+@keyframes modal-out {
+  to {
+    opacity: 0;
+    transform: translateY(6px) scale(0.98);
+  }
+}
+@keyframes drawer-in {
+  from {
+    transform: translateX(100%);
+  }
+}
+@keyframes drawer-out {
+  to {
+    transform: translateX(100%);
+  }
+}
+@keyframes backdrop-in {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes backdrop-out {
+  to {
+    opacity: 0;
+  }
+}
+.editor-modal[open] {
+  animation: modal-in 0.18s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.editor-modal[open]::backdrop {
+  animation: backdrop-in 0.18s ease-out;
+}
+.editor-modal.is-leaving {
+  display: block;
+  pointer-events: none;
+  animation: modal-out 0.14s ease-in forwards;
+}
+.editor-modal.is-leaving::backdrop {
+  animation: backdrop-out 0.14s ease-in forwards;
+}
+/* A drawer keeps the page it belongs to in view: full height on the right edge, lighter dimming. */
+.editor-modal.editor-drawer {
+  position: fixed;
+  inset: 0 0 0 auto;
+  margin: 0;
+  width: min(720px, 100vw);
+  height: 100dvh;
+  max-width: none;
+  max-height: none;
+  border: 0;
+  border-left: 1px solid var(--line);
+  border-radius: 0;
+  box-shadow: -18px 0 60px #0003;
+}
+.editor-drawer > form,
+.editor-drawer > .modal-content {
+  height: 100%;
+  max-height: none;
+}
+.editor-drawer .editor-modal-body {
+  flex: 1 1 auto;
+}
+.editor-drawer::backdrop {
+  background: #10182755;
+  backdrop-filter: none;
+}
+.editor-drawer[open] {
+  animation: drawer-in 0.24s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.editor-drawer.is-leaving {
+  animation: drawer-out 0.18s ease-in forwards;
+}
+@media (max-width: 800px) {
+  .editor-modal.editor-drawer {
+    width: 100vw;
+    border-left: 0;
+  }
+}
+/* One menu everywhere: a small panel of left-aligned rows. The task menu, the board card menu
+   and every select list share these measurements. */
+.task-more-menu.surface,
+.task-context-menu.surface,
+.select-popover {
+  gap: 1px;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow:
+    0 12px 32px #0002,
+    0 1px 3px #0001;
+}
+.task-more-menu button,
+.task-context-menu > button,
+.select-popover [role='option'] {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 9px;
+  width: 100%;
+  min-height: 34px;
+  margin: 0;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.4;
+  text-align: left;
+}
+.task-more-menu button > svg,
+.task-context-menu > button > svg,
+.menu-field > svg {
+  flex: 0 0 auto;
+  color: var(--muted);
+}
+.task-more-menu button:hover:not(:disabled),
+.task-context-menu > button:hover:not(:disabled),
+.select-popover button.highlighted {
+  background: var(--soft);
+}
+.task-more-menu button.danger,
+.task-context-menu > button.danger,
+.task-more-menu button.danger > svg,
+.task-context-menu > button.danger > svg {
+  color: var(--danger);
+}
+.task-more-menu hr,
+.task-context-menu hr {
+  width: auto;
+  height: 1px;
+  margin: 3px 6px;
+  border: 0;
+  background: var(--line);
+}
+.task-context-menu.surface {
+  width: 264px;
+}
+/* A setting inside a menu reads as a row too: its name on the left, the value on the right. */
+.menu-field {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 34px;
+  padding: 0 2px 0 10px;
+  font-size: 14px;
+  font-weight: 500;
+}
+.menu-field > .search-select {
+  flex: 0 1 auto;
+  min-width: 0;
+  margin-left: auto;
+}
+.menu-field .select-trigger {
+  gap: 4px;
+  min-height: 28px;
+  padding: 3px 6px 3px 8px;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+}
+.menu-field .select-trigger:hover,
+.menu-field .select-trigger[aria-expanded='true'] {
+  background: var(--soft);
+  color: var(--text);
+}
+/* Select lists: the chosen option carries a tick, and a detail line sits under its label. */
+.select-popover [role='option'] {
+  position: relative;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 1px;
+  padding-right: 32px;
+}
+.select-popover [role='option'] > small {
+  color: var(--muted);
+  font-weight: 400;
+}
+.select-popover p[role='option'] {
+  color: var(--muted);
+  font-weight: 400;
+}
+.select-popover button[aria-selected='true'] {
+  color: var(--text);
+  font-weight: 600;
+}
+.select-popover button[aria-selected='true']::after {
+  content: '';
+  position: absolute;
+  right: 13px;
+  top: 50%;
+  width: 5px;
+  height: 9px;
+  margin-top: -6px;
+  border: solid var(--accent);
+  border-width: 0 1.75px 1.75px 0;
+  transform: rotate(45deg);
+}
+.select-popover > input[role='combobox'][role='combobox'] {
+  width: calc(100% + 8px);
+  min-height: 36px;
+  margin: -4px -4px 4px;
+  padding: 8px 14px;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  border-radius: 7px 7px 0 0;
+  background: transparent;
+  outline: 0;
+  box-shadow: none;
+}
+.select-popover > input[role='combobox']:focus-visible {
+  border-bottom-color: var(--accent);
+}
+/* A short list has nothing to search. The field stays focused for the keyboard and for typing,
+   out of sight until something is typed. */
+.select-popover.select-short > input[role='combobox'][role='combobox'] {
+  position: absolute;
+  width: 1px;
+  min-height: 0;
+  height: 1px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* Ask Relay: a conversation column docked to the right of the task page. */
+.ask-relay-launcher {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.ask-relay-launcher[aria-expanded='true'] {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--text);
+}
+.ask-dock-slot {
+  display: contents;
+}
+.ask-dock {
+  position: relative;
+  flex: none;
+  height: 100dvh;
+  max-width: 100vw;
+  background: var(--surface);
+}
+.ask-dock-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  border-left: 1px solid var(--line);
+}
+.ask-dock-resize {
+  position: absolute;
+  inset: 0 auto 0 -1px;
+  width: 8px;
+  cursor: col-resize;
+  touch-action: none;
+  z-index: 2;
+}
+.ask-dock-resize:hover,
+.ask-dock-resize:focus-visible {
+  background: color-mix(in srgb, var(--focus) 40%, transparent);
+  outline-offset: -3px;
+}
+.ask-dock-header {
+  display: flex;
+  flex: none;
+  justify-content: space-between;
+  align-items: center;
+  height: 48px;
+  padding: 0 10px 0 18px;
+  border-bottom: 1px solid var(--line);
+  font-size: 13px;
+  font-weight: 600;
+}
+.ask-dock-header > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.ask-dock-header small {
+  margin-left: 2px;
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--muted);
+}
+.ask-dock .chat-header .task-status {
+  display: none;
+}
+.ask-dock-header .icon-button {
+  width: 30px;
+  height: 30px;
+  min-height: 30px;
+  border: 0;
+}
+.ask-dock .relay-conversations.compact {
+  flex: 1;
+  height: auto;
+  background: transparent;
+}
+.ask-dock .chat-header {
+  justify-content: space-between;
+  flex-wrap: nowrap;
+  margin: 0;
+  padding: 10px 10px 8px 18px;
+  border-bottom: 0;
+}
+.ask-dock .chat-header > div:first-child {
+  min-width: 0;
+}
+.ask-dock .chat-header h2 {
+  font-size: 15px;
+}
+.ask-dock .chat-scroll {
+  padding: 6px 18px 16px;
+}
+.ask-dock .chat-welcome {
+  margin: 20px 0 16px;
+}
+.ask-dock .chat-welcome h2 {
+  font-size: 17px;
+  margin: 0 0 6px;
+}
+.ask-dock .chat-welcome p {
+  margin: 0;
+  color: var(--muted);
+}
+.ask-dock .chat-composer {
+  padding: 0 14px 12px;
+}
+/* With the conversation open and the window not wide enough for three columns, the task's own
+   side column moves under its main column. */
+.app:has(.ask-dock[data-squeeze='true']) .task-layout {
+  display: flex;
+  flex-direction: column;
+}
+.app:has(.ask-dock[data-squeeze='true']) :is(.task-main, .task-sidebar) {
+  width: 100%;
+}
+.app:has(.ask-dock[data-squeeze='true']) .task-sidebar {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.app:has(.ask-dock[data-squeeze='true']) .task-page-heading {
+  flex-direction: column;
+  align-items: flex-start;
+}
+.app:has(.ask-dock[data-squeeze='true']) .task-page-heading > .task-page-actions {
+  flex-wrap: wrap;
+}
+/* The narrow-screen sidebar rules match every aside; the conversation is not a sidebar. */
+@media (max-width: 700px) {
+  .ask-dock {
+    padding: 0;
+  }
+  .ask-dock p {
+    display: block;
+  }
+}
+/* Below this width there is no room to share: the conversation lies over the page. */
+@media (max-width: 1279px) {
+  .ask-dock {
+    position: fixed;
+    inset: 0 0 0 auto;
+    z-index: 440;
+    max-width: 100vw;
+    box-shadow: -18px 0 60px #0003;
+  }
+}
+/* Changes read like a code host's diff: the page scrolls, never a box inside it. Each file is a
+   card whose header stays in view while its lines pass, long lines wrap, and large files start
+   folded. */
+.task-detail-panel > .pane-content:has(.diff-viewer) {
+  max-height: none;
+  overflow: visible;
+}
+/* On the task page the header sticks to the very top of the scrolling page, above its padding. */
+.task-detail-panel > .pane-content > .diff-viewer .diff-file > summary {
+  top: calc(-1 * var(--page-pad-top, 0px));
+}
+/* Code needs the width: the Changes tab takes the whole page and leaves the side column to the
+   other tabs. */
+@media (min-width: 1001px) {
+  .task-layout:has(.task-detail-panel > .pane-content[aria-label='Changes']) {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .task-layout:has(.task-detail-panel > .pane-content[aria-label='Changes']) > .task-sidebar {
+    display: none;
+  }
+}
+.diff-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+}
+.diff-toolbar h3 {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+.diff-counts {
+  display: inline-flex;
+  gap: 6px;
+  flex: none;
+  font:
+    600 12px ui-monospace,
+    monospace;
+  font-variant-numeric: tabular-nums;
+}
+.diff-plus {
+  color: light-dark(#1a7f37, #56d364);
+}
+.diff-minus {
+  color: light-dark(#cf222e, #ff7b72);
+}
+.diff-index ul {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.diff-index button {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  min-height: 26px;
+  border: 0;
+  border-radius: 5px;
+  padding: 3px 8px;
+  background: none;
+  text-align: left;
+}
+.diff-path {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font:
+    12px ui-monospace,
+    monospace;
+  color: var(--muted);
+}
+.diff-path strong {
+  font-weight: 600;
+  color: var(--text);
+}
+.diff-repository {
+  margin-top: 14px;
+}
+.diff-file,
+.diff-file[open] {
+  margin: 12px 0;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  overflow: clip;
+  scroll-margin-top: 8px;
+}
+.diff-file > summary,
+.diff-file[open] > summary {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  min-height: 38px;
+  margin: 0;
+  padding: 7px 12px;
+  background: var(--soft);
+  color: var(--text);
+}
+.diff-file[open] > summary {
+  border-bottom: 1px solid var(--line);
+}
+.diff-file > summary > .diff-path {
+  flex: 1 1 120px;
+}
+.diff-file > summary > .diff-counts {
+  margin-left: auto;
+}
+.diff-status {
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  padding: 0 7px;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 18px;
+  color: var(--muted);
+}
+.diff-status-added,
+.diff-status-untracked {
+  border-color: currentColor;
+  color: light-dark(#1a7f37, #56d364);
+}
+.diff-status-deleted {
+  border-color: currentColor;
+  color: light-dark(#cf222e, #ff7b72);
+}
+.diff-from {
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--muted);
+}
+.diff-code {
+  max-height: none;
+  border: 0;
+  padding: 0;
+  overflow: visible;
+  white-space: normal;
+  background: var(--surface);
+  font:
+    12px/20px ui-monospace,
+    monospace;
+}
+.diff-row {
+  grid-template-columns: 44px 44px 20px minmax(0, 1fr);
+}
+.diff-line-number {
+  padding: 0 8px 0 4px;
+  font-size: 11px;
+  background: color-mix(in srgb, var(--soft) 60%, transparent);
+}
+.diff-line-text {
+  min-width: 0;
+  padding: 0 12px 0 1ch;
+  text-indent: -1ch;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.diff-line-more {
+  font-style: normal;
+  color: var(--muted);
+}
+.diff-add-comment {
+  width: 18px;
+  height: 18px;
+  margin: 1px;
+  border-radius: 4px;
+  line-height: 16px;
+}
+.diff-row.addition {
+  background: light-dark(#e6ffec, #12261e);
+  color: inherit;
+}
+.diff-row.addition > .diff-line-number {
+  background: light-dark(#ccffd8, #1b4428);
+}
+.diff-row.deletion {
+  background: light-dark(#ffebe9, #2d1618);
+  color: inherit;
+}
+.diff-row.deletion > .diff-line-number {
+  background: light-dark(#ffd7d5, #542426);
+}
+.diff-row.hunk {
+  background: light-dark(#ddf4ff, #12283f);
+  color: var(--muted);
+}
+.diff-row.hunk > .diff-line-number {
+  background: light-dark(#c8e9ff, #173556);
+}
+.diff-row.hunk > .diff-line-text {
+  padding-block: 4px;
+}
+.diff-row.meta {
+  color: var(--muted);
+  font-style: italic;
+}
+/* Terminals: a strip of tabs, one per terminal in the task's session, over a single screen. */
+.terminal-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  margin-top: 12px;
+  border-radius: 8px 8px 0 0;
+  padding: 6px 6px 0;
+  background: #101820;
+}
+.terminal-tab {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 6px 6px 0 0;
+  color: #9fb0bf;
+}
+.terminal-tab[data-active='true'] {
+  background: #1d2a36;
+  color: #e4eaf0;
+}
+.terminal-tab > button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 30px;
+  border: 0;
+  padding: 4px 10px;
+  background: none;
+  color: inherit;
+  font-size: 12px;
+  font-weight: 500;
+}
+.terminal-tab > button:hover:not(:disabled) {
+  background: none;
+  color: #fff;
+}
+.terminal-tab > button > small {
+  font-weight: 400;
+  opacity: 0.7;
+}
+.terminal-tab > .terminal-tab-close {
+  min-height: 22px;
+  margin-right: 4px;
+  border-radius: 4px;
+  padding: 4px;
+}
+.terminal-tab > .terminal-tab-close:hover:not(:disabled) {
+  background: #2c3d4d;
+}
+.terminal-tabs > .terminal-tab-add {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
+  margin: 0 0 4px 4px;
+  border: 0;
+  border-radius: 6px;
+  padding: 4px 10px;
+  background: none;
+  color: #9fb0bf;
+  font-size: 12px;
+  font-weight: 500;
+}
+.terminal-tabs > .terminal-tab-add:hover:not(:disabled) {
+  background: #1d2a36;
+  color: #fff;
+}
+.terminal-tabs + .terminal-status {
+  margin: 0;
+  padding: 4px 12px;
+  background: #1d2a36;
+  color: #9fb0bf;
+}
+.terminal-tabs ~ .live-terminal-screen {
+  margin-top: 0;
+  border-radius: 0 0 8px 8px;
+}
+.terminal-empty > .terminal-tab-add {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 12px;
+}
+/* The task picker and chat mentions reuse the select popover; "Clear task" is its last row. */
+.select-popover .picker-clear {
+  color: var(--accent);
+}
+/* Activity reads like a code host's conversation, newest first: a rail down the left, comments
+   as cards on it, everything else as single lines, and the page (not a box) does the scrolling. */
+.task-detail-panel > .pane-content.activity-panel.is-timeline {
+  max-height: none;
+  overflow: visible;
+}
+.task-detail-panel .is-timeline > .activity-scroll {
+  max-height: none;
+  overflow: visible;
+  padding: 0;
+}
+.activity-timeline {
+  position: relative;
+  display: grid;
+  gap: 12px;
+  margin: 0;
+  padding: 4px 0 4px 34px;
+  list-style: none;
+}
+.activity-timeline::before {
+  content: '';
+  position: absolute;
+  left: 11px;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--line);
+}
+.activity-timeline > li {
+  position: relative;
+  min-width: 0;
+}
+.activity-timeline > li::before {
+  content: '';
+  position: absolute;
+  left: -28px;
+  top: 7px;
+  width: 8px;
+  height: 8px;
+  border: 2px solid var(--surface);
+  border-radius: 50%;
+  background: var(--line-strong);
+}
+.activity-timeline > .activity-day {
+  margin-top: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+}
+.activity-timeline > .activity-day::before {
+  content: none;
+}
+.activity-timeline > .activity-comment {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+}
+.activity-timeline > .activity-comment::before {
+  top: 12px;
+  background: var(--accent);
+}
+.activity-comment > .activity-entry-meta {
+  margin: 0;
+  border-bottom: 1px solid var(--line);
+  border-radius: 7px 7px 0 0;
+  padding: 8px 14px;
+  background: var(--soft);
+}
+.activity-comment > .activity-body {
+  padding: 12px 14px;
+}
+.activity-comment.is-handoff {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--line));
+}
+.activity-line > .activity-entry-meta {
+  margin: 0;
+}
+.activity-line > .activity-body,
+.activity-line > pre {
+  margin: 2px 0 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+.activity-line pre,
+.activity-tools pre {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 12px;
+}
+.activity-body .prose {
+  margin-bottom: 0;
+}
+.activity-body .prose > :first-child {
+  margin-top: 0;
+}
+.activity-body .prose > :last-child {
+  margin-bottom: 0;
+}
+.activity-tools {
+  margin: 0;
+}
+.activity-tools > summary {
+  width: 100%;
+  min-height: 22px;
+  padding: 0;
+  font-size: 12px;
+}
+.activity-tools > summary > small {
+  font-weight: 400;
+}
+.activity-tools > summary > time {
+  margin-left: auto;
+  font-weight: 400;
+}
+.activity-tools > ol {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.activity-tools > ol > li {
+  display: grid;
+  grid-template-columns: 84px minmax(0, 1fr);
+  gap: 8px;
+  color: var(--muted);
+}
+.activity-tools > ol time {
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.is-timeline .load-older {
+  margin: 12px 0 0 34px;
+}
+/* Waiting for the first page: three quiet bars where entries will be, not a line of text. */
+.activity-loading {
+  display: grid;
+  gap: 12px;
+  padding: 8px 0 8px 34px;
+}
+.activity-loading > span,
+.task-size.is-measuring > span {
+  display: block;
+  height: 14px;
+  border-radius: 4px;
+  background: linear-gradient(90deg, var(--soft) 25%, var(--line) 50%, var(--soft) 75%);
+  background-size: 200% 100%;
+  animation: loading-sweep 1.4s ease-in-out infinite;
+}
+.activity-loading > span:nth-child(1) {
+  width: 62%;
+}
+.activity-loading > span:nth-child(2) {
+  width: 84%;
+  height: 44px;
+}
+.activity-loading > span:nth-child(3) {
+  width: 48%;
+}
+.task-size.is-measuring > span {
+  width: 44px;
+  height: 10px;
+}
+@keyframes loading-sweep {
+  from {
+    background-position: 200% 0;
+  }
+  to {
+    background-position: -200% 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .activity-loading > span,
+  .task-size.is-measuring > span {
+    animation: none;
+  }
 }

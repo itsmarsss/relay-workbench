@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { Icon } from './Icons';
 import { ago } from './presentation';
 import { formatBytes } from './storage';
@@ -36,13 +36,15 @@ function describe(link: PullRequest) {
     .filter(Boolean)
     .join(' · ');
 }
-// The facts a card carries below its summary: pull request, task id and disk use.
+// The facts a card carries below its summary: linked issue, pull request, task id and disk use.
 export function TaskMeta({
   task,
+  ticket,
   size,
   measuring,
 }: {
   task: Task;
+  ticket?: ReactNode;
   size?: WorkspaceSize;
   measuring: boolean;
 }) {
@@ -50,6 +52,7 @@ export function TaskMeta({
   const links = task.pullRequests || [];
   return (
     <div className="task-card-meta">
+      {ticket}
       {links.map((link) => {
         const status = pullRequestStatus(link);
         return (
@@ -106,8 +109,14 @@ export function TaskMeta({
         </span>
       ) : (
         measuring && (
-          <span className="task-size is-measuring" title="Measuring the workspace on disk">
-            <Icon name="storage" size={13} />…
+          <span
+            className="task-size is-measuring"
+            role="img"
+            aria-label="Measuring the workspace on disk"
+            title="Measuring the workspace on disk"
+          >
+            <Icon name="storage" size={13} />
+            <span />
           </span>
         )
       )}

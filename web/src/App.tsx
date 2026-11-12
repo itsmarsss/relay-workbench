@@ -551,9 +551,12 @@ export default function App() {
                 )}
               </motion.main>
             </div>
+            {/* The task page's conversation renders here, as a column beside the page. */}
+            <div id="ask-dock" className="ask-dock-slot" />
             {relayOpen && (
               <Modal
                 title="Relay orchestrator"
+                variant="drawer"
                 className="orchestrator-dialog"
                 onClose={() => setRelayOpen(false)}
               >

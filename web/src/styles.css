@@ -286,53 +286,6 @@ dd {
   background: var(--surface);
   color: var(--text);
 }
-.picker-popover {
-  position: absolute;
-  z-index: 5;
-  top: calc(100% + 4px);
-  left: 0;
-  right: 0;
-  background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: 4px;
-  box-shadow: 0 8px 24px #16251e30;
-}
-.picker-popover ul {
-  list-style: none;
-  margin: 0;
-  padding: 4px;
-  max-height: 210px;
-  overflow: auto;
-}
-.picker-popover li {
-  padding: 8px;
-  cursor: pointer;
-  font-size: 13px;
-}
-.picker-popover li strong,
-.picker-popover li small {
-  display: block;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.picker-popover li small {
-  color: var(--muted);
-}
-.picker-active {
-  background: var(--accent-soft);
-}
-.picker-popover p {
-  padding: 8px;
-  margin: 0;
-  font-size: 12px;
-}
-.picker-popover button {
-  margin: 4px;
-  background: transparent;
-  border: 0;
-  color: var(--accent);
-}
 
 .workspace-controls {
   display: flex;
@@ -681,22 +634,6 @@ button:disabled {
   padding: 10px;
   max-height: 600px;
 }
-.diff-code span {
-  display: block;
-  min-height: 1.5em;
-}
-.diff-code .addition,
-.diff-code.addition {
-  background: #e1f5e7;
-  color: #174d2c;
-}
-.diff-code .deletion {
-  background: #fae4e2;
-  color: #7e2824;
-}
-.diff-code .hunk {
-  color: #315e8b;
-}
 .plan-options h3,
 .plan-options h4 {
   margin: 0 0 8px;
@@ -991,14 +928,7 @@ html:has(dialog[open]) {
   font-weight: 400;
 }
 .editor-modal details {
-  border-top: 1px solid var(--line);
-  padding-top: 12px;
-  margin-top: 12px;
-}
-.editor-modal summary {
-  font-size: 13px;
-  font-weight: 600;
-  cursor: pointer;
+  margin-top: 14px;
 }
 .form-note {
   color: var(--muted);
@@ -2113,38 +2043,82 @@ main {
 .prose input[type='checkbox'] {
   pointer-events: none;
 }
+/* One disclosure everywhere. Closed, it is a single quiet row that belongs to the block above it
+   and draws no rule of its own. Open, what it reveals hangs from a rail under the chevron, so
+   its start and end are plain without a box. Rules are left to separate sibling items.
+   It sits on the text edge and answers hover with colour alone: a highlight would have to reach
+   past that edge, where scrolling panes cut it off. */
 details {
-  border-top: 1px solid var(--line);
-  margin-top: 12px;
-  padding-top: 10px;
+  position: relative;
+  margin-top: 10px;
 }
 summary {
   display: flex;
   align-items: center;
   gap: 8px;
+  width: fit-content;
+  max-width: 100%;
+  min-height: 28px;
+  padding: 2px 0;
+  border-radius: 5px;
   cursor: pointer;
   font-size: 13px;
+  font-weight: 500;
   color: var(--muted);
   list-style: none;
 }
+summary:hover {
+  color: var(--text);
+}
 summary:before {
   content: '';
+  flex: 0 0 auto;
   width: 6px;
   height: 6px;
+  margin: 0 3px 0 1px;
   border-right: 1.5px solid currentColor;
   border-bottom: 1.5px solid currentColor;
   transform: rotate(-45deg);
   transition: transform 0.15s;
 }
 details[open] > summary:before {
-  transform: rotate(45deg);
+  transform: translateY(-2px) rotate(45deg);
 }
 summary::-webkit-details-marker {
   display: none;
 }
+details[open] {
+  padding-left: 20px;
+}
 details[open] > summary {
-  margin-bottom: 12px;
+  margin-left: -20px;
+  margin-bottom: 6px;
   color: var(--text);
+}
+details[open]::before {
+  content: '';
+  position: absolute;
+  left: 4px;
+  top: calc(32px + var(--details-inset, 0px));
+  bottom: 2px;
+  width: 2px;
+  border-radius: 1px;
+  background: var(--line);
+}
+details[open] > summary ~ * {
+  animation: reveal-in 0.16s ease-out;
+}
+details[open] > summary + * {
+  margin-top: 0;
+}
+details[open] > :last-child {
+  margin-bottom: 0;
+}
+@keyframes reveal-in {
+  from {
+    opacity: 0;
+    transform: translateY(-3px);
+  }
 }
 .pr-row {
   padding: 14px 0;
@@ -2987,10 +2961,7 @@ body:has(dialog[open]) .main-shell > main {
   padding: 8px 12px;
 }
 .chat-tool-calls summary {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-height: 28px;
+  width: auto;
 }
 .chat-tool-calls details {
   padding: 3px 0;
@@ -3100,42 +3071,6 @@ body:has(dialog[open]) .main-shell > main {
   font-size: 12px;
   color: var(--muted);
 }
-.mention-suggestions {
-  position: absolute;
-  bottom: calc(100% + 8px);
-  left: 0;
-  right: 0;
-  max-height: 290px;
-  overflow: auto;
-  padding: 5px;
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  background: var(--surface);
-  box-shadow: 0 12px 30px #0002;
-  z-index: 4;
-}
-.mention-suggestions button {
-  display: flex;
-  width: 100%;
-  border: 0;
-  text-align: left;
-  background: transparent;
-  padding: 9px 12px;
-  border-radius: 4px;
-  white-space: normal;
-}
-.mention-suggestions [aria-selected='true'] {
-  background: var(--accent-soft);
-}
-.mention-suggestions strong {
-  font-size: 13px;
-}
-.mention-suggestions small {
-  display: block;
-  font-size: 11px;
-  color: var(--muted);
-  margin-top: 4px;
-}
 .relay-conversations.compact {
   height: 100%;
   min-height: 0;
@@ -3172,69 +3107,6 @@ body:has(dialog[open]) .main-shell > main {
 .compact .chat-welcome p {
   font-size: 13px;
 }
-.ask-relay-launcher {
-  position: fixed;
-  bottom: 22px;
-  right: 24px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  background: var(--text);
-  color: var(--surface);
-  border: 0;
-  border-radius: 6px;
-  padding: 10px 16px;
-  z-index: 450;
-  box-shadow: 0 3px 14px #0002;
-}
-.ask-relay-launcher:hover:not(:disabled) {
-  background: var(--accent);
-  color: var(--on-accent);
-}
-.side-chat-window {
-  position: fixed;
-  z-index: 440;
-  background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  box-shadow: 0 18px 60px #0003;
-  display: flex;
-  flex-direction: column;
-  max-width: calc(100vw - 32px);
-  max-height: calc(100dvh - 100px);
-  overflow: hidden;
-}
-.side-chat-drag {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 5px 10px 5px 38px;
-  min-height: 30px;
-  cursor: move;
-  touch-action: none;
-  background: var(--soft);
-  border-bottom: 1px solid var(--line);
-  color: var(--muted);
-  font-size: 11px;
-}
-.side-chat-resize .icon {
-  transform: rotate(180deg);
-}
-.side-chat-resize {
-  position: absolute;
-  top: 2px;
-  left: 2px;
-  z-index: 2;
-  min-height: 28px;
-  width: 28px;
-  height: 28px;
-  border: 0;
-  background: transparent;
-  padding: 3px;
-  cursor: nwse-resize;
-  touch-action: none;
-  color: var(--muted);
-}
 @media (max-width: 760px) {
   .relay-conversations {
     grid-template-columns: 160px minmax(0, 1fr);
@@ -3254,10 +3126,6 @@ body:has(dialog[open]) .main-shell > main {
   }
   .chat-starters {
     display: none;
-  }
-  .side-chat-window {
-    right: 12px !important;
-    bottom: 76px !important;
   }
   .chat-composer {
     padding: 10px 12px;
@@ -3371,14 +3239,23 @@ body:has(dialog[open]) .main-shell > main {
   border-radius: 4px;
   font-size: 13px;
 }
-.diff-file {
+.diff-file,
+.diff-file[open] {
   padding: 0;
   margin: 12px 0;
   border: 1px solid var(--border);
   border-radius: 4px;
   overflow: hidden;
 }
-.diff-file > summary {
+.diff-file[open]::before {
+  content: none;
+}
+.diff-file > summary,
+.diff-file[open] > summary {
+  width: auto;
+  max-width: none;
+  margin: 0;
+  border-radius: 0;
   padding: 10px 14px;
   font:
     13px ui-monospace,
@@ -3420,6 +3297,9 @@ body:has(dialog[open]) .main-shell > main {
 .diff-row:hover .diff-add-comment:not(:disabled),
 .diff-add-comment:focus-visible {
   opacity: 1;
+}
+.diff-add-comment:disabled {
+  visibility: hidden;
 }
 .diff-line-text {
   padding-right: 16px;
@@ -3527,10 +3407,15 @@ body:has(dialog[open]) .main-shell > main {
 }
 .handoff-card {
   padding: 18px 0;
-  border-bottom: 1px solid var(--border);
+}
+.handoff-card + .handoff-card {
+  border-top: 1px solid var(--border);
 }
 .handoff-card:first-child {
   padding-top: 0;
+}
+.handoff-card:last-child {
+  padding-bottom: 0;
 }
 .handoff-card > header {
   display: flex;
@@ -3580,7 +3465,7 @@ body:has(dialog[open]) .main-shell > main {
 }
 .agent-field-grid {
   display: grid;
-  grid-template-columns: minmax(110px, 0.8fr) minmax(180px, 1.5fr) minmax(110px, 0.8fr);
+  grid-template-columns: minmax(110px, 0.7fr) minmax(180px, 1.2fr) minmax(150px, 1fr);
   gap: 12px;
   align-items: start;
 }
@@ -3789,6 +3674,7 @@ body:has(dialog[open]) .main-shell > main {
 }
 .routing-evidence {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 12px;
 }
 .routing-recommendation {

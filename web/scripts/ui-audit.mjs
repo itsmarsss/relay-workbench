@@ -84,6 +84,15 @@ async function audit(name, accessibility = true) {
     'session ready',
   );
   await page.waitForTimeout(80);
+  // Dialogs and drawers animate into place; measure them where they come to rest.
+  await page.evaluate(() =>
+    Promise.all(
+      document
+        .getAnimations()
+        .filter((animation) => animation.effect?.getComputedTiming().iterations !== Infinity)
+        .map((animation) => animation.finished.catch(() => {})),
+    ),
+  );
   const geometry = await page.evaluate(() => {
     const main = document.querySelector('main');
     return {
@@ -329,6 +338,12 @@ let input='';process.stdin.on('data',d=>input+=d);process.stdin.on('end',()=>{
   // Short menus opening upward must use their real height, including after filtering.
   await page.goto(origin + '/#agents');
   const reviewProvider = page.getByRole('button', { name: /^review provider:/ });
+  // Leave too little room under the field for even this short list, so it has to open upward.
+  const providerField = await reviewProvider.boundingBox();
+  await page.setViewportSize({
+    width: 1512,
+    height: Math.round(providerField.y + providerField.height + 80),
+  });
   await reviewProvider.click();
   await anchored(reviewProvider, page.locator('.select-popover'), 'Upward provider menu');
   assert.equal(await page.locator('.select-popover').getAttribute('data-side'), 'top');
@@ -341,6 +356,7 @@ let input='';process.stdin.on('data',d=>input+=d);process.stdin.on('end',()=>{
   await anchored(reviewProvider, page.locator('.select-popover'), 'Scrolled provider menu');
   await audit('provider-menu-placement');
   await page.keyboard.press('Escape');
+  await page.setViewportSize({ width: 1512, height: 982 });
   await page.goto(origin + '/#tasks?view=list');
 
   // Native validation, Markdown preview, focus trapping and nested modal selects.
@@ -589,31 +605,69 @@ let input='';process.stdin.on('data',d=>input+=d);process.stdin.on('end',()=>{
   await page.goto(origin + '/#task/' + task.id + '/overview');
   const ask = page.getByRole('button', { name: 'Ask Relay', exact: true });
   await ask.click();
-  const resize = page.getByRole('button', { name: 'Resize Ask Relay', exact: true });
-  const initial = await page.locator('.side-chat-window').boundingBox();
+  const dock = page.locator('.ask-dock');
+  // The dock slides in from the right; it has settled once it rests on the window's edge.
+  const docked = () =>
+    until(
+      () => dock.evaluate((el) => Math.abs(el.getBoundingClientRect().right - innerWidth) < 1),
+      'Ask Relay finishes opening',
+    );
+  await docked();
+  await page.getByRole('textbox', { name: 'Ask Relay about this task', exact: true }).waitFor();
+  assert.ok(
+    await page
+      .getByRole('textbox', { name: 'Ask Relay about this task', exact: true })
+      .evaluate((el) => el === document.activeElement),
+    'Opening Ask Relay moves focus to its composer',
+  );
+  const resize = page.getByRole('separator', { name: 'Resize Ask Relay', exact: true });
+  const initial = await dock.boundingBox();
+  assert.equal(initial.x + initial.width, 1512, 'Ask Relay docks to the right edge');
+  assert.equal(initial.height, 982, 'Ask Relay runs the full height');
+  const beside = async () => {
+    const shell = await page.locator('.main-shell').boundingBox(),
+      box = await dock.boundingBox();
+    return Math.abs(shell.x + shell.width - box.x) <= 1;
+  };
+  assert.ok(await beside(), 'The page sits beside Ask Relay, not under it');
   await resize.press('ArrowLeft');
-  assert.equal((await page.locator('.side-chat-window').boundingBox()).width, initial.width + 24);
-  const launcherBox = await ask.boundingBox();
+  assert.equal((await dock.boundingBox()).width, initial.width + 24);
   const grip = await resize.boundingBox();
-  await page.mouse.move(grip.x + grip.width / 2, grip.y + grip.height / 2);
+  await page.mouse.move(grip.x + grip.width / 2, grip.y + 200);
   await page.mouse.down();
-  await page.mouse.move(grip.x + grip.width / 2 - 30, grip.y + grip.height / 2 - 20, { steps: 5 });
+  await page.mouse.move(grip.x + grip.width / 2 - 30, grip.y + 180, { steps: 5 });
   await page.mouse.up();
-  const resized = await page.locator('.side-chat-window').boundingBox();
+  const resized = await dock.boundingBox();
   assert.equal(resized.width, initial.width + 54, 'Pointer resize follows the grip');
-  assert.equal(resized.height, initial.height + 20);
-  assert.deepEqual(await ask.boundingBox(), launcherBox, 'Resizing leaves the launcher in place');
+  assert.equal(resized.height, initial.height, 'Resizing changes the width only');
+  assert.ok(await beside(), 'The page gives up the room Ask Relay takes');
   await audit('side-chat-desktop');
   await page.getByRole('button', { name: 'Activity', exact: true }).click();
   await page.getByRole('button', { name: 'Close Ask Relay', exact: true }).click();
+  await dock.waitFor({ state: 'hidden' });
+  assert.ok(
+    await ask.evaluate((el) => el === document.activeElement),
+    'Closing Ask Relay returns focus to its button',
+  );
+  await page.reload();
+  await page.locator('.task-page-heading').waitFor();
+  await ask.click();
+  await docked();
+  assert.equal(
+    (await dock.boundingBox()).width,
+    resized.width,
+    'Ask Relay keeps its width across reloads',
+  );
+  await page.getByRole('button', { name: 'Close Ask Relay', exact: true }).click();
   await page.goBack();
-  await page.locator('.side-chat-window').waitFor();
+  await dock.waitFor();
   assert.match(page.url(), /ask=1/);
   await page.goForward();
-  await page.locator('.side-chat-window').waitFor({ state: 'hidden' });
+  await dock.waitFor({ state: 'hidden' });
   await ask.click();
   await page.setViewportSize({ width: 320, height: 568 });
-  const side = await page.locator('.side-chat-window').boundingBox();
+  await docked();
+  const side = await dock.boundingBox();
   assert.ok(
     side.x >= 0 && side.y >= 0 && side.x + side.width <= 320 && side.y + side.height <= 568,
   );
@@ -621,7 +675,7 @@ let input='';process.stdin.on('data',d=>input+=d);process.stdin.on('end',()=>{
   await page
     .getByRole('textbox', { name: 'Ask Relay about this task', exact: true })
     .press('Escape');
-  await page.locator('.side-chat-window').waitFor({ state: 'hidden' });
+  await dock.waitFor({ state: 'hidden' });
   await page.getByRole('button', { name: 'Menu', exact: true }).click();
   await audit('mobile-workspace-menu');
   await page
@@ -813,7 +867,7 @@ let input='';process.stdin.on('data',d=>input+=d);process.stdin.on('end',()=>{
   const activeOption = await picker.getAttribute('aria-activedescendant');
   assert.ok(
     await page.locator(`[id="${activeOption}"]`).evaluate((element) => {
-      const list = element.closest('ul').getBoundingClientRect(),
+      const list = element.closest('[role="listbox"]').getBoundingClientRect(),
         row = element.getBoundingClientRect();
       return row.top >= list.top && row.bottom <= list.bottom + 1;
     }),

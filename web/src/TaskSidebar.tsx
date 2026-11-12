@@ -1,5 +1,4 @@
 import { useState } from 'react';
-import { SideChat } from './Chat';
 import { Markdown } from './Markdown';
 import { Modal } from './Modal';
 import { ExecutionGraph, type FullTask } from './TaskExtras';
@@ -113,7 +112,6 @@ export function TaskSidebar({ task }: { task: FullTask }) {
     execution = asObject(task.execution);
   return (
     <aside className="task-sidebar" aria-label="Task context">
-      <SideChat taskId={task.id} />
       <section className="surface workflow-sidebar">
         <div className="section-heading">
           <h2>Workflow</h2>
@@ -309,6 +307,7 @@ export function TaskSidebar({ task }: { task: FullTask }) {
       {history && (
         <Modal
           title="Execution history"
+          variant="drawer"
           className="execution-map-modal"
           onClose={() => setHistory(false)}
         >

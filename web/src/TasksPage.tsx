@@ -266,10 +266,13 @@ export function TasksPage({
       void saveOrder(boardOrder(tasks).filter((id) => id !== task.id));
     await move(task, lane);
   }
-  // The issue reference opens the issue when the ticket is a link; the rest of the card opens the task.
-  const ticket = (task: Task) => {
+  // The issue reference opens the issue when the ticket is a link. A link cannot sit inside the
+  // button that opens the task, so it goes on the card's meta line; a plain reference stays put.
+  const ticketShown = (task: Task) =>
+    filters.layout === 'board' ? ticketRef(task.ticket).startsWith('#') : !!ticketRef(task.ticket);
+  const ticketLink = (task: Task) => {
     const url = ticketURL(task.ticket || '');
-    return url ? (
+    return url && ticketShown(task) ? (
       <a
         className="task-ticket"
         href={url}
@@ -277,14 +280,15 @@ export function TasksPage({
         rel="noopener noreferrer"
         draggable={false}
         title={`Open ${task.ticket}`}
-        onClick={(event) => event.stopPropagation()}
       >
         {ticketRef(task.ticket)}
       </a>
-    ) : (
-      <span className="task-ticket">{ticketRef(task.ticket)}</span>
-    );
+    ) : null;
   };
+  const ticketText = (task: Task) =>
+    ticketShown(task) && !ticketURL(task.ticket || '') ? (
+      <span className="task-ticket">{ticketRef(task.ticket)}</span>
+    ) : null;
   const dropLine = (lane: string, before: string | null) =>
     dragging &&
     insert?.lane === lane &&
@@ -334,7 +338,7 @@ export function TasksPage({
             <span className="board-task-repository">
               <Icon name="repository" size={13} />
               <span>{repositoryNames(task)}</span>
-              {ticketRef(task.ticket).startsWith('#') && ticket(task)}
+              {ticketText(task)}
             </span>
             {(task.error || task.latestSummary) && (
               <span className={`task-card-summary ${task.error ? 'is-error' : ''}`}>
@@ -361,7 +365,7 @@ export function TasksPage({
               <strong>{task.title}</strong>
               <small>
                 {repositoryNames(task)}
-                {ticketRef(task.ticket) && <> · {ticket(task)}</>}
+                {ticketText(task) && <> · {ticketText(task)}</>}
                 {stageNote(task) && ` · ${stageNote(task)}`}
               </small>
               {(task.error || task.latestSummary) && (
@@ -383,6 +387,7 @@ export function TasksPage({
       </button>
       <TaskMeta
         task={task}
+        ticket={ticketLink(task)}
         size={usage.sizes[task.id]}
         measuring={usage.measuring.includes(task.id)}
       />
@@ -659,17 +664,22 @@ export function TasksPage({
                 setMenu(null);
               }}
             >
+              <Icon name="arrow" size={15} />
               Open task
             </button>
-            <Select
-              label="Move to column"
-              value={taskLane(menu.task)}
-              options={columns.map(([value, label]) => ({ value, label }))}
-              onChange={(lane) => {
-                void move(menu.task, lane);
-                setMenu(null);
-              }}
-            />
+            <div className="menu-field">
+              <Icon name="board" size={15} />
+              <span>Column</span>
+              <Select
+                label="Move to column"
+                value={taskLane(menu.task)}
+                options={columns.map(([value, label]) => ({ value, label }))}
+                onChange={(lane) => {
+                  void move(menu.task, lane);
+                  setMenu(null);
+                }}
+              />
+            </div>
             {menu.task.statusOverride && (
               <button
                 onClick={() => {
@@ -682,6 +692,7 @@ export function TasksPage({
                   setMenu(null);
                 }}
               >
+                <Icon name="bolt" size={15} />
                 Follow workflow status
               </button>
             )}
@@ -697,11 +708,13 @@ export function TasksPage({
                   setMenu(null);
                 }}
               >
+                <Icon name="git" size={15} />
                 {menu.task.pullRequests?.some((link) => link.manual)
                   ? 'Edit pull request link…'
                   : 'Link pull request…'}
               </button>
             )}
+            <hr />
             <button
               className="danger"
               onClick={() => {
@@ -709,6 +722,7 @@ export function TasksPage({
                 setMenu(null);
               }}
             >
+              <Icon name="trash" size={15} />
               Delete task
             </button>
           </div>,

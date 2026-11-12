@@ -3,7 +3,7 @@ import { useEffect, useId, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { AnimatePresence, motion } from 'motion/react';
 import { useMutation, useResource, useSession, Notice } from './Session';
-import { Icon, CopyButton, Select, ProviderIcon, RelayMark } from './UI';
+import { Icon, CopyButton, OptionList, Select, ProviderIcon, RelayMark } from './UI';
 import { Markdown } from './Markdown';
 import { useImageUpload } from './ImageUpload';
 import { Modal } from './Modal';
@@ -172,12 +172,15 @@ export function ChatPanel({
     const el = textarea.current;
     if (el) {
       el.style.height = 'auto';
-      el.style.height = Math.max(32, Math.min(el.scrollHeight, 160)) + 'px';
+      el.style.height = Math.max(30, Math.min(el.scrollHeight, 160)) + 'px';
     }
   }, [draft]);
   useEffect(() => {
     if (suggestions.length)
-      revealOption(mentionLayer.current, document.getElementById(`${mentionID}-${activeMention}`));
+      revealOption(
+        document.getElementById(mentionID),
+        document.getElementById(`${mentionID}-${activeMention}`),
+      );
   }, [mentionID, activeMention, suggestions.length]);
   useEffect(() => {
     if (follow.current && scroll.current) scroll.current.scrollTop = scroll.current.scrollHeight;
@@ -553,7 +556,7 @@ export function ChatPanel({
               createPortal(
                 <div
                   ref={mentionLayer}
-                  className="mention-suggestions"
+                  className="select-popover mention-suggestions"
                   role="region"
                   aria-label="Task mentions"
                   style={{
@@ -564,28 +567,22 @@ export function ChatPanel({
                     zIndex: 1100,
                   }}
                 >
-                  <div role="listbox" id={mentionID} aria-label="Mention a task">
-                    {suggestions.map((task, i) => (
-                      <button
-                        key={task.id}
-                        id={`${mentionID}-${i}`}
-                        tabIndex={-1}
-                        type="button"
-                        role="option"
-                        aria-selected={i === activeMention}
-                        onPointerDown={(e) => e.preventDefault()}
-                        onPointerMove={() => setActiveMention(i)}
-                        onClick={() => mention(task)}
-                      >
-                        <span>
-                          <strong>{task.title}</strong>
-                          <small>
-                            {task.repository?.name} · {task.id.slice(0, 8)}
-                          </small>
-                        </span>
-                      </button>
-                    ))}
-                  </div>
+                  <OptionList
+                    id={mentionID}
+                    label="Mention a task"
+                    items={suggestions.map((task) => ({
+                      value: task.id,
+                      label: task.title,
+                      detail: `${task.repository?.name} · ${task.id.slice(0, 8)}`,
+                    }))}
+                    active={activeMention}
+                    onActive={setActiveMention}
+                    onChoose={(id) => {
+                      const task = suggestions.find((item) => item.id === id);
+                      if (task) mention(task);
+                    }}
+                    empty="No matching tasks"
+                  />
                 </div>,
                 textarea.current?.closest('dialog') || document.body,
               )}
@@ -801,6 +798,14 @@ export function ChatPanel({
 export function RelayPage() {
   return <ChatPanel />;
 }
+const askWidthKey = 'relay-ask-width';
+// Docked beside the page the conversation leaves the task at least 920px; on narrower windows it
+// lies over the page instead and may use the full width.
+function fitAskWidth(width: number) {
+  const docked = window.innerWidth >= 1280,
+    most = docked ? Math.min(640, window.innerWidth - 920) : Math.min(640, window.innerWidth);
+  return Math.round(Math.min(most, Math.max(Math.min(360, most), width)));
+}
 export function SideChat({ taskId }: { taskId: string }) {
   const [open, setOpen] = useState(() => {
       try {
@@ -809,17 +814,25 @@ export function SideChat({ taskId }: { taskId: string }) {
         return false;
       }
     }),
-    [size, setSize] = useState({ width: 540, height: 620 }),
-    [position, setPosition] = useState({ x: 0, y: 0 });
-  const launcher = useRef<HTMLButtonElement>(null);
+    [width, setWidth] = useState(() => {
+      let stored = 0;
+      try {
+        stored = Number(localStorage.getItem(askWidthKey));
+      } catch {}
+      return fitAskWidth(stored || 420);
+    }),
+    [viewport, setViewport] = useState(() => window.innerWidth),
+    [slot, setSlot] = useState<HTMLElement | null>(null);
+  const launcher = useRef<HTMLButtonElement>(null),
+    drag = useRef<{ x: number; width: number } | null>(null);
   useEffect(() => {
+    setSlot(document.getElementById('ask-dock'));
     const followURL = () =>
       setOpen(new URLSearchParams(location.hash.split('?')[1]).get('ask') === '1');
     const resize = () => {
-      setSize((current) => fitSize(current));
-      setPosition({ x: 0, y: 0 });
+      setViewport(window.innerWidth);
+      setWidth((current) => fitAskWidth(current));
     };
-    resize();
     window.addEventListener('hashchange', followURL);
     window.addEventListener('popstate', followURL);
     window.addEventListener('resize', resize);
@@ -829,19 +842,6 @@ export function SideChat({ taskId }: { taskId: string }) {
       window.removeEventListener('resize', resize);
     };
   }, []);
-  function fitSize(value: { width: number; height: number }) {
-    return {
-      width: Math.min(window.innerWidth - 32, Math.max(360, value.width)),
-      height: Math.min(window.innerHeight - 100, Math.max(340, value.height)),
-    };
-  }
-  const drag = useRef<{
-    x: number;
-    y: number;
-    startX: number;
-    startY: number;
-    kind: string;
-  } | null>(null);
   function toggle() {
     const next = !open;
     setOpen(next);
@@ -851,35 +851,22 @@ export function SideChat({ taskId }: { taskId: string }) {
     else params.delete('ask');
     history.replaceState(null, '', base + (params.size ? '?' + params.toString() : ''));
     if (!next) launcher.current?.focus({ preventScroll: true });
-  }
-  function pointer(e: React.PointerEvent, kind: string) {
-    if (e.button !== 0) return;
-    e.preventDefault();
-    drag.current = {
-      x: e.clientX,
-      y: e.clientY,
-      startX: kind === 'resize' ? size.width : position.x,
-      startY: kind === 'resize' ? size.height : position.y,
-      kind,
-    };
-    e.currentTarget.setPointerCapture(e.pointerId);
-  }
-  function move(e: React.PointerEvent) {
-    const d = drag.current;
-    if (!d) return;
-    if (d.kind === 'resize')
-      setSize(
-        fitSize({ width: d.startX - (e.clientX - d.x), height: d.startY - (e.clientY - d.y) }),
-      );
     else
-      setPosition({
-        x: Math.max(0, Math.min(window.innerWidth - size.width - 24, d.startX - (e.clientX - d.x))),
-        y: Math.max(
-          0,
-          Math.min(window.innerHeight - size.height - 76, d.startY - (e.clientY - d.y)),
-        ),
-      });
+      requestAnimationFrame(() =>
+        document
+          .querySelector<HTMLElement>(`#side-chat-${CSS.escape(taskId)} textarea`)
+          ?.focus({ preventScroll: true }),
+      );
   }
+  function resizeTo(value: number) {
+    const next = fitAskWidth(value);
+    setWidth(next);
+    try {
+      localStorage.setItem(askWidthKey, String(next));
+    } catch {}
+  }
+  const least = fitAskWidth(0),
+    most = fitAskWidth(Infinity);
   return (
     <>
       <button
@@ -889,97 +876,91 @@ export function SideChat({ taskId }: { taskId: string }) {
         aria-expanded={open}
         aria-controls={open ? `side-chat-${taskId}` : undefined}
       >
-        <Icon name="relay" size={18} />
+        <Icon name="relay" size={15} />
         Ask Relay
       </button>
-      <AnimatePresence>
-        {open && (
-          <motion.aside
-            id={`side-chat-${taskId}`}
-            aria-label="Task conversation"
-            className="side-chat-window"
-            style={{
-              width: size.width,
-              height: size.height,
-              right: 24 + position.x,
-              bottom: 76 + position.y,
-            }}
-            initial={{ opacity: 0, y: 12 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: 12 }}
-            onKeyDown={(event) => {
-              if (event.key === 'Escape' && !(event.target as HTMLElement).closest('dialog')) {
-                event.preventDefault();
-                toggle();
-              }
-            }}
-          >
-            <div
-              className="side-chat-drag"
-              onPointerDown={(e) => pointer(e, 'move')}
-              onPointerMove={move}
-              onPointerUp={() => {
-                drag.current = null;
-              }}
-              onPointerCancel={() => {
-                drag.current = null;
-              }}
-              onLostPointerCapture={() => {
-                drag.current = null;
-              }}
-            >
-              <span>Task conversation</span>
-              <button
-                className="icon-button"
-                aria-label="Close Ask Relay"
-                onPointerDown={(e) => e.stopPropagation()}
-                onClick={toggle}
+      {slot &&
+        createPortal(
+          <AnimatePresence>
+            {open && (
+              <motion.aside
+                id={`side-chat-${taskId}`}
+                aria-label="Task conversation"
+                className="ask-dock"
+                // The task page gives up its second column while a docked conversation leaves it
+                // too little room for both; below 1280px it floats over the page instead.
+                data-squeeze={viewport >= 1280 && viewport - width < 1200}
+                // It slides in from the right edge on a negative margin, so the page gives up the
+                // room as it arrives; the width itself is plain style and follows a resize at once.
+                style={{ width }}
+                initial={{ marginRight: -width }}
+                animate={{ marginRight: 0 }}
+                exit={{ marginRight: -width, transition: { duration: 0.18, ease: 'easeIn' } }}
+                transition={{ duration: 0.24, ease: [0.2, 0.8, 0.2, 1] }}
+                onKeyDown={(event) => {
+                  if (event.key === 'Escape' && !(event.target as HTMLElement).closest('dialog')) {
+                    event.preventDefault();
+                    toggle();
+                  }
+                }}
               >
-                <Icon name="close" size={16} />
-              </button>
-            </div>
-            <button
-              className="side-chat-resize"
-              aria-label="Resize Ask Relay"
-              onPointerDown={(e) => pointer(e, 'resize')}
-              onPointerMove={move}
-              onPointerUp={() => {
-                drag.current = null;
-              }}
-              onPointerCancel={() => {
-                drag.current = null;
-              }}
-              onLostPointerCapture={() => {
-                drag.current = null;
-              }}
-              onKeyDown={(event) => {
-                if (
-                  !['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home'].includes(event.key)
-                )
-                  return;
-                event.preventDefault();
-                setSize((current) =>
-                  fitSize(
-                    event.key === 'Home'
-                      ? { width: 540, height: 620 }
-                      : {
-                          width:
-                            current.width +
-                            (event.key === 'ArrowLeft' ? 24 : event.key === 'ArrowRight' ? -24 : 0),
-                          height:
-                            current.height +
-                            (event.key === 'ArrowUp' ? 24 : event.key === 'ArrowDown' ? -24 : 0),
-                        },
-                  ),
-                );
-              }}
-            >
-              <Icon name="resize" size={14} />
-            </button>
-            <ChatPanel key={taskId} taskId={taskId} compact />
-          </motion.aside>
+                <div className="ask-dock-panel">
+                  <div
+                    className="ask-dock-resize"
+                    role="separator"
+                    tabIndex={0}
+                    aria-label="Resize Ask Relay"
+                    aria-orientation="vertical"
+                    aria-valuemin={least}
+                    aria-valuemax={most}
+                    aria-valuenow={width}
+                    onDoubleClick={() => resizeTo(420)}
+                    onKeyDown={(event) => {
+                      if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+                      event.preventDefault();
+                      resizeTo(
+                        event.key === 'Home'
+                          ? least
+                          : event.key === 'End'
+                            ? most
+                            : width + (event.key === 'ArrowLeft' ? 24 : -24),
+                      );
+                    }}
+                    onPointerDown={(event) => {
+                      if (event.button !== 0) return;
+                      event.preventDefault();
+                      drag.current = { x: event.clientX, width };
+                      event.currentTarget.setPointerCapture(event.pointerId);
+                    }}
+                    onPointerMove={(event) => {
+                      const start = drag.current;
+                      if (start) resizeTo(start.width - (event.clientX - start.x));
+                    }}
+                    onLostPointerCapture={() => {
+                      drag.current = null;
+                    }}
+                    onPointerUp={(event) => {
+                      if (event.currentTarget.hasPointerCapture(event.pointerId))
+                        event.currentTarget.releasePointerCapture(event.pointerId);
+                    }}
+                  />
+                  <header className="ask-dock-header">
+                    <span>
+                      <Icon name="relay" size={15} />
+                      Ask Relay
+                      <small>Read only</small>
+                    </span>
+                    <button className="icon-button" aria-label="Close Ask Relay" onClick={toggle}>
+                      <Icon name="close" size={16} />
+                    </button>
+                  </header>
+                  <ChatPanel key={taskId} taskId={taskId} compact />
+                </div>
+              </motion.aside>
+            )}
+          </AnimatePresence>,
+          slot,
         )}
-      </AnimatePresence>
     </>
   );
 }

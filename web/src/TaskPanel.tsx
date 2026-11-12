@@ -7,8 +7,13 @@ import { statusLabel, taskViews, type Task, type TaskView } from './types';
 import { ProviderName } from './Icons';
 import { stageNames } from './presentation';
 
-type Data = { diffs?: DiffRepository[]; diffRevision?: string; diffFingerprint?: string };
-async function get(path: string, signal: AbortSignal): Promise<unknown> {
+type Data = {
+  diffs?: DiffRepository[];
+  diffRevision?: string;
+  diffFingerprint?: string;
+  body?: string;
+};
+async function get(path: string, signal: AbortSignal): Promise<string> {
   const response = await fetch(path, { signal, headers: { Accept: 'application/json' } });
   if (!response.ok)
     throw new Error(
@@ -16,32 +21,54 @@ async function get(path: string, signal: AbortSignal): Promise<unknown> {
         ? 'This view is not available in the experimental backend yet.'
         : `Could not load this view (${response.status}).`,
     );
-  return response.json() as Promise<unknown>;
+  return response.text();
+}
+// Reading a large checkout takes the server seconds, so the last changes loaded for the few most
+// recent tasks stay here: reopening the tab shows them at once while a fresh copy is fetched.
+const recentDiffs = new Map<string, Data>();
+function remember(taskId: string, data: Data) {
+  recentDiffs.delete(taskId);
+  recentDiffs.set(taskId, data);
+  for (const oldest of recentDiffs.keys()) {
+    if (recentDiffs.size <= 4) break;
+    recentDiffs.delete(oldest);
+  }
 }
 export function TaskPanel({ task, view }: { task: Task; view: TaskView }) {
   const stage = task.currentRun?.stage || task.stage || '';
   const [data, setData] = useState<Data>({}),
     [error, setError] = useState(''),
+    [refreshing, setRefreshing] = useState(false),
     [refreshVersion, setRefreshVersion] = useState(0);
   useEffect(() => {
-    setData({});
+    const known = view === 'diff' ? recentDiffs.get(task.id) : undefined;
+    setData(known || {});
     setError('');
     if (view !== 'diff') return;
     let alive = true;
     const controller = new AbortController();
+    setRefreshing(true);
     void get(`/api/tasks/${encodeURIComponent(task.id)}/diff`, controller.signal)
-      .then((response) => {
+      .then((body) => {
         if (!alive) return;
+        setRefreshing(false);
+        // Unchanged since last time: keep what is on screen rather than rebuilding every row.
+        if (body === known?.body) return;
+        const response: unknown = JSON.parse(body);
         const metadata = asObject(response);
-        setData({
+        const next = {
           diffs: parseDiff(response),
           diffRevision: asText(metadata?.taskRevision),
           diffFingerprint: asText(metadata?.fingerprint),
-        });
+          body,
+        };
+        remember(task.id, next);
+        setData(next);
       })
       .catch((failure) => {
-        if (alive && !controller.signal.aborted)
-          setError(failure instanceof Error ? failure.message : 'Could not load changes.');
+        if (!alive || controller.signal.aborted) return;
+        setRefreshing(false);
+        setError(failure instanceof Error ? failure.message : 'Could not load changes.');
       });
     return () => {
       alive = false;
@@ -94,6 +121,7 @@ export function TaskPanel({ task, view }: { task: Task; view: TaskView }) {
             repositories={data.diffs}
             revision={data.diffRevision || ''}
             fingerprint={data.diffFingerprint || ''}
+            refreshing={refreshing}
             refresh={() => setRefreshVersion((value) => value + 1)}
           />
         ) : (
