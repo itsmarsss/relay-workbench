@@ -535,9 +535,13 @@ export function PublicationPanel({ task }: { task: FullTask }) {
                   </p>
                 )}
               </div>
-              <div className="inline">
-                {publication && <span className="task-status">{asText(publication.state)}</span>}
-                {linked && <span className="task-status">Opened outside Relay</span>}
+              <div className="inline pr-row-actions">
+                {publication && (
+                  <span className={`task-status pr-state pr-state-${asText(publication.state)}`}>
+                    {asText(publication.state) || 'unknown'}
+                  </span>
+                )}
+                {linked && <small className="muted">Opened outside Relay</small>}
                 {task.status === 'completed' && !publication && (
                   <button
                     className="primary"
