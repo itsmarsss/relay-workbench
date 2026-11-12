@@ -8,12 +8,13 @@ package storage
 #include <stdlib.h>
 #include <sys/stat.h>
 #include <unistd.h>
-typedef struct { unsigned long long dev, ino, blocks; long long size; int kind; } relay_file_stat;
+typedef struct { unsigned long long dev, ino, blocks, links; long long size; int kind; } relay_file_stat;
 static int relay_stat_child(int fd, const char *name, relay_file_stat *out) {
   struct stat st;
   if (fstatat(fd, name, &st, AT_SYMLINK_NOFOLLOW) != 0) return -1;
   out->dev=(unsigned long long)st.st_dev;out->ino=(unsigned long long)st.st_ino;
   out->blocks=(unsigned long long)(st.st_blocks < 0 ? 0 : st.st_blocks);out->size=(long long)st.st_size;
+  out->links=(unsigned long long)st.st_nlink;
   out->kind=S_ISDIR(st.st_mode)?1:S_ISREG(st.st_mode)?2:S_ISLNK(st.st_mode)?3:4;return 0;
 }
 static int relay_open_child_dir(int fd, const char *name) { return openat(fd,name,O_RDONLY|O_DIRECTORY|O_NOFOLLOW|O_CLOEXEC|O_NONBLOCK); }
@@ -138,11 +139,14 @@ func (s *scanState) walk(dir *os.File, depth int) error {
 			case 2:
 				C.free(unsafe.Pointer(cname))
 				s.result.Files++
-				if s.seen[identity] {
-					s.result.SkippedHardlinks++
-					continue
+				// A file with one link has one name, so only shared files need remembering.
+				if st.links > 1 {
+					if s.seen[identity] {
+						s.result.SkippedHardlinks++
+						continue
+					}
+					s.seen[identity] = true
 				}
-				s.seen[identity] = true
 				if st.size < 0 || math.MaxUint64-s.result.LogicalBytes < uint64(st.size) {
 					s.partial("File size overflow")
 					continue
@@ -181,7 +185,16 @@ func sameRoot(file *os.File, path string) bool {
 // Scan inspects a user-selected directory without following symlinks, crossing
 // mounts, deleting files, or counting hard-linked file contents twice.
 func Scan(ctx context.Context, path string, maxEntries int) (ScanResult, error) {
-	if ctx == nil || !filepath.IsAbs(path) || maxEntries <= 0 || maxEntries > 200000 {
+	if maxEntries > 200000 {
+		return ScanResult{}, errors.New("invalid storage scan")
+	}
+	return Measure(ctx, path, maxEntries)
+}
+
+// Measure is Scan with room for a whole task workspace, build output included.
+// Callers run it in the background; it follows the same rules as Scan.
+func Measure(ctx context.Context, path string, maxEntries int) (ScanResult, error) {
+	if ctx == nil || !filepath.IsAbs(path) || maxEntries <= 0 || maxEntries > MeasureLimit {
 		return ScanResult{}, errors.New("invalid storage scan")
 	}
 	if err := ctx.Err(); err != nil {

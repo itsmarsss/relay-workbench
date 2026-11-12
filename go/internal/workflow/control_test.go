@@ -151,3 +151,84 @@ func TestWorkloadSeparatesMonitoringFromTaskAgents(t *testing.T) {
 		t.Fatalf("incorrect workload: %d %d", running, monitoring)
 	}
 }
+
+func TestPullRequestLinksAreBoardNotesThatLeaveWorkflowGatesAlone(t *testing.T) {
+	c, db, id, _ := coordinatorFixture(t, "cat >/dev/null\nprintf '%s\\n' '"+stageFinal()+"'")
+	ctx := context.Background()
+	link := func(body map[string]any) error {
+		raw, _ := db.Get(id)
+		body["taskRevision"] = store.TaskRevision(raw)
+		_, err := c.Control(ctx, id, "pull-request", body)
+		return err
+	}
+	address := "https://example.test/org/repo/pull/42"
+	valid := func() map[string]any {
+		return map[string]any{"repositoryId": "repo", "url": address, "state": "open", "draft": true}
+	}
+	for name, change := range map[string]func(map[string]any){
+		"unknown repository": func(body map[string]any) { body["repositoryId"] = "other" },
+		"script address":     func(body map[string]any) { body["url"] = "javascript:alert(1)" },
+		"credentials":        func(body map[string]any) { body["url"] = "https://user:secret@example.test/pull/1" },
+		"non-text address":   func(body map[string]any) { body["url"] = 42 },
+		"unknown state":      func(body map[string]any) { body["state"] = "approved" },
+		"missing state":      func(body map[string]any) { delete(body, "state") },
+		"merged draft":       func(body map[string]any) { body["state"] = "merged" },
+		"non-boolean draft":  func(body map[string]any) { body["draft"] = "true" },
+		"observed evidence":  func(body map[string]any) { body["checks"] = "passing" },
+	} {
+		body := valid()
+		change(body)
+		if err := link(body); err == nil {
+			t.Fatalf("%s accepted", name)
+		}
+	}
+	if err := link(map[string]any{"repositoryId": "repo", "url": nil}); err == nil {
+		t.Fatal("removed a link that was never set")
+	}
+	before := coordinatorTask(t, db, id)
+	if before["pullRequestLink"] != nil {
+		t.Fatal("a rejected link was saved")
+	}
+	if err := link(valid()); err != nil {
+		t.Fatal(err)
+	}
+	value := coordinatorTask(t, db, id)
+	saved := object(value["pullRequestLink"])
+	if saved["url"] != address || saved["number"] != "42" || saved["state"] != "open" || saved["draft"] != true || text(saved["checkedAt"]) == "" || len(saved) != 5 {
+		t.Fatalf("link %v", saved)
+	}
+	// The link is a note: status, approvals and Relay's own publication record are untouched.
+	if value["status"] != before["status"] || value["stage"] != before["stage"] || value["publication"] != nil || len(array(value["approvals"])) != len(array(before["approvals"])) {
+		t.Fatalf("link changed workflow state: %v", value)
+	}
+	if err := link(map[string]any{"repositoryId": "repo", "url": address, "state": "merged"}); err != nil {
+		t.Fatal(err)
+	}
+	if saved = object(coordinatorTask(t, db, id)["pullRequestLink"]); saved["state"] != "merged" || saved["draft"] != false {
+		t.Fatalf("relinked %v", saved)
+	}
+	if _, err := c.Control(ctx, id, "pull-request", map[string]any{"taskRevision": strings.Repeat("0", 64), "repositoryId": "repo", "url": nil}); err == nil {
+		t.Fatal("stale unlink accepted")
+	}
+	if err := link(map[string]any{"repositoryId": "repo", "url": nil}); err != nil {
+		t.Fatal(err)
+	}
+	if value = coordinatorTask(t, db, id); value["pullRequestLink"] != nil {
+		t.Fatal("link survived removal")
+	}
+	// A pull request Relay published is tracked by Relay and cannot be overwritten by hand.
+	value["publication"] = map[string]any{"url": "https://example.test/org/repo/pull/9", "number": "9", "state": "open"}
+	raw, err := json.Marshal(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = db.Save(raw, json.RawMessage(`{"type":"activity"}`)); err != nil {
+		t.Fatal(err)
+	}
+	if err = link(valid()); err == nil || !strings.Contains(err.Error(), "already tracks") {
+		t.Fatalf("overwrote a tracked pull request: %v", err)
+	}
+	if value = coordinatorTask(t, db, id); value["pullRequestLink"] != nil {
+		t.Fatal("link saved beside a tracked pull request")
+	}
+}

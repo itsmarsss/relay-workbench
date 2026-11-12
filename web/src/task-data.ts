@@ -163,6 +163,34 @@ export function latestPlan(value: unknown): PlanPreview | null {
     options,
   };
 }
+// Agents open an option with the idea and follow it with steps. The idea is what a reader decides
+// on, so it is returned apart from the rest.
+export function optionLead(text: string): { lead: string; rest: string } {
+  const lines = text.trim().split('\n');
+  const end = lines.findIndex(
+    (line) => !line.trim() || /^\s*(?:[-*+]|\d+[.)])\s+\S|^\s*(?:#{1,6}\s|```|~~~|\||>)/.test(line),
+  );
+  if (end < 0) return { lead: lines.join('\n'), rest: '' };
+  return { lead: lines.slice(0, end).join('\n'), rest: lines.slice(end).join('\n').trim() };
+}
+export type TradeoffPoint = { kind: 'pro' | 'con'; text: string };
+// Tradeoffs written as "Pro: …" and "Con: …" lines; null when they are written any other way.
+export function tradeoffPoints(text: string): TradeoffPoint[] | null {
+  const points: TradeoffPoint[] = [];
+  for (const line of text.split('\n')) {
+    if (!line.trim()) continue;
+    const match = /^\s*(?:[-*+]\s+)?\**(pro|con)s?\**\s*:\**\s*(\S.*)$/i.exec(line);
+    const previous = points.at(-1);
+    if (match?.[1] && match[2])
+      points.push({
+        kind: match[1].toLowerCase() === 'pro' ? 'pro' : 'con',
+        text: match[2].trim(),
+      });
+    else if (previous && /^\s+\S/.test(line)) previous.text += ` ${line.trim()}`;
+    else return null;
+  }
+  return points.length ? points : null;
+}
 export type DiffRepository = {
   id: string;
   name: string;

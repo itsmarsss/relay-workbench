@@ -290,8 +290,14 @@ export default function App() {
                 </button>
                 {storage.report &&
                   ['warning', 'critical'].includes(storage.report.pressure.state) && (
-                    <button className="storage-alert" onClick={() => navigate('#storage')}>
-                      Low disk space
+                    <button
+                      className="storage-alert"
+                      aria-label="Low disk space"
+                      title="Low disk space"
+                      onClick={() => navigate('#storage')}
+                    >
+                      <Icon name="alert" size={16} />
+                      {!collapsed && 'Low disk space'}
                     </button>
                   )}
                 <div

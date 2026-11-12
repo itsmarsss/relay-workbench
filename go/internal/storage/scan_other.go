@@ -22,3 +22,6 @@ type ScanResult struct {
 func Scan(context.Context, string, int) (ScanResult, error) {
 	return ScanResult{}, errors.New("safe directory scanning is unavailable on this platform")
 }
+func Measure(context.Context, string, int) (ScanResult, error) {
+	return ScanResult{}, errors.New("safe directory scanning is unavailable on this platform")
+}

@@ -1,7 +1,7 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { motion } from 'motion/react';
 import { createPortal } from 'react-dom';
-import type { Task } from './types';
+import type { PullRequest, Task } from './types';
 import {
   columns,
   taskLane,
@@ -11,11 +11,23 @@ import {
   inTaskScope,
   foldedLanes,
   toggleLane,
+  boardOrder,
+  placeCard,
 } from './board';
 import { Select, Icon, ProviderIcon } from './UI';
-import { Notice, useMutation } from './Session';
+import { Notice, request, useMutation, useSession } from './Session';
+import { TaskMeta } from './TaskMeta';
+import { useWorkspaceSizes } from './useWorkspaceSizes';
 import { Modal } from './Modal';
-import { ago, nextStep, repositoryNames, stageNote, ticketRef, waitingKind } from './presentation';
+import {
+  ago,
+  nextStep,
+  repositoryNames,
+  stageNote,
+  ticketRef,
+  ticketURL,
+  waitingKind,
+} from './presentation';
 export { taskLane } from './board';
 const useClientLayoutEffect = typeof window === 'undefined' ? useEffect : useLayoutEffect;
 function currentFilters() {
@@ -34,8 +46,36 @@ function savedFolds() {
     return [];
   }
 }
+type LinkDraft = { task: Task; repositoryId: string; url: string; status: string };
+const linkStatuses = [
+  { value: 'draft', label: 'Draft' },
+  { value: 'open', label: 'Open' },
+  { value: 'merged', label: 'Merged' },
+  { value: 'closed', label: 'Closed' },
+];
+// Repositories of a task with the pull request shown for each, if any.
+function taskRepositories(task: Task) {
+  // The service reads a task with one repository from the task itself.
+  const rows = (
+    task.repositories && task.repositories.length > 1
+      ? task.repositories.map((row) => row.repository)
+      : [task.repository]
+  ).filter((row): row is NonNullable<typeof row> => !!row);
+  return rows.map((repository) => ({
+    repository,
+    link: task.pullRequests?.find(
+      (link) => !link.repositoryId || link.repositoryId === repository.id,
+    ),
+  }));
+}
+const linkDraft = (task: Task, repositoryId: string, link?: PullRequest): LinkDraft => ({
+  task,
+  repositoryId,
+  url: link?.url || '',
+  status: link ? (link.state === 'open' ? (link.draft ? 'draft' : 'open') : link.state) : 'draft',
+});
 export function TasksPage({
-  tasks,
+  tasks: loaded,
   onOpen,
   onCreate,
   loading = false,
@@ -50,8 +90,24 @@ export function TasksPage({
     [target, setTarget] = useState(''),
     [menu, setMenu] = useState<{ task: Task; x: number; y: number; move?: boolean } | null>(null),
     [deleting, setDeleting] = useState<Task | null>(null),
-    [folded, setFolded] = useState(savedFolds);
+    [folded, setFolded] = useState(savedFolds),
+    // Where a held card would land: ahead of `before`, or at the end of the stage.
+    [insert, setInsert] = useState<{ lane: string; before: string | null } | null>(null),
+    [placed, setPlaced] = useState<string[] | null>(null),
+    [orderError, setOrderError] = useState(''),
+    [linking, setLinking] = useState<LinkDraft | null>(null);
   const mutation = useMutation();
+  const session = useSession();
+  const usage = useWorkspaceSizes();
+  // A drop shows at once; the saved order takes over when the service reports the same one.
+  const tasks = useMemo(() => {
+    if (!placed) return loaded;
+    const ranks = new Map(placed.map((id, index) => [id, index]));
+    return loaded.map((task) => ({ ...task, boardRank: ranks.get(task.id) }));
+  }, [loaded, placed]);
+  useEffect(() => {
+    if (placed && boardOrder(loaded).join() === placed.join()) setPlaced(null);
+  }, [loaded, placed]);
   const menuPanel = useRef<HTMLDivElement>(null),
     menuTrigger = useRef<HTMLElement | null>(null);
   function closeMenu(restoreFocus = true) {
@@ -124,19 +180,32 @@ export function TasksPage({
     p.set('empty', next.showEmpty ? '1' : '0');
     history.replaceState(null, '', '#tasks' + (p.size ? '?' + p.toString() : ''));
   }
-  const visible = filteredTasks(tasks, filters);
+  const visible = filteredTasks(tasks, filters, filters.layout === 'board');
   const populated = columns.filter(([lane]) => visible.some((task) => taskLane(task) === lane));
   // The board never reflows mid-drag; every stage stays reachable from the dock instead.
   const lanes = filters.showEmpty || tasks.length === 0 ? columns : populated;
   const dragged = tasks.find((task) => task.id === dragging);
   // Zones only claim the highlight; the page clears it once the pointer is over none of them,
   // so crossing a zone's own children never flickers.
-  const dropZone = (id: string, lane: string) => {
+  const dropZone = (id: string, lane: string, sortable = false) => {
     const claim = (e: React.DragEvent) => {
       if (!dragging) return;
       e.preventDefault();
       e.dataTransfer.dropEffect = 'move';
       if (target !== id) setTarget(id);
+      if (!sortable) {
+        if (insert) setInsert(null);
+        return;
+      }
+      // The card lands ahead of the first card whose middle is below the pointer.
+      const next = [...e.currentTarget.querySelectorAll<HTMLElement>('.task-card')].find(
+        (element) => {
+          const bounds = element.getBoundingClientRect();
+          return e.clientY < bounds.top + bounds.height / 2;
+        },
+      );
+      const before = next?.dataset.task || null;
+      if (insert?.lane !== lane || insert.before !== before) setInsert({ lane, before });
     };
     return {
       'data-drop-zone': id,
@@ -144,9 +213,11 @@ export function TasksPage({
       onDragOver: claim,
       onDrop: (e: React.DragEvent) => {
         e.preventDefault();
+        const place = sortable && insert?.lane === lane ? insert : null;
         setDragging('');
         setTarget('');
-        if (dragged) void move(dragged, lane);
+        setInsert(null);
+        if (dragged) void drop(dragged, lane, place);
       },
     };
   };
@@ -169,12 +240,62 @@ export function TasksPage({
       });
     } catch {}
   }
+  async function saveOrder(order: string[]) {
+    if (order.join() === boardOrder(tasks).join()) return;
+    setPlaced(order);
+    setOrderError('');
+    const settle = () => setPlaced((current) => (current === order ? null : current));
+    try {
+      await request('/api/board/order', session.bootstrap?.token, { order }, 'PUT');
+      void session.refresh();
+      window.setTimeout(settle, 6000);
+    } catch (failure) {
+      settle();
+      setOrderError(failure instanceof Error ? failure.message : 'Could not save the card order');
+    }
+  }
+  // A drop on a board stage places the card; a drop on the dock only changes its stage, and the
+  // card joins the top of that stage like any card that has not been placed.
+  async function drop(task: Task, lane: string, place: { before: string | null } | null) {
+    if (place) {
+      if (place.before === task.id) return;
+      // The card stays where it was dropped only under the default sort.
+      if (filters.sort !== 'priority') filter({ sort: 'priority' });
+      void saveOrder(placeCard(tasks, task.id, lane, place.before));
+    } else if (taskLane(task) !== lane && task.boardRank != null)
+      void saveOrder(boardOrder(tasks).filter((id) => id !== task.id));
+    await move(task, lane);
+  }
+  // The issue reference opens the issue when the ticket is a link; the rest of the card opens the task.
+  const ticket = (task: Task) => {
+    const url = ticketURL(task.ticket || '');
+    return url ? (
+      <a
+        className="task-ticket"
+        href={url}
+        target="_blank"
+        rel="noopener noreferrer"
+        draggable={false}
+        title={`Open ${task.ticket}`}
+        onClick={(event) => event.stopPropagation()}
+      >
+        {ticketRef(task.ticket)}
+      </a>
+    ) : (
+      <span className="task-ticket">{ticketRef(task.ticket)}</span>
+    );
+  };
+  const dropLine = (lane: string, before: string | null) =>
+    dragging &&
+    insert?.lane === lane &&
+    insert.before === before && <div className="board-drop-line" aria-hidden="true" />;
   const card = (task: Task) => (
     <motion.article
       layout={!dragging}
       key={task.id}
       className={`task-card ${filters.layout === 'board' ? 'board-task-card' : ''} ${dragging === task.id ? 'is-dragging' : ''}`}
       data-lane={taskLane(task)}
+      data-task={task.id}
       draggable={!mutation.busy}
       onDragStartCapture={(e) => {
         e.dataTransfer.setData('text/plain', task.id);
@@ -184,6 +305,7 @@ export function TasksPage({
       onDragEndCapture={() => {
         setDragging('');
         setTarget('');
+        setInsert(null);
       }}
       onContextMenu={(e) => {
         e.preventDefault();
@@ -212,7 +334,7 @@ export function TasksPage({
             <span className="board-task-repository">
               <Icon name="repository" size={13} />
               <span>{repositoryNames(task)}</span>
-              {ticketRef(task.ticket).startsWith('#') && <span>{ticketRef(task.ticket)}</span>}
+              {ticketRef(task.ticket).startsWith('#') && ticket(task)}
             </span>
             {(task.error || task.latestSummary) && (
               <span className={`task-card-summary ${task.error ? 'is-error' : ''}`}>
@@ -239,7 +361,7 @@ export function TasksPage({
               <strong>{task.title}</strong>
               <small>
                 {repositoryNames(task)}
-                {ticketRef(task.ticket) && ` · ${ticketRef(task.ticket)}`}
+                {ticketRef(task.ticket) && <> · {ticket(task)}</>}
                 {stageNote(task) && ` · ${stageNote(task)}`}
               </small>
               {(task.error || task.latestSummary) && (
@@ -259,6 +381,11 @@ export function TasksPage({
           </>
         )}
       </button>
+      <TaskMeta
+        task={task}
+        size={usage.sizes[task.id]}
+        measuring={usage.measuring.includes(task.id)}
+      />
       <button
         className="icon-button card-menu"
         aria-label={`Actions for ${task.title}`}
@@ -281,7 +408,10 @@ export function TasksPage({
       className="tasks-page"
       aria-busy={loading}
       onDragOver={(e) => {
-        if (target && !(e.target as Element).closest('[data-drop-zone]')) setTarget('');
+        if (!(e.target as Element).closest('[data-drop-zone]')) {
+          if (target) setTarget('');
+          if (insert) setInsert(null);
+        }
       }}
     >
       <div className="page-title">
@@ -393,7 +523,7 @@ export function TasksPage({
           )}
         </div>
       </div>
-      {mutation.error && <Notice>{mutation.error}</Notice>}
+      {(mutation.error || orderError) && <Notice>{mutation.error || orderError}</Notice>}
       {loading ? null : tasks.length === 0 && filters.layout !== 'board' ? (
         <div className="empty-state">
           <h2>No tasks yet</h2>
@@ -418,7 +548,11 @@ export function TasksPage({
         <div className="task-list">{visible.map(card)}</div>
       ) : (
         <div className="task-board-workspace">
-          <motion.div className="task-board" role="region" aria-label="Task board">
+          <motion.div
+            className={`task-board ${dragging ? 'is-sorting' : ''}`}
+            role="region"
+            aria-label="Task board"
+          >
             {lanes.map(([lane, label]) => {
               const rows = visible.filter((task) => taskLane(task) === lane);
               // An empty workspace keeps every stage open so the create action stays in view.
@@ -429,8 +563,8 @@ export function TasksPage({
                   data-lane={lane}
                   data-populated={rows.length > 0}
                   aria-label={`${label} column`}
-                  className={`task-lane ${isFolded ? 'is-folded' : ''} ${target === lane ? 'drop-target' : ''}`}
-                  {...dropZone(lane, lane)}
+                  className={`task-lane ${isFolded ? 'is-folded' : ''} ${target === lane && (isFolded || (dragged && taskLane(dragged) !== lane)) ? 'drop-target' : ''}`}
+                  {...dropZone(lane, lane, !isFolded)}
                 >
                   {isFolded ? (
                     <button
@@ -466,7 +600,8 @@ export function TasksPage({
                           </button>
                         )}
                       </header>
-                      {rows.map(card)}
+                      {rows.map((task) => [dropLine(lane, task.id), card(task)])}
+                      {dropLine(lane, null)}
                       {tasks.length === 0 && lane === 'backlog' && (
                         <button className="board-create-task" onClick={onCreate}>
                           <Icon name="plus" size={16} /> Create task
@@ -489,9 +624,7 @@ export function TasksPage({
       )}
       {dragged && (
         <div className="stage-dock" role="group" aria-label="Move to stage">
-          <p>
-            Drop on a stage to move <strong>{dragged.title}</strong>
-          </p>
+          <p>Move to</p>
           <div className="stage-dock-targets">
             {columns.map(([lane, label]) => (
               <div
@@ -552,6 +685,23 @@ export function TasksPage({
                 Follow workflow status
               </button>
             )}
+            {/* Pull requests Relay published are tracked on the task page; the rest can be linked here. */}
+            {taskRepositories(menu.task).some((row) => !row.link || row.link.manual) && (
+              <button
+                onClick={() => {
+                  const row = taskRepositories(menu.task).find(
+                    (item) => !item.link || item.link.manual,
+                  )!;
+                  mutation.clearError();
+                  setLinking(linkDraft(menu.task, row.repository.id, row.link));
+                  setMenu(null);
+                }}
+              >
+                {menu.task.pullRequests?.some((link) => link.manual)
+                  ? 'Edit pull request link…'
+                  : 'Link pull request…'}
+              </button>
+            )}
             <button
               className="danger"
               onClick={() => {
@@ -564,6 +714,111 @@ export function TasksPage({
           </div>,
           document.body,
         )}
+      {linking && (
+        <Modal
+          title="Link pull request"
+          returnFocus={menuTrigger.current}
+          onClose={() => {
+            if (!mutation.busy) setLinking(null);
+          }}
+          onSubmit={(e) => {
+            e.preventDefault();
+            void mutation
+              .run(`/api/tasks/${linking.task.id}/pull-request`, {
+                taskRevision: tasks.find((task) => task.id === linking.task.id)?.taskRevision,
+                repositoryId: linking.repositoryId,
+                url: linking.url.trim(),
+                state: linking.status === 'draft' ? 'open' : linking.status,
+                draft: linking.status === 'draft',
+              })
+              .then(() => setLinking(null))
+              .catch(() => {});
+          }}
+          footer={
+            <>
+              {taskRepositories(linking.task).find(
+                (row) => row.repository.id === linking.repositoryId,
+              )?.link?.manual && (
+                <button
+                  type="button"
+                  className="danger"
+                  disabled={mutation.busy}
+                  onClick={() =>
+                    void mutation
+                      .run(`/api/tasks/${linking.task.id}/pull-request`, {
+                        taskRevision: tasks.find((task) => task.id === linking.task.id)
+                          ?.taskRevision,
+                        repositoryId: linking.repositoryId,
+                        url: null,
+                      })
+                      .then(() => setLinking(null))
+                      .catch(() => {})
+                  }
+                >
+                  Remove link
+                </button>
+              )}
+              <button type="button" onClick={() => setLinking(null)}>
+                Cancel
+              </button>
+              <button className="primary" disabled={mutation.busy || !linking.url.trim()}>
+                Save link
+              </button>
+            </>
+          }
+        >
+          <p>
+            Show a pull request you opened outside Relay on “{linking.task.title}”. Relay does not
+            check it, and workflow gates are unchanged.
+          </p>
+          {taskRepositories(linking.task).length > 1 && (
+            <label className="field">
+              <span>Repository</span>
+              <Select
+                label="Repository"
+                value={linking.repositoryId}
+                options={taskRepositories(linking.task).map((row) => ({
+                  value: row.repository.id,
+                  label: row.repository.name,
+                  disabled: !!row.link && !row.link.manual,
+                }))}
+                onChange={(repositoryId) =>
+                  setLinking(
+                    linkDraft(
+                      linking.task,
+                      repositoryId,
+                      taskRepositories(linking.task).find(
+                        (row) => row.repository.id === repositoryId,
+                      )?.link,
+                    ),
+                  )
+                }
+              />
+            </label>
+          )}
+          <label className="field">
+            <span>Pull request address</span>
+            <input
+              type="url"
+              required
+              autoFocus
+              placeholder="https://…"
+              value={linking.url}
+              onChange={(e) => setLinking({ ...linking, url: e.target.value })}
+            />
+          </label>
+          <label className="field">
+            <span>Status</span>
+            <Select
+              label="Pull request status"
+              value={linking.status}
+              options={linkStatuses}
+              onChange={(status) => setLinking({ ...linking, status })}
+            />
+          </label>
+          {mutation.error && <Notice>{mutation.error}</Notice>}
+        </Modal>
+      )}
       {deleting && (
         <Modal
           title="Delete task?"

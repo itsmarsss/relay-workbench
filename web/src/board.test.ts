@@ -7,6 +7,8 @@ import {
   foldedLanes,
   inTaskScope,
   toggleLane,
+  boardOrder,
+  placeCard,
 } from './board.ts';
 test('board overrides change presentation without advancing workflow gates', () => {
   const task = { id: 'x', title: 'Gate', status: 'awaiting_plan', stage: 'plan' };
@@ -121,4 +123,40 @@ test('folded stages restore in board order and ignore unusable saved values', ()
     assert.deepEqual(foldedLanes(saved), []);
   assert.deepEqual(toggleLane(['backlog'], 'done'), ['backlog', 'done']);
   assert.deepEqual(toggleLane(['backlog', 'done'], 'backlog'), ['done']);
+});
+
+test('placed cards keep their order and unplaced cards lead their stage', () => {
+  const card = (id: string, updatedAt: string, boardRank?: number) => ({
+    id,
+    title: id,
+    status: 'draft',
+    stage: 'draft',
+    updatedAt,
+    boardRank,
+  });
+  const tasks = [
+    card('a', '2026-01-01T00:00:00Z', 1),
+    card('b', '2026-01-02T00:00:00Z', 0),
+    card('c', '2026-01-03T00:00:00Z'),
+    { ...card('d', '2026-01-04T00:00:00Z', 2), status: 'awaiting_plan', stage: 'plan' },
+  ];
+  const board = { ...boardFilters('#tasks?view=board'), layout: 'board' as const };
+  const ids = (rows: { id: string }[]) => rows.map((task) => task.id);
+  // Without placement the queue order is unchanged; with it, ranks decide and new work leads.
+  assert.deepEqual(ids(filteredTasks(tasks, board)), ['d', 'c', 'b', 'a']);
+  assert.deepEqual(ids(filteredTasks(tasks, board, true)), ['c', 'b', 'a', 'd']);
+  assert.deepEqual(ids(filteredTasks(tasks, { ...board, sort: 'title' }, true)), [
+    'a',
+    'b',
+    'c',
+    'd',
+  ]);
+  assert.deepEqual(boardOrder(tasks), ['b', 'a', 'd']);
+  // Dropping a card writes its whole stage as shown, so the unplaced card keeps its spot.
+  assert.deepEqual(placeCard(tasks, 'a', 'backlog', 'c'), ['d', 'a', 'c', 'b']);
+  assert.deepEqual(placeCard(tasks, 'c', 'backlog', null), ['d', 'b', 'a', 'c']);
+  assert.deepEqual(placeCard(tasks, 'b', 'backlog', 'missing'), ['d', 'c', 'a', 'b']);
+  // A card dragged in from another stage joins the target stage; its old stage is untouched.
+  assert.deepEqual(placeCard(tasks, 'd', 'backlog', 'a'), ['c', 'b', 'd', 'a']);
+  assert.deepEqual(placeCard(tasks, 'a', 'approach', 'd'), ['b', 'a', 'd']);
 });

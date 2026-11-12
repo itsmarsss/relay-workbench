@@ -11,6 +11,18 @@ export type TaskStatus =
   | 'interrupted'
   | 'cancelled'
   | string;
+export type PullRequest = {
+  repositoryId?: string;
+  url: string;
+  number: string;
+  state: string;
+  draft?: boolean;
+  checks: string;
+  review: string;
+  checkedAt: string;
+  // Linked by hand on the board rather than observed by Relay.
+  manual: boolean;
+};
 export type Task = {
   id: string;
   title: string;
@@ -35,6 +47,9 @@ export type Task = {
   ticket?: string;
   statusOverride?: { value: string; lane?: string } | null;
   repositories?: { repository?: { id: string; name: string } }[];
+  pullRequests?: PullRequest[];
+  // Position the user dragged the card to; absent until a card is placed.
+  boardRank?: number;
 };
 export type TaskView = 'overview' | 'thread' | 'terminals' | 'diff' | 'handoffs' | 'transcript';
 export const taskViews: { id: TaskView; label: string }[] = [
@@ -83,6 +98,17 @@ export function isTask(value: unknown): value is Task {
     if (typeof record.repository !== 'object' || Array.isArray(record.repository)) return false;
     const repo = record.repository as Record<string, unknown>;
     if (typeof repo.id !== 'string' || typeof repo.name !== 'string') return false;
+  }
+  if (record.boardRank != null && typeof record.boardRank !== 'number') return false;
+  if (record.pullRequests != null) {
+    if (!Array.isArray(record.pullRequests)) return false;
+    for (const item of record.pullRequests as unknown[]) {
+      if (!item || typeof item !== 'object') return false;
+      const link = item as Record<string, unknown>;
+      if (!/^https?:\/\//.test(String(link.url)) || typeof link.manual !== 'boolean') return false;
+      for (const key of ['number', 'state', 'checks', 'review', 'checkedAt'])
+        if (typeof link[key] !== 'string') return false;
+    }
   }
   if (record.currentRun != null) {
     if (typeof record.currentRun !== 'object' || Array.isArray(record.currentRun)) return false;

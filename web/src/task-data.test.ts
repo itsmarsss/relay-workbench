@@ -8,7 +8,9 @@ import {
   latestHandoffs,
   latestPlan,
   liveTerminal,
+  optionLead,
   parseDiff,
+  tradeoffPoints,
 } from './task-data.ts';
 test('external result links permit only credential-free web URLs', () => {
   assert.equal(externalURL('https://example.com/pull/1'), 'https://example.com/pull/1');
@@ -177,4 +179,46 @@ test('blocker details are shown only for an unresolved current decision', () => 
     null,
   );
   assert.equal(currentBlocker({ status: 'running', blockerDecision: blocker }), null);
+});
+test('an option splits into the idea and the steps that follow it', () => {
+  assert.deepEqual(
+    optionLead('Retry once on a fresh connection.\n- Add a predicate\n- Add a loop'),
+    {
+      lead: 'Retry once on a fresh connection.',
+      rest: '- Add a predicate\n- Add a loop',
+    },
+  );
+  assert.deepEqual(optionLead('First line\nsame paragraph.\n\nSecond paragraph.\n\n1. Step'), {
+    lead: 'First line\nsame paragraph.',
+    rest: 'Second paragraph.\n\n1. Step',
+  });
+  assert.deepEqual(optionLead('Only one paragraph, with a - dash and 2.5 in it.'), {
+    lead: 'Only one paragraph, with a - dash and 2.5 in it.',
+    rest: '',
+  });
+  assert.deepEqual(optionLead('- Step one\n- Step two'), {
+    lead: '',
+    rest: '- Step one\n- Step two',
+  });
+  assert.deepEqual(optionLead('Idea.\n```sh\nmake\n```'), {
+    lead: 'Idea.',
+    rest: '```sh\nmake\n```',
+  });
+});
+test('tradeoffs are read as points only when every line is a pro or a con', () => {
+  assert.deepEqual(
+    tradeoffPoints('- Pro: one rule in the parser\n- Con: two stages,\n  with a release between\n'),
+    [
+      { kind: 'pro', text: 'one rule in the parser' },
+      { kind: 'con', text: 'two stages, with a release between' },
+    ],
+  );
+  assert.deepEqual(tradeoffPoints('**Pros:** small diff\nCons: no rollback'), [
+    { kind: 'pro', text: 'small diff' },
+    { kind: 'con', text: 'no rollback' },
+  ]);
+  assert.equal(tradeoffPoints('- Smallest change\n- Can return a newer snapshot'), null);
+  assert.equal(tradeoffPoints('- Pro: small\n- Needs a release'), null);
+  assert.equal(tradeoffPoints('Small diff. Con: two mechanisms remain.'), null);
+  assert.equal(tradeoffPoints(''), null);
 });

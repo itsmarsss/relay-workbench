@@ -1546,6 +1546,55 @@ main.page-main:has(> .relay-conversations) {
 .compact .chat-composer {
   padding: 0;
 }
+/* The floating task conversation has no dialog body around it, so it brings its own gutters. */
+.side-chat-window .chat-header {
+  justify-content: space-between;
+  flex-wrap: nowrap;
+  margin: 0;
+  padding: 10px 10px 8px 16px;
+}
+.side-chat-window .chat-header > div:first-child {
+  min-width: 0;
+}
+.side-chat-window .chat-header h2 {
+  font-size: 16px;
+}
+.side-chat-window .chat-scroll {
+  padding: 6px 16px 16px;
+}
+.side-chat-window .chat-welcome {
+  margin: 20px 0 16px;
+}
+.side-chat-window .chat-welcome h2 {
+  font-size: 17px;
+  margin: 0 0 6px;
+}
+.side-chat-window .chat-welcome p {
+  margin: 0;
+  color: var(--muted);
+}
+.side-chat-window .chat-composer {
+  padding: 0 14px 8px;
+}
+.side-chat-drag .icon-button {
+  width: 28px;
+  height: 28px;
+  min-height: 28px;
+  border: 0;
+}
+.side-chat-window .side-chat-resize {
+  top: 5px;
+  left: 6px;
+}
+/* The narrow-screen sidebar rules match every aside; the floating window is not a sidebar. */
+@media (max-width: 700px) {
+  .side-chat-window {
+    padding: 0;
+  }
+  .side-chat-window p {
+    display: block;
+  }
+}
 @media (max-width: 1200px) {
   .relay-conversations:not(.compact) {
     grid-template-columns: 220px minmax(0, 1fr);
@@ -2396,9 +2445,18 @@ main.page-main:has(> .tasks-page) {
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.board-task-repository > span:last-child:not(:first-of-type) {
+.board-task-repository > .task-ticket {
   margin-left: auto;
   flex: none;
+}
+.task-ticket {
+  color: inherit;
+  text-decoration: none;
+}
+a.task-ticket:hover,
+a.task-ticket:focus-visible {
+  color: var(--text);
+  text-decoration: underline;
 }
 .task-board .task-card-summary {
   margin-top: 7px;
@@ -2452,6 +2510,108 @@ main.page-main:has(> .tasks-page) {
 .board-task-next time {
   color: var(--muted);
   white-space: nowrap;
+}
+/* Pull request, task id and disk use sit on one quiet line under the card. */
+.task-card-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+  font-size: 11px;
+  line-height: 16px;
+  color: var(--muted);
+}
+.task-board .task-card-meta {
+  flex-wrap: wrap;
+  row-gap: 4px;
+  padding: 0 10px 8px;
+}
+.task-list .task-card-meta {
+  padding: 0 18px 9px 20px;
+}
+.task-card-meta .icon {
+  flex: none;
+}
+.pr-chip,
+.task-size {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+.pr-chip {
+  color: inherit;
+  text-decoration: none;
+  font-weight: 600;
+}
+a.pr-chip:hover > span {
+  text-decoration: underline;
+}
+.pr-chip.pr-none {
+  font-weight: 400;
+  opacity: 0.7;
+}
+.pr-chip.pr-draft {
+  color: var(--status-neutral-ink);
+}
+.pr-chip.pr-open {
+  color: var(--status-done-ink);
+}
+.pr-chip.pr-merged {
+  color: var(--status-merged-ink);
+}
+.pr-chip.pr-closed {
+  color: var(--status-blocked-ink);
+}
+.pr-checks {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--muted);
+}
+.pr-checks.pr-checks-passing {
+  background: var(--status-done-ink);
+}
+.pr-checks.pr-checks-failing {
+  background: var(--status-blocked-ink);
+}
+.pr-checks.pr-checks-pending {
+  background: var(--status-attention-ink);
+}
+.task-card-meta .task-id {
+  min-height: 0;
+  border: 0;
+  border-radius: 2px;
+  padding: 0 2px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  cursor: copy;
+}
+.task-card-meta .task-id:hover {
+  color: var(--text);
+  background: var(--soft);
+}
+.task-size {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+}
+/* Where a held card will land. It takes no room, so the cards do not jump while dragging. */
+.board-drop-line {
+  position: relative;
+  height: 0;
+}
+.board-drop-line::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: -5px;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--focus);
 }
 .board-lane-empty {
   margin: 0;
@@ -2706,6 +2866,185 @@ main > .relay-conversations {
   margin: 0;
   padding-left: 18px;
   font-size: 14px;
+}
+/* Decision panels read top to bottom: the ask, one option per row, the action, then reference text. */
+.clamped-text {
+  max-width: 76ch;
+  margin: 0 0 14px;
+}
+.clamped-text p {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.6;
+}
+.clamped-text p.clamped,
+.option-lead.clamped .prose > p {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.clamped-text button.text-button,
+.plan-options button.text-button {
+  justify-self: start;
+  min-height: 24px;
+  padding: 2px 0;
+  font-size: 13px;
+  color: var(--muted);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.clamped-text button.text-button:hover,
+.plan-options button.text-button:hover {
+  color: var(--text);
+}
+.plan-options {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 10px;
+  margin: 14px 0 16px;
+}
+.plan-options article {
+  display: grid;
+  grid-template-columns: minmax(0, 76ch);
+  gap: 8px;
+  padding: 14px 16px;
+}
+.plan-options article.selectable:hover {
+  border-color: var(--line-strong);
+}
+.plan-options article.selected,
+.plan-options article.selected:hover {
+  border-color: var(--accent);
+}
+.plan-options h3 {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.35;
+}
+.plan-options h3 input[type='radio'] {
+  flex: none;
+  margin: 0;
+}
+.plan-options h3 small {
+  padding: 1px 8px;
+  border: 1px solid color-mix(in srgb, var(--success) 45%, transparent);
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--success);
+}
+.plan-options h4 {
+  margin: 0 0 2px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+}
+.plan-options .prose {
+  font-size: 14px;
+  line-height: 1.55;
+}
+.plan-options .prose ul,
+.plan-options .prose ol,
+.decision-reference .prose ul,
+.decision-reference .prose ol {
+  display: grid;
+  gap: 4px;
+  margin: 8px 0;
+  padding-left: 20px;
+}
+.option-note {
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+}
+.tradeoff-points {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.tradeoff-points li {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  gap: 8px;
+  align-items: baseline;
+}
+.tradeoff-points li > span {
+  font-size: 12px;
+  font-weight: 650;
+  color: var(--success);
+}
+.tradeoff-points li.con > span {
+  color: var(--status-blocked-ink);
+}
+.tradeoff-points .prose p::first-letter {
+  text-transform: uppercase;
+}
+.plan-decision,
+.blocker-actions {
+  margin-top: 0;
+}
+.plan-decision label,
+.blocker-actions label {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--muted);
+}
+.blocker-panel > details.decision-reference,
+.plan-preview > details.decision-reference {
+  margin: 16px 0 0;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+.decision-reference > summary {
+  font-size: 13px;
+  color: var(--muted);
+  cursor: pointer;
+}
+.decision-reference > .prose,
+.decision-reference > ul {
+  max-width: 76ch;
+  margin-top: 12px;
+  font-size: 14px;
+  line-height: 1.6;
+}
+.decision-reference .prose :is(h1, h2, h3, h4) {
+  margin: 18px 0 6px;
+  font-size: 14px;
+}
+.decision-reference .prose > :first-child {
+  margin-top: 0;
+}
+.decision-reference > h4 {
+  margin: 16px 0 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+}
+.decision-reference > ul {
+  display: grid;
+  gap: 4px;
+  margin-top: 6px;
+  padding-left: 20px;
+}
+/* Modal copy sits one step above the first field, and the last field ends the body. */
+.editor-modal-body > p {
+  margin: 0 0 16px;
+}
+.editor-modal-body > p:last-child,
+.editor-modal-body > .field:last-child {
+  margin-bottom: 0;
+}
+/* A summary shown between two fields belongs to the field above it. */
+.field-context {
+  margin: -8px 0 16px;
+  padding-left: 12px;
+  border-left: 2px solid var(--line);
+  color: var(--muted);
 }
 .status-banner p {
   display: -webkit-box;

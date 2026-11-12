@@ -39,6 +39,7 @@ type Server struct {
 	token        [32]byte
 	workflow     Coordinator
 	assistant    Assistant
+	usage        *storage.Usage
 }
 
 // Coordinator is supplied by the local server, never by an HTTP request.
@@ -75,7 +76,7 @@ func NewWithCoordinator(db *store.Store, port int, webDir string, workflow Coord
 	if err != nil || !info.IsDir() {
 		return nil, errors.New("web directory must exist")
 	}
-	server := &Server{store: db, host: fmt.Sprintf("127.0.0.1:%d", port), webDir: root, streams: make(chan struct{}, 64), transfers: make(chan struct{}, 1), workflow: workflow}
+	server := &Server{store: db, host: fmt.Sprintf("127.0.0.1:%d", port), webDir: root, streams: make(chan struct{}, 64), transfers: make(chan struct{}, 1), workflow: workflow, usage: storage.NewUsage(nil)}
 	if _, err = rand.Read(server.token[:]); err != nil {
 		return nil, err
 	}
@@ -193,6 +194,10 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	if path == "/api/tasks" {
 		result := []map[string]any{}
+		ranks := map[string]int{}
+		for index, id := range s.boardOrder() {
+			ranks[id] = index
+		}
 		err := s.store.Visit(func(row store.Task) error {
 			summary, err := tasksummary.Summarize(row)
 			if err != nil {
@@ -202,6 +207,9 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				return errors.New("invalid task ID")
 			}
 			summary["taskRevision"] = store.TaskRevision(row)
+			if rank, ok := ranks[summary["id"].(string)]; ok {
+				summary["boardRank"] = rank
+			}
 			var value map[string]any
 			if json.Unmarshal(row, &value) == nil {
 				for _, key := range []string{"statusOverride", "ticket", "repositories", "migration"} {

@@ -111,7 +111,13 @@ export function inTaskScope(task: Task, scope: string) {
   );
 }
 
-export function filteredTasks(tasks: Task[], filters: ReturnType<typeof boardFilters>) {
+// With `placed`, cards the user dragged keep their place under the default sort. Cards never
+// placed lead, so new work shows up at the top of its stage.
+export function filteredTasks(
+  tasks: Task[],
+  filters: ReturnType<typeof boardFilters>,
+  placed = false,
+) {
   const rank = (task: Task) =>
     inTaskScope(task, 'attention')
       ? 0
@@ -141,11 +147,32 @@ export function filteredTasks(tasks: Task[], filters: ReturnType<typeof boardFil
           .toLowerCase()
           .includes(filters.query.trim().toLowerCase()),
     )
-    .sort(
-      (a, b) =>
+    .sort((a, b) => {
+      if (placed && filters.sort === 'priority' && (a.boardRank != null || b.boardRank != null))
+        return a.boardRank == null ? -1 : b.boardRank == null ? 1 : a.boardRank - b.boardRank;
+      return (
         (filters.sort === 'title'
           ? a.title.localeCompare(b.title)
           : (filters.sort === 'priority' ? rank(a) - rank(b) : 0) || updated(b) - updated(a)) ||
-        a.id.localeCompare(b.id),
-    );
+        a.id.localeCompare(b.id)
+      );
+    });
+}
+const everything = { ...boardFilters(''), layout: 'board' as const };
+// Ids of the cards the user has placed, in the order they hold on the board.
+export const boardOrder = (tasks: Task[]) =>
+  filteredTasks(tasks, everything, true)
+    .filter((task) => task.boardRank != null)
+    .map((task) => task.id);
+// The order to save after dropping a card into `lane` ahead of `before`, or at the end. The whole
+// stage is written out as it is shown, hidden cards included, so every card in it keeps its place.
+export function placeCard(tasks: Task[], id: string, lane: string, before: string | null) {
+  const shown = filteredTasks(tasks, everything, true);
+  const stage = shown.filter((task) => taskLane(task) === lane && task.id !== id).map((t) => t.id);
+  const at = before === null ? -1 : stage.indexOf(before);
+  stage.splice(at < 0 ? stage.length : at, 0, id);
+  return [
+    ...shown.filter((task) => task.boardRank != null && !stage.includes(task.id)).map((t) => t.id),
+    ...stage,
+  ];
 }

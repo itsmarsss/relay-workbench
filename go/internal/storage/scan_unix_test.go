@@ -97,3 +97,29 @@ func TestScanDetectsReplacedRootIdentity(t *testing.T) {
 		t.Fatal("replacement accepted as original")
 	}
 }
+
+func TestMeasureCountsPastTheScanLimitAndSharedFilesOnce(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "file"), []byte("hello"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Link(filepath.Join(root, "file"), filepath.Join(root, "hardlink")); err != nil {
+		t.Skipf("hard links unavailable: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "single"), []byte("world!"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	result, err := Measure(context.Background(), root, MeasureLimit)
+	if err != nil || !result.Complete || result.Files != 3 || result.LogicalBytes != 11 || result.SkippedHardlinks != 1 {
+		t.Fatalf("measure: %#v %v", result, err)
+	}
+	if _, err = Scan(context.Background(), root, MeasureLimit); err == nil {
+		t.Fatal("a user scan accepted the workspace limit")
+	}
+	if _, err = Measure(context.Background(), root, MeasureLimit+1); err == nil {
+		t.Fatal("unbounded measurement accepted")
+	}
+	if _, err = Measure(context.Background(), "relative", 10); err == nil {
+		t.Fatal("relative path accepted")
+	}
+}

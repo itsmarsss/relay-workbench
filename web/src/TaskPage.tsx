@@ -15,6 +15,7 @@ import { useEffect, useState } from 'react';
 import { TaskMenu, ContinueWork, PublicationPanel, type FullTask } from './TaskExtras';
 import { motion } from 'motion/react';
 import { Markdown } from './Markdown';
+import { ClampedText, DecisionOptions } from './DecisionOptions';
 import { TaskPanel } from './TaskPanel';
 import { asObject, asText, currentBlocker, latestPlan } from './task-data';
 import { isTask, statusLabel, taskViews, type Task, type TaskView } from './types';
@@ -439,7 +440,7 @@ export function TaskPage({
             <section className="blocker-panel" aria-label="Blocker decision">
               {kicker}
               <h2>Needs your decision</h2>
-              <p>{blocker.summary || 'The debugger needs direction.'}</p>
+              <ClampedText text={blocker.summary || 'The debugger needs direction.'} />
               {blocker.required.length > 0 && (
                 <div className="blocker-required">
                   <h3>What needs your input</h3>
@@ -450,46 +451,14 @@ export function TaskPage({
                   </ul>
                 </div>
               )}
-              {(blocker.explanation || blocker.evidence.length > 0) && (
-                <details>
-                  <summary>
-                    Full explanation
-                    {blocker.evidence.length > 0 && ` and evidence · ${blocker.evidence.length}`}
-                  </summary>
-                  {blocker.explanation && <Markdown text={blocker.explanation} />}
-                  {blocker.evidence.length > 0 && (
-                    <ul>
-                      {blocker.evidence.map((item, index) => (
-                        <li key={index}>{item}</li>
-                      ))}
-                    </ul>
-                  )}
-                </details>
-              )}
               {blocker.options.length > 0 && (
-                <div className="plan-options">
-                  {blocker.options.map((option) => (
-                    <article
-                      key={option.id}
-                      className={blockerOption === option.id ? 'selectable selected' : 'selectable'}
-                      onClick={() => setBlockerOption(option.id)}
-                    >
-                      <h3>
-                        <input
-                          type="radio"
-                          name="blocker-option"
-                          aria-label={`Select ${option.title}`}
-                          checked={blockerOption === option.id}
-                          onChange={() => setBlockerOption(option.id)}
-                        />
-                        {option.title}
-                      </h3>
-                      <Markdown text={option.description} />
-                      <h4>Tradeoffs</h4>
-                      <Markdown text={option.tradeoffs} />
-                    </article>
-                  ))}
-                </div>
+                <DecisionOptions
+                  key={blocker.id}
+                  name="blocker-option"
+                  options={blocker.options}
+                  selected={blockerOption}
+                  onSelect={setBlockerOption}
+                />
               )}
               {debugRecoveryPreview ? (
                 <div className="blocker-actions">
@@ -529,54 +498,39 @@ export function TaskPage({
               ) : (
                 <p>Debugger actions are not available in this preview yet.</p>
               )}
+              {(blocker.explanation || blocker.evidence.length > 0) && (
+                <details className="decision-reference">
+                  <summary>
+                    Full explanation
+                    {blocker.evidence.length > 0 && ` and evidence · ${blocker.evidence.length}`}
+                  </summary>
+                  {blocker.explanation && <Markdown text={blocker.explanation} />}
+                  {blocker.evidence.length > 0 && <h4>Evidence</h4>}
+                  {blocker.evidence.length > 0 && (
+                    <ul>
+                      {blocker.evidence.map((item, index) => (
+                        <li key={index}>{item}</li>
+                      ))}
+                    </ul>
+                  )}
+                </details>
+              )}
             </section>
           )}
           {plan && (
             <section className="plan-preview" aria-label="Proposed approaches">
               {kicker}
               <h2>Proposed approaches</h2>
-              {plan.summary && <p>{plan.summary}</p>}
-              {plan.reason && <Markdown text={plan.reason} />}
-              {plan.details && (
-                <details>
-                  <summary>Full proposal</summary>
-                  <Markdown text={plan.details} />
-                </details>
-              )}
-              <div className="plan-options">
-                {plan.options.map((option) => (
-                  <article
-                    key={option.id}
-                    className={
-                      implementationPreview
-                        ? selectedOption === option.id
-                          ? 'selectable selected'
-                          : 'selectable'
-                        : ''
-                    }
-                    onClick={() => {
-                      if (implementationPreview) setSelectedOption(option.id);
-                    }}
-                  >
-                    <h3>
-                      {implementationPreview && (
-                        <input
-                          type="radio"
-                          name="approach"
-                          aria-label={`Select ${option.title}`}
-                          checked={selectedOption === option.id}
-                          onChange={() => setSelectedOption(option.id)}
-                        />
-                      )}
-                      {option.title}{' '}
-                      {option.id === plan.recommendedId && <small>Recommended</small>}
-                    </h3>
-                    <Markdown text={option.description} />
-                    <h4>Tradeoffs</h4>
-                    <Markdown text={option.tradeoffs} />
-                  </article>
-                ))}
-              </div>
+              {plan.summary && <ClampedText text={plan.summary} />}
+              <DecisionOptions
+                key={plan.attemptId}
+                name="approach"
+                options={plan.options}
+                selected={selectedOption}
+                onSelect={implementationPreview ? setSelectedOption : undefined}
+                recommendedId={plan.recommendedId}
+                reason={plan.reason}
+              />
               {implementationPreview ? (
                 <div className="plan-decision">
                   <label>
@@ -599,6 +553,12 @@ export function TaskPage({
                 <p className="form-note">
                   Approach approval and implementation are not available in this preview yet.
                 </p>
+              )}
+              {plan.details && (
+                <details className="decision-reference">
+                  <summary>Full proposal</summary>
+                  <Markdown text={plan.details} />
+                </details>
               )}
             </section>
           )}

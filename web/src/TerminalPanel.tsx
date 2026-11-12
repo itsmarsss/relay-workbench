@@ -285,45 +285,57 @@ export function TerminalPanel({ taskId }: { taskId: string }) {
             fresh verification.
           </p>
           {rows.length > 1 && (
-            <Select
-              label="Repository"
-              value={repositoryId || asText(asObject(rows[0]?.repository)?.id)}
-              onChange={setRepository}
-              options={rows.map((row) => ({
-                value: asText(asObject(row?.repository)?.id),
-                label: asText(asObject(row?.repository)?.name),
-              }))}
-            />
-          )}
-          <Select
-            label="Open"
-            value={provider}
-            onChange={(value) => {
-              setProvider(value);
-              setModel('');
-              setEffort('');
-            }}
-            options={[
-              { value: '', label: 'Shell' },
-              ...['codex', 'claude', 'pi'].map((value) => ({
-                value,
-                label: providerName(value),
-                icon: <ProviderIcon provider={value} size={22} />,
-              })),
-            ]}
-          />
-          {provider && (
-            <>
-              <ModelSelect provider={provider} value={model} onChange={setModel} />
+            <label className="field">
+              Repository
               <Select
-                label="Effort"
-                value={effort}
-                onChange={setEffort}
-                options={['', 'low', 'medium', 'high', 'xhigh', 'max'].map((value) => ({
-                  value,
-                  label: value || 'Default',
+                label="Repository"
+                value={repositoryId || asText(asObject(rows[0]?.repository)?.id)}
+                onChange={setRepository}
+                options={rows.map((row) => ({
+                  value: asText(asObject(row?.repository)?.id),
+                  label: asText(asObject(row?.repository)?.name),
                 }))}
               />
+            </label>
+          )}
+          <label className="field">
+            Open
+            <Select
+              label="Open"
+              value={provider}
+              onChange={(value) => {
+                setProvider(value);
+                setModel('');
+                setEffort('');
+              }}
+              options={[
+                { value: '', label: 'Shell' },
+                ...['codex', 'claude', 'pi'].map((value) => ({
+                  value,
+                  label: providerName(value),
+                  icon: <ProviderIcon provider={value} size={22} />,
+                })),
+              ]}
+            />
+          </label>
+          {provider && (
+            <>
+              <label className="field">
+                Model
+                <ModelSelect provider={provider} value={model} onChange={setModel} />
+              </label>
+              <label className="field">
+                Effort
+                <Select
+                  label="Effort"
+                  value={effort}
+                  onChange={setEffort}
+                  options={['', 'low', 'medium', 'high', 'xhigh', 'max'].map((value) => ({
+                    value,
+                    label: value || 'Default',
+                  }))}
+                />
+              </label>
             </>
           )}
           {mutation.error && <Notice>{mutation.error}</Notice>}

@@ -39,6 +39,9 @@ func (s *Server) extended(w http.ResponseWriter, r *http.Request) bool {
 	if s.assistantRoute(w, r) {
 		return true
 	}
+	if s.boardRoute(w, r) {
+		return true
+	}
 	path := r.URL.Path
 	if path == "/api/outcomes" && r.Method == "GET" {
 		rows, err := s.store.All()
@@ -198,7 +201,7 @@ func (s *Server) extended(w http.ResponseWriter, r *http.Request) bool {
 			}
 		} else if len(parts) == 2 && r.Method == "POST" {
 			switch parts[1] {
-			case "automation", "checkpoint", "status-override", "message", "request-changes", "replan", "review-comment", "monitor", "publication", "feedback", "followup", "recreate", "cleanup":
+			case "automation", "checkpoint", "status-override", "message", "request-changes", "replan", "review-comment", "monitor", "publication", "feedback", "followup", "recreate", "cleanup", "pull-request":
 				operation = parts[1]
 			}
 		}

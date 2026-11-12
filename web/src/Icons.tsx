@@ -82,6 +82,15 @@ const paths: Record<string, ReactNode> = {
       <path d="M6 7v10m0-3h6a6 6 0 0 0 6-6" />
     </>
   ),
+  'pull-request': (
+    <>
+      <circle cx="6" cy="6" r="2" />
+      <circle cx="6" cy="18" r="2" />
+      <circle cx="18" cy="18" r="2" />
+      <path d="M6 8v8M18 16V9a3 3 0 0 0-3-3h-3m2.5-2.5L12 6l2.5 2.5" />
+    </>
+  ),
+  alert: <path d="M12 4 2.5 20h19L12 4Zm0 6v4.5m0 2.5v.01" />,
   code: <path d="m8 6-6 6 6 6m8-12 6 6-6 6m-5 3 2-18" />,
   pause: <path d="M8 5v14M16 5v14" />,
   stop: <rect x="5" y="5" width="14" height="14" rx="3" />,

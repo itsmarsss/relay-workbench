@@ -5,13 +5,55 @@ package tasksummary
 import (
 	"encoding/json"
 	"errors"
+	"net/url"
 	"sort"
+	"strconv"
 	"time"
 )
 
 func object(v any) map[string]any { m, _ := v.(map[string]any); return m }
 func array(v any) []any           { a, _ := v.([]any); return a }
 func stringValue(v any) string    { s, _ := v.(string); return s }
+
+// pullRequests lists one pull request per repository for the task list. A
+// pull request Relay observed wins over a link the user added by hand.
+func pullRequests(task map[string]any) []any {
+	entries := array(task["repositories"])
+	if len(entries) <= 1 {
+		entries = []any{task}
+	}
+	result := []any{}
+	for _, value := range entries {
+		entry := object(value)
+		record, manual := object(entry["publication"]), false
+		if stringValue(record["url"]) == "" {
+			record, manual = object(entry["pullRequestLink"]), true
+		}
+		link, err := url.Parse(stringValue(record["url"]))
+		if record == nil || err != nil || (link.Scheme != "http" && link.Scheme != "https") || link.Hostname() == "" || link.User != nil {
+			continue
+		}
+		number := stringValue(record["number"])
+		if value, ok := record["number"].(float64); ok && value == float64(int64(value)) {
+			number = strconv.FormatInt(int64(value), 10)
+		}
+		item := map[string]any{"url": link.String(), "number": number, "manual": manual}
+		if repo := object(entry["repository"]); repo != nil {
+			item["repositoryId"] = repo["id"]
+		}
+		for key, fallback := range map[string]string{"state": "unknown", "checks": "unknown", "review": "unknown", "checkedAt": ""} {
+			item[key] = fallback
+			if text := stringValue(record[key]); text != "" {
+				item[key] = text
+			}
+		}
+		if draft, ok := record["draft"].(bool); ok {
+			item["draft"] = draft
+		}
+		result = append(result, item)
+	}
+	return result
+}
 func Summarize(raw json.RawMessage) (map[string]any, error) {
 	var task map[string]any
 	if err := json.Unmarshal(raw, &task); err != nil || task == nil {
@@ -149,5 +191,8 @@ func Summarize(raw json.RawMessage) (map[string]any, error) {
 		}
 	}
 	result["latestSummary"] = summary
+	if links := pullRequests(task); len(links) > 0 {
+		result["pullRequests"] = links
+	}
 	return result, nil
 }

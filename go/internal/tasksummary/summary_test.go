@@ -65,3 +65,52 @@ func TestSummaryMatchesLegacyRunSelection(t *testing.T) {
 		}
 	}
 }
+
+func TestSummaryListsObservedAndHandLinkedPullRequests(t *testing.T) {
+	summarize := func(task map[string]any) []any {
+		t.Helper()
+		task["id"], task["title"], task["status"] = "550e8400-e29b-41d4-a716-446655440000", "task", "completed"
+		raw, err := json.Marshal(task)
+		if err != nil {
+			t.Fatal(err)
+		}
+		summary, err := Summarize(raw)
+		if err != nil {
+			t.Fatal(err)
+		}
+		links, _ := summary["pullRequests"].([]any)
+		return links
+	}
+	repository := map[string]any{"id": "r", "name": "repo", "path": "private"}
+	if links := summarize(map[string]any{"repository": repository}); links != nil {
+		t.Fatalf("links without a pull request: %v", links)
+	}
+	observed := map[string]any{"url": "https://example.test/org/repo/pull/12", "number": float64(12), "title": "private title", "state": "open", "draft": false, "checks": "pending", "review": "required", "checkedAt": "2026-01-02T03:04:05Z"}
+	linked := map[string]any{"url": "https://example.test/org/repo/pull/7", "number": "7", "state": "open", "draft": true, "checkedAt": "2026-01-01T00:00:00Z"}
+	// What Relay observed wins over a hand-entered link.
+	got := summarize(map[string]any{"repository": repository, "publication": observed, "pullRequestLink": linked})
+	want := []any{map[string]any{"url": "https://example.test/org/repo/pull/12", "number": "12", "manual": false, "repositoryId": "r", "state": "open", "draft": false, "checks": "pending", "review": "required", "checkedAt": "2026-01-02T03:04:05Z"}}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("observed %v", got)
+	}
+	got = summarize(map[string]any{"repository": repository, "publication": map[string]any{"state": "not_created"}, "pullRequestLink": linked})
+	want = []any{map[string]any{"url": "https://example.test/org/repo/pull/7", "number": "7", "manual": true, "repositoryId": "r", "state": "open", "draft": true, "checks": "unknown", "review": "unknown", "checkedAt": "2026-01-01T00:00:00Z"}}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("linked %v", got)
+	}
+	// Stored links that are not plain web addresses never reach the page.
+	for _, address := range []string{"javascript:alert(1)", "file:///etc/passwd", "https://user:secret@example.test/pull/1", "https:///pull/1", "example.test/pull/1", ""} {
+		if links := summarize(map[string]any{"repository": repository, "pullRequestLink": map[string]any{"url": address, "state": "open"}}); links != nil {
+			t.Fatalf("%q listed: %v", address, links)
+		}
+	}
+	// Each repository of a multi-repository task reports its own pull request.
+	got = summarize(map[string]any{"repository": repository, "pullRequestLink": linked, "repositories": []any{
+		map[string]any{"repository": map[string]any{"id": "one"}, "publication": observed},
+		map[string]any{"repository": map[string]any{"id": "two"}},
+		map[string]any{"repository": map[string]any{"id": "three"}, "pullRequestLink": linked},
+	}})
+	if len(got) != 2 || got[0].(map[string]any)["repositoryId"] != "one" || got[1].(map[string]any)["repositoryId"] != "three" || got[1].(map[string]any)["manual"] != true {
+		t.Fatalf("repositories %v", got)
+	}
+}

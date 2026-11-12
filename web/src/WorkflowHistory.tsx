@@ -76,15 +76,18 @@ export function AutoControl({ task }: { task: FullTask }) {
             and independent review. It stops when a decision cannot be made safely. You can revoke
             this permission at any time.
           </p>
-          <Select
-            label="Auto stops after"
-            value={scope}
-            onChange={setScope}
-            options={[
-              { value: 'reviewed', label: 'Verified and reviewed result' },
-              { value: 'draft_pr', label: 'Draft pull request published' },
-            ]}
-          />
+          <label className="field">
+            Auto stops after
+            <Select
+              label="Auto stops after"
+              value={scope}
+              onChange={setScope}
+              options={[
+                { value: 'reviewed', label: 'Verified and reviewed result' },
+                { value: 'draft_pr', label: 'Draft pull request published' },
+              ]}
+            />
+          </label>
           {mutation.error && <Notice>{mutation.error}</Notice>}
         </Modal>
       )}
@@ -159,20 +162,30 @@ export function CheckpointControls({ task, history }: { task: FullTask; history:
             remain available; verification runs again. Dependencies and ignored build files are
             recreated through repository setup.
           </p>
-          <Select
-            label="Checkpoint"
-            value={checkpoint}
-            onChange={(value) => {
-              setCheckpoint(value);
-              setStage('saved');
-            }}
-            options={(history?.checkpoints || []).map((row) => ({
-              value: row.id,
-              label: `${row.role === 'debug' ? 'Debugger' : row.stage} · ${new Date(row.at).toLocaleString()}`,
-            }))}
-          />
-          {selected && <Markdown text={selected.summary} />}
-          <Select label="Continue with" value={stage} options={options} onChange={setStage} />
+          <label className="field">
+            Checkpoint
+            <Select
+              label="Checkpoint"
+              value={checkpoint}
+              onChange={(value) => {
+                setCheckpoint(value);
+                setStage('saved');
+              }}
+              options={(history?.checkpoints || []).map((row) => ({
+                value: row.id,
+                label: `${row.role === 'debug' ? 'Debugger' : row.stage} · ${new Date(row.at).toLocaleString()}`,
+              }))}
+            />
+          </label>
+          {selected && (
+            <div className="field-context">
+              <Markdown text={selected.summary} />
+            </div>
+          )}
+          <label className="field">
+            Continue with
+            <Select label="Continue with" value={stage} options={options} onChange={setStage} />
+          </label>
           <label className="field">
             Direction (optional)
             <textarea

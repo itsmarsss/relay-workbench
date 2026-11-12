@@ -4,10 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net/url"
+	"regexp"
 	"strings"
 	"time"
 
 	"relay.local/relay/internal/harness"
+	"relay.local/relay/internal/publication"
 	"relay.local/relay/internal/store"
 	"relay.local/relay/internal/task"
 	"relay.local/relay/internal/workspace"
@@ -79,7 +82,7 @@ func (c *Coordinator) control(ctx context.Context, id, operation string, body ma
 	if c.closed {
 		return nil, errors.New("Relay is shutting down")
 	}
-	raw, value, err := c.inspectedMode(id, body, operation == "delete" || operation == "recreate" || operation == "status-override")
+	raw, value, err := c.inspectedMode(id, body, operation == "delete" || operation == "recreate" || operation == "status-override" || operation == "pull-request")
 	if err != nil {
 		return nil, err
 	}
@@ -275,6 +278,37 @@ func (c *Coordinator) control(ctx context.Context, id, operation string, body ma
 			value["statusOverride"] = map[string]any{"value": state, "lane": lane, "at": timestamp(time.Now())}
 		}
 		summary = "Board status updated. Workflow gates are unchanged."
+	case "pull-request":
+		if err = fields(body, "repositoryId", "url", "state", "draft"); err != nil {
+			return nil, err
+		}
+		repositoryID := text(body["repositoryId"])
+		entry := publicationEntry(value, repositoryID)
+		if entry == nil {
+			return nil, errors.New("select a task repository")
+		}
+		if text(object(entry["publication"])["url"]) != "" {
+			return nil, errors.New("Relay already tracks this pull request; refresh it from the task page")
+		}
+		var link map[string]any
+		if body["url"] != nil {
+			if link, err = pullRequestLink(body); err != nil {
+				return nil, err
+			}
+		} else if entry["pullRequestLink"] == nil {
+			return nil, errors.New("no pull request is linked")
+		}
+		err = updateWorkspace(value, repositoryID, func(target map[string]any) {
+			if link == nil {
+				delete(target, "pullRequestLink")
+			} else {
+				target["pullRequestLink"] = link
+			}
+		})
+		if err != nil {
+			return nil, err
+		}
+		summary = "Pull request link updated. Workflow gates are unchanged."
 	case "message", "request-changes", "replan":
 		if err = fields(body, "message", "provider", "model", "effort"); err != nil {
 			return nil, err
@@ -461,6 +495,30 @@ func (c *Coordinator) control(ctx context.Context, id, operation string, body ma
 	}
 	value["taskRevision"] = store.TaskRevision(saved)
 	return value, nil
+}
+
+var pullRequestNumber = regexp.MustCompile(`/(\d{1,12})/?$`)
+
+// pullRequestLink validates a pull request the user points a card at. It is a
+// board note: publishing, monitoring and cleanup read only what Relay observed.
+func pullRequestLink(body map[string]any) (map[string]any, error) {
+	address, _ := body["url"].(string)
+	state, _ := body["state"].(string)
+	draft, _ := body["draft"].(bool)
+	if state != "open" && state != "merged" && state != "closed" || body["draft"] != nil && body["draft"] != draft || draft && state != "open" {
+		return nil, errors.New("select a pull request status")
+	}
+	number := ""
+	if link, err := url.Parse(address); err == nil {
+		if match := pullRequestNumber.FindStringSubmatch(link.Path); match != nil {
+			number = match[1]
+		}
+	}
+	snapshot, err := publication.ParseSnapshot(map[string]any{"url": address, "number": number, "title": "", "state": state, "draft": draft, "checks": "unknown", "review": "unknown"})
+	if err != nil || snapshot.URL == "" {
+		return nil, errors.New("enter the pull request's http or https address")
+	}
+	return map[string]any{"url": snapshot.URL, "number": snapshot.Number, "state": snapshot.State, "draft": draft, "checkedAt": timestamp(time.Now())}, nil
 }
 func (c *Coordinator) configureContinuation(value, body map[string]any) error {
 	provider := text(body["provider"])
