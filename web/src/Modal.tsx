@@ -149,6 +149,8 @@ export function Modal({
       onCancel={(event) => {
         event.preventDefault();
         event.stopPropagation();
+        // Escape typed into a terminal is for the program running there.
+        if (document.activeElement?.closest('.live-terminal-screen')) return;
         onClose();
       }}
       aria-label={title}

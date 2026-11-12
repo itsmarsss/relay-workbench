@@ -25,6 +25,31 @@ function windowName(name: string) {
       ? providerName(name)
       : name;
 }
+// The terminal wears the app's theme: its colours come from the same tokens as the page, with an
+// ANSI palette picked to stay readable on that theme's surface.
+function terminalTheme() {
+  const tokens = getComputedStyle(document.documentElement),
+    token = (name: string) => tokens.getPropertyValue(name).trim(),
+    dark = document.documentElement.dataset.theme === 'dark';
+  const ansi = dark
+    ? ['#343a34', '#ff9d8f', '#86d3a2', '#f3cd72', '#adc6ff', '#c8b2ff', '#8fd6d6', '#c3cdc5']
+    : ['#1f2a24', '#a12b1c', '#1a7f37', '#8a6100', '#1d4fa8', '#6a3fc0', '#0f6b70', '#5c6b61'];
+  const bright = dark
+    ? ['#6b776d', '#ffb3a5', '#9bdcab', '#f7dc97', '#c6d8ff', '#d9caff', '#aee6e6', '#f4f8f5']
+    : ['#6b776d', '#c0392b', '#218a43', '#a06f00', '#2f66c9', '#7f55d6', '#168288', '#3d4a42'];
+  const names = ['black', 'red', 'green', 'yellow', 'blue', 'magenta', 'cyan', 'white'];
+  return {
+    background: token('--surface'),
+    foreground: token('--text'),
+    cursor: token('--text'),
+    cursorAccent: token('--surface'),
+    selectionBackground: dark ? '#3d5247' : '#cfe3d6',
+    ...Object.fromEntries(names.map((name, i) => [name, ansi[i]])),
+    ...Object.fromEntries(
+      names.map((name, i) => [`bright${name[0]!.toUpperCase()}${name.slice(1)}`, bright[i]]),
+    ),
+  };
+}
 function Screen({
   taskId,
   info,
@@ -62,7 +87,15 @@ function Screen({
         lineHeight: 1.2,
         scrollback: 5000,
         screenReaderMode: true,
-        theme: { background: '#101820', foreground: '#e4eaf0' },
+        theme: terminalTheme(),
+      });
+      // Follow the appearance setting while the terminal is open.
+      const themed = new MutationObserver(() => {
+        term.options.theme = terminalTheme();
+      });
+      themed.observe(document.documentElement, {
+        attributes: true,
+        attributeFilter: ['data-theme'],
       });
       const fit = new FitAddon();
       term.loadAddon(fit);
@@ -181,6 +214,7 @@ function Screen({
         controller.abort();
         clearTimeout(resizeTimer);
         observer.disconnect();
+        themed.disconnect();
         listener.dispose();
         term.dispose();
       };
@@ -197,7 +231,15 @@ function Screen({
       <p className="terminal-status" role="status">
         {status}
       </p>
-      <div ref={host} className="live-terminal-screen" />
+      <div
+        ref={host}
+        className="live-terminal-screen"
+        // Escape belongs to the program in the terminal: it must not also close a dialog or
+        // drawer the terminal happens to sit in.
+        onKeyDown={(event) => {
+          if (event.key === 'Escape') event.stopPropagation();
+        }}
+      />
     </>
   );
 }
@@ -208,6 +250,7 @@ export function TerminalPanel({ taskId }: { taskId: string }) {
   const [connection, setConnection] = useState(0),
     // Which dialog is open: taking control of the task, or adding a terminal beside the others.
     [opening, setOpening] = useState<'' | 'control' | 'window'>(''),
+    [full, setFull] = useState(false),
     [provider, setProvider] = useState(''),
     [model, setModel] = useState(''),
     [effort, setEffort] = useState(''),
@@ -295,7 +338,7 @@ export function TerminalPanel({ taskId }: { taskId: string }) {
         <Notice>{live.error || current.error || mutation.error}</Notice>
       )}
       {terminal ? (
-        <>
+        <div className="terminal-frame" data-full={full}>
           <div className="terminal-tabs" role="tablist" aria-label="Terminals">
             {(windows || [{ index: 0, name: '', active: true, dead: false }]).map((item, at) => (
               <span key={item.index} className="terminal-tab" data-active={item.active}>
@@ -328,6 +371,15 @@ export function TerminalPanel({ taskId }: { taskId: string }) {
               </span>
             ))}
             {(canAdd || !terminal.interactive) && add}
+            <button
+              type="button"
+              className="terminal-tab-add terminal-full"
+              aria-pressed={full}
+              onClick={() => setFull(!full)}
+            >
+              <Icon name={full ? 'fold' : 'expand'} size={14} />
+              {full ? 'Exit full screen' : 'Full screen'}
+            </button>
           </div>
           <Screen
             key={`${taskId}:${connection}`}
@@ -335,7 +387,7 @@ export function TerminalPanel({ taskId }: { taskId: string }) {
             info={terminal}
             onWindows={() => void live.refresh()}
           />
-        </>
+        </div>
       ) : (
         <div className="terminal-empty">
           <strong>
@@ -347,7 +399,7 @@ export function TerminalPanel({ taskId }: { taskId: string }) {
           </strong>
           <p>
             {lost && live.data?.stopped
-              ? `${live.data.stopped}.`
+              ? live.data.stopped.replace(/[.\s]*$/, '.')
               : asText(task?.workspaceRoot)
                 ? 'An agent’s terminal appears here while it runs. Open your own to work in this worktree with a shell or an agent.'
                 : 'A workspace is created when the task starts.'}

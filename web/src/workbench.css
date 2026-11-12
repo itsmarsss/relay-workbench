@@ -3806,25 +3806,57 @@ main > .relay-conversations {
   font-style: italic;
 }
 /* Terminals: a strip of tabs, one per terminal in the task's session, over a single screen. */
+/* Tabs, status line and screen are one block in the app's own theme; the active tab runs into
+   the status line and the screen below it. */
+.terminal-frame {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--surface);
+}
+/* Full screen covers the app without leaving the page, so Escape stays with the terminal. */
+.terminal-frame[data-full='true'] {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  border: 0;
+  border-radius: 0;
+}
+.terminal-frame[data-full='true'] > .live-terminal-screen {
+  flex: 1;
+  height: auto;
+  min-height: 0;
+}
+/* xterm marks its root with a bare "terminal" class, which the agent-output block also uses. */
+.live-terminal-screen .xterm {
+  border: 0;
+  border-radius: 0;
+  padding: 0;
+  background: transparent;
+}
+.terminal-frame .xterm-viewport {
+  background-color: transparent !important;
+}
 .terminal-tabs {
   display: flex;
   flex-wrap: wrap;
-  align-items: center;
+  align-items: flex-end;
   gap: 4px;
-  margin-top: 12px;
-  border-radius: 8px 8px 0 0;
   padding: 6px 6px 0;
-  background: #101820;
+  background: var(--soft);
 }
 .terminal-tab {
   display: inline-flex;
   align-items: center;
   border-radius: 6px 6px 0 0;
-  color: #9fb0bf;
+  color: var(--muted);
 }
 .terminal-tab[data-active='true'] {
-  background: #1d2a36;
-  color: #e4eaf0;
+  background: var(--surface);
+  color: var(--text);
 }
 .terminal-tab > button {
   display: inline-flex;
@@ -3840,7 +3872,7 @@ main > .relay-conversations {
 }
 .terminal-tab > button:hover:not(:disabled) {
   background: none;
-  color: #fff;
+  color: var(--text);
 }
 .terminal-tab > button > small {
   font-weight: 400;
@@ -3853,35 +3885,40 @@ main > .relay-conversations {
   padding: 4px;
 }
 .terminal-tab > .terminal-tab-close:hover:not(:disabled) {
-  background: #2c3d4d;
+  background: var(--soft);
 }
 .terminal-tabs > .terminal-tab-add {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  min-height: 28px;
-  margin: 0 0 4px 4px;
+  min-height: 26px;
+  margin: 0 0 3px 4px;
   border: 0;
   border-radius: 6px;
   padding: 4px 10px;
   background: none;
-  color: #9fb0bf;
+  color: var(--muted);
   font-size: 12px;
   font-weight: 500;
 }
 .terminal-tabs > .terminal-tab-add:hover:not(:disabled) {
-  background: #1d2a36;
-  color: #fff;
+  background: var(--surface);
+  color: var(--text);
+}
+.terminal-tabs > .terminal-full {
+  margin-left: auto;
 }
 .terminal-tabs + .terminal-status {
   margin: 0;
-  padding: 4px 12px;
-  background: #1d2a36;
-  color: #9fb0bf;
+  border-bottom: 1px solid var(--line);
+  padding: 3px 12px;
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 11px;
 }
-.terminal-tabs ~ .live-terminal-screen {
-  margin-top: 0;
-  border-radius: 0 0 8px 8px;
+.terminal-frame > .live-terminal-screen {
+  padding: 10px 12px 12px;
+  background: var(--surface);
 }
 .terminal-empty > .terminal-tab-add {
   display: inline-flex;

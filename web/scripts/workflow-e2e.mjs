@@ -471,6 +471,24 @@ console.log(JSON.stringify({ type: 'item.completed', item: { type: 'agent_messag
       return false;
     }
   }, 'browser terminal input');
+  // Escape belongs to the program in the terminal, not to the page.
+  await page.keyboard.type('cat -v > escape.txt');
+  await page.keyboard.press('Enter');
+  await page.keyboard.press('Escape');
+  await page.keyboard.press('Enter');
+  await page.keyboard.press('Control+d');
+  await until(async () => {
+    try {
+      return (await readFile(join(resumed.workspaceRoot, 'escape.txt'), 'utf8')) === '^[\n';
+    } catch {
+      return false;
+    }
+  }, 'Escape reaches the terminal');
+  assert.equal(
+    await page.evaluate(() => document.activeElement?.getAttribute('aria-label')),
+    'Interactive terminal',
+    'Escape leaves focus in the terminal',
+  );
   // A second terminal opens beside the first, takes the typing, and closes on its own tab.
   const tabs = page.getByRole('tablist', { name: 'Terminals' }).getByRole('tab');
   assert.equal(await tabs.count(), 1);
