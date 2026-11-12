@@ -34,6 +34,16 @@ func (c *Coordinator) terminalInfo(id string) (terminal.Info, bool, error) {
 	}
 	return record.Info, record.Active, nil
 }
+
+// terminalStopped is why the task's last interactive terminal failed, when it did.
+func (c *Coordinator) terminalStopped(id string) string {
+	raw, _, _ := c.store.GetMeta("terminal:" + id)
+	var record struct {
+		Stopped string `json:"stopped"`
+	}
+	_ = json.Unmarshal([]byte(raw), &record)
+	return record.Stopped
+}
 func (c *Coordinator) Terminal(ctx context.Context, id, operation string, body map[string]any) (any, error) {
 	if operation == "takeover" {
 		return c.takeover(ctx, id, body)
@@ -78,13 +88,24 @@ func (c *Coordinator) Terminal(ctx context.Context, id, operation string, body m
 	}
 	if operation == "snapshot" {
 		if !active {
-			return map[string]any{"available": false, "message": "No live terminal. Retained agent output is available in Activity and Logs."}, nil
+			result := map[string]any{"available": false, "message": "No live terminal. Retained agent output is available in Activity and Logs."}
+			if stopped := c.terminalStopped(id); stopped != "" {
+				result["stopped"] = stopped
+			}
+			return result, nil
 		}
 		output, err := terminal.Capture(ctx, info)
 		if err != nil {
 			return map[string]any{"available": false, "message": "Terminal is starting or has closed."}, nil
 		}
-		return map[string]any{"available": true, "terminal": info, "output": output}, nil
+		result := map[string]any{"available": true, "terminal": info, "output": output}
+		if windows, err := terminal.Windows(ctx, info); err == nil {
+			result["windows"] = windows
+		}
+		return result, nil
+	}
+	if operation == "window" {
+		return c.terminalWindow(ctx, id, info, active, body)
 	}
 	if err = fields(body, "session", "type", "data", "cols", "rows"); err != nil {
 		return nil, err
@@ -115,6 +136,56 @@ func (c *Coordinator) Terminal(ctx context.Context, id, operation string, body m
 	}
 	return map[string]bool{"accepted": err == nil}, err
 }
+
+// terminalWindow opens, chooses or closes a window of the terminal a person controls.
+func (c *Coordinator) terminalWindow(ctx context.Context, id string, info terminal.Info, active bool, body map[string]any) (any, error) {
+	if err := fields(body, "session", "action", "index", "provider", "model", "effort"); err != nil {
+		return nil, err
+	}
+	if !active || !info.Interactive || text(body["session"]) != info.Session {
+		return nil, errors.New("take control of this task before opening terminals")
+	}
+	raw, err := c.store.Get(id)
+	if err != nil {
+		return nil, err
+	}
+	var value map[string]any
+	if json.Unmarshal(raw, &value) != nil || value["status"] != "manual" {
+		return nil, errors.New("manual control is no longer active")
+	}
+	index := -1
+	if number, ok := body["index"].(float64); ok && number == float64(int(number)) {
+		index = int(number)
+	}
+	switch body["action"] {
+	case "new":
+		recorded, _, _ := c.store.GetMeta("terminal:" + id)
+		var record struct {
+			RepositoryID string `json:"repositoryId"`
+		}
+		_ = json.Unmarshal([]byte(recorded), &record)
+		entry := publicationEntry(value, record.RepositoryID)
+		if entry == nil || text(entry["workspace"]) == "" {
+			return nil, errors.New("workspace is unavailable")
+		}
+		command, args, name, err := c.manualCommand(body)
+		if err != nil {
+			return nil, err
+		}
+		err = terminal.NewWindow(ctx, info, name, text(entry["workspace"]), c.env, command, args)
+	case "select":
+		err = terminal.SelectWindow(ctx, info, index)
+	case "close":
+		err = terminal.CloseWindow(ctx, info, index)
+	default:
+		err = errors.New("unsupported terminal window action")
+	}
+	if err != nil {
+		return nil, err
+	}
+	windows, err := terminal.Windows(ctx, info)
+	return map[string]any{"windows": windows}, err
+}
 func (c *Coordinator) TerminalStream(ctx context.Context, id, session string, send func(map[string]any) error) error {
 	info, active, err := c.terminalInfo(id)
 	if err != nil {
@@ -125,39 +196,25 @@ func (c *Coordinator) TerminalStream(ctx context.Context, id, session string, se
 	}
 	return terminal.Stream(ctx, info, send)
 }
-func (c *Coordinator) takeover(ctx context.Context, id string, body map[string]any) (any, error) {
-	if err := fields(body, "repositoryId", "provider", "model", "effort"); err != nil {
-		return nil, err
-	}
-	_, value, err := c.inspected(id, body)
-	if err != nil {
-		return nil, err
-	}
-	if !c.terminals || value["demo"] == true || value["status"] == "draft" || value["status"] == "manual" {
-		return nil, errors.New("start a real task and install tmux before taking control")
-	}
-	repoID := text(body["repositoryId"])
-	if repoID == "" {
-		repoID = text(object(value["repository"])["id"])
-	}
-	entry := publicationEntry(value, repoID)
-	if entry == nil || text(entry["workspaceRoot"]) == "" || entry["setupCompleted"] != true {
-		return nil, errors.New("workspace setup must finish first")
-	}
-	command, args := "/bin/sh", []string{"-i"}
+
+// manualCommand is what a person asked to run in a terminal: a shell, or an enabled agent with
+// the chosen model and effort.
+func (c *Coordinator) manualCommand(body map[string]any) (string, []string, string, error) {
+	command, args, name := "/bin/sh", []string{"-i"}, "shell"
 	provider := text(body["provider"])
 	if provider != "" {
+		name = provider
 		config, err := (task.ConfigurationService{Store: c.store}).Read()
 		if err != nil {
-			return nil, err
+			return "", nil, "", err
 		}
 		enabled, configs := enabledAgents(config.Value)
 		if !enabled[provider] {
-			return nil, errors.New("selected provider is unavailable")
+			return "", nil, "", errors.New("selected provider is unavailable")
 		}
 		model, effort, err := harness.Options(provider, text(body["model"]), text(body["effort"]))
 		if err != nil {
-			return nil, err
+			return "", nil, "", err
 		}
 		command = configs[provider].Command
 		args = nil
@@ -177,6 +234,36 @@ func (c *Coordinator) takeover(ctx context.Context, id string, body map[string]a
 			args = append(args, "--dangerously-bypass-approvals-and-sandbox")
 		}
 	}
+	return command, args, name, nil
+}
+func (c *Coordinator) takeover(ctx context.Context, id string, body map[string]any) (any, error) {
+	if err := fields(body, "repositoryId", "provider", "model", "effort"); err != nil {
+		return nil, err
+	}
+	_, value, err := c.inspected(id, body)
+	if err != nil {
+		return nil, err
+	}
+	// A task already under manual control may open a terminal again once its last one has gone:
+	// it closed, failed to start, or Relay restarted.
+	c.mu.Lock()
+	reopening := value["status"] == "manual" && c.jobs[id] == nil
+	c.mu.Unlock()
+	if !c.terminals || value["demo"] == true || value["status"] == "draft" || (value["status"] == "manual" && !reopening) {
+		return nil, errors.New("start a real task and install tmux before taking control")
+	}
+	repoID := text(body["repositoryId"])
+	if repoID == "" {
+		repoID = text(object(value["repository"])["id"])
+	}
+	entry := publicationEntry(value, repoID)
+	if entry == nil || text(entry["workspaceRoot"]) == "" || entry["setupCompleted"] != true {
+		return nil, errors.New("workspace setup must finish first")
+	}
+	command, args, _, err := c.manualCommand(body)
+	if err != nil {
+		return nil, err
+	}
 	c.mu.Lock()
 	job := c.jobs[id]
 	c.mu.Unlock()
@@ -192,6 +279,9 @@ func (c *Coordinator) takeover(ctx context.Context, id string, body map[string]a
 	}
 	value, err = c.update(id, func(value map[string]any) error {
 		if value["status"] == "manual" {
+			if reopening {
+				return nil
+			}
 			return ErrStageBusy
 		}
 		value["status"], value["verifiedFingerprint"], value["reviewedFingerprint"] = "manual", nil, nil
@@ -232,7 +322,7 @@ func (c *Coordinator) runManual(ctx context.Context, id, repoID, command string,
 			}
 			runner := workspace.Runner{WorkerExecutable: c.worker, WorkerArgs: c.args, Environment: c.env}
 			profile := object(entry["repository"])
-			if err = runner.VerifyExisting(ctx, workspace.Profile{Path: text(profile["path"]), Cwd: text(profile["cwd"])}, text(entry["workspaceRoot"]), text(entry["workspace"]), text(entry["branch"]), text(entry["baseCommit"])); err != nil {
+			if err = runner.VerifyCommitted(ctx, workspace.Profile{Path: text(profile["path"]), Cwd: text(profile["cwd"])}, text(entry["workspaceRoot"]), text(entry["workspace"]), text(entry["branch"]), text(entry["baseCommit"])); err != nil {
 				return err
 			}
 			guard, err := c.storageGuard()
@@ -269,6 +359,10 @@ func (c *Coordinator) runManual(ctx context.Context, id, repoID, command string,
 	summary := "Interactive terminal closed. Return control to resume."
 	if err != nil && ctx.Err() == nil {
 		summary = "Interactive terminal stopped: " + err.Error()
+		// Kept beside the terminal record so the page can say why there is nothing to show.
+		encoded, _ := json.Marshal(map[string]any{"active": false, "repositoryId": repoID, "stopped": err.Error()})
+		_ = c.store.SetMeta("terminal:"+id, string(encoded))
+		c.store.NotifyChange()
 	}
 	_, _ = c.store.Event(id, mustJSON(map[string]any{"type": "terminal", "source": "relay", "summary": summary}))
 }

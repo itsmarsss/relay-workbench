@@ -169,3 +169,38 @@ func TestUntrackedInspectionRejectsSymlinksAndPipesWithoutBlocking(t *testing.T)
 		t.Fatal("FIFO blocked inspection")
 	}
 }
+
+func TestVerifyCommittedAcceptsOnlyBranchesAheadOfTheirBase(t *testing.T) {
+	source := fixture(t)
+	r := runner(t)
+	ctx := context.Background()
+	head, err := r.git(ctx, source, "rev-parse", "HEAD")
+	if err != nil {
+		t.Fatal(err)
+	}
+	base := strings.TrimSpace(head)
+	root := filepath.Join(t.TempDir(), "checkout")
+	gitFixture(t, source, "worktree", "add", "-q", "-b", "task", root, base)
+	if err = r.VerifyExisting(ctx, Profile{Path: source}, root, root, "task", base); err != nil {
+		t.Fatalf("untouched checkout rejected: %v", err)
+	}
+	if err = os.WriteFile(filepath.Join(root, "tracked.txt"), []byte("changed\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	gitFixture(t, root, "commit", "-q", "-am", "work")
+	if err = r.VerifyExisting(ctx, Profile{Path: source}, root, root, "task", base); err == nil {
+		t.Fatal("automation accepted a branch that moved off its base")
+	}
+	if err = r.VerifyCommitted(ctx, Profile{Path: source}, root, root, "task", base); err != nil {
+		t.Fatalf("branch ahead of its base rejected for manual work: %v", err)
+	}
+	// A base the branch does not contain is still refused.
+	gitFixture(t, source, "commit", "-q", "--allow-empty", "-m", "elsewhere")
+	other, err := r.git(ctx, source, "rev-parse", "HEAD")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = r.VerifyCommitted(ctx, Profile{Path: source}, root, root, "task", strings.TrimSpace(other)); err == nil {
+		t.Fatal("unrelated base was accepted")
+	}
+}

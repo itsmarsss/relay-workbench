@@ -120,6 +120,96 @@ func TestInteractiveTerminalStreamsInputAndCancels(t *testing.T) {
 		t.Fatal("interactive server leaked")
 	}
 }
+func TestInteractiveTerminalWindows(t *testing.T) {
+	spec, _, options := testSpec(t, true, "/bin/sh", []string{"-i"})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { _, err := process.Run(ctx, options); done <- err }()
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		if _, err := Capture(context.Background(), spec.Info); err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("terminal not ready")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	windows, err := Windows(ctx, spec.Info)
+	if err != nil || len(windows) != 1 || windows[0].Name != "sh" || !windows[0].Active {
+		t.Fatalf("first window: %#v %v", windows, err)
+	}
+	frames := make(chan map[string]any, 100)
+	go func() {
+		_ = Stream(ctx, spec.Info, func(frame map[string]any) error { frames <- frame; return nil })
+	}()
+	await := func(kind string) {
+		t.Helper()
+		for timeout := time.After(5 * time.Second); ; {
+			select {
+			case frame := <-frames:
+				if frame["type"] == kind {
+					return
+				}
+			case <-timeout:
+				t.Fatalf("no %s frame", kind)
+			}
+		}
+	}
+	await("snapshot")
+	literal := "$(touch SHOULD_NOT_EXIST)"
+	if err = NewWindow(ctx, spec.Info, "shell", spec.Cwd, map[string]string{"RELAY_WINDOW_MARK": literal}, "/bin/sh", []string{"-i"}); err != nil {
+		t.Fatal(err)
+	}
+	await("windows")
+	await("snapshot")
+	windows, err = Windows(ctx, spec.Info)
+	if err != nil || len(windows) != 2 || windows[1].Name != "shell" || !windows[1].Active || windows[0].Active {
+		t.Fatalf("second window: %#v %v", windows, err)
+	}
+	// Typing reaches the window on show, with its environment passed literally.
+	if err = Input(ctx, spec.Info, "printf 'mark=%s\\n' \"$RELAY_WINDOW_MARK\"\r"); err != nil {
+		t.Fatal(err)
+	}
+	for deadline = time.Now().Add(5 * time.Second); ; time.Sleep(30 * time.Millisecond) {
+		screen, _ := Capture(ctx, spec.Info)
+		if strings.Contains(screen, "mark="+literal) {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("input did not reach the new window: %q", screen)
+		}
+	}
+	if _, statErr := os.Stat(filepath.Join(spec.Cwd, "SHOULD_NOT_EXIST")); statErr == nil {
+		t.Fatal("window environment was evaluated")
+	}
+	if err = SelectWindow(ctx, spec.Info, windows[0].Index); err != nil {
+		t.Fatal(err)
+	}
+	await("windows")
+	if screen, _ := Capture(ctx, spec.Info); strings.Contains(screen, "mark=") {
+		t.Fatalf("first window shows the second window's output: %q", screen)
+	}
+	if err = CloseWindow(ctx, spec.Info, windows[0].Index); err == nil {
+		t.Fatal("the session's own window was closed")
+	}
+	if err = CloseWindow(ctx, spec.Info, windows[1].Index); err != nil {
+		t.Fatal(err)
+	}
+	if windows, err = Windows(ctx, spec.Info); err != nil || len(windows) != 1 {
+		t.Fatalf("after close: %#v %v", windows, err)
+	}
+	if err = NewWindow(ctx, spec.Info, "bad\nname", spec.Cwd, nil, "/bin/sh", nil); err == nil {
+		t.Fatal("control text accepted as a window name")
+	}
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(8 * time.Second):
+		t.Fatal("terminal did not stop")
+	}
+}
 func TestTerminalOutputDecoding(t *testing.T) {
 	if got := string(decodeOutput("hi\\015\\012\\134 UTF-8: π")); got != "hi\r\n\\ UTF-8: π" {
 		t.Fatalf("corrupt stream: %q", got)

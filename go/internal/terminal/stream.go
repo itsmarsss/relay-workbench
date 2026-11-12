@@ -56,6 +56,8 @@ func Stream(ctx context.Context, info Info, send func(map[string]any) error) err
 	phase, token := "attach", ""
 	var block, screen []string
 	queued := []byte{}
+	// With several windows only the one on show is forwarded.
+	pane := ""
 	snapshot := func() error {
 		phase = "screen"
 		queued = nil
@@ -81,7 +83,7 @@ func Stream(ctx context.Context, info Info, send func(map[string]any) error) err
 			case "screen":
 				screen = block
 				phase = "cursor"
-				if _, err = fmt.Fprintf(stdin, "display-message -p -t %s '#{pane_width},#{pane_height},#{cursor_x},#{cursor_y}'\n", info.Session); err != nil {
+				if _, err = fmt.Fprintf(stdin, "display-message -p -t %s '#{pane_width},#{pane_height},#{cursor_x},#{cursor_y},#{pane_id}'\n", info.Session); err != nil {
 					return err
 				}
 			case "cursor":
@@ -89,9 +91,10 @@ func Stream(ctx context.Context, info Info, send func(map[string]any) error) err
 					return errors.New("terminal dimensions unavailable")
 				}
 				values := strings.Split(block[0], ",")
-				if len(values) != 4 {
+				if len(values) != 5 {
 					return errors.New("invalid terminal dimensions")
 				}
+				pane, values = values[4], values[:4]
 				numbers := make([]int, 4)
 				for i, v := range values {
 					numbers[i], err = strconv.Atoi(v)
@@ -124,6 +127,9 @@ func Stream(ctx context.Context, info Info, send func(map[string]any) error) err
 			if len(parts) != 3 {
 				continue
 			}
+			if pane != "" && parts[1] != pane && phase == "live" {
+				continue
+			}
 			data := decodeOutput(parts[2])
 			if phase == "live" {
 				if err = send(map[string]any{"type": "output", "data": base64.StdEncoding.EncodeToString(data)}); err != nil {
@@ -142,6 +148,17 @@ func Stream(ctx context.Context, info Info, send func(map[string]any) error) err
 		if strings.HasPrefix(line, "%layout-change ") && phase == "live" {
 			if err = snapshot(); err != nil {
 				return err
+			}
+		}
+		// A window was opened, closed or chosen: tell the page, then show the one now in front.
+		if strings.HasPrefix(line, "%session-window-changed ") || strings.HasPrefix(line, "%window-add ") || strings.HasPrefix(line, "%window-close ") {
+			if err = send(map[string]any{"type": "windows"}); err != nil {
+				return err
+			}
+			if phase == "live" {
+				if err = snapshot(); err != nil {
+					return err
+				}
 			}
 		}
 	}

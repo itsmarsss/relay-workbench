@@ -122,6 +122,15 @@ func (r Runner) CommonDirectory(ctx context.Context, profile Profile) (string, e
 // VerifyExisting checks a retained task checkout without resetting or cleaning
 // it. It is safe to inspect dirty work when resuming a read-only stage.
 func (r Runner) VerifyExisting(ctx context.Context, source Profile, root, cwd, branch, baseCommit string) error {
+	return r.verifyExisting(ctx, source, root, cwd, branch, baseCommit, false)
+}
+
+// VerifyCommitted is VerifyExisting for a person about to work in the checkout: commits on top
+// of the recorded base are theirs to inspect, so the branch may be ahead of it.
+func (r Runner) VerifyCommitted(ctx context.Context, source Profile, root, cwd, branch, baseCommit string) error {
+	return r.verifyExisting(ctx, source, root, cwd, branch, baseCommit, true)
+}
+func (r Runner) verifyExisting(ctx context.Context, source Profile, root, cwd, branch, baseCommit string, ahead bool) error {
 	if !filepath.IsAbs(root) || !filepath.IsAbs(cwd) || branch == "" || !commitPattern.MatchString(baseCommit) {
 		return errors.New("retained workspace metadata is incomplete")
 	}
@@ -167,8 +176,16 @@ func (r Runner) VerifyExisting(ctx context.Context, source Profile, root, cwd, b
 	if err != nil {
 		return err
 	}
-	if strings.TrimSpace(head) != baseCommit {
-		return errors.New("retained workspace base changed; inspect it before resuming")
+	if head = strings.TrimSpace(head); head != baseCommit {
+		descends := false
+		if ahead && commitPattern.MatchString(head) {
+			if descends, err = r.IsAncestor(ctx, targetInfo.Root, baseCommit, head); err != nil {
+				return err
+			}
+		}
+		if !descends {
+			return errors.New("retained workspace base changed; inspect it before resuming")
+		}
 	}
 	return ctx.Err()
 }

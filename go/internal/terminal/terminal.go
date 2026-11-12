@@ -130,6 +130,90 @@ func Capture(ctx context.Context, info Info) (string, error) {
 	return string(out), err
 }
 
+// Window is one tmux window of a terminal's private session. The first is the terminal the
+// session was started for; the rest are extra shells or agents a person opened beside it.
+type Window struct {
+	Index  int    `json:"index"`
+	Name   string `json:"name"`
+	Active bool   `json:"active"`
+	Dead   bool   `json:"dead"`
+}
+
+const maxWindows = 8
+
+var validWindowName = regexp.MustCompile(`^[A-Za-z0-9 ._-]{1,40}$`)
+
+func Windows(ctx context.Context, info Info) ([]Window, error) {
+	out, err := command(ctx, info, "list-windows", "-t", info.Session, "-F", "#{window_index}\t#{window_active}\t#{pane_dead}\t#{window_name}")
+	if err != nil {
+		return nil, err
+	}
+	windows := []Window{}
+	for _, line := range strings.Split(strings.TrimRight(string(out), "\n"), "\n") {
+		parts := strings.SplitN(line, "\t", 4)
+		if len(parts) != 4 {
+			continue
+		}
+		index, err := strconv.Atoi(parts[0])
+		if err != nil {
+			continue
+		}
+		windows = append(windows, Window{Index: index, Name: parts[3], Active: parts[1] == "1", Dead: parts[2] == "1"})
+	}
+	return windows, nil
+}
+
+// NewWindow opens another program in the session and shows it. Arguments are passed to tmux as
+// an argument list, never as shell text.
+func NewWindow(ctx context.Context, info Info, name, cwd string, env map[string]string, program string, args []string) error {
+	if !info.Interactive || !validWindowName.MatchString(name) || !filepath.IsAbs(cwd) || program == "" {
+		return errors.New("invalid terminal window")
+	}
+	windows, err := Windows(ctx, info)
+	if err != nil {
+		return err
+	}
+	if len(windows) >= maxWindows {
+		return errors.New("close a terminal before opening another")
+	}
+	call := []string{"new-window", "-t", info.Session + ":", "-n", name, "-c", cwd}
+	for key, value := range env {
+		if key == "" || strings.ContainsAny(key, "=\x00") || strings.ContainsRune(value, 0) {
+			return errors.New("invalid terminal environment")
+		}
+		call = append(call, "-e", key+"="+value)
+	}
+	call = append(append(call, "--", program), args...)
+	if out, err := command(ctx, info, call...); err != nil {
+		return fmt.Errorf("could not open a terminal: %s", strings.TrimSpace(string(out)))
+	}
+	// Unlike the first window, an extra one simply goes away when its program exits.
+	_, _ = command(ctx, info, "set-option", "-w", "-t", info.Session, "remain-on-exit", "off")
+	_, _ = command(ctx, info, "set-option", "-w", "-t", info.Session, "automatic-rename", "off")
+	return nil
+}
+func SelectWindow(ctx context.Context, info Info, index int) error {
+	if index < 0 || index > 1000 {
+		return errors.New("invalid terminal window")
+	}
+	_, err := command(ctx, info, "select-window", "-t", info.Session+":"+strconv.Itoa(index))
+	return err
+}
+
+// CloseWindow ends an extra window. The first window is the session itself and ends only when
+// control is returned.
+func CloseWindow(ctx context.Context, info Info, index int) error {
+	windows, err := Windows(ctx, info)
+	if err != nil {
+		return err
+	}
+	if len(windows) == 0 || index <= windows[0].Index || index > 1000 {
+		return errors.New("the first terminal closes when control is returned")
+	}
+	_, err = command(ctx, info, "kill-window", "-t", info.Session+":"+strconv.Itoa(index))
+	return err
+}
+
 // Worker is itself run under the liveness-supervised process worker. Its
 // foreground tmux server is never shared with another task or application.
 func Worker(args []string) int {
@@ -175,13 +259,18 @@ func Worker(args []string) int {
 		fmt.Fprintln(os.Stderr, "tmux did not start")
 		return 127
 	}
-	paneArgs := append([]string{"new-session", "-d", "-s", spec.Info.Session, "-x", "120", "-y", "35", "-c", spec.Cwd, "--", spec.Worker}, spec.WorkerArgs...)
+	name := filepath.Base(spec.Command)
+	if !validWindowName.MatchString(name) {
+		name = "terminal"
+	}
+	paneArgs := append([]string{"new-session", "-d", "-s", spec.Info.Session, "-n", name, "-x", "120", "-y", "35", "-c", spec.Cwd, "--", spec.Worker}, spec.WorkerArgs...)
 	paneArgs = append(paneArgs, "--internal-terminal-pane", args[0])
 	if out, err := command(ctx, spec.Info, paneArgs...); err != nil {
 		fmt.Fprintln(os.Stderr, string(out), err)
 		return 127
 	}
 	_, _ = command(ctx, spec.Info, "set-option", "-t", spec.Info.Session, "remain-on-exit", "on")
+	_, _ = command(ctx, spec.Info, "set-option", "-w", "-t", spec.Info.Session, "automatic-rename", "off")
 	offsets := map[string]int64{}
 	flush := func() error {
 		for _, item := range []struct {
