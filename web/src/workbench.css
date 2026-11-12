@@ -3806,15 +3806,14 @@ main > .relay-conversations {
   font-style: italic;
 }
 /* Terminals: a strip of tabs, one per terminal in the task's session, over a single screen. */
-/* Tabs, status line and screen are one block in the app's own theme; the active tab runs into
-   the status line and the screen below it. */
+/* The terminal is one card like the others on the page: square corners, a single bar across
+   the top with the open terminals as underlined tabs (the same idea as the task's own tabs),
+   the connection state and the full screen control, then the screen. */
 .terminal-frame {
   display: flex;
   flex-direction: column;
   min-width: 0;
   border: 1px solid var(--line);
-  border-radius: 8px;
-  overflow: hidden;
   background: var(--surface);
 }
 /* Full screen covers the app without leaving the page, so Escape stays with the terminal. */
@@ -3823,52 +3822,66 @@ main > .relay-conversations {
   inset: 0;
   z-index: 1000;
   border: 0;
-  border-radius: 0;
 }
 .terminal-frame[data-full='true'] > .live-terminal-screen {
   flex: 1;
   height: auto;
   min-height: 0;
 }
-/* xterm marks its root with a bare "terminal" class, which the agent-output block also uses. */
+/* xterm marks its root with a bare "terminal" class, which the agent-output block also uses.
+   The breathing room is padding on xterm's own element: that is the only padding its sizing
+   subtracts, so rows and columns are counted for the space that is really there. */
 .live-terminal-screen .xterm {
+  box-sizing: border-box;
   border: 0;
   border-radius: 0;
-  padding: 0;
+  padding: 10px 12px 12px;
   background: transparent;
 }
 .terminal-frame .xterm-viewport {
   background-color: transparent !important;
 }
+.terminal-bar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 40px;
+  border-bottom: 1px solid var(--line);
+  padding: 0 6px 0 4px;
+}
 .terminal-tabs {
   display: flex;
-  flex-wrap: wrap;
-  align-items: flex-end;
-  gap: 4px;
-  padding: 6px 6px 0;
-  background: var(--soft);
+  align-self: stretch;
+  min-width: 0;
+  overflow-x: auto;
 }
 .terminal-tab {
   display: inline-flex;
   align-items: center;
-  border-radius: 6px 6px 0 0;
+  flex: none;
+  margin-bottom: -1px;
+  border-bottom: 2px solid transparent;
   color: var(--muted);
 }
 .terminal-tab[data-active='true'] {
-  background: var(--surface);
+  border-bottom-color: var(--text);
   color: var(--text);
 }
 .terminal-tab > button {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  min-height: 30px;
+  gap: 7px;
+  min-height: 38px;
   border: 0;
-  padding: 4px 10px;
+  border-radius: 0;
+  padding: 0 10px;
   background: none;
   color: inherit;
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 500;
+}
+.terminal-tab[data-active='true'] > button {
+  font-weight: 600;
 }
 .terminal-tab > button:hover:not(:disabled) {
   background: none;
@@ -3876,48 +3889,55 @@ main > .relay-conversations {
 }
 .terminal-tab > button > small {
   font-weight: 400;
-  opacity: 0.7;
+  color: var(--muted);
 }
 .terminal-tab > .terminal-tab-close {
   min-height: 22px;
-  margin-right: 4px;
+  margin: 0 6px 0 -4px;
   border-radius: 4px;
   padding: 4px;
 }
 .terminal-tab > .terminal-tab-close:hover:not(:disabled) {
   background: var(--soft);
 }
-.terminal-tabs > .terminal-tab-add {
+.terminal-bar > .terminal-tab-add {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  min-height: 26px;
-  margin: 0 0 3px 4px;
+}
+.terminal-bar > .terminal-tab-add {
+  flex: none;
+  min-height: 28px;
+  margin: 0 0 0 4px;
   border: 0;
-  border-radius: 6px;
-  padding: 4px 10px;
+  border-radius: 5px;
+  padding: 4px 9px;
   background: none;
   color: var(--muted);
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 500;
 }
-.terminal-tabs > .terminal-tab-add:hover:not(:disabled) {
-  background: var(--surface);
+.terminal-bar > .terminal-tab-add:hover:not(:disabled) {
+  background: var(--soft);
   color: var(--text);
 }
-.terminal-tabs > .terminal-full {
-  margin-left: auto;
-}
-.terminal-tabs + .terminal-status {
+.terminal-bar > .terminal-status {
+  flex: 1;
+  min-width: 0;
   margin: 0;
-  border-bottom: 1px solid var(--line);
-  padding: 3px 12px;
-  background: var(--surface);
+  overflow: hidden;
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
   color: var(--muted);
-  font-size: 11px;
+}
+.terminal-bar > .terminal-full {
+  flex: none;
 }
 .terminal-frame > .live-terminal-screen {
-  padding: 10px 12px 12px;
+  height: var(--terminal-height, clamp(260px, 55vh, 650px));
+  padding: 0;
   background: var(--surface);
 }
 .terminal-empty > .terminal-tab-add {

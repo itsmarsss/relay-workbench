@@ -471,6 +471,25 @@ console.log(JSON.stringify({ type: 'item.completed', item: { type: 'agent_messag
       return false;
     }
   }, 'browser terminal input');
+  // The terminal is sized to the room it has: no row or column hangs past its card.
+  await until(
+    () =>
+      page.evaluate(() => {
+        const host = document.querySelector('.live-terminal-screen').getBoundingClientRect(),
+          rows = document
+            .querySelector('.live-terminal-screen .xterm-screen')
+            .getBoundingClientRect();
+        return (
+          rows.height > 100 &&
+          rows.bottom <= host.bottom + 0.5 &&
+          rows.right <= host.right + 0.5 &&
+          host.bottom - rows.bottom < 40 &&
+          // and the card ends inside the window, so the last row needs no page scrolling
+          host.bottom <= innerHeight
+        );
+      }),
+    'terminal rows fit their card',
+  );
   // Escape belongs to the program in the terminal, not to the page.
   await page.keyboard.type('cat -v > escape.txt');
   await page.keyboard.press('Enter');
@@ -516,6 +535,18 @@ console.log(JSON.stringify({ type: 'item.completed', item: { type: 'agent_messag
   );
   await page.getByRole('button', { name: 'Close Shell terminal', exact: true }).click();
   await until(async () => (await tabs.count()) === 1, 'second terminal closed');
+  // Closing the last terminal ends the session but keeps control, and another can be opened.
+  await page.getByRole('button', { name: 'Close Shell terminal', exact: true }).click();
+  await page.getByText('No terminals open', { exact: true }).waitFor({ timeout: 20000 });
+  assert.equal((await (await fetch(`${base}/api/tasks/${second.id}`)).json()).status, 'manual');
+  await page.getByRole('button', { name: 'New terminal', exact: true }).click();
+  await page
+    .getByRole('dialog', { name: 'New terminal' })
+    .getByRole('button', { name: 'Open terminal' })
+    .click();
+  await until(async () => (await tabs.count()) === 1, 'terminal reopened');
+  await page.getByRole('button', { name: 'Close Shell terminal', exact: true }).click();
+  await page.getByText('No terminals open', { exact: true }).waitFor({ timeout: 20000 });
   await page.getByRole('button', { name: 'Return control', exact: true }).click();
   await until(
     async () => (await (await fetch(`${base}/api/tasks/${second.id}`)).json()).status === 'paused',

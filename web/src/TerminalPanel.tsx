@@ -54,16 +54,20 @@ function Screen({
   taskId,
   info,
   onWindows,
+  onStatus,
 }: {
   taskId: string;
   info: NonNullable<LiveTerminal['terminal']>;
   onWindows: () => void;
+  onStatus: (status: string) => void;
 }) {
   const host = useRef<HTMLDivElement>(null),
     { bootstrap } = useSession();
-  const [status, setStatus] = useState('Connecting…');
-  const windowsChanged = useRef(onWindows);
+  const windowsChanged = useRef(onWindows),
+    statusChanged = useRef(onStatus);
   windowsChanged.current = onWindows;
+  statusChanged.current = onStatus;
+  const setStatus = (status: string) => statusChanged.current(status);
   useEffect(() => {
     if (!host.current || !bootstrap) return;
     let stopped = false,
@@ -78,13 +82,17 @@ function Screen({
       let disposed = false,
         connected = false,
         inputFailed = false,
+        sending = false,
+        typed = '',
         queue = Promise.resolve(),
         resizeTimer: number | undefined;
       const term = new Terminal({
         cursorBlink: info.interactive,
         disableStdin: !info.interactive,
-        fontSize: 14,
-        lineHeight: 1.2,
+        fontSize: 13,
+        fontFamily: 'ui-monospace, "SF Mono", Menlo, Monaco, Consolas, monospace',
+        // Rows touch, so block-drawing characters join up instead of leaving stripes.
+        lineHeight: 1,
         scrollback: 5000,
         screenReaderMode: true,
         theme: terminalTheme(),
@@ -124,17 +132,26 @@ function Screen({
             }
           });
       };
+      // Everything typed while a request is in flight goes out together in the next one, so a
+      // key never waits behind a backlog.
+      const flush = () => {
+        if (sending || !typed) return;
+        sending = true;
+        const data = typed.slice(0, 4096);
+        typed = typed.slice(data.length);
+        send({ type: 'input', data });
+        queue = queue.then(() => {
+          sending = false;
+          flush();
+        });
+      };
       const listener = term.onData((data) => {
         if (!info.interactive || !connected) return;
-        let chunk = '';
-        for (const char of data) {
-          chunk += char;
-          if (chunk.length >= 2048) {
-            send({ type: 'input', data: chunk });
-            chunk = '';
-          }
-        }
-        if (chunk) send({ type: 'input', data: chunk });
+        // A program that asks for mouse tracking gets clicks, drags and the wheel, but not a
+        // report for every pointer movement: those would swamp the keyboard.
+        if (/^(\x1b\[<35;\d+;\d+[Mm])+$/.test(data)) return;
+        typed += data;
+        flush();
       });
       const resize = () => {
         if (!disposed && host.current && host.current.clientWidth > 80) {
@@ -147,6 +164,20 @@ function Screen({
             });
         }
       };
+      // On the task page the screen takes the height left under it in the window, so its last
+      // row is on screen without scrolling the page. Measured as if the page were at its top.
+      const place = () => {
+        const element = host.current,
+          page = element?.closest<HTMLElement>('main.page-main');
+        if (!element || !page || !element.closest('.task-detail-panel')) return;
+        const top = element.getBoundingClientRect().top + page.scrollTop;
+        element.style.setProperty(
+          '--terminal-height',
+          `${Math.max(260, Math.round(window.innerHeight - top - 28))}px`,
+        );
+      };
+      place();
+      window.addEventListener('resize', place);
       const observer = new ResizeObserver(() => {
         clearTimeout(resizeTimer);
         resizeTimer = window.setTimeout(resize, 100);
@@ -214,6 +245,7 @@ function Screen({
         controller.abort();
         clearTimeout(resizeTimer);
         observer.disconnect();
+        window.removeEventListener('resize', place);
         themed.disconnect();
         listener.dispose();
         term.dispose();
@@ -227,20 +259,15 @@ function Screen({
     };
   }, [taskId, info.session, info.interactive, bootstrap?.token]);
   return (
-    <>
-      <p className="terminal-status" role="status">
-        {status}
-      </p>
-      <div
-        ref={host}
-        className="live-terminal-screen"
-        // Escape belongs to the program in the terminal: it must not also close a dialog or
-        // drawer the terminal happens to sit in.
-        onKeyDown={(event) => {
-          if (event.key === 'Escape') event.stopPropagation();
-        }}
-      />
-    </>
+    <div
+      ref={host}
+      className="live-terminal-screen"
+      // Escape belongs to the program in the terminal: it must not also close a dialog or
+      // drawer the terminal happens to sit in.
+      onKeyDown={(event) => {
+        if (event.key === 'Escape') event.stopPropagation();
+      }}
+    />
   );
 }
 export function TerminalPanel({ taskId }: { taskId: string }) {
@@ -251,6 +278,7 @@ export function TerminalPanel({ taskId }: { taskId: string }) {
     // Which dialog is open: taking control of the task, or adding a terminal beside the others.
     [opening, setOpening] = useState<'' | 'control' | 'window'>(''),
     [full, setFull] = useState(false),
+    [status, setStatus] = useState('Connecting…'),
     [provider, setProvider] = useState(''),
     [model, setModel] = useState(''),
     [effort, setEffort] = useState(''),
@@ -339,46 +367,57 @@ export function TerminalPanel({ taskId }: { taskId: string }) {
       )}
       {terminal ? (
         <div className="terminal-frame" data-full={full}>
-          <div className="terminal-tabs" role="tablist" aria-label="Terminals">
-            {(windows || [{ index: 0, name: '', active: true, dead: false }]).map((item, at) => (
-              <span key={item.index} className="terminal-tab" data-active={item.active}>
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={item.active}
-                  disabled={mutation.busy}
-                  onClick={() => {
-                    if (!item.active && canAdd)
-                      void windowAction({ action: 'select', index: item.index }).catch(() => {});
-                  }}
-                >
-                  {!terminal.interactive ? 'Agent' : windowName(item.name) || 'Terminal'}
-                  {item.dead && <small>exited</small>}
-                </button>
-                {canAdd && at > 0 && (
+          <div className="terminal-bar">
+            <div className="terminal-tabs" role="tablist" aria-label="Terminals">
+              {(windows || [{ index: 0, name: '', active: true, dead: false }]).map((item, at) => (
+                <span key={item.index} className="terminal-tab" data-active={item.active}>
                   <button
                     type="button"
-                    className="terminal-tab-close"
-                    aria-label={`Close ${windowName(item.name)} terminal`}
+                    role="tab"
+                    aria-selected={item.active}
                     disabled={mutation.busy}
-                    onClick={() =>
-                      void windowAction({ action: 'close', index: item.index }).catch(() => {})
-                    }
+                    onClick={() => {
+                      if (!item.active && canAdd)
+                        void windowAction({ action: 'select', index: item.index }).catch(() => {});
+                    }}
                   >
-                    <Icon name="close" size={12} />
+                    <Icon name="terminal" size={14} />
+                    {!terminal.interactive ? 'Agent' : windowName(item.name) || 'Terminal'}
+                    {item.dead && <small>exited</small>}
                   </button>
-                )}
-              </span>
-            ))}
+                  {/* Extra terminals close on their own; the last one left ends the session. */}
+                  {canAdd && (at > 0 || windows?.length === 1) && (
+                    <button
+                      type="button"
+                      className="terminal-tab-close"
+                      aria-label={`Close ${windowName(item.name)} terminal`}
+                      title={at > 0 ? 'Close this terminal' : 'Close the terminal and keep control'}
+                      disabled={mutation.busy}
+                      onClick={() =>
+                        void windowAction(
+                          at > 0 ? { action: 'close', index: item.index } : { action: 'end' },
+                        ).catch(() => {})
+                      }
+                    >
+                      <Icon name="close" size={12} />
+                    </button>
+                  )}
+                </span>
+              ))}
+            </div>
             {(canAdd || !terminal.interactive) && add}
+            <p className="terminal-status" role="status">
+              {status}
+            </p>
             <button
               type="button"
-              className="terminal-tab-add terminal-full"
+              className="icon-button terminal-full"
+              aria-label={full ? 'Exit full screen' : 'Full screen'}
+              title={full ? 'Exit full screen' : 'Full screen'}
               aria-pressed={full}
               onClick={() => setFull(!full)}
             >
-              <Icon name={full ? 'fold' : 'expand'} size={14} />
-              {full ? 'Exit full screen' : 'Full screen'}
+              <Icon name={full ? 'fold' : 'expand'} size={15} />
             </button>
           </div>
           <Screen
@@ -386,6 +425,7 @@ export function TerminalPanel({ taskId }: { taskId: string }) {
             taskId={taskId}
             info={terminal}
             onWindows={() => void live.refresh()}
+            onStatus={setStatus}
           />
         </div>
       ) : (
