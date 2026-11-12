@@ -137,12 +137,12 @@ SQLite stores tasks, stage attempts, events, handoffs, approvals, check output a
 ## Development
 
 ```sh
-npm test
-npm run check
+pnpm test
+pnpm run check
 RELAY_PORT=4311 RELAY_DATA_DIR=/tmp/relay-state node server/index.js
 ```
 
-If your environment does not provide npm, the equivalent checks are `node --test test/*.test.js` and `node scripts/check.js`.
+If your environment does not provide pnpm, the equivalent checks are `node --test test/*.test.js` and `node scripts/check.js`.
 
 For browser checks, install development dependencies with `pnpm install --frozen-lockfile`, install a Playwright browser, then run `node test/browser.e2e.js`. The browser suite starts its own disposable server and creates demo tasks, a draft task and a temporary repository profile. Set `RELAY_TEST_URL` only to test an existing disposable server, `RELAY_CHROME` for an existing Chrome executable, and `RELAY_SCREENSHOTS` for screenshot output.
 
@@ -264,14 +264,14 @@ Drag the Ask Relay header to move its window, or drag an edge or corner to resiz
 
 ## Workflow reliability tests
 
-Run `npm run test:reliability` to exercise isolated workflows through the production engine, database, process runner and Git workspaces. The suite injects malformed provider output, process exits, stalled providers, cancellation, hard crashes during implementation and publication, and restarts at both human approval gates. It checks preserved edits and sessions, bounded retries, orphan-provider cleanup, explicit resume, and publication retry without duplicate commits.
+Run `pnpm run test:reliability` to exercise isolated workflows through the production engine, database, process runner and Git workspaces. The suite injects malformed provider output, process exits, stalled providers, cancellation, hard crashes during implementation and publication, and restarts at both human approval gates. It checks preserved edits and sessions, bounded retries, orphan-provider cleanup, explicit resume, and publication retry without duplicate commits.
 
 ```sh
-npm run test:reliability -- --list
-npm run test:reliability -- --scenario crash-during-implementation
-npm run test:reliability -- --repeat 3 --report docs/dev/reliability.json
+pnpm run test:reliability --list
+pnpm run test:reliability --scenario crash-during-implementation
+pnpm run test:reliability --repeat 3 --report docs/dev/reliability.json
 ```
 
-The scenarios also run in `npm test`. They use temporary repositories and scripted providers; they never call installed AI harnesses, touch configured projects, or publish a real PR. The scenario driver explicitly exercises approval actions as a test actor. Application approval gates stay intact.
+The scenarios also run in `pnpm test`. They use temporary repositories and scripted providers; they never call installed AI harnesses, touch configured projects, or publish a real PR. The scenario driver explicitly exercises approval actions as a test actor. Application approval gates stay intact.
 
 Successful temporary fixtures are removed. A failed scenario exits nonzero and prints the retained fixture directory containing `failure.json`, SQLite state and Git workspace. Optional JSON reports contain checkpoint traces, task/event snapshots, durations and failure details. These are controlled orchestration tests; external provider behavior and model quality require separate validation.

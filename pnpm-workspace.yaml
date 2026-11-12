@@ -1,0 +1,9 @@
+packages:
+  - web
+
+overrides:
+  '@types/scheduler': 0.16.2
+  '@types/prop-types': 15.7.4
+
+onlyBuiltDependencies:
+  - esbuild

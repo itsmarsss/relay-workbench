@@ -7,9 +7,9 @@
     "build": "tsc --noEmit && node scripts/build.mjs",
     "check": "tsc --noEmit",
     "test": "node --test --experimental-strip-types src/*.test.ts && node scripts/smoke.mjs",
-    "test:e2e": "npm run build && node scripts/workflow-e2e.mjs",
-    "test:workspace": "npm run build && node scripts/workspace-e2e.mjs",
-    "test:ui": "npm run build && node scripts/ui-audit.mjs"
+    "test:e2e": "pnpm run build && node scripts/workflow-e2e.mjs",
+    "test:workspace": "pnpm run build && node scripts/workspace-e2e.mjs",
+    "test:ui": "pnpm run build && node scripts/ui-audit.mjs"
   },
   "dependencies": {
     "@xterm/addon-fit": "^0.11.0",
@@ -27,10 +27,6 @@
     "esbuild": "0.28.1",
     "playwright": "^1.64.1",
     "typescript": "5.9.3"
-  },
-  "overrides": {
-    "@types/scheduler": "0.16.2",
-    "@types/prop-types": "15.7.4"
   },
   "engines": {
     "node": ">=24.0.0"

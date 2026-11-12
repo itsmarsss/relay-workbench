@@ -7,10 +7,9 @@ Requires Go 1.22+, a C compiler, `pkg-config`, SQLite development headers/librar
 ## Build and run
 
 ```sh
-cd web
-npm ci
-npm run build
-cd ../go
+pnpm install --frozen-lockfile
+pnpm --dir web run build
+cd go
 go build -o ../.relay/bin/relay-go ./cmd/relay-go
 cd ..
 .relay/bin/relay-go --data-dir .relay/rewrite-state --web-dir web/dist --port 4311
@@ -66,13 +65,13 @@ cd go
 go test -race -p 2 ./...
 go vet ./...
 cd ../web
-npm run check
-npm test
-npm run test:e2e
-npm run test:workspace
+pnpm run check
+pnpm test
+pnpm run test:e2e
+pnpm run test:workspace
 ```
 
-Browser tests use disposable state and repositories. Install Playwright Chromium or set `RELAY_CHROME` to a compatible browser executable. The legacy `npm test` and `npm run check` remain available from the repository root.
+Browser tests use disposable state and repositories. Install Playwright Chromium or set `RELAY_CHROME` to a compatible browser executable. The legacy `pnpm test` and `pnpm run check` remain available from the repository root.
 
 ## Operational limits
 

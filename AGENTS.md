@@ -2,7 +2,7 @@
 
 Standalone, local-first development orchestrator. Requires Node 24+; no runtime dependencies.
 
-- Run `npm test` and `npm run check` before merging a feature.
+- Run `pnpm test` and `pnpm run check` before merging a feature.
 - Use feature branches and semantic commit subjects shorter than 60 characters.
 - Do not add attribution trailers to commits.
 - Keep personal paths, organization policies, private hosts and integration profiles out of tracked files.
