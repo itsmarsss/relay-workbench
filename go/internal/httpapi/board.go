@@ -10,6 +10,9 @@ import (
 	"relay.local/relay/internal/store"
 )
 
+// workspaceSizesKey holds the last measured size of each task directory.
+const workspaceSizesKey = "workspace:sizes"
+
 const boardOrderKey = "board:order"
 const boardOrderLimit = 5000
 

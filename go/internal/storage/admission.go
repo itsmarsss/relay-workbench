@@ -116,7 +116,7 @@ func (g Guard) Check(ctx context.Context, workspaceRoots []string) error {
 			return fmt.Errorf("inspect storage for %s: %w", path, err)
 		}
 		if err = Admission(g.Policy, space); err != nil {
-			return fmt.Errorf("%s: %w", path, err)
+			return fmt.Errorf("%w on the volume holding %s; free some space before starting more work", err, path)
 		}
 	}
 	return nil

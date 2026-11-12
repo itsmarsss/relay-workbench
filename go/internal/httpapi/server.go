@@ -80,6 +80,18 @@ func NewWithCoordinator(db *store.Store, port int, webDir string, workflow Coord
 	if _, err = rand.Read(server.token[:]); err != nil {
 		return nil, err
 	}
+	// Workspace sizes take minutes to measure, so the last results are kept between runs.
+	if saved, ok, _ := db.GetMeta(workspaceSizesKey); ok {
+		var records []storage.UsageRecord
+		if json.Unmarshal([]byte(saved), &records) == nil {
+			server.usage.Restore(records)
+		}
+	}
+	server.usage.Saved = func(records []storage.UsageRecord) {
+		if encoded, err := json.Marshal(records); err == nil {
+			_ = db.SetMeta(workspaceSizesKey, string(encoded))
+		}
+	}
 	return server, nil
 }
 

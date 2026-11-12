@@ -44,6 +44,10 @@ type usageEntry struct {
 // Usage measures task directories one at a time in the background and keeps
 // the last result, so listing sizes never waits on a directory walk.
 type Usage struct {
+	// Saved, when set, receives every measurement after it changes so the results can outlive
+	// the process. It is called without the lock held.
+	Saved func([]UsageRecord)
+
 	mu      sync.Mutex
 	measure Scanner
 	now     func() time.Time
@@ -52,6 +56,39 @@ type Usage struct {
 	queue   []string
 	working bool
 	idle    sync.WaitGroup
+}
+
+// UsageRecord is one directory's last measurement in a form that can be stored.
+type UsageRecord struct {
+	Path     string    `json:"path"`
+	Bytes    uint64    `json:"bytes,string"`
+	Complete bool      `json:"complete"`
+	Missing  bool      `json:"missing,omitempty"`
+	Stamp    string    `json:"stamp"`
+	At       time.Time `json:"at"`
+}
+
+// Restore loads measurements kept from an earlier run. They are shown at once and measured
+// again in the background when they have aged, like any other result.
+func (u *Usage) Restore(records []UsageRecord) {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	for _, record := range records {
+		if !filepath.IsAbs(record.Path) || record.At.IsZero() || len(u.entries) >= usageTargets*4 {
+			continue
+		}
+		path := filepath.Clean(record.Path)
+		if _, known := u.entries[path]; !known {
+			u.entries[path] = usageEntry{bytes: record.Bytes, complete: record.Complete, missing: record.Missing, stamp: record.Stamp, at: record.At}
+		}
+	}
+}
+func (u *Usage) records() []UsageRecord {
+	records := make([]UsageRecord, 0, len(u.entries))
+	for path, entry := range u.entries {
+		records = append(records, UsageRecord{Path: path, Bytes: entry.bytes, Complete: entry.complete, Missing: entry.missing, Stamp: entry.stamp, At: entry.at})
+	}
+	return records
 }
 
 func NewUsage(measure Scanner) *Usage {
@@ -143,7 +180,14 @@ func (u *Usage) work() {
 		entry.at = u.now()
 		u.entries[path] = entry
 		delete(u.queued, path)
+		saved, records := u.Saved, []UsageRecord(nil)
+		if saved != nil {
+			records = u.records()
+		}
 		u.mu.Unlock()
+		if saved != nil {
+			saved(records)
+		}
 	}
 }
 

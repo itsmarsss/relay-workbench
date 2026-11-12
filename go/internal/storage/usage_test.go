@@ -105,3 +105,39 @@ func TestUsageSurvivesAPanickingMeasurement(t *testing.T) {
 		t.Fatalf("after panic %v %v %d", got, measuring, pending)
 	}
 }
+
+func TestUsageRestoresSavedMeasurementsAndReportsNewOnes(t *testing.T) {
+	clock := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+	var mu sync.Mutex
+	measured := 0
+	fresh := NewUsage(func(context.Context, string, int) (ScanResult, error) {
+		mu.Lock()
+		defer mu.Unlock()
+		measured++
+		return ScanResult{AllocatedBytes: 55, Complete: true}, nil
+	})
+	fresh.now = func() time.Time { return clock }
+	var saved []UsageRecord
+	fresh.Saved = func(records []UsageRecord) { mu.Lock(); saved = records; mu.Unlock() }
+	fresh.Restore([]UsageRecord{
+		{Path: "/work/kept", Bytes: 900, Complete: true, Stamp: "1", At: clock.Add(-5 * time.Minute)},
+		{Path: "relative", Bytes: 1, At: clock},
+		{Path: "/work/undated", Bytes: 1},
+	})
+	targets := []UsageTarget{{ID: "kept", Paths: []string{"/work/kept"}, Stamp: "1"}, {ID: "new", Paths: []string{"/work/new"}, Stamp: "1"}}
+	got, measuring, _ := fresh.Sizes(targets)
+	if got["kept"].AllocatedBytes != 900 || !reflect.DeepEqual(measuring, []string{"new"}) {
+		t.Fatalf("restored result not shown at once: %v %v", got, measuring)
+	}
+	fresh.idle.Wait()
+	mu.Lock()
+	defer mu.Unlock()
+	if measured != 1 || len(saved) != 2 {
+		t.Fatalf("measured %d, saved %v", measured, saved)
+	}
+	for _, record := range saved {
+		if record.Path == "/work/new" && (record.Bytes != 55 || !record.At.Equal(clock)) {
+			t.Fatalf("new measurement not reported: %#v", record)
+		}
+	}
+}

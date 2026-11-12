@@ -30,7 +30,7 @@ type Pressure struct {
 	Message           string `json:"message"`
 }
 
-var ErrLowSpace = errors.New("insufficient free disk space")
+var ErrLowSpace = errors.New("not enough free disk space")
 
 func Defaults() Policy {
 	return Policy{Enabled: true, WarningPercent: 10, CriticalPercent: 3, WarningBytes: 10 * GiB, CriticalBytes: 2 * GiB, MonitoredPaths: []string{}}
@@ -89,6 +89,11 @@ func Evaluate(policy Policy, space Space) (Pressure, error) {
 	return result, nil
 }
 
+// gibibytes is a size for a sentence, to one decimal place.
+func gibibytes(bytes uint64) string {
+	return fmt.Sprintf("%.1f GiB", float64(bytes)/float64(GiB))
+}
+
 // Admission is for the future scheduler before starting new work. It never
 // interrupts an already running process or routes disk pressure to a debugger.
 func Admission(policy Policy, space Space) error {
@@ -97,7 +102,7 @@ func Admission(policy Policy, space Space) error {
 		return err
 	}
 	if p.State == "critical" {
-		return fmt.Errorf("%w: %s", ErrLowSpace, p.Message)
+		return fmt.Errorf("%w: %s free, %s needed", ErrLowSpace, gibibytes(space.AvailableBytes), gibibytes(p.CriticalThreshold))
 	}
 	return nil
 }
