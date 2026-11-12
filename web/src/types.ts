@@ -28,6 +28,8 @@ export type Task = {
   title: string;
   status: TaskStatus;
   stage?: string;
+  // The workflow preset; 'investigate' stops after findings.
+  preset?: string | null;
   repository?: { id: string; name: string };
   currentRun?: {
     auxiliary?: boolean;

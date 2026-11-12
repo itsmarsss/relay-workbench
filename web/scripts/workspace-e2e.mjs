@@ -129,7 +129,7 @@ let input='';process.stdin.on('data',d=>input+=d);process.stdin.on('end',()=>{
   await page.getByRole('checkbox', { name: 'Empty stages', exact: true }).uncheck();
   assert.equal(await page.locator('.task-lane').count(), 1, 'Empty stages can be hidden');
   await page.getByRole('checkbox', { name: 'Empty stages', exact: true }).check();
-  assert.equal(await page.locator('.task-lane').count(), 11);
+  assert.equal(await page.locator('.task-lane').count(), 12);
   await page.reload();
   await page.getByRole('checkbox', { name: 'Empty stages', exact: true }).waitFor();
   assert.ok(await page.getByRole('checkbox', { name: 'Empty stages', exact: true }).isChecked());
@@ -164,7 +164,7 @@ let input='';process.stdin.on('data',d=>input+=d);process.stdin.on('end',()=>{
   const dock = page.getByRole('group', { name: 'Move to stage', exact: true });
   await dock.waitFor();
   assert.equal(await page.locator('.task-lane').count(), 1, 'Board does not reflow mid-drag');
-  assert.equal(await dock.locator('.stage-dock-target').count(), 11);
+  assert.equal(await dock.locator('.stage-dock-target').count(), 12);
   assert.equal(
     await dock.getByLabel('Move to Backlog', { exact: true }).getAttribute('aria-current'),
     'true',

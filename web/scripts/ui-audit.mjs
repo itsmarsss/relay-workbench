@@ -1001,7 +1001,7 @@ let input='';process.stdin.on('data',d=>input+=d);process.stdin.on('end',()=>{
   await page.goto(origin + '/#tasks?view=board&empty=0');
   await page.reload();
   await page.getByRole('button', { name: 'Create task', exact: true }).waitFor();
-  assert.equal(await page.locator('.task-lane').count(), 11);
+  assert.equal(await page.locator('.task-lane').count(), 12);
   assert.equal(await page.getByText('No matching tasks', { exact: true }).count(), 0);
   await audit('empty-task-board');
   await page.unroute('**/api/tasks');

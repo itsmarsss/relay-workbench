@@ -9,6 +9,7 @@ export const columns = [
   ['progress', 'In progress', 'running'],
   ['review', 'In review', 'review'],
   ['final', 'Final approval', 'awaiting_final'],
+  ['investigated', 'Investigated', 'completed'],
   ['done', 'Done', 'completed'],
   ['finished', 'Completed', 'finished'],
   ['cancelled', 'Cancelled', 'cancelled'],
@@ -21,6 +22,7 @@ export const laneHints: Record<string, string> = {
   progress: 'Implementation and verification',
   review: 'Independent agent review',
   final: 'Your final look',
+  investigated: 'Findings ready, no code changed',
   done: 'Pipeline finished',
   finished: 'Work is fully finished',
   attention: 'Blocked, paused, or in your hands',
@@ -30,7 +32,7 @@ export function taskLane(task: Task): string {
   const override = task.statusOverride;
   if (override) {
     const column = columns.find(([lane, , status]) =>
-      override.lane ? lane === override.lane : status === override.value,
+      override.lane ? lane === override.lane : status === override.value && lane !== 'investigated',
     );
     if (column) return column[0];
   }
@@ -47,6 +49,9 @@ export function taskLane(task: Task): string {
     manual: 'attention',
     interrupted: 'attention',
   };
+  // An investigation that has reported back is finished as a workflow, but nothing was built:
+  // it gets its own column so it is not read as delivered work.
+  if (task.status === 'completed' && task.preset === 'investigate') return 'investigated';
   return (
     known[task.status] ||
     (task.stage === 'review'
@@ -95,6 +100,7 @@ export const taskScopes = [
   ['active', 'Running'],
   ['backlog', 'Backlog'],
   ['parked', 'Parked'],
+  ['investigated', 'Investigated'],
   ['done', 'Done'],
   ['finished', 'Completed'],
 ] as const;

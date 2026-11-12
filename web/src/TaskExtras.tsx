@@ -173,6 +173,10 @@ function TaskEditor({ task, onClose }: { task: FullTask; onClose: () => void }) 
             ticket,
             ...agents,
             smartRouting,
+            // An investigation with a workspace can still be turned into a full task.
+            ...(scopeFixed && task.preset === 'investigate' && preset !== 'investigate'
+              ? { preset }
+              : {}),
             ...(!scopeFixed
               ? {
                   preset,
@@ -214,6 +218,30 @@ function TaskEditor({ task, onClose }: { task: FullTask; onClose: () => void }) 
         <input value={ticket} maxLength={2000} onChange={(e) => setTicket(e.target.value)} />
       </label>
       <MarkdownEditor value={description} onChange={setDescription} uploads={uploads} />
+      {scopeFixed && task.preset === 'investigate' && (
+        <label className="field">
+          Workflow
+          <Select
+            label="Workflow preset"
+            value={preset}
+            onChange={setPreset}
+            options={[
+              { value: 'investigate', label: 'Investigate only' },
+              { value: 'bugfix', label: 'Bug fix', detail: 'Continue to solution design' },
+              { value: 'small', label: 'Small change', detail: 'Continue to solution design' },
+              {
+                value: 'cross-repo',
+                label: 'Cross-repo feature',
+                detail: 'Continue to solution design',
+              },
+            ]}
+          />
+          <small className="form-note">
+            Choosing another workflow keeps the findings and lets the task carry on past
+            investigation. This cannot be undone.
+          </small>
+        </label>
+      )}
       {!scopeFixed && (
         <>
           <label className="field">

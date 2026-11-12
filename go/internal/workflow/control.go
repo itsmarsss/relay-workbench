@@ -169,11 +169,14 @@ func (c *Coordinator) control(ctx context.Context, id, operation string, body ma
 				hasWorkspace = true
 			}
 		}
+		// An investigation can be turned into a full task after the fact: its findings stand and
+		// the workflow carries on to solution design. Nothing else about the scope may change.
+		upgrade := hasWorkspace && value["preset"] == "investigate" && body["preset"] != nil && body["preset"] != "investigate"
 		for key, item := range body {
 			if key == "taskRevision" {
 				continue
 			}
-			if hasWorkspace && (key == "repositoryId" || key == "repositoryIds" || key == "repositorySettings" || key == "dependencies" || key == "preset") {
+			if hasWorkspace && (key == "repositoryId" || key == "repositoryIds" || key == "repositorySettings" || key == "dependencies" || (key == "preset" && !upgrade && item != value["preset"])) {
 				return nil, errors.New("repository scope is fixed once a workspace exists; create a continuation instead")
 			}
 			draft[key] = item
@@ -202,6 +205,16 @@ func (c *Coordinator) control(ctx context.Context, id, operation string, body ma
 			value[key] = validated[key]
 		}
 		summary = "Task configuration updated."
+		if upgrade {
+			value["preset"], value["workflowGuidance"] = validated["preset"], validated["workflowGuidance"]
+			summary = "No longer investigation only."
+			if value["status"] == "completed" && value["stage"] == "investigate" {
+				value["status"], value["stage"], value["error"] = "paused", "plan", nil
+				// A board placement made while it was finished no longer describes it.
+				value["statusOverride"] = nil
+				summary = "No longer investigation only. Resume to draft approaches from the findings."
+			}
+		}
 		if requirementsChanged && hasWorkspace && value["status"] != "draft" {
 			delegation := map[string]any{"enabled": false, "updatedAt": nowCheckpoint(), "reason": "Task requirements changed"}
 			if err := c.store.SetMeta("automation:"+id, string(mustJSON(delegation))); err != nil {
@@ -260,7 +273,7 @@ func (c *Coordinator) control(ctx context.Context, id, operation string, body ma
 		if err = fields(body, "value", "lane"); err != nil {
 			return nil, err
 		}
-		lanes := map[string]string{"backlog": "draft", "parked": "parked", "discovery": "running", "approach": "awaiting_plan", "progress": "running", "review": "review", "final": "awaiting_final", "done": "completed", "finished": "finished", "attention": "blocked", "cancelled": "cancelled"}
+		lanes := map[string]string{"backlog": "draft", "parked": "parked", "discovery": "running", "approach": "awaiting_plan", "progress": "running", "review": "review", "final": "awaiting_final", "investigated": "completed", "done": "completed", "finished": "finished", "attention": "blocked", "cancelled": "cancelled"}
 		if body["value"] == nil {
 			value["statusOverride"] = nil
 		} else {

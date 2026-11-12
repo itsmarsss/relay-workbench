@@ -30,7 +30,7 @@ type Details = Task &
     description?: string;
     ticket?: string;
     demo?: boolean;
-    preset?: string;
+    preset?: string | null;
   };
 // Issue templates leave HTML comments behind; they are instructions to the author, not content.
 const visibleDescription = (text: string) => text.replace(/<!--[\s\S]*?-->/g, '').trim();
@@ -420,7 +420,14 @@ export function TaskPage({
               task.stage || '',
             ) && (
               <button className="primary" disabled={busy} onClick={() => void runAction('resume')}>
-                {busy ? 'Resuming…' : 'Resume'}
+                {/* A blocked stage is run again; a paused or interrupted one carries on. */}
+                {task.status === 'blocked'
+                  ? busy
+                    ? 'Retrying…'
+                    : `Retry ${(stageNames[task.stage || ''] || 'stage').toLowerCase()}`
+                  : busy
+                    ? 'Resuming…'
+                    : 'Resume'}
               </button>
             )}
           {workflowPreview &&

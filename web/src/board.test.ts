@@ -19,6 +19,15 @@ test('board overrides change presentation without advancing workflow gates', () 
   );
   assert.equal(task.status, 'awaiting_plan');
   assert.equal(taskLane({ ...task, statusOverride: { value: 'unknown' } }), 'approach');
+  // A finished investigation reported findings but built nothing: it is not Done.
+  const investigated = { ...task, status: 'completed' as const, preset: 'investigate' };
+  assert.equal(taskLane(investigated), 'investigated');
+  assert.equal(taskLane({ ...investigated, preset: 'small' }), 'done');
+  assert.equal(taskLane({ ...task, statusOverride: { value: 'completed' } }), 'done');
+  assert.equal(
+    taskLane({ ...investigated, statusOverride: { value: 'completed', lane: 'done' } }),
+    'done',
+  );
   assert.deepEqual(boardFilters('#tasks?q=fix+it&repo=abc&view=list'), {
     query: 'fix it',
     repository: 'abc',

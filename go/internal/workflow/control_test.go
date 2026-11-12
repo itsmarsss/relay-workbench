@@ -131,6 +131,35 @@ func TestEditedRequirementsRevokeApprovalAndAuto(t *testing.T) {
 	}
 }
 
+func TestInvestigationCanBecomeAFullTaskAfterItFinished(t *testing.T) {
+	c, db, id, _, _ := acceptedPublicationFixture(t)
+	value := coordinatorTask(t, db, id)
+	value["preset"], value["status"], value["stage"] = "investigate", "completed", "investigate"
+	value["statusOverride"] = map[string]any{"value": "completed", "lane": "done"}
+	saved(t, db, value)
+	// Any other change of scope is still refused once a workspace exists.
+	body := revisionBody(t, db, id)
+	body["preset"], body["repositoryIds"] = "small", []any{"repo"}
+	if _, err := c.Control(context.Background(), id, "edit", body); err == nil {
+		t.Fatal("repository scope changed with the preset")
+	}
+	body = revisionBody(t, db, id)
+	body["preset"] = "small"
+	if _, err := c.Control(context.Background(), id, "edit", body); err != nil {
+		t.Fatal(err)
+	}
+	value = coordinatorTask(t, db, id)
+	if value["preset"] != "small" || value["status"] != "paused" || value["stage"] != "plan" || value["statusOverride"] != nil || text(value["workflowGuidance"]) == "" {
+		t.Fatalf("investigation did not continue to design: %v %v %v %v", value["preset"], value["status"], value["stage"], value["statusOverride"])
+	}
+	// The reverse is not offered: a full task with a workspace cannot become investigation only.
+	body = revisionBody(t, db, id)
+	body["preset"] = "investigate"
+	if _, err := c.Control(context.Background(), id, "edit", body); err == nil {
+		t.Fatal("a full task was narrowed to investigation only")
+	}
+}
+
 func TestPartialWorkspacePreparationFreezesRepositoryScope(t *testing.T) {
 	c, db, id, _, _ := acceptedPublicationFixture(t)
 	value := coordinatorTask(t, db, id)

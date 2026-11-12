@@ -64,7 +64,7 @@ func Summarize(raw json.RawMessage) (map[string]any, error) {
 		return nil, errors.New("invalid task ID")
 	}
 	result := map[string]any{}
-	for _, key := range []string{"id", "title", "status", "stage", "updatedAt", "error"} {
+	for _, key := range []string{"id", "title", "status", "stage", "updatedAt", "error", "preset"} {
 		if v, ok := task[key]; ok {
 			result[key] = v
 		}
