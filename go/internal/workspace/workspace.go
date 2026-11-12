@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf16"
@@ -123,6 +124,64 @@ func (r Runner) CommonDirectory(ctx context.Context, profile Profile) (string, e
 // it. It is safe to inspect dirty work when resuming a read-only stage.
 func (r Runner) VerifyExisting(ctx context.Context, source Profile, root, cwd, branch, baseCommit string) error {
 	return r.verifyExisting(ctx, source, root, cwd, branch, baseCommit, false)
+}
+
+// Head is the commit the checkout is on.
+func (r Runner) Head(ctx context.Context, root string) (string, error) {
+	if !filepath.IsAbs(root) {
+		return "", errors.New("workspace root must be absolute")
+	}
+	head, err := r.git(ctx, root, "rev-parse", "HEAD")
+	if err != nil {
+		return "", err
+	}
+	if head = strings.TrimSpace(head); !commitPattern.MatchString(head) {
+		return "", errors.New("workspace head is not a commit")
+	}
+	return head, nil
+}
+
+// ForkPoint is where the checkout's branch left the mainline: of the usual mainline branches,
+// local and remote-tracking, the merge base nearest to head. It is empty when the repository
+// has none of them. A branch rebased onto a newer mainline has a newer fork point.
+func (r Runner) ForkPoint(ctx context.Context, root, head string) (string, error) {
+	if !filepath.IsAbs(root) || !commitPattern.MatchString(head) {
+		return "", errors.New("workspace and head commit are required")
+	}
+	refs, err := r.git(ctx, root, "for-each-ref", "--format=%(refname)", "refs/heads", "refs/remotes")
+	if err != nil {
+		return "", err
+	}
+	best, distance, tried := "", -1, 0
+	for _, ref := range strings.Split(strings.TrimSpace(refs), "\n") {
+		name := ref[strings.LastIndex(ref, "/")+1:]
+		if name != "main" && name != "master" && name != "trunk" && !(name == "HEAD" && strings.HasPrefix(ref, "refs/remotes/")) {
+			continue
+		}
+		if tried++; tried > 16 {
+			break
+		}
+		base, err := r.git(ctx, root, "merge-base", head, ref)
+		if err != nil {
+			continue
+		}
+		base = strings.TrimSpace(base)
+		if !commitPattern.MatchString(base) || base == head {
+			continue
+		}
+		count, err := r.git(ctx, root, "rev-list", "--count", base+".."+head)
+		if err != nil {
+			continue
+		}
+		ahead, err := strconv.Atoi(strings.TrimSpace(count))
+		if err != nil {
+			continue
+		}
+		if distance < 0 || ahead < distance {
+			best, distance = base, ahead
+		}
+	}
+	return best, nil
 }
 
 // VerifyCommitted is VerifyExisting for a person about to work in the checkout: commits on top

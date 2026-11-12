@@ -1272,12 +1272,47 @@ func (c *Coordinator) prepare(ctx context.Context, id string, guard storage.Guar
 			if expectedHead == "" {
 				expectedHead = text(entry["baseCommit"])
 			}
-			verifyExisting := runner.VerifyExisting
+			source := workspace.Profile{Path: text(profile["path"]), Cwd: text(profile["cwd"])}
 			if profile["strategy"] == "attach" {
-				verifyExisting = runner.VerifyAttached
+				if err = runner.VerifyAttached(ctx, source, text(entry["workspaceRoot"]), text(entry["workspace"]), text(entry["branch"]), expectedHead); err != nil {
+					return err
+				}
+				continue
 			}
-			if err = verifyExisting(ctx, workspace.Profile{Path: text(profile["path"]), Cwd: text(profile["cwd"])}, text(entry["workspaceRoot"]), text(entry["workspace"]), text(entry["branch"]), expectedHead); err != nil {
+			// A task's own branch may have moved ahead of where Relay left it: someone committed
+			// the work by hand, or rebased it onto a newer base that is now recorded. Relay
+			// continues from there and says so. A branch that no longer contains the recorded
+			// commit is still refused.
+			err = runner.VerifyCommitted(ctx, source, text(entry["workspaceRoot"]), text(entry["workspace"]), text(entry["branch"]), expectedHead)
+			if base := text(entry["baseCommit"]); err != nil && base != "" && base != expectedHead {
+				// Rewritten on top of the same starting point (amended or rebased in place): the
+				// branch still grows from the recorded base, which is what has to hold.
+				err = runner.VerifyCommitted(ctx, source, text(entry["workspaceRoot"]), text(entry["workspace"]), text(entry["branch"]), base)
+			}
+			if err != nil {
 				return err
+			}
+			head, err := runner.Head(ctx, text(entry["workspaceRoot"]))
+			if err != nil {
+				return err
+			}
+			if head != expectedHead {
+				// A branch rebased onto a newer mainline also has a newer starting point. Keeping
+				// the old one would make every later comparison span the mainline's history.
+				base, summary := text(entry["baseCommit"]), "Picked up commits made outside Relay on "+text(entry["branch"])+"; continuing from "+head[:12]+"."
+				if fork, forkErr := runner.ForkPoint(ctx, text(entry["workspaceRoot"]), head); forkErr == nil && fork != "" && fork != base {
+					if forward, ancestorErr := runner.IsAncestor(ctx, text(entry["workspaceRoot"]), base, fork); ancestorErr == nil && forward {
+						base = fork
+						summary = "Picked up a rebased " + text(entry["branch"]) + "; continuing from " + head[:12] + " on base " + fork[:12] + "."
+					}
+				}
+				if _, err = c.update(id, func(current map[string]any) error {
+					return updateWorkspace(current, repositoryID, func(target map[string]any) {
+						target["workspaceHead"], target["baseCommit"] = head, base
+					})
+				}, map[string]any{"type": "workspace", "source": "relay", "repositoryId": repositoryID, "summary": summary}); err != nil {
+					return err
+				}
 			}
 			continue
 		}

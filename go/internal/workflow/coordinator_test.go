@@ -449,3 +449,74 @@ func TestCoordinatorCanPauseAtBlockerDecision(t *testing.T) {
 		t.Fatalf("blocker pause failed: %#v %v", result, err)
 	}
 }
+
+func TestCoordinatorContinuesFromCommitsMadeOutsideRelay(t *testing.T) {
+	c, db, id, _ := coordinatorFixture(t, "exit 0")
+	if _, err := c.Start(id); err != nil {
+		t.Fatal(err)
+	}
+	waitCoordinator(t, c, id)
+	value := coordinatorTask(t, db, id)
+	root, base := text(value["workspaceRoot"]), text(value["baseCommit"])
+	if root == "" || base == "" {
+		t.Fatalf("fixture has no workspace: %#v", value["error"])
+	}
+	guard, err := c.storageGuard()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = c.prepare(context.Background(), id, guard, time.Second); err != nil {
+		t.Fatal("untouched workspace refused:", err)
+	}
+	// Someone commits the task's work by hand.
+	if err = os.WriteFile(filepath.Join(root, "file.txt"), []byte("committed by hand\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	gitFixture(t, root, "commit", "-q", "-am", "by hand")
+	runner := workspace.Runner{WorkerExecutable: c.worker, WorkerArgs: c.args, Environment: c.env}
+	head, err := runner.Head(context.Background(), root)
+	if err != nil || head == base {
+		t.Fatalf("fixture commit missing: %v", err)
+	}
+	if err = c.prepare(context.Background(), id, guard, time.Second); err != nil {
+		t.Fatal("branch ahead of its recorded commit refused:", err)
+	}
+	if value = coordinatorTask(t, db, id); text(value["workspaceHead"]) != head || text(value["baseCommit"]) != base {
+		t.Fatalf("new head not recorded: head=%v base=%v", value["workspaceHead"], value["baseCommit"])
+	}
+	// The mainline moves on and the task branch is rebased onto it: Relay follows, and its
+	// recorded base moves to the new fork point.
+	source := text(object(value["repository"])["path"])
+	gitFixture(t, source, "stash", "-q", "--include-untracked")
+	if err = os.WriteFile(filepath.Join(source, "mainline.txt"), []byte("newer mainline\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	gitFixture(t, source, "add", "mainline.txt")
+	gitFixture(t, source, "commit", "-q", "-m", "mainline moves")
+	mainline, err := runner.Head(context.Background(), source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Record the pre-rebase head as an ancestor by merging rather than rewriting it away.
+	gitFixture(t, root, "merge", "-q", "--no-edit", mainline)
+	merged, err := runner.Head(context.Background(), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = c.prepare(context.Background(), id, guard, time.Second); err != nil {
+		t.Fatal("branch brought up to the newer mainline refused:", err)
+	}
+	if value = coordinatorTask(t, db, id); text(value["workspaceHead"]) != merged || text(value["baseCommit"]) != mainline {
+		t.Fatalf("base did not follow the mainline: head=%v base=%v want base %v", value["workspaceHead"], value["baseCommit"], mainline)
+	}
+	// Rewriting the commits on the same starting point is still the task's branch.
+	gitFixture(t, root, "commit", "-q", "--amend", "-m", "rewritten")
+	if err = c.prepare(context.Background(), id, guard, time.Second); err != nil {
+		t.Fatal("branch rewritten on its recorded base refused:", err)
+	}
+	// A branch that no longer grows from the recorded base is refused.
+	gitFixture(t, root, "reset", "-q", "--hard", base)
+	if err = c.prepare(context.Background(), id, guard, time.Second); err == nil || !strings.Contains(err.Error(), "base changed") {
+		t.Fatalf("branch moved behind its recorded base accepted: %v", err)
+	}
+}
