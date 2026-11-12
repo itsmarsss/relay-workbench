@@ -109,6 +109,7 @@ func finalHandoff(raw json.RawMessage, stage string) (json.RawMessage, error) {
 	if !json.Valid(value) {
 		return nil, errors.New("harness returned an invalid structured handoff")
 	}
+	value = handoff.Normalize(value, stage)
 	if err := handoff.Validate(value, stage); err != nil {
 		return nil, err
 	}

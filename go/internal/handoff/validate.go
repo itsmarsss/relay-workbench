@@ -29,6 +29,39 @@ func member(v any, values ...string) bool {
 	}
 	return false
 }
+
+// Normalize maps a verdict a checking stage may not use onto the one it means there. A verifier
+// or reviewer asking for a repair is requesting changes; one asking for verification to be
+// repeated cannot pass and is blocked. Without this the whole handoff, and the agent's
+// explanation with it, was rejected as invalid.
+func Normalize(raw json.RawMessage, stage string) json.RawMessage {
+	if stage != "verify" && stage != "review" {
+		return raw
+	}
+	var value map[string]json.RawMessage
+	if json.Unmarshal(raw, &value) != nil {
+		return raw
+	}
+	var verdict string
+	if json.Unmarshal(value["verdict"], &verdict) != nil {
+		return raw
+	}
+	switch verdict {
+	case "repair_requested":
+		verdict = "changes_requested"
+	case "verification_requested":
+		verdict = "blocked"
+	default:
+		return raw
+	}
+	value["verdict"], _ = json.Marshal(verdict)
+	normalized, err := json.Marshal(value)
+	if err != nil {
+		return raw
+	}
+	return normalized
+}
+
 func Validate(raw json.RawMessage, stage string) error {
 	var parsed any
 	if err := json.Unmarshal(raw, &parsed); err != nil || parsed == nil {

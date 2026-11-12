@@ -125,3 +125,37 @@ func TestMatchesLegacyValidatorAcrossHandoffCorpus(t *testing.T) {
 		}
 	}
 }
+
+func TestNormalizeMapsDelegationVerdictsOnlyForCheckingStages(t *testing.T) {
+	verdict := func(raw json.RawMessage) string {
+		var value map[string]any
+		if err := json.Unmarshal(raw, &value); err != nil {
+			t.Fatal(err)
+		}
+		return value["verdict"].(string)
+	}
+	for _, c := range []struct{ stage, in, out string }{
+		{"verify", "repair_requested", "changes_requested"},
+		{"verify", "verification_requested", "blocked"},
+		{"review", "repair_requested", "changes_requested"},
+		{"verify", "complete", "complete"},
+		{"investigate", "repair_requested", "repair_requested"},
+		{"implement", "verification_requested", "verification_requested"},
+	} {
+		h := valid()
+		h["verdict"] = c.in
+		raw, _ := json.Marshal(h)
+		normalized := Normalize(raw, c.stage)
+		if got := verdict(normalized); got != c.out {
+			t.Fatalf("%s %s became %s, want %s", c.stage, c.in, got, c.out)
+		}
+		if c.stage == "verify" || c.stage == "review" {
+			if err := Validate(normalized, c.stage); err != nil {
+				t.Fatalf("%s %s still rejected: %v", c.stage, c.in, err)
+			}
+		}
+	}
+	if string(Normalize(json.RawMessage(`not json`), "verify")) != "not json" {
+		t.Fatal("invalid input was rewritten")
+	}
+}
