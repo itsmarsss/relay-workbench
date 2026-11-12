@@ -137,3 +137,60 @@ func TestRemoteFeedbackRequiresLivePermissionAndDeduplicatesRevision(t *testing.
 		t.Fatal("config unavailable")
 	}
 }
+
+func TestMonitorWatchesALinkedPullRequestWithoutActingOnIt(t *testing.T) {
+	c, db, id, _, program := acceptedPublicationFixture(t)
+	value := coordinatorTask(t, db, id)
+	// Finished by hand: blocked in Relay, never accepted, with the pull request linked.
+	value["status"], value["stage"], value["approvals"], value["verifiedFingerprint"], value["reviewedFingerprint"] = "blocked", "verify", []any{}, nil, nil
+	link := map[string]any{"url": "https://code.example/team/repo/pull/7", "number": "7", "state": "open", "checks": "unknown", "review": "unknown", "checkedAt": "", "draft": true}
+	value["pullRequestLink"] = link
+	object(array(value["repositories"])[0])["pullRequestLink"] = link
+	saved(t, db, value)
+	body := revisionBody(t, db, id)
+	body["repositoryId"], body["enabled"] = "repo", true
+	if _, err := c.Control(context.Background(), id, "feedback", body); err == nil {
+		t.Fatal("feedback automation was enabled on a task Relay never accepted")
+	}
+	body = revisionBody(t, db, id)
+	body["repositoryId"], body["enabled"] = "repo", true
+	if _, err := c.Control(context.Background(), id, "publication", body); err != nil {
+		t.Fatal("watching a linked pull request refused:", err)
+	}
+	feedback := []any{map[string]any{"id": "c1", "revision": "r1", "kind": "repair", "summary": "Fix it", "details": "Please"}}
+	if err := os.WriteFile(program, []byte("#!/bin/sh\ncat >/dev/null\nprintf '%s\\n' '"+monitorHandoff("https://code.example/team/repo/pull/7", feedback)+"'\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := db.Get(id)
+	if _, err := c.Monitor(context.Background(), id, store.TaskRevision(raw), "repo"); err != nil {
+		t.Fatal(err)
+	}
+	waitCoordinator(t, c, id)
+	value = coordinatorTask(t, db, id)
+	monitor := object(value["publicationMonitor"])
+	if monitor["status"] != "complete" || monitor["enabled"] != true {
+		t.Fatalf("linked pull request not observed: %#v", monitor)
+	}
+	observed := object(value["pullRequestLink"])
+	if text(observed["url"]) != "https://code.example/team/repo/pull/7" || text(observed["checkedAt"]) == "" || text(observed["state"]) == "" {
+		t.Fatalf("observation not recorded on the link: %#v", observed)
+	}
+	if value["publication"] != nil || value["status"] != "blocked" || len(array(value["approvals"])) != 0 {
+		t.Fatalf("watching changed the task's gates: publication=%v status=%v", value["publication"], value["status"])
+	}
+	if value["feedbackHandled"] != nil || len(array(value["messages"])) != len(array(coordinatorTask(t, db, id)["messages"])) {
+		t.Fatal("feedback was acted on")
+	}
+	// A different pull request in the agent's answer is refused, as for a published one.
+	if err := os.WriteFile(program, []byte("#!/bin/sh\ncat >/dev/null\nprintf '%s\\n' '"+monitorHandoff("https://code.example/team/repo/pull/8", []any{})+"'\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	raw, _ = db.Get(id)
+	if _, err := c.Monitor(context.Background(), id, store.TaskRevision(raw), "repo"); err != nil {
+		t.Fatal(err)
+	}
+	waitCoordinator(t, c, id)
+	if monitor = object(coordinatorTask(t, db, id)["publicationMonitor"]); monitor["status"] != "blocked" {
+		t.Fatalf("a different pull request was accepted: %#v", monitor)
+	}
+}

@@ -242,8 +242,13 @@ func (c *Coordinator) control(ctx context.Context, id, operation string, body ma
 		if entry == nil {
 			return nil, errors.New("select a task repository")
 		}
-		if enabled && (!harness.HasFinalApproval(value) || text(object(entry["publication"])["url"]) == "") {
-			return nil, errors.New("publish an accepted task before enabling monitoring")
+		url, accepted := watchedPullRequest(value, entry)
+		if enabled && url == "" {
+			return nil, errors.New("publish or link a pull request before enabling monitoring")
+		}
+		// Acting on feedback changes code, so it needs a task Relay saw through to acceptance.
+		if enabled && operation == "feedback" && !accepted {
+			return nil, errors.New("publish an accepted task before letting agents address feedback")
 		}
 		err = updateWorkspace(value, repositoryID, func(target map[string]any) {
 			key := "publicationMonitor"

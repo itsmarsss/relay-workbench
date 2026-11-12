@@ -164,6 +164,23 @@ func HasFinalApproval(task map[string]any) bool {
 	return final && matching
 }
 
+func hasLinkedPullRequest(task map[string]any, repositoryID string) bool {
+	entries, _ := task["repositories"].([]any)
+	if len(entries) <= 1 {
+		entries = []any{task}
+	}
+	for _, item := range entries {
+		entry, _ := item.(map[string]any)
+		repo, _ := entry["repository"].(map[string]any)
+		if repositoryID != "" && repo["id"] == repositoryID {
+			link, _ := entry["pullRequestLink"].(map[string]any)
+			url, _ := link["url"].(string)
+			return url != ""
+		}
+	}
+	return false
+}
+
 func auxiliaryRecord(task map[string]any, repositoryID, stage string) map[string]any {
 	if stage == "followup" {
 		runs, _ := task["deliveryRuns"].([]any)
@@ -266,7 +283,10 @@ func Execute(ctx context.Context, request RunRequest) (RunResult, error) {
 		return RunResult{}, err
 	}
 	if request.Auxiliary {
-		if request.Debug || (request.Stage != "publish" && request.Stage != "monitor" && request.Stage != "followup") || !HasFinalApproval(task) {
+		// Watching a pull request someone linked by hand is read-only, so it is allowed on a task
+		// Relay never accepted; publishing and follow-ups still need acceptance.
+		watching := request.Stage == "monitor" && hasLinkedPullRequest(task, request.ActiveRepositoryID)
+		if request.Debug || (request.Stage != "publish" && request.Stage != "monitor" && request.Stage != "followup") || (!HasFinalApproval(task) && !watching) {
 			return RunResult{}, errors.New("publication requires an accepted, verified task")
 		}
 		record := auxiliaryRecord(task, request.ActiveRepositoryID, request.Stage)

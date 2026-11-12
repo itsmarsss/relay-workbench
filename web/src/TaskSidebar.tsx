@@ -125,6 +125,16 @@ export function TaskSidebar({ task }: { task: FullTask }) {
         </div>
         <ol>
           {stages.map((stage, index) => {
+            // A pull request opened by hand, outside Relay's publish step.
+            const linked =
+              stage === 'publish' && !task.publication
+                ? asObject(
+                    (Array.isArray(task.repositories) && task.repositories.length > 1
+                      ? asObject(task.repositories[0])
+                      : task
+                    )?.pullRequestLink,
+                  )
+                : null;
             const runs = attempts.filter((row) => row?.stage === stage && row?.role !== 'debug');
             const run = runs.at(-1),
               current = task.currentRun?.stage === stage && task.currentRun.status === 'running';
@@ -140,7 +150,12 @@ export function TaskSidebar({ task }: { task: FullTask }) {
                   ? { key: 'waiting', label: 'Awaiting approval' }
                   : stage === 'publish' && run?.status === 'complete'
                     ? { key: 'complete', label: 'Published' }
-                    : runState(run || null);
+                    : linked?.url
+                      ? {
+                          key: 'complete',
+                          label: linked.state === 'merged' ? 'Merged' : 'Published by hand',
+                        }
+                      : runState(run || null);
             const seconds = runs.reduce((total, row) => {
               const start = Date.parse(asText(row?.startedAt)),
                 end = row?.status === 'running' ? Date.now() : Date.parse(asText(row?.finishedAt));
@@ -192,7 +207,9 @@ export function TaskSidebar({ task }: { task: FullTask }) {
                         : stage === 'verify'
                           ? 'Required checks'
                           : stage === 'publish'
-                            ? 'After acceptance'
+                            ? linked?.url
+                              ? `Outside Relay · #${asText(linked.number)}`
+                              : 'After acceptance'
                             : 'Not started'}
                     </span>
                   )}

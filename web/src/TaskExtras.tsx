@@ -10,6 +10,7 @@ import { AgentSettings, agentOptions } from './AgentSettings';
 import { Notice, useMutation, useSession, request } from './Session';
 import { asObject, asText, externalURL } from './task-data';
 import type { Task } from './types';
+import { ago } from './presentation';
 export type FullTask = Task & Record<string, unknown>;
 export function TaskMenu({ task, onDeleted }: { task: Task; onDeleted?: () => void }) {
   const mutation = useMutation(),
@@ -480,7 +481,10 @@ export function PublicationPanel({ task }: { task: FullTask }) {
   const mutation = useMutation();
   const rows = entries(task);
   if (task.demo === true) return null;
-  if (task.status !== 'completed' && !rows.some((row) => row.publication || row.delivery))
+  if (
+    task.status !== 'completed' &&
+    !rows.some((row) => row.publication || row.delivery || asObject(row.pullRequestLink)?.url)
+  )
     return null;
   return (
     <section className="surface publication-panel">
@@ -492,7 +496,12 @@ export function PublicationPanel({ task }: { task: FullTask }) {
       </div>
       {rows.map((row) => {
         const repo = asObject(row.repository),
-          publication = asObject(row.publication),
+          // A pull request opened by hand is watched the same way, read-only.
+          linked =
+            !row.publication && asObject(row.pullRequestLink)?.url
+              ? asObject(row.pullRequestLink)
+              : null,
+          publication = asObject(row.publication) || linked,
           delivery = asObject(row.delivery),
           monitor = asObject(row.publicationMonitor),
           feedback = Array.isArray(row.feedback) ? row.feedback : [];
@@ -528,6 +537,7 @@ export function PublicationPanel({ task }: { task: FullTask }) {
               </div>
               <div className="inline">
                 {publication && <span className="task-status">{asText(publication.state)}</span>}
+                {linked && <span className="task-status">Opened outside Relay</span>}
                 {task.status === 'completed' && !publication && (
                   <button
                     className="primary"
@@ -553,6 +563,13 @@ export function PublicationPanel({ task }: { task: FullTask }) {
                   Review <strong>{asText(publication.review)}</strong>
                 </span>
                 <span>{publication.draft === true ? 'Draft' : 'Ready for review'}</span>
+                {linked && (
+                  <span className="muted">
+                    {asText(linked.checkedAt)
+                      ? `Checked ${ago(asText(linked.checkedAt)).toLowerCase()}`
+                      : 'Not checked yet'}
+                  </span>
+                )}
               </div>
             )}
             {delivery?.status === 'blocked' && <Notice>{asText(delivery.summary)}</Notice>}
@@ -574,11 +591,17 @@ export function PublicationPanel({ task }: { task: FullTask }) {
                   <input
                     type="checkbox"
                     checked={asObject(row.feedbackAutomation)?.enabled === true}
-                    disabled={mutation.busy || busy}
+                    disabled={mutation.busy || busy || !!linked}
                     onChange={(e) => act('feedback', { enabled: e.target.checked })}
                   />
                   Let agents address actionable feedback
                 </label>
+                {linked && (
+                  <p className="form-note">
+                    Monitoring only reads this pull request. Agents can act on its feedback once
+                    Relay has verified, reviewed and you have accepted the task.
+                  </p>
+                )}
                 {feedback.map((item, i) => {
                   const f = asObject(item);
                   return (
