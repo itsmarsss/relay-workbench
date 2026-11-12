@@ -45,7 +45,8 @@ export const isLive = (task: Task) =>
     !['completed', 'complete', 'failed', 'cancelled'].includes(task.currentRun?.status || ''));
 // What a live deck shows without any setup: decisions first, then running work, then a
 // short tail of recent tasks so the deck is never blank while work exists.
-export function liveGroups(tasks: Task[], tail = 6) {
+// With `include`, that task is shown even when it would not make the short tail.
+export function liveGroups(tasks: Task[], tail = 6, include = '') {
   const updated = (task: Task) => Date.parse(task.updatedAt || '') || 0;
   const recent = (a: Task, b: Task) => updated(b) - updated(a) || a.id.localeCompare(b.id);
   const needs = tasks.filter(needsDecision).sort(recent);
@@ -56,7 +57,7 @@ export function liveGroups(tasks: Task[], tail = 6) {
         !needsDecision(task) && !isLive(task) && !['cancelled', 'finished'].includes(task.status),
     )
     .sort(recent)
-    .slice(0, tail);
+    .filter((task, index) => index < tail || task.id === include);
   return (
     [
       ['needs', 'Needs you', needs],

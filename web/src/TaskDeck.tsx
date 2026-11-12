@@ -275,6 +275,7 @@ export function TaskDeck({
   loading = false,
   focus,
   setFocus,
+  spotlight = '',
   onSelect,
   onAdd,
   onRename,
@@ -290,6 +291,8 @@ export function TaskDeck({
   loading?: boolean;
   focus: string;
   setFocus: (id: string) => void;
+  // A task to bring into view and mark briefly, from "Open task deck" on its page.
+  spotlight?: string;
   onSelect: (id: string) => void;
   onAdd: () => void;
   onRename: () => void;
@@ -310,7 +313,7 @@ export function TaskDeck({
   const [swap, setSwap] = useState({ view, count: 0 });
   if (swap.view !== view) setSwap({ view, count: swap.count + 1 });
   const live = active.mode === 'live',
-    groups = live ? liveGroups(tasks) : [],
+    groups = live ? liveGroups(tasks, 6, spotlight) : [],
     items = panes(active.root),
     grid = live || active.layout !== 'split',
     watched = live
@@ -339,6 +342,32 @@ export function TaskDeck({
     if (focus) canvas.current?.scrollTo(0, 0);
   }, [focus]);
   const modify = (fn: (node: Node) => Node) => onUpdate({ root: fn(active.root) });
+  // Bring the task asked for into view: a pinned grid gains a tile for it if it has none, then
+  // the tile scrolls to the middle and glows for a moment. The request is used once.
+  const spotlit = useRef('');
+  useEffect(() => {
+    if (!spotlight || spotlit.current === spotlight || !tasks.some((task) => task.id === spotlight))
+      return;
+    if (!live && !items.some((pane) => pane.taskId === spotlight)) {
+      if (full) return;
+      modify((root) =>
+        vacancy
+          ? updateNode(root, vacancy.id, () => ({ ...vacancy, taskId: spotlight }))
+          : addPane(root, spotlight),
+      );
+      return;
+    }
+    const tile = canvas.current?.querySelector<HTMLElement>(
+      `[data-task-id="${spotlight.replace(/[^a-zA-Z0-9-]/g, '')}"]`,
+    );
+    if (!tile) return;
+    spotlit.current = spotlight;
+    const motion = document.documentElement.dataset.lowMotion !== 'true';
+    tile.scrollIntoView({ block: 'center', behavior: motion ? 'smooth' : 'instant' });
+    tile.classList.add('is-spotlight');
+    window.setTimeout(() => tile.classList.remove('is-spotlight'), 1800);
+    history.replaceState(null, '', location.hash.replace(/[?&]task=[^&]*/, ''));
+  });
   function reorder(from: string, to: string) {
     if (!items.some((pane) => pane.id === from) || !items.some((pane) => pane.id === to)) return;
     modify((root) => movePane(root, from, to));

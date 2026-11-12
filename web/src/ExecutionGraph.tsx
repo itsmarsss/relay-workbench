@@ -23,6 +23,20 @@ const NODE_WIDTH = 190,
   READABLE_ZOOM = 0.6,
   MAX_ZOOM = 2;
 type View = { x: number; y: number; z: number };
+const seconds = (row: Record<string, unknown>) => {
+  const start = Date.parse(asText(row.startedAt)),
+    end = row.status === 'running' ? Date.now() : Date.parse(asText(row.finishedAt));
+  return Number.isFinite(start) && Number.isFinite(end) ? Math.max(0, (end - start) / 1000) : 0;
+};
+// A length for a sentence: 45s, 12m 5s, 3h 20m.
+const duration = (total: number) =>
+  total >= 3600
+    ? `${Math.floor(total / 3600)}h ${Math.floor((total % 3600) / 60)}m`
+    : total >= 60
+      ? `${Math.floor(total / 60)}m ${Math.floor(total % 60)}s`
+      : total > 0
+        ? `${Math.max(1, Math.floor(total))}s`
+        : '';
 const clampZoom = (z: number) => Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, z));
 // The canvas's layout size. Its on-screen box is scaled while a drawer animates open, so that
 // would give the wrong camera.
@@ -38,6 +52,9 @@ export function ExecutionGraph({ task }: { task: FullTask }) {
     // viewport, z is the zoom. Nothing scrolls; dragging and the wheel move the camera.
     [view, setView] = useState<View>({ x: 24, y: 24, z: 1 }),
     [dragging, setDragging] = useState(false),
+    // Set while the camera glides to a run or a zoom level, so the move is animated.
+    [gliding, setGliding] = useState(false),
+    glideTimer = useRef<number | undefined>(undefined),
     canvas = useRef<HTMLDivElement>(null),
     viewRef = useRef(view),
     moved = useRef(false),
@@ -46,6 +63,13 @@ export function ExecutionGraph({ task }: { task: FullTask }) {
   const active = graph.byId.get(selected) || graph.nodes.filter((n) => n.kind === 'run').at(-1);
   const hasGraph = graph.nodes.length > 0;
   const runs = graph.nodes.filter((n) => n.kind === 'run');
+  const total = runs.reduce((sum, node) => sum + seconds(node.row), 0);
+  const glide = () => {
+    if (document.documentElement.dataset.lowMotion === 'true') return;
+    setGliding(true);
+    window.clearTimeout(glideTimer.current);
+    glideTimer.current = window.setTimeout(() => setGliding(false), 420);
+  };
   // Zoom keeping one point of the viewport (the pointer, or the centre) still.
   const zoomAt = useCallback((factor: number, px?: number, py?: number) => {
     const box = size(canvas.current);
@@ -120,9 +144,24 @@ export function ExecutionGraph({ task }: { task: FullTask }) {
     if (!touched.current) overview();
     // Only a new run or layout should move the camera, not every refresh of the same graph.
   }, [graph.nodes.length, graph.width, graph.height]);
+  // Centre a run only when it is chosen. Re-centring on every render (the layout is rebuilt
+  // each time) pulled the camera back under the pointer and made the board impossible to drag.
+  const centreRef = useRef(centre);
+  centreRef.current = centre;
   useEffect(() => {
-    if (selected) centre(selected);
-  }, [selected, centre]);
+    if (!selected) return;
+    glide();
+    centreRef.current(selected);
+  }, [selected]);
+  const step = (direction: 1 | -1) => {
+    if (!runs.length) return;
+    const at = runs.findIndex((node) => node.id === active?.id),
+      next = runs[Math.min(runs.length - 1, Math.max(0, (at < 0 ? runs.length : at) + direction))];
+    if (next) {
+      touched.current = true;
+      setSelected(next.id);
+    }
+  };
   // The wheel zooms around the pointer; a sideways trackpad swipe pans. React's wheel handler
   // is passive, so this one is attached by hand to be able to keep the page from scrolling.
   useEffect(() => {
@@ -154,7 +193,7 @@ export function ExecutionGraph({ task }: { task: FullTask }) {
         <div>
           <h2>Execution</h2>
           <small className="muted">
-            {graph.nodes.filter((n) => n.kind === 'run').length} runs ·{' '}
+            {runs.length} runs{total > 0 && ` · ${duration(total)} of agent time`} ·{' '}
             {task.currentRun?.harness || 'No active agent'}
           </small>
         </div>
@@ -168,6 +207,7 @@ export function ExecutionGraph({ task }: { task: FullTask }) {
             onClick={() => {
               const last = runs.at(-1)?.id || '';
               touched.current = true;
+              glide();
               setSelected(last);
               centre(last);
             }}
@@ -181,6 +221,7 @@ export function ExecutionGraph({ task }: { task: FullTask }) {
             disabled={view.z <= MIN_ZOOM}
             onClick={() => {
               touched.current = true;
+              glide();
               zoomAt(1 / 1.2);
             }}
           >
@@ -191,6 +232,7 @@ export function ExecutionGraph({ task }: { task: FullTask }) {
             aria-label={`Fit graph to view: ${Math.round(view.z * 100)}%`}
             title="Fit to view"
             onClick={() => {
+              glide();
               fit();
               touched.current = true;
             }}
@@ -204,6 +246,7 @@ export function ExecutionGraph({ task }: { task: FullTask }) {
             disabled={view.z >= MAX_ZOOM}
             onClick={() => {
               touched.current = true;
+              glide();
               zoomAt(1.2);
             }}
           >
@@ -224,12 +267,17 @@ export function ExecutionGraph({ task }: { task: FullTask }) {
             {asObject(task.automation)?.enabled === true && <strong>Auto authorized</strong>}
           </div>
           <div
-            className={`execution-canvas ${dragging ? 'is-dragging' : ''}`}
+            className={`execution-canvas ${dragging ? 'is-dragging' : ''} ${gliding ? 'is-gliding' : ''}`}
             ref={canvas}
             role="application"
             tabIndex={0}
-            aria-label="Execution graph. Drag or use the arrow keys to move, scroll or plus and minus to zoom, 0 to fit."
-            style={{ height: graphHeight }}
+            aria-label="Execution graph. Drag to move, scroll or plus and minus to zoom, 0 to fit. Left and right arrows step through runs; up, down or Shift with an arrow move the board."
+            // The dots are part of the board: they scale and move with the graph.
+            style={{
+              height: graphHeight,
+              backgroundSize: `${20 * view.z}px ${20 * view.z}px`,
+              backgroundPosition: `${view.x}px ${view.y}px`,
+            }}
             onPointerDown={(event) => {
               if (event.button !== 0) return;
               moved.current = false;
@@ -272,16 +320,24 @@ export function ExecutionGraph({ task }: { task: FullTask }) {
             }}
             onKeyDown={(event) => {
               if (event.target !== event.currentTarget) return;
-              const step = event.shiftKey ? 120 : 40,
+              // Left and right step through the runs; up and down, or any arrow with Shift, move
+              // the board.
+              if (!event.shiftKey && (event.key === 'ArrowLeft' || event.key === 'ArrowRight')) {
+                step(event.key === 'ArrowLeft' ? -1 : 1);
+                event.preventDefault();
+                return;
+              }
+              const distance = 80,
                 pan: Record<string, [number, number]> = {
-                  ArrowLeft: [step, 0],
-                  ArrowRight: [-step, 0],
-                  ArrowUp: [0, step],
-                  ArrowDown: [0, -step],
+                  ArrowLeft: [distance, 0],
+                  ArrowRight: [-distance, 0],
+                  ArrowUp: [0, distance],
+                  ArrowDown: [0, -distance],
                 };
               if (pan[event.key]) {
                 const [dx, dy] = pan[event.key]!;
                 touched.current = true;
+                glide();
                 setView((current) => ({ ...current, x: current.x + dx, y: current.y + dy }));
               } else if (event.key === '+' || event.key === '=') {
                 touched.current = true;
@@ -376,6 +432,9 @@ export function ExecutionGraph({ task }: { task: FullTask }) {
                       <span className={`graph-status ${asText(node.row.status)}`} />
                       {asText(node.row.status)}
                       {node.row.inherited ? ' · inherited' : ''}
+                      {node.kind === 'run' && seconds(node.row) > 0 && (
+                        <span className="graph-duration">{duration(seconds(node.row))}</span>
+                      )}
                     </small>
                     {!!node.checkpoints.length && (
                       <span className="graph-saved" title="Saved checkpoint">
@@ -398,7 +457,12 @@ export function ExecutionGraph({ task }: { task: FullTask }) {
                       : names[asText(active.row.stage)] || asText(active.row.stage)}{' '}
                   · <ProviderName provider={asText(active.row.harness)} size={22} />
                 </h3>
-                <small>{asText(active.row.model) || 'Provider default model'}</small>
+                <small>
+                  {asText(active.row.model) || 'Provider default model'}
+                  {active.kind === 'run' &&
+                    seconds(active.row) > 0 &&
+                    ` · ${duration(seconds(active.row))}`}
+                </small>
               </div>
               {active.kind === 'fork' ? (
                 <a href={`#task/${asText(active.row.taskId)}/overview`}>

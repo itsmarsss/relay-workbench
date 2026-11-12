@@ -4330,3 +4330,72 @@ main > .relay-conversations {
 .agent-live-row.is-handoff > strong {
   font-size: 12px;
 }
+/* Pull request row: the state chip, its note and the buttons sit on one line at one height. */
+.pr-row-actions {
+  align-items: center;
+  gap: 10px;
+}
+.pr-row-actions > button {
+  min-height: 30px;
+  padding: 4px 12px;
+  font-size: 13px;
+}
+.pr-row-actions > .pr-state {
+  min-height: 24px;
+  padding: 2px 9px;
+  font-size: 12px;
+  text-transform: capitalize;
+}
+.pr-row-actions > small {
+  font-size: 12px;
+}
+.pr-state-open {
+  background: var(--status-done);
+  color: var(--status-done-ink);
+}
+.pr-state-merged {
+  color: var(--status-merged-ink);
+}
+.pr-state-closed {
+  background: var(--status-blocked);
+  color: var(--status-blocked-ink);
+}
+/* Gliding to a run or a zoom level animates the board and its dots together. */
+.execution-section .execution-canvas.is-gliding .execution-world {
+  transition: transform 0.38s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.execution-section .execution-canvas.is-gliding {
+  transition:
+    background-size 0.38s cubic-bezier(0.2, 0.8, 0.2, 1),
+    background-position 0.38s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.graph-node .graph-duration {
+  margin-left: auto;
+  padding-left: 10px;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+.execution-section .graph-node small {
+  width: 100%;
+}
+/* The tile a person came from: a short ring that fades out. */
+.monitor-tile.is-spotlight {
+  animation: tile-spotlight 1.8s ease-out;
+}
+@keyframes tile-spotlight {
+  0%,
+  35% {
+    box-shadow:
+      0 0 0 2px var(--accent),
+      0 0 0 6px color-mix(in srgb, var(--accent) 25%, transparent);
+  }
+  100% {
+    box-shadow: 0 0 0 0 transparent;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .monitor-tile.is-spotlight {
+    animation-duration: 0.01s;
+    outline: 2px solid var(--accent);
+  }
+}

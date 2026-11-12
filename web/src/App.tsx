@@ -449,6 +449,9 @@ export default function App() {
                     loading={!bootstrap}
                     focus={focus}
                     setFocus={setFocus}
+                    spotlight={
+                      new URLSearchParams(location.hash.split('?')[1] || '').get('task') || ''
+                    }
                     onSelect={selectTab}
                     onAdd={() => {
                       const tab = {
@@ -542,7 +545,11 @@ export default function App() {
                       navigate(`#task/${route.id}/${tab}${q ? '?' + q : ''}`);
                     }}
                     onBack={() => navigate('#tasks')}
-                    onDeck={() => navigate(`#deck?tab=${encodeURIComponent(deck.active)}`)}
+                    onDeck={() =>
+                      navigate(
+                        `#deck?tab=${encodeURIComponent(deck.active)}&task=${encodeURIComponent(route.id)}`,
+                      )
+                    }
                   />
                 )}
                 {route.kind !== 'deck' && error && (

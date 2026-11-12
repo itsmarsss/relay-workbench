@@ -59,6 +59,7 @@ export function TaskMonitor({
     <article
       className={`monitor-tile ${editing ? 'is-editing' : ''} ${!task ? 'is-empty' : ''} ${task && needsDecision(task) ? 'needs-decision' : ''}`}
       aria-label={`Task tile ${number}: ${task?.title || 'Choose a task'}`}
+      data-task-id={task?.id}
       data-status={task?.status}
       onDragOver={(event) => {
         if (editing) {
