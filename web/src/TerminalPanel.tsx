@@ -270,6 +270,110 @@ function Screen({
     />
   );
 }
+type LiveRow = {
+  seq: number;
+  kind?: string;
+  summary?: string;
+  details?: string;
+  at?: string;
+  attemptId?: string;
+  type?: string;
+};
+// What a running agent is doing, as it happens, in words: its messages, the tools it calls and
+// what they returned. The raw terminal behind it is the agent's machine-readable event stream.
+function AgentLive({ taskId, attemptId }: { taskId: string; attemptId: string }) {
+  const [rows, setRows] = useState<LiveRow[]>([]),
+    scroll = useRef<HTMLDivElement>(null),
+    follow = useRef(true);
+  useEffect(() => {
+    let alive = true,
+      last = 0,
+      timer: number | undefined;
+    const controller = new AbortController();
+    async function load() {
+      try {
+        const page = await request<LiveRow[]>(
+          `/api/tasks/${taskId}/events?${last ? `after=${last}` : 'before=0'}`,
+          undefined,
+          undefined,
+          'GET',
+          controller.signal,
+        );
+        if (!alive || !Array.isArray(page)) return;
+        if (page.length) last = Math.max(last, ...page.map((row) => row.seq));
+        const mine = page.filter((row) => row.type === 'activity' && row.attemptId === attemptId);
+        if (mine.length)
+          setRows((current) => {
+            const seen = new Set(current.map((row) => row.seq));
+            return [...current, ...mine.filter((row) => !seen.has(row.seq))].slice(-300);
+          });
+      } catch {}
+      if (alive) timer = window.setTimeout(load, document.hidden ? 8000 : 1500);
+    }
+    void load();
+    return () => {
+      alive = false;
+      controller.abort();
+      window.clearTimeout(timer);
+    };
+  }, [taskId, attemptId]);
+  useEffect(() => {
+    if (follow.current && scroll.current) scroll.current.scrollTop = scroll.current.scrollHeight;
+  }, [rows]);
+  const clip = (text = '', lines = 8) => {
+    const all = text.split('\n');
+    return all.length > lines
+      ? `${all.slice(0, lines).join('\n')}\n… ${all.length - lines} more lines`
+      : text;
+  };
+  return (
+    <div
+      className="agent-live"
+      ref={scroll}
+      tabIndex={0}
+      aria-label="Agent activity"
+      onScroll={(event) => {
+        const el = event.currentTarget;
+        follow.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+      }}
+    >
+      {!rows.length && <p className="muted">Waiting for the agent’s first step…</p>}
+      {rows.map((row) => {
+        const time = row.at
+          ? new Date(row.at).toLocaleTimeString([], {
+              hour: '2-digit',
+              minute: '2-digit',
+              second: '2-digit',
+            })
+          : '';
+        if (row.kind === 'tool' && row.summary === 'Tool result')
+          return (
+            <div key={row.seq} className="agent-live-row is-result">
+              <pre>{clip(row.details, 6)}</pre>
+            </div>
+          );
+        if (row.kind === 'tool')
+          return (
+            <div key={row.seq} className="agent-live-row is-tool">
+              <span className="agent-live-time">{time}</span>
+              <strong>{row.summary || 'Tool'}</strong>
+              {!!row.details && <pre>{clip(row.details, 4)}</pre>}
+            </div>
+          );
+        return (
+          <div
+            key={row.seq}
+            className={`agent-live-row is-message ${row.kind === 'handoff' ? 'is-handoff' : ''}`}
+          >
+            <span className="agent-live-time">{time}</span>
+            {row.kind === 'handoff' && <strong>Result</strong>}
+            <p>{row.summary}</p>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
 export function TerminalPanel({ taskId }: { taskId: string }) {
   const current = useResource<FullTask>(`/api/tasks/${taskId}`),
     live = useResource<LiveTerminal>(`/api/tasks/${taskId}/terminal`),
@@ -279,6 +383,8 @@ export function TerminalPanel({ taskId }: { taskId: string }) {
     [opening, setOpening] = useState<'' | 'control' | 'window'>(''),
     [full, setFull] = useState(false),
     [status, setStatus] = useState('Connecting…'),
+    // A running agent is shown in words by default; its raw event stream is one click away.
+    [raw, setRaw] = useState(false),
     [provider, setProvider] = useState(''),
     [model, setModel] = useState(''),
     [effort, setEffort] = useState(''),
@@ -406,6 +512,16 @@ export function TerminalPanel({ taskId }: { taskId: string }) {
               ))}
             </div>
             {(canAdd || !terminal.interactive) && add}
+            {!terminal.interactive && (
+              <div className="segmented terminal-view" role="group" aria-label="Agent view">
+                <button type="button" aria-pressed={!raw} onClick={() => setRaw(false)}>
+                  Activity
+                </button>
+                <button type="button" aria-pressed={raw} onClick={() => setRaw(true)}>
+                  Raw output
+                </button>
+              </div>
+            )}
             <p className="terminal-status" role="status">
               {status}
             </p>
@@ -420,13 +536,21 @@ export function TerminalPanel({ taskId }: { taskId: string }) {
               <Icon name={full ? 'fold' : 'expand'} size={15} />
             </button>
           </div>
-          <Screen
-            key={`${taskId}:${connection}`}
-            taskId={taskId}
-            info={terminal}
-            onWindows={() => void live.refresh()}
-            onStatus={setStatus}
-          />
+          {!terminal.interactive && !raw && task?.currentRun?.id && (
+            <AgentLive taskId={taskId} attemptId={task.currentRun.id} />
+          )}
+          <div
+            hidden={!terminal.interactive && !raw && !!task?.currentRun?.id}
+            className="terminal-raw"
+          >
+            <Screen
+              key={`${taskId}:${connection}`}
+              taskId={taskId}
+              info={terminal}
+              onWindows={() => void live.refresh()}
+              onStatus={setStatus}
+            />
+          </div>
         </div>
       ) : (
         <div className="terminal-empty">
