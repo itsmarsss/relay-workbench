@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"relay.local/relay/internal/harness"
@@ -59,11 +61,13 @@ func (c *Coordinator) Terminal(ctx context.Context, id, operation string, body m
 		if value["status"] != "manual" {
 			return nil, errors.New("task is not under manual control")
 		}
-		info, _, err := c.terminalInfo(id)
+		info, live, err := c.terminalInfo(id)
 		if err != nil {
 			return nil, err
 		}
-		if info.Session != text(body["session"]) {
+		// Only a terminal that is still open can have changed under the page; once it has
+		// closed there is nothing to compare and control can always be handed back.
+		if live && info.Session != text(body["session"]) {
 			return nil, errors.New("terminal session changed")
 		}
 		c.mu.Lock()
@@ -168,11 +172,29 @@ func (c *Coordinator) terminalWindow(ctx context.Context, id string, info termin
 		if entry == nil || text(entry["workspace"]) == "" {
 			return nil, errors.New("workspace is unavailable")
 		}
-		command, args, name, err := c.manualCommand(body)
+		command, args, name, err := c.manualCommand(body, value)
 		if err != nil {
 			return nil, err
 		}
 		err = terminal.NewWindow(ctx, info, name, text(entry["workspace"]), c.env, command, args)
+	case "end":
+		// Closes every terminal in the session. The task stays under manual control, so
+		// another terminal can be opened or control handed back.
+		c.mu.Lock()
+		job := c.jobs[id]
+		c.mu.Unlock()
+		if job == nil {
+			return nil, errors.New("no terminal is open")
+		}
+		job.cancel()
+		select {
+		case <-job.done:
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(15 * time.Second):
+			return nil, errors.New("terminal did not close in time")
+		}
+		return map[string]any{"windows": []terminal.Window{}}, nil
 	case "select":
 		err = terminal.SelectWindow(ctx, info, index)
 	case "close":
@@ -197,10 +219,63 @@ func (c *Coordinator) TerminalStream(ctx context.Context, id, session string, se
 	return terminal.Stream(ctx, info, send)
 }
 
+// manualBrief tells an agent opened in a terminal what the task is and that a person is now
+// driving, so it waits for them instead of starting work on its own.
+func manualBrief(value map[string]any) string {
+	title := strings.TrimSpace(text(value["title"]))
+	if title == "" {
+		return ""
+	}
+	clip := func(s string, limit int) string {
+		s = strings.TrimSpace(strings.ToValidUTF8(strings.ReplaceAll(s, "\x00", ""), ""))
+		if runes := []rune(s); len(runes) > limit {
+			return string(runes[:limit]) + "\n[truncated]"
+		}
+		return s
+	}
+	var b strings.Builder
+	b.WriteString("Context for this session. I have taken manual control of a Relay task and opened you in its worktree. Read this, then wait for my instructions: do not start work yet.\n\n")
+	b.WriteString("Task: " + clip(title, 300) + "\n")
+	if id := text(value["id"]); id != "" {
+		b.WriteString("Task ID: " + id + "\n")
+	}
+	if ticket := clip(text(value["ticket"]), 500); ticket != "" {
+		b.WriteString("Ticket: " + ticket + "\n")
+	}
+	if branch := clip(text(value["branch"]), 300); branch != "" {
+		b.WriteString("Branch: " + branch + "\n")
+	}
+	if stage := text(value["stage"]); stage != "" {
+		b.WriteString("Workflow stage when I took over: " + stage + "\n")
+	}
+	if description := clip(text(value["description"]), 6000); description != "" {
+		b.WriteString("\nDescription and requirements:\n" + description + "\n")
+	}
+	if approach := object(value["chosenApproach"]); harness.HasApprovedApproach(value) && text(approach["title"]) != "" {
+		b.WriteString("\nApproved approach: " + clip(text(approach["title"]), 300) + "\n")
+		if detail := clip(text(approach["description"]), 3000); detail != "" {
+			b.WriteString(detail + "\n")
+		}
+	}
+	if summary := clip(text(value["latestSummary"]), 1500); summary != "" {
+		b.WriteString("\nLatest update: " + summary + "\n")
+	}
+	if problem := clip(text(value["error"]), 1500); problem != "" {
+		b.WriteString("\nOpen problem: " + problem + "\n")
+	}
+	return b.String()
+}
+
 // manualCommand is what a person asked to run in a terminal: a shell, or an enabled agent with
 // the chosen model and effort.
-func (c *Coordinator) manualCommand(body map[string]any) (string, []string, string, error) {
+func (c *Coordinator) manualCommand(body, value map[string]any) (string, []string, string, error) {
+	// A shell means the person's own: whatever SHELL names where Relay runs, else the POSIX one.
 	command, args, name := "/bin/sh", []string{"-i"}, "shell"
+	if shell := os.Getenv("SHELL"); filepath.IsAbs(shell) {
+		if info, err := os.Stat(shell); err == nil && info.Mode().IsRegular() && info.Mode()&0111 != 0 {
+			command = shell
+		}
+	}
 	provider := text(body["provider"])
 	if provider != "" {
 		name = provider
@@ -233,6 +308,11 @@ func (c *Coordinator) manualCommand(body map[string]any) (string, []string, stri
 		if provider == "codex" {
 			args = append(args, "--dangerously-bypass-approvals-and-sandbox")
 		}
+		// An agent opened by hand starts knowing the task. The brief is one literal argument,
+		// its opening message; it is never shell text.
+		if brief := manualBrief(value); brief != "" {
+			args = append(args, brief)
+		}
 	}
 	return command, args, name, nil
 }
@@ -260,7 +340,7 @@ func (c *Coordinator) takeover(ctx context.Context, id string, body map[string]a
 	if entry == nil || text(entry["workspaceRoot"]) == "" || entry["setupCompleted"] != true {
 		return nil, errors.New("workspace setup must finish first")
 	}
-	command, args, _, err := c.manualCommand(body)
+	command, args, _, err := c.manualCommand(body, value)
 	if err != nil {
 		return nil, err
 	}

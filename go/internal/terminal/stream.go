@@ -29,6 +29,9 @@ func decodeOutput(value string) []byte {
 
 // Stream attaches a read-only control client. Input remains a separately
 // authenticated operation; the browser never supplies tmux command text.
+// snapshotHistory is how many lines of scrollback a viewer receives with the screen.
+const snapshotHistory = 2000
+
 func Stream(ctx context.Context, info Info, send func(map[string]any) error) error {
 	if err := validateInfo(info); err != nil {
 		return err
@@ -61,7 +64,8 @@ func Stream(ctx context.Context, info Info, send func(map[string]any) error) err
 	snapshot := func() error {
 		phase = "screen"
 		queued = nil
-		_, err := fmt.Fprintf(stdin, "capture-pane -e -p -t %s\n", info.Session)
+		// With its history, so scrolling back in the page shows what the pane holds, once.
+		_, err := fmt.Fprintf(stdin, "capture-pane -e -p -S -%d -t %s\n", snapshotHistory, info.Session)
 		return err
 	}
 	for scanner.Scan() {
@@ -105,7 +109,7 @@ func Stream(ctx context.Context, info Info, send func(map[string]any) error) err
 				if numbers[0] < 2 || numbers[0] > 1000 || numbers[1] < 2 || numbers[1] > 500 {
 					return errors.New("invalid terminal dimensions")
 				}
-				data := append([]byte("\x1b[2J\x1b[H"+strings.Join(screen, "\r\n")), queued...)
+				data := append([]byte("\x1b[3J\x1b[2J\x1b[H"+strings.Join(screen, "\r\n")), queued...)
 				data = append(data, []byte(fmt.Sprintf("\x1b[%d;%dH", numbers[3]+1, numbers[2]+1))...)
 				if err = send(map[string]any{"type": "snapshot", "cols": numbers[0], "rows": numbers[1], "data": base64.StdEncoding.EncodeToString(data)}); err != nil {
 					return err
