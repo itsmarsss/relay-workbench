@@ -10,6 +10,12 @@ export const stageNames: Record<string, string> = {
   monitor: 'PR feedback',
   followup: 'Follow-up',
 };
+// The stage a task is at. While an agent is working that is the run's stage; once it has
+// stopped, the last run is history and the workflow's own stage says where it will pick up.
+export function currentStage(task: Pick<Task, 'stage' | 'currentRun'> | undefined): string {
+  const run = task?.currentRun;
+  return (run?.status === 'running' && run.stage) || task?.stage || run?.stage || '';
+}
 export function nextStep(task: Task): string {
   return (
     (
@@ -86,7 +92,7 @@ export const waitingKind = (task: Task) =>
 // Where a stopped or working task is, when the stage is not already implied by its status.
 export const stageNote = (task: Task): string =>
   ['blocked', 'interrupted', 'paused', 'manual', 'queued'].includes(task.status)
-    ? stageNames[task.currentRun?.stage || task.stage || ''] || ''
+    ? stageNames[currentStage(task)] || ''
     : '';
 // What a person is being asked to do, named for the decision rather than the status.
 export function decisionLabel(task: Task): string {

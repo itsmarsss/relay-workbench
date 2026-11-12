@@ -120,6 +120,16 @@ test('live groups put decisions first, then running work, then a short recent ta
     ],
   );
   assert.deepEqual(
+    liveGroups([
+      {
+        ...task('moved', 'blocked', '2026-01-04T00:00:00Z'),
+        statusOverride: { value: 'completed', lane: 'done' },
+      },
+    ]).map(([id]) => id),
+    ['recent'],
+    'A task moved to Done on the board no longer needs you',
+  );
+  assert.deepEqual(
     liveGroups([tasks[0]!]).map(([id]) => id),
     ['recent'],
     'Empty groups are left out',

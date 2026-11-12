@@ -76,6 +76,40 @@ function timeline(visible: Row[]): TimelineItem[] {
   }
   return items;
 }
+// A moment on a list that spans days: the date, then the time.
+function stamp(value: unknown) {
+  const date = new Date(asText(value));
+  return Number.isFinite(date.getTime())
+    ? date.toLocaleString([], {
+        month: 'short',
+        day: 'numeric',
+        hour: 'numeric',
+        minute: '2-digit',
+      })
+    : '';
+}
+// One run's raw output. Long output shows its opening and how much more there is, so the list
+// of runs stays scannable; the rest is one click away.
+function LogText({ text }: { text: string }) {
+  const [open, setOpen] = useState(false);
+  const lines = text.split('\n'),
+    long = lines.length > 14 || text.length > 1600;
+  const shown = !long || open ? text : lines.slice(0, 14).join('\n').slice(0, 1600) + ' …';
+  return (
+    <>
+      <pre>{shown}</pre>
+      {long && (
+        <button type="button" className="text-button log-more" onClick={() => setOpen(!open)}>
+          {open
+            ? 'Show less'
+            : lines.length > 14
+              ? `Show all ${lines.length.toLocaleString()} lines`
+              : `Show all ${text.length.toLocaleString()} characters`}
+        </button>
+      )}
+    </>
+  );
+}
 function Strings({ title, value }: { title: string; value: unknown }) {
   if (!Array.isArray(value) || !value.length) return null;
   return (
@@ -144,7 +178,7 @@ export function HandoffsPanel({ taskId }: { taskId: string }) {
             </span>
             <span className="muted">
               <ProviderName provider={asText(row?.harness)} size={22} /> · {label(row?.status)} ·{' '}
-              {when(row?.finishedAt)}
+              {stamp(row?.finishedAt)}
             </span>
           </header>
           <Markdown text={asText(asObject(row?.handoff)?.summary || row?.error)} />
@@ -306,7 +340,9 @@ export function ActivityPanel({ taskId, logs = false }: { taskId: string; logs?:
         {row.type === 'handoff' || row.kind === 'handoff' ? 'Handoff' : label(row.kind || row.type)}
       </span>
       {!!row.stage && <span>{row.role === 'debug' ? 'Debugger' : label(row.stage)}</span>}
-      <time dateTime={asText(row.at || row.timestamp)}>{when(row.at || row.timestamp)}</time>
+      <time dateTime={asText(row.at || row.timestamp)}>
+        {logs ? stamp(row.at || row.timestamp) : when(row.at || row.timestamp)}
+      </time>
     </div>
   );
   const earlier = older && (
@@ -366,9 +402,9 @@ export function ActivityPanel({ taskId, logs = false }: { taskId: string; logs?:
         {logs ? (
           <ol className="activity-list">
             {visible.map((row) => (
-              <li key={row.seq} className="activity-entry">
+              <li key={row.seq} className="activity-entry log-entry">
                 {meta(row)}
-                <pre>{rowText(row) || asText(row.details, 100000)}</pre>
+                <LogText text={rowText(row) || asText(row.details, 100000)} />
               </li>
             ))}
           </ol>

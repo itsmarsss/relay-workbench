@@ -520,6 +520,7 @@ export default function App() {
                       report={storage.report}
                       loadError={storage.error}
                       refresh={storage.refresh}
+                      tasks={tasks}
                     />
                   ) : (
                     <p role="status">{error || 'Loading storage…'}</p>

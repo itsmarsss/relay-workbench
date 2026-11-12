@@ -1,7 +1,8 @@
 import { Icon, ProviderIcon } from './UI';
 import { TaskPicker } from './TaskPicker';
-import { ago, nextStep, stageNames } from './presentation';
+import { ago, currentStage, nextStep, stageNames } from './presentation';
 import { statusLabel, type Task, type TaskView } from './types';
+import { columns, taskLane } from './board';
 import { isLive, needsDecision, type Pane } from './deck';
 
 export { isLive, needsDecision };
@@ -47,7 +48,7 @@ export function TaskMonitor({
   onMove: (offset: number) => void;
 }) {
   const time = task ? runTime(task, now) : null;
-  const stage = task?.currentRun?.stage || task?.stage || '';
+  const stage = currentStage(task);
   const repositories = task?.repositories?.length
     ? task.repositories
         .map((row) => row.repository?.name)
@@ -120,7 +121,10 @@ export function TaskMonitor({
           <div className="monitor-state">
             <span className={`monitor-status ${isLive(task) ? 'is-live' : ''}`}>
               <span className="monitor-dot" aria-hidden="true" />
-              {statusLabel(task.status)}
+              {/* A task moved by hand on the board carries that column's name here too. */}
+              {task.statusOverride
+                ? columns.find((row) => row[0] === taskLane(task))?.[1] || statusLabel(task.status)
+                : statusLabel(task.status)}
             </span>
             <span className="monitor-repository" title={repositories}>
               {repositories || 'Unspecified'}

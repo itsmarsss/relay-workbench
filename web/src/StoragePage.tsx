@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
+import { useWorkspaceSizes, type WorkspaceSize } from './useWorkspaceSizes';
+import { statusLabel, type Task } from './types';
 import {
   availablePercent,
   formatBytes,
@@ -10,16 +12,58 @@ import {
   type StorageScan,
 } from './storage';
 import type { StorageReport } from './storage';
+// What each task's own directories hold on disk, largest first, so the place to free space is
+// plain. Relay only reports these; it never deletes a worktree or its build output.
+function TaskWorkspaces({ tasks }: { tasks: Task[] }) {
+  const usage = useWorkspaceSizes();
+  const rows = tasks
+    .map((task) => ({ task, size: usage.sizes[task.id] }))
+    .filter((row): row is { task: Task; size: WorkspaceSize } => Boolean(row.size))
+    .sort((a, b) => (BigInt(b.size.allocatedBytes) > BigInt(a.size.allocatedBytes) ? 1 : -1));
+  const total = rows.reduce((sum, row) => sum + BigInt(row.size.allocatedBytes), 0n);
+  if (!rows.length && !usage.measuring.length) return null;
+  return (
+    <section className="storage-card">
+      <div className="section-heading">
+        <h2>Task workspaces</h2>
+        {rows.length > 0 && <strong>{formatBytes(total)}</strong>}
+      </div>
+      <p>
+        Source checkouts and their build output, per task. Build output is usually most of it and is
+        safe to delete once a task's work is pushed.
+      </p>
+      <ul className="workspace-sizes">
+        {rows.map(({ task, size }) => (
+          <li key={task.id}>
+            <a href={`#task/${task.id}/overview`}>{task.title}</a>
+            <small>{statusLabel(task.status)}</small>
+            <span>
+              {size.complete ? '' : '≥ '}
+              {formatBytes(size.allocatedBytes)}
+            </span>
+          </li>
+        ))}
+      </ul>
+      {usage.measuring.length > 0 && (
+        <p className="form-note" role="status">
+          Measuring {usage.measuring.length} more…
+        </p>
+      )}
+    </section>
+  );
+}
 export function StoragePage({
   token,
   report,
   loadError,
   refresh,
+  tasks = [],
 }: {
   token: string;
   report: StorageReport | null;
   loadError: string;
   refresh: () => Promise<void>;
+  tasks?: Task[];
 }) {
   const [draft, setDraft] = useState<StorageDraft | null>(null),
     [draftRevision, setDraftRevision] = useState(''),
@@ -318,6 +362,7 @@ export function StoragePage({
               </ul>
             </section>
           )}
+          <TaskWorkspaces tasks={tasks} />
           <section className="storage-card">
             <h2>Cleanup</h2>
             <p>

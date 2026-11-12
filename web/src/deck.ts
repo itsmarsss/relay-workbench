@@ -1,3 +1,4 @@
+import { inTaskScope } from './board.ts';
 import type { Task, TaskView } from './types.ts';
 export type Pane = { type: 'pane'; id: string; taskId: string; view: TaskView };
 export type Split = {
@@ -35,10 +36,9 @@ export function newDeck(): Deck {
   };
   return { tabs: [tab], active: tab.id };
 }
-export const needsDecision = (task: Task) =>
-  ['awaiting_plan', 'awaiting_final', 'blocked', 'interrupted', 'paused', 'manual'].includes(
-    task.status,
-  );
+// The same test the overview, inbox and board use, so a task moved to Done on the board stops
+// counting here too.
+export const needsDecision = (task: Task) => inTaskScope(task, 'attention');
 export const isLive = (task: Task) =>
   task.currentRun?.status === 'running' ||
   (task.status === 'running' &&

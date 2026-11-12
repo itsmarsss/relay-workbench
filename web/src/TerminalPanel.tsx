@@ -439,7 +439,9 @@ export function TerminalPanel({ taskId }: { taskId: string }) {
           </strong>
           <p>
             {lost && live.data?.stopped
-              ? live.data.stopped.replace(/[.\s]*$/, '.')
+              ? live.data.stopped
+                  .replace(/^./, (first) => first.toUpperCase())
+                  .replace(/[.\s]*$/, '.')
               : asText(task?.workspaceRoot)
                 ? 'An agent’s terminal appears here while it runs. Open your own to work in this worktree with a shell or an agent.'
                 : 'A workspace is created when the task starts.'}

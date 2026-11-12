@@ -2365,7 +2365,8 @@ main.page-main:has(> .tasks-page) {
   align-items: stretch;
 }
 .task-board .board-task-title {
-  margin: 0 18px 6px 0;
+  /* Leaves the corner to the card's menu button, so a long title never runs under it. */
+  margin: 0 30px 6px 0;
   display: -webkit-box;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 3;
@@ -4127,4 +4128,58 @@ main > .relay-conversations {
   .task-size.is-measuring > span {
     animation: none;
   }
+}
+/* Storage: one row per task workspace, largest first. */
+.workspace-sizes {
+  display: grid;
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.workspace-sizes > li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto 90px;
+  align-items: baseline;
+  gap: 16px;
+  border-top: 1px solid var(--line);
+  padding: 9px 0;
+  font-size: 14px;
+}
+.workspace-sizes a {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text);
+  text-decoration: none;
+}
+.workspace-sizes a:hover {
+  text-decoration: underline;
+}
+.workspace-sizes small {
+  color: var(--muted);
+}
+.workspace-sizes span {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+/* Logs: each run's output is its own block with a heading row, clamped when long. */
+.is-logs .log-entry {
+  border-left: 0;
+  border-top: 1px solid var(--line);
+  padding: 12px 0 14px;
+}
+.is-logs .log-entry::before {
+  content: none;
+}
+.is-logs .log-entry:first-child {
+  border-top: 0;
+}
+.is-logs .log-entry > pre {
+  border-radius: 6px;
+  padding: 10px 12px;
+  background: var(--soft);
+}
+.log-more {
+  margin-top: 6px;
+  font-size: 12px;
 }

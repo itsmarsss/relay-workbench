@@ -2,6 +2,7 @@ import { WorkflowStatus, TaskResult } from './WorkflowInsights';
 import { TaskSidebar } from './TaskSidebar';
 import {
   ago,
+  currentStage,
   nextStep,
   repositoryNames,
   shortDate,
@@ -357,7 +358,7 @@ export function TaskPage({
   const plan = task.status === 'awaiting_plan' && tab === 'overview' ? latestPlan(task) : null;
   const blocker = currentBlocker(task);
   const banner = bannerTone(task);
-  const stage = stageNames[task.currentRun?.stage || task.stage || ''] || '';
+  const stage = stageNames[currentStage(task)] || '';
   const awaitingReview = implementationPreview && task.status === 'awaiting_final';
   const attempts = (Array.isArray(task.attempts) ? task.attempts : []).map(asObject);
   const handoffs = attempts.filter((run) => run?.handoff).length;

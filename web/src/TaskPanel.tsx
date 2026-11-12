@@ -5,7 +5,7 @@ import { TerminalPanel } from './TerminalPanel';
 import { asObject, asText, parseDiff, type DiffRepository } from './task-data';
 import { statusLabel, taskViews, type Task, type TaskView } from './types';
 import { ProviderName } from './Icons';
-import { stageNames } from './presentation';
+import { currentStage, stageNames } from './presentation';
 
 type Data = {
   diffs?: DiffRepository[];
@@ -35,7 +35,7 @@ function remember(taskId: string, data: Data) {
   }
 }
 export function TaskPanel({ task, view }: { task: Task; view: TaskView }) {
-  const stage = task.currentRun?.stage || task.stage || '';
+  const stage = currentStage(task);
   const [data, setData] = useState<Data>({}),
     [error, setError] = useState(''),
     [refreshing, setRefreshing] = useState(false),

@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Icon, ProviderIcon, RelayMark, providerName } from './UI';
 import { inTaskScope, taskLane } from './board';
 import { AttentionList, TaskFacts } from './AttentionList';
-import { ago, stageNames } from './presentation';
+import { ago, currentStage, stageNames } from './presentation';
 import { isLive, runTime } from './TaskMonitor';
 import { statusLabel, type Task } from './types';
 
@@ -38,9 +38,7 @@ export function OverviewPage({
     ['awaiting_plan', 'awaiting_final'].includes(task.status),
   ).length;
   const runningStages = [
-    ...new Set(
-      active.map((task) => stageNames[task.currentRun?.stage || task.stage || ''] || 'Queued'),
-    ),
+    ...new Set(active.map((task) => stageNames[currentStage(task)] || 'Queued')),
   ];
   const stats = [
     {
@@ -132,7 +130,7 @@ export function OverviewPage({
           </div>
           <div className="quiet-list">
             {active.map((task) => {
-              const stage = task.currentRun?.stage || task.stage || '';
+              const stage = currentStage(task);
               const time = runTime(task, now);
               const model = task.currentRun?.actualModel || task.currentRun?.model;
               return (
