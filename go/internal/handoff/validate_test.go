@@ -158,6 +158,18 @@ func TestNormalizeMapsDelegationVerdictsOnlyForCheckingStages(t *testing.T) {
 			}
 		}
 	}
+	// A follow-up asking for code work becomes a request for the changes round.
+	h := valid()
+	h["verdict"], h["followUpAction"] = "repair_requested", "complete"
+	raw, _ := json.Marshal(h)
+	var followup map[string]any
+	_ = json.Unmarshal(Normalize(raw, "followup"), &followup)
+	if followup["verdict"] != "complete" || followup["followUpAction"] != "changes" {
+		t.Fatalf("follow-up delegation not mapped: %v %v", followup["verdict"], followup["followUpAction"])
+	}
+	if err := Validate(Normalize(raw, "followup"), "followup"); err != nil {
+		t.Fatalf("mapped follow-up rejected: %v", err)
+	}
 	if string(Normalize(json.RawMessage(`not json`), "verify")) != "not json" {
 		t.Fatal("invalid input was rewritten")
 	}

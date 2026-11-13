@@ -34,9 +34,11 @@ func member(v any, values ...string) bool {
 // reviewer asking for a repair is requesting changes; one asking for verification to be
 // repeated cannot pass and is blocked. A pull request monitor only observes: whatever it thinks
 // the pull request needs, its observation is complete, and the work it saw travels as feedback.
+// A follow-up that wants code work done has finished its inspection: it asks for the changes
+// round (implementation, verification, review) instead.
 // Without this the whole handoff, and the agent's explanation with it, was rejected as invalid.
 func Normalize(raw json.RawMessage, stage string) json.RawMessage {
-	if stage != "verify" && stage != "review" && stage != "monitor" {
+	if stage != "verify" && stage != "review" && stage != "monitor" && stage != "followup" {
 		return raw
 	}
 	var value map[string]json.RawMessage
@@ -47,8 +49,12 @@ func Normalize(raw json.RawMessage, stage string) json.RawMessage {
 	if json.Unmarshal(value["verdict"], &verdict) != nil {
 		return raw
 	}
+	delegated := verdict == "repair_requested" || verdict == "verification_requested" || verdict == "changes_requested"
 	switch {
-	case stage == "monitor" && (verdict == "repair_requested" || verdict == "verification_requested" || verdict == "changes_requested"):
+	case stage == "followup" && delegated:
+		verdict = "complete"
+		value["followUpAction"], _ = json.Marshal("changes")
+	case stage == "monitor" && delegated:
 		verdict = "complete"
 	case verdict == "repair_requested":
 		verdict = "changes_requested"
