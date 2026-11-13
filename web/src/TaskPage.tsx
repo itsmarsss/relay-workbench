@@ -458,6 +458,10 @@ export function TaskPage({
                 {kicker}
                 <h2>{awaitingReview ? 'Ready for your review' : nextStep(task)}</h2>
                 <p>
+                  {/* While an agent works, the summary is the previous run's, so say so. */}
+                  {summary && task.currentRun?.status === 'running' && (
+                    <span className="status-previous">Previous result: </span>
+                  )}
                   {summary ||
                     (task.status === 'draft'
                       ? 'Relay will investigate, propose an approach and ask before implementing.'

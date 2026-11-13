@@ -4405,7 +4405,11 @@ main > .relay-conversations {
   flex-wrap: wrap;
 }
 .status-banner > .workflow-status {
+  /* A flex item will not shrink below its content unless told to; without this a long line
+     of activity pushes the strip past the banner. */
   flex: 1 0 100%;
+  min-width: 0;
+  max-width: 100%;
   display: flex;
   align-items: center;
   gap: 14px;
@@ -4499,4 +4503,8 @@ main > .relay-conversations {
 }
 .terminal-tabs::-webkit-scrollbar {
   display: none;
+}
+.status-previous {
+  font-weight: 600;
+  color: var(--muted);
 }
