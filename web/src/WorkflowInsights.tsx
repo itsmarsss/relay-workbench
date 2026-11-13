@@ -34,7 +34,8 @@ export function WorkflowStatus({ task }: { task: FullTask }) {
     last = Date.parse(asText(health?.lastAt));
   return (
     <div className={`workflow-status ${health?.quiet ? 'is-quiet' : ''}`} role="status">
-      <div>
+      {active && <span className="workflow-live" aria-hidden="true" />}
+      <div className="workflow-who">
         <strong>
           {active
             ? run?.role === 'debug'
@@ -44,17 +45,23 @@ export function WorkflowStatus({ task }: { task: FullTask }) {
         </strong>
         {active && (
           <span>
-            <ProviderName provider={run?.harness || ''} size={22} /> ·{' '}
-            {run?.actualModel || run?.model || 'CLI default'}
+            <ProviderName provider={run?.harness || ''} size={18} />
+            <span className="workflow-model">
+              {run?.actualModel || run?.model || 'CLI default'}
+            </span>
           </span>
         )}
       </div>
       {active && (
         <>
-          <p>{asText(health?.summary) || 'Waiting for first output'}</p>
+          <p className="workflow-now" title={asText(health?.summary)}>
+            {asText(health?.summary) || 'Waiting for first output'}
+          </p>
           <span className="workflow-clock">
-            {Number.isFinite(started) && `${duration(now - started)} elapsed`}
-            {Number.isFinite(last) && ` · last progress ${duration(now - last)} ago`}
+            {Number.isFinite(started) && <strong>{duration(now - started)}</strong>}
+            {Number.isFinite(last) && (
+              <small>{now - last < 60000 ? 'active' : `quiet ${duration(now - last)}`}</small>
+            )}
           </span>
         </>
       )}

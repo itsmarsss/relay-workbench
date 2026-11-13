@@ -4399,3 +4399,104 @@ main > .relay-conversations {
     outline: 2px solid var(--accent);
   }
 }
+/* The run in progress: one strip across the bottom of the status banner. A pulsing dot, who is
+   working, what they are doing now (one line), and how long it has run. */
+.status-banner {
+  flex-wrap: wrap;
+}
+.status-banner > .workflow-status {
+  flex: 1 0 100%;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin: 0;
+  border: 0;
+  border-top: 1px solid color-mix(in srgb, var(--tone) 22%, var(--line));
+  padding: 12px 0 0;
+  background: none;
+  flex-wrap: nowrap;
+}
+.workflow-live {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--status-running-ink);
+  box-shadow: 0 0 0 0 color-mix(in srgb, var(--status-running-ink) 45%, transparent);
+  animation: live-pulse 1.8s ease-out infinite;
+}
+@keyframes live-pulse {
+  70% {
+    box-shadow: 0 0 0 6px transparent;
+  }
+  100% {
+    box-shadow: 0 0 0 0 transparent;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .workflow-live {
+    animation: none;
+  }
+}
+.workflow-status > .workflow-who {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 10px;
+}
+.workflow-who > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 13px;
+}
+.workflow-model {
+  font-size: 12px;
+}
+.status-banner .workflow-status p.workflow-now {
+  flex: 1;
+  min-width: 0;
+  max-width: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text);
+  font-size: 13px;
+}
+.workflow-status > .workflow-clock {
+  display: grid;
+  flex: none;
+  justify-items: end;
+  line-height: 1.25;
+}
+.workflow-clock > strong {
+  font-size: 13px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.workflow-clock > small {
+  font-size: 11px;
+  color: var(--muted);
+}
+.workflow-status.is-quiet .workflow-clock > small {
+  color: var(--status-attention-ink);
+}
+@media (max-width: 700px) {
+  .status-banner > .workflow-status {
+    flex-wrap: wrap;
+  }
+  .status-banner .workflow-status p.workflow-now {
+    flex-basis: 100%;
+    order: 3;
+    white-space: normal;
+  }
+}
+/* The tab strip scrolls sideways when there are many terminals, without a scrollbar. */
+.terminal-tabs {
+  overflow-y: hidden;
+  scrollbar-width: none;
+}
+.terminal-tabs::-webkit-scrollbar {
+  display: none;
+}

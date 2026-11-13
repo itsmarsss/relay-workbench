@@ -463,9 +463,6 @@ export function TaskPage({
                       ? 'Relay will investigate, propose an approach and ask before implementing.'
                       : 'No update yet.')}
                 </p>
-                {task.currentRun?.status === 'running' && (
-                  <WorkflowStatus task={task as FullTask} />
-                )}
               </div>
               {awaitingReview && (
                 <div className="task-page-actions">
@@ -479,6 +476,8 @@ export function TaskPage({
                   </button>
                 </div>
               )}
+              {/* The live run spans the banner, under its text and actions. */}
+              {task.currentRun?.status === 'running' && <WorkflowStatus task={task as FullTask} />}
             </section>
           )}
           {asObject(task.migration)?.readOnly === true && (
