@@ -40,6 +40,7 @@ type collector struct {
 	callbackDone   chan struct{}
 	failed         chan error
 	once           sync.Once
+	sink           io.Writer
 }
 type streamWriter struct {
 	c      *collector
@@ -86,6 +87,12 @@ func (w streamWriter) Write(p []byte) (int, error) {
 	c := w.c
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if w.stream == "stdout" && c.sink != nil {
+		if _, err := c.sink.Write(p); err != nil {
+			c.fail(err)
+		}
+		return len(p), nil
+	}
 	if len(p) > c.limit-c.total {
 		c.fail(ErrOutputLimit)
 		return len(p), nil
@@ -197,6 +204,7 @@ func Run(ctx context.Context, options Options) (Result, error) {
 	}
 	cmd.ExtraFiles = []*os.File{aliveRead, statusWrite}
 	c := newCollector(ctx, options.MaxOutputBytes, options.OnLine)
+	c.sink = options.StdoutSink
 	cmd.Stdout = streamWriter{c, "stdout"}
 	cmd.Stderr = streamWriter{c, "stderr"}
 	cmd.WaitDelay = grace + time.Second

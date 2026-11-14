@@ -204,3 +204,33 @@ func TestVerifyCommittedAcceptsOnlyBranchesAheadOfTheirBase(t *testing.T) {
 		t.Fatal("unrelated base was accepted")
 	}
 }
+
+func TestFingerprintHandlesChangesLargerThanAnOutputLimit(t *testing.T) {
+	root := fixture(t)
+	r := runner(t)
+	ctx := context.Background()
+	line := strings.Repeat("0123456789abcdef", 8) + "\n"
+	// About 10 MB staged and another change unstaged: past the 8 MB cap collected output has.
+	if err := os.WriteFile(filepath.Join(root, "large.txt"), []byte(strings.Repeat(line, 80000)), 0600); err != nil {
+		t.Fatal(err)
+	}
+	gitFixture(t, root, "add", "large.txt")
+	if err := os.WriteFile(filepath.Join(root, "tracked.txt"), []byte("changed\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	first, err := r.Snapshot(ctx, []Workspace{{RepositoryID: "repo", Root: root}})
+	if err != nil {
+		t.Fatal("large change could not be fingerprinted:", err)
+	}
+	again, err := r.Snapshot(ctx, []Workspace{{RepositoryID: "repo", Root: root}})
+	if err != nil || again.Combined != first.Combined {
+		t.Fatalf("fingerprint not stable: %v", err)
+	}
+	if err = os.WriteFile(filepath.Join(root, "tracked.txt"), []byte("changed again\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	changed, err := r.Snapshot(ctx, []Workspace{{RepositoryID: "repo", Root: root}})
+	if err != nil || changed.Combined == first.Combined {
+		t.Fatalf("fingerprint missed a change: %v", err)
+	}
+}

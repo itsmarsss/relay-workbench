@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -57,6 +58,22 @@ func (r Runner) git(ctx context.Context, cwd string, args ...string) (string, er
 		return "", errors.New("git output is not valid UTF-8")
 	}
 	return result.Stdout, nil
+}
+
+// gitInto runs git with its standard output streamed into sink rather than collected, for
+// output that is only folded (hashed) and may be far larger than a preview limit.
+func (r Runner) gitInto(ctx context.Context, cwd string, sink io.Writer, args ...string) error {
+	if len(args) == 0 {
+		return errors.New("git operation required")
+	}
+	result, err := process.Run(ctx, process.Options{WorkerExecutable: r.WorkerExecutable, WorkerArgs: r.WorkerArgs, Command: "git", Args: append([]string{"-C", cwd}, args...), Directory: cwd, Environment: r.Environment, Timeout: 10 * time.Minute, MaxOutputBytes: 1024 * 1024, StdoutSink: sink})
+	if err != nil {
+		return fmt.Errorf("git %s in %s: %w", args[0], cwd, err)
+	}
+	if result.ExitCode != 0 {
+		return fmt.Errorf("git %s failed: %s", args[0], strings.TrimSpace(result.Stderr))
+	}
+	return nil
 }
 func (r Runner) Inspect(ctx context.Context, profile Profile) (Info, error) {
 	if !filepath.IsAbs(profile.Path) {
@@ -304,12 +321,12 @@ func (r Runner) singleFingerprint(ctx context.Context, entry Workspace) (string,
 		return "", err
 	}
 	_, _ = hash.Write([]byte(strings.TrimRight(head, "\r\n")))
+	// The diffs are hashed as they stream, so a large change (a merge of a busy mainline, say)
+	// costs time, not a failure. The bytes hashed are the same as when they were collected.
 	for _, args := range [][]string{{"diff", "--binary", "HEAD", "--"}, {"diff", "--cached", "--binary", "--"}} {
-		output, err := r.git(ctx, root, args...)
-		if err != nil {
+		if err := r.gitInto(ctx, root, hash, args...); err != nil {
 			return "", err
 		}
-		_, _ = hash.Write([]byte(output))
 	}
 	output, err := r.git(ctx, root, "ls-files", "--others", "--exclude-standard", "-z")
 	if err != nil {

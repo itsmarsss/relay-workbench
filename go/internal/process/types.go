@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"relay.local/relay/internal/runtimebudget"
 	"sync/atomic"
@@ -52,6 +53,10 @@ type Options struct {
 	TerminationGrace time.Duration
 	MaxOutputBytes   int
 	OnLine           func(ctx context.Context, line, stream string) error
+	// StdoutSink, when set, receives standard output as it arrives instead of it being kept in
+	// the result. It is not bounded by MaxOutputBytes, which then bounds standard error only,
+	// so a caller that only needs to fold the output (a hash) can read any amount of it.
+	StdoutSink io.Writer
 }
 type Result struct {
 	ExitCode       int
