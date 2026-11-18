@@ -24,6 +24,7 @@ import { TaskPanel } from './TaskPanel';
 import { asObject, asText, currentBlocker, latestPlan } from './task-data';
 import { isTask, statusLabel, taskViews, type Task, type TaskView } from './types';
 import { Icon } from './Icons';
+import type { BlockerResolution } from './api';
 import { taskLane } from './board';
 type Details = Task &
   Record<string, unknown> & {
@@ -176,7 +177,7 @@ export function TaskPage({
     id: string,
     taskRevision: string,
     decisionId: string,
-    resolution: 'retry' | 'replan' | 'pause',
+    resolution: BlockerResolution,
     optionId: string,
     note: string,
   ) => Promise<Task>;
@@ -321,7 +322,7 @@ export function TaskPage({
       setBusy(false);
     }
   }
-  async function resolveDecision(resolution: 'retry' | 'replan' | 'pause') {
+  async function resolveDecision(resolution: BlockerResolution) {
     const blocker = task ? currentBlocker(task) : null;
     if (!task || !task.taskRevision || !blocker || busy) return;
     setBusy(true);
@@ -553,7 +554,9 @@ export function TaskPage({
               {debugRecoveryPreview ? (
                 <div className="blocker-actions">
                   <label>
-                    Direction (optional)
+                    {task.stage === 'verify'
+                      ? 'Direction (to mark a failed check environmental, say why)'
+                      : 'Direction (optional)'}
                     <textarea
                       value={blockerNote}
                       onChange={(event) => setBlockerNote(event.target.value)}
@@ -575,6 +578,19 @@ export function TaskPage({
                         onClick={() => void resolveDecision('replan')}
                       >
                         Revise approach
+                      </button>
+                    )}
+                    {task.stage === 'verify' && (
+                      <button
+                        disabled={busy || !task.taskRevision || blockerNote.trim().length < 10}
+                        title={
+                          blockerNote.trim().length < 10
+                            ? 'Say in the direction box why the failure is environmental, for example that it fails on main too'
+                            : 'Waive the failed check and send the work to independent review'
+                        }
+                        onClick={() => void resolveDecision('environmental')}
+                      >
+                        Environmental, continue to review
                       </button>
                     )}
                     <button

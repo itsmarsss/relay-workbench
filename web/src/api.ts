@@ -104,12 +104,14 @@ export async function importIssue(
     warnings: result.warnings,
   };
 }
+// environmental: a person attests that a failed verification check is not caused by the change.
+export type BlockerResolution = 'retry' | 'replan' | 'pause' | 'environmental';
 export async function resolveBlocker(
   token: string,
   id: string,
   taskRevision: string,
   decisionId: string,
-  resolution: 'retry' | 'replan' | 'pause',
+  resolution: BlockerResolution,
   optionId: string,
   note: string,
 ): Promise<Task> {

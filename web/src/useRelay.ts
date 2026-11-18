@@ -9,6 +9,7 @@ import {
   saveConfig,
   taskAction,
   resolveBlocker,
+  type BlockerResolution,
 } from './api';
 import type { Bootstrap, ImportedIssue, RelayConfig, Task } from './types';
 
@@ -143,7 +144,7 @@ export function useRelay() {
     id: string,
     taskRevision: string,
     decisionId: string,
-    resolution: 'retry' | 'replan' | 'pause',
+    resolution: BlockerResolution,
     optionId: string,
     note: string,
   ): Promise<Task> {

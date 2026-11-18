@@ -713,8 +713,11 @@ func (c *Coordinator) Resolve(ctx context.Context, id, revision, decisionID, res
 	if err := c.waitAtGate(ctx, id, "blocked"); err != nil {
 		return nil, err
 	}
-	if resolution != "retry" && resolution != "replan" && resolution != "pause" {
+	if resolution != "retry" && resolution != "replan" && resolution != "pause" && resolution != "environmental" {
 		return nil, errors.New("choose a valid blocker resolution")
+	}
+	if resolution == "environmental" && len(strings.TrimSpace(note)) < 10 {
+		return nil, errors.New("say why the failure is environmental (for example, it fails on main too)")
 	}
 	if len(utf16.Encode([]rune(note))) > 10000 || strings.ContainsRune(note, '\x00') {
 		return nil, errors.New("blocker direction is too long or invalid")
@@ -808,12 +811,37 @@ func (c *Coordinator) Resolve(ctx context.Context, id, revision, decisionID, res
 			return nil, err
 		}
 	}
+	// A person can attest that a failed check is the environment's, not the change's (it fails
+	// on the mainline too, a local service is missing). The verified work goes on to independent
+	// review with that note attached; the waiver is recorded and final acceptance stays human.
+	var waiver map[string]any
+	if resolution == "environmental" {
+		if text(value["stage"]) != "verify" {
+			return nil, errors.New("only a blocked verification can be marked environmental")
+		}
+		attempts := array(value["attempts"])
+		var last map[string]any
+		for i := len(attempts) - 1; i >= 0; i-- {
+			if candidate := object(attempts[i]); text(candidate["stage"]) == "verify" {
+				last = candidate
+				break
+			}
+		}
+		fingerprint := text(last["afterFingerprint"])
+		if fingerprint == "" || text(last["beforeFingerprint"]) != fingerprint {
+			return nil, errors.New("the last verification did not leave a stable workspace to review; retry it instead")
+		}
+		waiver = map[string]any{"type": "verification_waiver", "source": "user", "at": timestamp(time.Now()), "fingerprint": fingerprint, "attemptId": last["id"], "note": strings.TrimSpace(note)}
+	}
 	decision["resolved"], decision["resolution"] = true, resolution
 	value["loopGuardAcknowledgedAt"], value["loopGuard"] = len(array(value["attempts"])), nil
 	value["debugVerificationRequests"] = nil
 	direction := strings.TrimSpace(note)
 	if selected != nil {
 		direction = fmt.Sprintf("Debugger direction selected: %s. %s Tradeoffs: %s. %s", text(selected["title"]), text(selected["description"]), text(selected["tradeoffs"]), direction)
+	}
+	if waiver != nil {
+		direction = "A person marked the failed verification check as environmental, not caused by this change: " + direction + " Review the change on its merits; do not rerun the waived check."
 	}
 	if direction != "" {
 		messageID, err := stageUUID()
@@ -823,6 +851,10 @@ func (c *Coordinator) Resolve(ctx context.Context, id, revision, decisionID, res
 		value["messages"] = append(array(value["messages"]), map[string]any{"id": messageID, "at": timestamp(time.Now()), "role": "user", "text": direction, "delivery": "pending"})
 	}
 	switch resolution {
+	case "environmental":
+		value["approvals"] = append(array(value["approvals"]), waiver)
+		value["verifiedFingerprint"], value["stage"], value["status"], value["repositoryCursor"] = waiver["fingerprint"], "review", "queued", 0
+		value["recovery"], value["error"] = nil, nil
 	case "pause":
 		value["status"] = "paused"
 	case "replan":
