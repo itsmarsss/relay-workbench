@@ -443,7 +443,7 @@ export function TaskPage({
           {asObject(task.migration)?.readOnly !== true && <AutoControl task={task as FullTask} />}
           {asText(task.workspaceRoot) && !['running', 'queued', 'manual'].includes(task.status) && (
             <button
-              title="Open Claude in this task’s worktree, briefed on the task"
+              title="Open an agent or a shell in this task’s worktree, briefed on the task"
               onClick={() => {
                 try {
                   sessionStorage.setItem('relay-open-agent', task.id);
@@ -452,7 +452,7 @@ export function TaskPage({
               }}
             >
               <Icon name="terminal" size={15} />
-              Claude
+              Agent terminal
             </button>
           )}
           <SideChat taskId={task.id} />

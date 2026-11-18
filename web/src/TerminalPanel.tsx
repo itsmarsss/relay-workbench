@@ -376,7 +376,20 @@ function AgentLive({ taskId, attemptId }: { taskId: string; attemptId: string })
     </div>
   );
 }
+const lastAgentKey = 'relay-terminal-agent';
+function lastAgent() {
+  try {
+    return localStorage.getItem(lastAgentKey) || '';
+  } catch {
+    return '';
+  }
+}
 export function TerminalPanel({ taskId }: { taskId: string }) {
+  const { bootstrap } = useSession(),
+    // Every agent enabled in Settings can open in a terminal, plus a plain shell.
+    agents = ['claude', 'codex', 'pi'].filter(
+      (name) => asObject(asObject(bootstrap?.config.harnesses)?.[name])?.enabled === true,
+    );
   const current = useResource<FullTask>(`/api/tasks/${taskId}`),
     live = useResource<LiveTerminal>(`/api/tasks/${taskId}/terminal`),
     mutation = useMutation();
@@ -415,12 +428,21 @@ export function TerminalPanel({ taskId }: { taskId: string }) {
     !terminal;
   // Extra terminals open beside the first once a person has control.
   const canAdd = Boolean(terminal?.interactive && windows);
-  async function act(operation: string) {
+  async function act(operation: string, chosen = provider) {
     const latest = await request<FullTask>(`/api/tasks/${taskId}`);
+    if (operation === 'agent-terminal' || operation === 'takeover')
+      try {
+        localStorage.setItem(lastAgentKey, chosen);
+      } catch {}
     await mutation.run(`/api/tasks/${taskId}/${operation}`, {
       taskRevision: latest.taskRevision,
       ...(operation === 'takeover' || operation === 'agent-terminal'
-        ? { provider, model, effort, repositoryId: repositoryId || asObject(latest.repository)?.id }
+        ? {
+            provider: chosen,
+            model: chosen === provider ? model : '',
+            effort: chosen === provider ? effort : '',
+            repositoryId: repositoryId || asObject(latest.repository)?.id,
+          }
         : { session: terminal?.session }),
     });
     setOpening('');
@@ -436,7 +458,14 @@ export function TerminalPanel({ taskId }: { taskId: string }) {
     try {
       sessionStorage.removeItem('relay-open-agent');
     } catch {}
-    if (canOpenAgent) void act('agent-terminal').catch(() => {});
+    if (canOpenAgent) {
+      const remembered = lastAgent();
+      setProvider(remembered === '' || agents.includes(remembered) ? remembered : agents[0] || '');
+      setModel('');
+      setEffort('');
+      setMode('agent');
+      setOpening('control');
+    }
   }, [taskId, !!task, live.loading, canOpenAgent]);
   async function windowAction(body: Record<string, unknown>) {
     await mutation.run(`/api/tasks/${taskId}/terminal-window`, {
@@ -600,19 +629,18 @@ export function TerminalPanel({ taskId }: { taskId: string }) {
           </p>
           {asText(task?.workspaceRoot) && (
             <div className="inline">
-              {canOpenAgent && (
-                <button
-                  className="primary"
-                  disabled={mutation.busy}
-                  onClick={() => {
-                    setProvider('claude');
-                    void act('agent-terminal').catch(() => {});
-                  }}
-                >
-                  <ProviderIcon provider="claude" size={16} />
-                  Open Claude
-                </button>
-              )}
+              {canOpenAgent &&
+                agents.map((name, index) => (
+                  <button
+                    key={name}
+                    className={index === 0 ? 'primary' : undefined}
+                    disabled={mutation.busy}
+                    onClick={() => void act('agent-terminal', name).catch(() => {})}
+                  >
+                    <ProviderIcon provider={name} size={16} />
+                    Open {providerName(name)}
+                  </button>
+                ))}
               {add}
             </div>
           )}
@@ -704,7 +732,7 @@ export function TerminalPanel({ taskId }: { taskId: string }) {
               }}
               options={[
                 { value: '', label: 'Shell' },
-                ...['codex', 'claude', 'pi'].map((value) => ({
+                ...agents.map((value) => ({
                   value,
                   label: providerName(value),
                   icon: <ProviderIcon provider={value} size={22} />,
