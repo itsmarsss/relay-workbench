@@ -303,6 +303,12 @@ let input='';process.stdin.on('data',d=>input+=d);process.stdin.on('end',()=>{
   await page.getByRole('textbox', { name: 'Ask Relay about this task' }).fill('Inspect this task');
   await page.getByRole('textbox', { name: 'Ask Relay about this task' }).press('Enter');
   await page.getByText('Finished answer', { exact: true }).waitFor();
+  // A second conversation on the task: the dock's switcher reaches the first one again.
+  await page.getByRole('button', { name: 'New side conversation' }).click();
+  await page.getByText('Finished answer', { exact: true }).waitFor({ state: 'detached' });
+  await page.getByRole('button', { name: /^Conversation: / }).click();
+  await page.getByRole('option', { name: /Inspect this task/ }).click();
+  await page.getByText('Finished answer', { exact: true }).waitFor();
   await page.getByRole('button', { name: 'Activity', exact: true }).click();
   assert.match(page.url(), /ask=1/);
   // The conversation is a column beside the page: dragging its edge widens it and the page yields.

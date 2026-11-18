@@ -371,7 +371,22 @@ export function ChatPanel({
       <div className="chat-conversation">
         <header className="chat-header">
           <div>
-            {compact ? (
+            {compact && (list.data?.length || 0) > 1 ? (
+              // The dock has no chat list beside it: switch between this task's (or the
+              // workspace's) conversations here.
+              <div className="chat-switcher">
+                <Select
+                  label="Conversation"
+                  value={selected}
+                  options={(list.data || []).map((row) => ({
+                    value: row.id,
+                    label: row.name,
+                    detail: `${row.mode === 'operator' ? 'Operator' : 'Ask'} · ${ago(row.updatedAt)}`,
+                  }))}
+                  onChange={choose}
+                />
+              </div>
+            ) : compact ? (
               <h2>{current?.name || (taskId ? 'Ask Relay' : 'Relay')}</h2>
             ) : (
               <h1>{current?.name || 'Relay'}</h1>

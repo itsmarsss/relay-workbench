@@ -256,3 +256,18 @@ func TestEnvironmentalWaiverSendsVerifiedWorkToReview(t *testing.T) {
 		t.Fatal("waiver was not recorded")
 	}
 }
+
+func TestOperatorReservationWaitsForNothingWithoutAWorkspace(t *testing.T) {
+	c, db, id, _ := coordinatorFixture(t, "exit 0")
+	release, err := c.ReserveWorkspace(context.Background(), id)
+	if err != nil {
+		t.Fatalf("a task without a workspace could not host an operator: %v", err)
+	}
+	release()
+	value := coordinatorTask(t, db, id)
+	value["status"] = "running"
+	saved(t, db, value)
+	if _, err = c.ReserveWorkspace(context.Background(), id); err == nil {
+		t.Fatal("an operator was let into a running task")
+	}
+}

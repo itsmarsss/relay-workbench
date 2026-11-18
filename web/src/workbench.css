@@ -4570,3 +4570,18 @@ main > .relay-conversations {
   outline: 2px solid var(--focus);
   outline-offset: 1px;
 }
+
+/* Conversation switcher in the compact chat dock: as wide as the title it replaces. */
+.chat-switcher {
+  min-width: 0;
+  max-width: 100%;
+}
+.chat-switcher .select-trigger {
+  max-width: 100%;
+  font-weight: 600;
+}
+.chat-switcher .select-value {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

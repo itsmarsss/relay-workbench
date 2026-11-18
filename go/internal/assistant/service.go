@@ -451,7 +451,7 @@ func (s *Service) Send(id string, body map[string]any) (Chat, error) {
 			}
 		}
 		c.Messages = append(c.Messages, message)
-		if c.Name == "New conversation" {
+		if c.Name == "New conversation" || c.Name == "New operator chat" {
 			c.Name = string([]rune(q)[:min(50, len([]rune(q)))])
 		}
 		return nil

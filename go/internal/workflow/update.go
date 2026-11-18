@@ -616,6 +616,14 @@ func (c *Coordinator) ReserveWorkspace(ctx context.Context, id string) (func(), 
 	if status := text(value["status"]); status == "running" || status == "queued" || status == "manual" {
 		return nil, errors.New("this task is " + status + "; pause it or close its terminal before the operator edits its workspace")
 	}
+	// No checkout yet (a draft, a simulated task): there is nothing to hold, and the operator
+	// works from its own directory.
+	if value["demo"] == true {
+		return func() {}, nil
+	}
+	if _, err := stageWorkspaces(value); err != nil {
+		return func() {}, nil
+	}
 	lease, _, err := c.reserveRepositories(ctx, id)
 	if err != nil {
 		return nil, err
