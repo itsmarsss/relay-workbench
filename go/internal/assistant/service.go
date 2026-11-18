@@ -50,6 +50,8 @@ type Chat struct {
 	ID        string    `json:"id"`
 	Name      string    `json:"name"`
 	TaskID    string    `json:"taskId,omitempty"`
+	Mode      string    `json:"mode,omitempty"`
+	SessionID string    `json:"sessionId,omitempty"`
 	Revision  int       `json:"revision"`
 	CreatedAt string    `json:"createdAt"`
 	UpdatedAt string    `json:"updatedAt"`
@@ -221,6 +223,14 @@ func (s *Service) update(id string, fn func(*Chat) error) (Chat, error) {
 	return result, err
 }
 func (s *Service) Create(name, taskID string) (Chat, error) {
+	return s.CreateMode(name, taskID, "")
+}
+
+// CreateMode starts a conversation; mode "operator" is the working agent (see operator.go).
+func (s *Service) CreateMode(name, taskID, mode string) (Chat, error) {
+	if mode != "" && mode != operatorMode {
+		return Chat{}, errors.New("unknown conversation mode")
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.closed {
@@ -244,7 +254,7 @@ func (s *Service) Create(name, taskID string) (Chat, error) {
 	if len(all) >= 100 {
 		return Chat{}, errors.New("conversation limit reached")
 	}
-	c := Chat{ID: uuid(), Name: name, TaskID: taskID, Revision: 1, CreatedAt: now(), UpdatedAt: now(), Messages: []Message{}}
+	c := Chat{ID: uuid(), Name: name, TaskID: taskID, Mode: mode, Revision: 1, CreatedAt: now(), UpdatedAt: now(), Messages: []Message{}}
 	raw, _ := json.Marshal(c)
 	err = s.Store.SetMeta("assistant:chat:"+c.ID, string(raw))
 	if err == nil {
@@ -262,10 +272,10 @@ func (s *Service) Handle(ctx context.Context, method, id, operation string, body
 			return rows, err
 		}
 		if method == "POST" {
-			if err := checkFields(body, "name", "taskId"); err != nil {
+			if err := checkFields(body, "name", "taskId", "mode"); err != nil {
 				return nil, err
 			}
-			return s.Create(text(body["name"]), text(body["taskId"]))
+			return s.CreateMode(text(body["name"]), text(body["taskId"]), text(body["mode"]))
 		}
 		return nil, errors.New("unsupported conversation method")
 	}
@@ -377,6 +387,11 @@ func (s *Service) Send(id string, body map[string]any) (Chat, error) {
 	if agent["enabled"] != true || text(agent["command"]) == "" {
 		return Chat{}, errors.New("enable the selected provider in Settings")
 	}
+	if current, err := s.Get(id); err != nil {
+		return Chat{}, err
+	} else if current.Mode == operatorMode && provider != "claude" {
+		return Chat{}, errors.New("the operator runs on Claude; choose Claude for this conversation")
+	}
 	model := text(body["model"])
 	if model == "" && provider == text(settings["provider"]) {
 		model = text(settings["model"])
@@ -476,6 +491,9 @@ func (s *Service) Send(id string, body map[string]any) (Chat, error) {
 	return chat, nil
 }
 func (s *Service) respond(ctx context.Context, chat Chat, message Message, config harness.Config) error {
+	if chat.Mode == operatorMode {
+		return s.respondOperator(ctx, chat, message, config)
+	}
 	directory, err := os.MkdirTemp("", "relay-assistant-")
 	if err != nil {
 		return err

@@ -46,7 +46,10 @@ func (s *Service) runChat(ctx context.Context, command string, args []string, di
 func (s *Service) chatTools(chat Chat) []tool {
 	result := []tool{}
 	for _, t := range tools() {
-		if chat.TaskID != "" && (strings.HasPrefix(t.Name, "propose_") || t.Name == "create_draft") {
+		if t.Name == "run_task_action" && chat.Mode != operatorMode {
+			continue
+		}
+		if chat.TaskID != "" && (strings.HasPrefix(t.Name, "propose_") || t.Name == "create_draft" && chat.Mode != operatorMode) {
 			continue
 		}
 		result = append(result, t)

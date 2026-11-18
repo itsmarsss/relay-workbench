@@ -12,7 +12,6 @@ import (
 	"net"
 	"net/http"
 	"os"
-	"strings"
 	"time"
 )
 
@@ -78,16 +77,7 @@ func (s *Service) rpc(ctx context.Context, chat Chat, r rpcRequest) (any, error)
 	case "ping", "notifications/initialized":
 		return map[string]any{}, nil
 	case "tools/list":
-		definitions := tools()
-		if chat.TaskID != "" {
-			filtered := []tool{}
-			for _, t := range definitions {
-				if !strings.HasPrefix(t.Name, "propose_") && t.Name != "create_draft" {
-					filtered = append(filtered, t)
-				}
-			}
-			definitions = filtered
-		}
+		definitions := s.chatTools(chat)
 		return map[string]any{"tools": definitions}, nil
 	case "tools/call":
 		args := obj(r.Params["arguments"])

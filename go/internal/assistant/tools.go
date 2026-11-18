@@ -58,6 +58,7 @@ func tools() []tool {
 		makeTool("search", "Search a literal string in a narrow prepared source directory.", map[string]any{"taskId": str, "repositoryId": str, "path": str, "text": str}, "repositoryId", "text"),
 		makeTool("git_inspect", "Read worktree status, diff or recent history; no arbitrary arguments.", map[string]any{"taskId": str, "repositoryId": str, "operation": map[string]any{"enum": []string{"status", "diff", "log"}}, "path": str}, "repositoryId", "operation"),
 		makeTool("github_read", "Read GitHub issue, PR, checks, diff, search or relative REST GET with host authentication. Never writes.", map[string]any{"operation": map[string]any{"enum": []string{"issue", "pull_request", "checks", "diff", "search_issues", "search_prs", "api_get"}}, "repository": str, "number": map[string]any{"type": "integer", "minimum": 1}, "query": str, "endpoint": str}, "operation"),
+		makeTool("run_task_action", "Operator chats only: act on a Relay task as the person could from its page. Start, resume or retry, pause, follow up on an accepted task, send direction (message), request changes, check its pull request now, or update its branch with main (update_branch merges and pushes a clean merge; conflicts are resolved and wait for push_update or discard_update). Plan approval and final acceptance stay with the person.", map[string]any{"taskId": str, "action": map[string]any{"enum": []string{"start", "resume", "retry", "pause", "followup", "message", "request_changes", "check_pull_request", "update_branch", "push_update", "discard_update"}}, "message": str, "repositoryId": str}, "action"),
 		makeTool("create_draft", "Create an unstarted task draft if permitted. Read issue context and reuse existing tickets.", map[string]any{"task": map[string]any{"type": "object", "additionalProperties": true}}, "task"),
 		makeTool("propose_task_change", "Persist an exact task action for separate human approval. Never applies it. Settings, direction, workflow, publication and PR feedback controls are supported.", map[string]any{"taskId": str, "operation": map[string]any{"enum": []string{"edit", "start", "resume", "pause", "approve", "accept", "resolve", "automation", "checkpoint", "message", "request-changes", "replan", "publish", "publication", "feedback", "monitor", "followup", "review-comment", "recreate", "cleanup", "delete"}}, "body": map[string]any{"type": "object", "additionalProperties": true}, "reason": str}, "taskId", "operation", "body", "reason"),
 		makeTool("propose_storage_change", "Propose a complete storage policy replacement for separate human approval; read_storage first.", map[string]any{"policy": map[string]any{"type": "object", "additionalProperties": true}, "reason": str}, "policy", "reason"),
@@ -78,7 +79,7 @@ func (s *Service) context(chat Chat, message Message) ([]byte, error) {
 	}
 	settings := obj(config["workspaceAgent"])
 	permissions := obj(settings["permissions"])
-	result := map[string]any{"capturedAt": now(), "taskId": chat.TaskID, "permissions": permissions, "readOnly": chat.TaskID != "", "memoryRules": memory.Rules, "capabilities": []string{"read_task", "read_task_activity", "read_task_history", "read_task_changes", "read_source", "github_read", "create_draft", "propose_task_change", "propose_config_change"}}
+	result := map[string]any{"capturedAt": now(), "taskId": chat.TaskID, "permissions": permissions, "readOnly": chat.TaskID != "" && chat.Mode != operatorMode, "memoryRules": memory.Rules, "capabilities": []string{"read_task", "read_task_activity", "read_task_history", "read_task_changes", "read_source", "github_read", "create_draft", "propose_task_change", "propose_config_change"}}
 	if permissions["readSettings"] == true {
 		result["configuration"] = config
 	}
@@ -383,7 +384,7 @@ func (s *Service) call(ctx context.Context, chat Chat, name string, input map[st
 		}
 		return rows, nil
 	case "create_draft":
-		if chat.TaskID != "" || permissions["createDrafts"] != true {
+		if chat.Mode != operatorMode && (chat.TaskID != "" || permissions["createDrafts"] != true) {
 			return nil, errors.New("draft creation is not permitted in this conversation")
 		}
 		draft := obj(input["task"])
@@ -419,6 +420,8 @@ func (s *Service) call(ctx context.Context, chat Chat, name string, input map[st
 			return nil, errors.New("proposal permission is disabled")
 		}
 		return s.propose(chat, name, input)
+	case "run_task_action":
+		return s.taskAction(ctx, chat, input)
 	case "github_read":
 		return s.github(ctx, input)
 	default:

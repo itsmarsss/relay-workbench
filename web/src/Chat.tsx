@@ -41,11 +41,21 @@ type Chat = {
   id: string;
   name: string;
   taskId?: string;
+  // operator: the working agent with shell, files, git and Relay task actions; otherwise Ask Relay.
+  mode?: string;
   revision: number;
   updatedAt?: string;
   messages: Message[];
   proposals?: Proposal[];
 };
+type ChatMode = 'ask' | 'operator';
+function rememberedMode(): ChatMode {
+  try {
+    return localStorage.getItem('relay-chat-mode') === 'ask' ? 'ask' : 'operator';
+  } catch {
+    return 'operator';
+  }
+}
 function requestedChat() {
   try {
     return new URLSearchParams(location.hash.split('?')[1]).get('chat') || '';
@@ -89,7 +99,8 @@ export function ChatPanel({
     [deleting, setDeleting] = useState<Chat | null>(null),
     [provider, setProvider] = useState(''),
     [model, setModel] = useState(''),
-    [effort, setEffort] = useState('');
+    [effort, setEffort] = useState(''),
+    [newMode, setNewMode] = useState<ChatMode>(rememberedMode);
   const chat = useResource<Chat>(selected ? `/api/chats/${selected}` : null),
     scroll = useRef<HTMLDivElement>(null),
     textarea = useRef<HTMLTextAreaElement>(null),
@@ -109,7 +120,15 @@ export function ChatPanel({
           selectedProvider,
       );
   const current = chat.data?.id === selected ? chat.data : null,
-    running = current?.messages?.some((m) => m.status === 'running');
+    running = current?.messages?.some((m) => m.status === 'running'),
+    // The open conversation's mode; before one exists, the mode a new one will get.
+    operator = current ? current.mode === 'operator' : newMode === 'operator',
+    // The operator runs on Claude, whatever the chat agent setting says.
+    sendProvider = operator ? 'claude' : selectedProvider;
+  const shownModel =
+    operator && selectedProvider !== 'claude'
+      ? String(asObject(asObject(bootstrap?.config.harnesses)?.claude)?.model || 'claude')
+      : displayModel;
   const uploads = useImageUpload((text) => setDraft((value) => value + text));
   const mentionID = useId();
   const chatNavigationID = useId();
@@ -195,9 +214,13 @@ export function ChatPanel({
     if (persistSelection) setChatURL(id);
     setChatListOpen(false);
   }
-  async function create() {
+  async function create(mode: ChatMode = newMode) {
     try {
-      const value = await mutation.run<Chat>('/api/chats', { taskId, name: 'New conversation' });
+      const value = await mutation.run<Chat>('/api/chats', {
+        taskId,
+        name: mode === 'operator' ? 'New operator chat' : 'New conversation',
+        mode: mode === 'operator' ? 'operator' : '',
+      });
       await list.refresh();
       choose(value.id);
       return value;
@@ -220,9 +243,9 @@ export function ChatPanel({
         question: draft,
         mentions,
         ...(editing ? { revisionOf: editing } : {}),
-        provider: selectedProvider,
-        model,
-        effort,
+        provider: sendProvider,
+        model: operator && provider && provider !== 'claude' ? '' : model,
+        effort: operator && provider && provider !== 'claude' ? '' : effort,
       });
       setDraft('');
       setEditing('');
@@ -230,6 +253,13 @@ export function ChatPanel({
       await chat.refresh();
       await list.refresh();
     } catch {}
+  }
+  function switchMode(mode: ChatMode) {
+    setNewMode(mode);
+    try {
+      localStorage.setItem('relay-chat-mode', mode);
+    } catch {}
+    if (current && (current.mode === 'operator') !== (mode === 'operator')) void create(mode);
   }
   function mention(task: Task) {
     const before = draft.slice(0, cursor);
@@ -346,9 +376,34 @@ export function ChatPanel({
             ) : (
               <h1>{current?.name || 'Relay'}</h1>
             )}
-            {taskId && <span className="task-status">Read only</span>}
           </div>
           <div className="inline">
+            <div className="chat-mode" role="group" aria-label="Conversation mode">
+              <button
+                type="button"
+                aria-pressed={!operator}
+                title={
+                  taskId
+                    ? 'Read-only questions; the pipeline keeps running'
+                    : 'Questions and proposals; nothing changes without your approval'
+                }
+                onClick={() => switchMode('ask')}
+              >
+                Ask
+              </button>
+              <button
+                type="button"
+                aria-pressed={operator}
+                title={
+                  taskId
+                    ? 'Works in this task’s workspace: edits, checks, git, and Relay actions'
+                    : 'Does the work: shell, files, git, your tools, and Relay task actions'
+                }
+                onClick={() => switchMode('operator')}
+              >
+                Operator
+              </button>
+            </div>
             {compact && (
               <button
                 className="icon-button"
@@ -360,11 +415,11 @@ export function ChatPanel({
             )}
             <button
               className="text-button chat-model-button"
-              title={displayModel}
+              title={shownModel}
               onClick={() => setSettings(true)}
             >
-              <ProviderIcon provider={selectedProvider} size={20} />
-              <span>{displayModel}</span>
+              <ProviderIcon provider={sendProvider} size={20} />
+              <span>{shownModel}</span>
               <Icon name="chevron" size={14} />
             </button>
           </div>
@@ -379,17 +434,48 @@ export function ChatPanel({
         >
           {(!current || current.messages.length === 0) && (
             <div className="chat-welcome">
-              <h2>{taskId ? 'Ask about this task' : 'What are we working on?'}</h2>
+              <h2>
+                {operator
+                  ? taskId
+                    ? 'What should I do on this task?'
+                    : 'What should I get done?'
+                  : taskId
+                    ? 'Ask about this task'
+                    : 'What are we working on?'}
+              </h2>
               {taskId && (
-                <p>Inspect the task and its worktree without interrupting the pipeline.</p>
+                <p>
+                  {operator
+                    ? 'The operator works directly in this task’s workspace while Relay holds its stages. It can update the branch, run checks and start work; you still approve plans and accept results.'
+                    : 'Inspect the task and its worktree without interrupting the pipeline.'}
+                </p>
               )}
-              {!taskId && (
+              {!taskId && operator && (
+                <p>
+                  Your agent with its usual tools, plus Relay: it can fix things directly or start,
+                  retry and update tasks. It asks before posting to pull requests.
+                </p>
+              )}
+              {(!taskId || operator) && (
                 <div className="chat-starters">
-                  {[
-                    'What needs my attention?',
-                    'Check the active workflows',
-                    'Help me plan my next task',
-                  ].map((text) => (
+                  {(operator
+                    ? taskId
+                      ? [
+                          'Update this branch with main',
+                          'Why is this task stuck?',
+                          'Fix the failing check',
+                        ]
+                      : [
+                          'What needs my attention?',
+                          'Update branches that are behind main',
+                          'Retry tasks blocked by flaky checks',
+                        ]
+                    : [
+                        'What needs my attention?',
+                        'Check the active workflows',
+                        'Help me plan my next task',
+                      ]
+                  ).map((text) => (
                     <button
                       key={text}
                       onClick={() => {
@@ -598,7 +684,15 @@ export function ChatPanel({
               aria-activedescendant={
                 suggestions[activeMention] ? `${mentionID}-${activeMention}` : undefined
               }
-              placeholder={taskId ? 'Ask about this task…' : 'Message Relay · @ to mention a task'}
+              placeholder={
+                operator
+                  ? taskId
+                    ? 'Tell the operator what to do on this task…'
+                    : 'Tell the operator what to do · @ to mention a task'
+                  : taskId
+                    ? 'Ask about this task…'
+                    : 'Message Relay · @ to mention a task'
+              }
               value={draft}
               onChange={(e) => {
                 setMentionOpen(true);
@@ -664,9 +758,11 @@ export function ChatPanel({
           <div className="composer-meta">
             {uploads.control}
             <small className="composer-hint">
-              {taskId
-                ? 'Read only · Your pipeline keeps running'
-                : 'Enter to send · Shift+Enter for a new line'}
+              {operator
+                ? 'Operator · Runs on Claude with your tools · Enter to send'
+                : taskId
+                  ? 'Read only · Your pipeline keeps running'
+                  : 'Enter to send · Shift+Enter for a new line'}
             </small>
           </div>
         </form>

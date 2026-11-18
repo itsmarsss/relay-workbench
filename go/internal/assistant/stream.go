@@ -15,6 +15,7 @@ type stream struct {
 	save        func(string, []ToolCall) error
 	failure     string
 	piCompleted bool
+	sessionID   string
 }
 
 func newStream(save func(string, []ToolCall) error) *stream {
@@ -83,6 +84,9 @@ func (s *stream) consume(line string) error {
 	var event map[string]any
 	if json.Unmarshal([]byte(line), &event) != nil {
 		return nil
+	}
+	if id := text(event["session_id"]); id != "" && (event["type"] == "system" || event["type"] == "result") {
+		s.sessionID = id
 	}
 	switch event["type"] {
 	case "stream_event":
