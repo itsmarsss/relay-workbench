@@ -100,7 +100,7 @@ func (c *Coordinator) runMonitor(ctx context.Context, id, repositoryID, attemptI
 	defer func() {
 		c.mu.Lock()
 		if admitted {
-			c.active--
+			c.watching--
 		}
 		delete(c.jobs, id)
 		c.notifyLocked()
@@ -113,18 +113,8 @@ func (c *Coordinator) runMonitor(ctx context.Context, id, repositoryID, attemptI
 	repoLease, repoRoots, err := c.reserveRepositories(ctx, id)
 	if err == nil {
 		defer func() { repoLease.Release(); c.mu.Lock(); c.notifyLocked(); c.mu.Unlock() }()
-		settings, configErr := (task.ConfigurationService{Store: c.store}).Read()
-		if configErr != nil {
-			err = configErr
-		} else {
-			limit, _ := settings.Value["concurrency"].(float64)
-			if limit < 1 || limit > 8 {
-				err = errors.New("invalid concurrency")
-			} else {
-				err = c.acquire(ctx, int(limit))
-				admitted = err == nil
-			}
-		}
+		err = c.acquireWatch(ctx)
+		admitted = err == nil
 	}
 	if err == nil {
 		err = repoLease.Protect(id, repoRoots, func(verifyRepo func() error) error {

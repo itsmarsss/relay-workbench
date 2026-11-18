@@ -47,6 +47,7 @@ type Coordinator struct {
 	jobs        map[string]*coordinatorJob
 	scans       chan struct{}
 	active      int
+	watching    int
 	changed     chan struct{}
 	closed      bool
 	terminals   bool
@@ -1004,6 +1005,33 @@ func (c *Coordinator) acquire(ctx context.Context, limit int) error {
 		}
 		if c.active < limit {
 			c.active++
+			c.mu.Unlock()
+			return nil
+		}
+		changed := c.changed
+		c.mu.Unlock()
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-changed:
+		}
+	}
+}
+
+// Pull request checks only read: they get their own two slots instead of a work slot, so a poll
+// never holds up implementation or verification, which used to wait behind every check when
+// concurrency is 1.
+const monitorSlots = 2
+
+func (c *Coordinator) acquireWatch(ctx context.Context) error {
+	for {
+		c.mu.Lock()
+		if c.closed {
+			c.mu.Unlock()
+			return errors.New("Relay is shutting down")
+		}
+		if c.watching < monitorSlots {
+			c.watching++
 			c.mu.Unlock()
 			return nil
 		}
