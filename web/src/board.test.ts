@@ -1,5 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import type { Task } from './types.ts';
 import {
   boardFilters,
   taskLane,
@@ -168,4 +169,21 @@ test('placed cards keep their order and unplaced cards lead their stage', () => 
   // A card dragged in from another stage joins the target stage; its old stage is untouched.
   assert.deepEqual(placeCard(tasks, 'd', 'backlog', 'a'), ['c', 'b', 'd', 'a']);
   assert.deepEqual(placeCard(tasks, 'a', 'approach', 'd'), ['b', 'a', 'd']);
+});
+
+test('a completed task whose pull requests merged is finished', () => {
+  const base = { id: 't', title: 'T', status: 'completed' } as Task;
+  const pr = { url: 'u', number: '1', checks: '', review: '', checkedAt: '' };
+  assert.equal(taskLane({ ...base, pullRequests: [{ ...pr, state: 'merged' }] }), 'finished');
+  assert.equal(
+    taskLane({
+      ...base,
+      pullRequests: [
+        { ...pr, state: 'merged' },
+        { ...pr, state: 'open' },
+      ],
+    }),
+    'done',
+  );
+  assert.equal(taskLane(base), 'done');
 });

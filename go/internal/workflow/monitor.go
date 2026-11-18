@@ -314,6 +314,7 @@ func (c *Coordinator) monitorLoop() {
 			if json.Unmarshal(raw, &value) != nil {
 				continue
 			}
+			c.noteRemovedWorkspaces(value)
 			entries := array(value["repositories"])
 			if len(entries) <= 1 {
 				entries = []any{value}

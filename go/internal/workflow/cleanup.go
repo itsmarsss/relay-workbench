@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
 	"relay.local/relay/internal/store"
 	"time"
 
@@ -124,4 +126,74 @@ func (c *Coordinator) Cleanup(ctx context.Context, id string, body map[string]an
 	}
 	result["taskRevision"] = store.TaskRevision(raw)
 	return result, nil
+}
+
+// noteRemovedWorkspaces records a task checkout that was deleted outside Relay (by its owner's
+// own tooling, by hand, by an agent) as cleaned up, the way Relay's own cleanup records it, so the
+// task stops pointing at a directory that is gone. It only acts when the checkout's parent still
+// exists, so an unmounted volume is not mistaken for a removal, and never while Relay is working
+// on the task.
+func (c *Coordinator) noteRemovedWorkspaces(value map[string]any) {
+	id := text(value["id"])
+	if id == "" || value["demo"] == true || object(value["migration"])["readOnly"] == true {
+		return
+	}
+	if status := text(value["status"]); status == "running" || status == "queued" || status == "manual" {
+		return
+	}
+	entries := array(value["repositories"])
+	if len(entries) <= 1 {
+		entries = []any{value}
+	}
+	gone := []string{}
+	for _, item := range entries {
+		entry := object(item)
+		root := text(entry["workspaceRoot"])
+		if root == "" || !filepath.IsAbs(root) || entry["workspaceDraft"] != nil {
+			continue
+		}
+		if _, err := os.Stat(root); !errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		parent := filepath.Dir(root)
+		if filepath.Base(root) == "src" {
+			// Managed trees keep the checkout one level down: the tree directory itself is gone too.
+			parent = filepath.Dir(parent)
+		}
+		if info, err := os.Stat(parent); err != nil || !info.IsDir() {
+			continue
+		}
+		gone = append(gone, text(object(entry["repository"])["id"]))
+	}
+	if len(gone) == 0 {
+		return
+	}
+	c.mu.Lock()
+	busy := c.jobs[id] != nil
+	c.mu.Unlock()
+	if busy {
+		return
+	}
+	_, _ = c.update(id, func(current map[string]any) error {
+		if status := text(current["status"]); status == "running" || status == "queued" || status == "manual" {
+			return errTaskNoLongerActive
+		}
+		for _, repositoryID := range gone {
+			if err := updateWorkspace(current, repositoryID, func(target map[string]any) {
+				root := text(target["workspaceRoot"])
+				if root == "" {
+					return
+				}
+				if _, err := os.Stat(root); !errors.Is(err, os.ErrNotExist) {
+					return
+				}
+				target["workspaceCleanup"] = map[string]any{"status": "removed", "at": nowCheckpoint(), "root": root, "outsideRelay": true}
+				delete(target, "workspaceRoot")
+				delete(target, "workspace")
+			}); err != nil {
+				return err
+			}
+		}
+		return nil
+	}, map[string]any{"type": "workspace", "source": "relay", "summary": "The task's checkout was removed outside Relay; recorded it as cleaned up."})
 }
