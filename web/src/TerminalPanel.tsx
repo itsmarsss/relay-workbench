@@ -13,6 +13,8 @@ type LiveTerminal = {
   // Why the last interactive terminal failed to start, when it did.
   stopped?: string;
   output?: string;
+  // A person's own agent terminal: the task keeps its state and Relay runs no stage on it.
+  agent?: boolean;
   terminal?: { session: string; attachCommand: string; interactive: boolean };
   // The session's tmux windows: the first is the terminal it was started for.
   windows?: TerminalWindow[];
@@ -381,6 +383,8 @@ export function TerminalPanel({ taskId }: { taskId: string }) {
   const [connection, setConnection] = useState(0),
     // Which dialog is open: taking control of the task, or adding a terminal beside the others.
     [opening, setOpening] = useState<'' | 'control' | 'window'>(''),
+    // In the New terminal dialog: work beside the task (agent terminal) or take control of it.
+    [mode, setMode] = useState<'agent' | 'control'>('agent'),
     [full, setFull] = useState(false),
     [status, setStatus] = useState('Connecting…'),
     // A running agent is shown in words by default; its raw event stream is one click away.
@@ -403,18 +407,37 @@ export function TerminalPanel({ taskId }: { taskId: string }) {
   const lost = task?.status === 'manual' && live.data?.available === false;
   const canTakeover =
     task && asText(task.workspaceRoot) && (lost || !['draft', 'manual'].includes(task.status));
+  // Your own agent opens beside a task that is not running; its state is left alone.
+  const canOpenAgent =
+    !!task &&
+    !!asText(task.workspaceRoot) &&
+    !['running', 'queued', 'manual'].includes(task.status) &&
+    !terminal;
   // Extra terminals open beside the first once a person has control.
   const canAdd = Boolean(terminal?.interactive && windows);
   async function act(operation: string) {
     const latest = await request<FullTask>(`/api/tasks/${taskId}`);
     await mutation.run(`/api/tasks/${taskId}/${operation}`, {
       taskRevision: latest.taskRevision,
-      ...(operation === 'takeover'
+      ...(operation === 'takeover' || operation === 'agent-terminal'
         ? { provider, model, effort, repositoryId: repositoryId || asObject(latest.repository)?.id }
         : { session: terminal?.session }),
     });
     setOpening('');
+    void live.refresh();
   }
+  // "Claude" in the task header lands here and asks for the agent terminal straight away.
+  useEffect(() => {
+    let wanted = '';
+    try {
+      wanted = sessionStorage.getItem('relay-open-agent') || '';
+    } catch {}
+    if (wanted !== taskId || !task || live.loading) return;
+    try {
+      sessionStorage.removeItem('relay-open-agent');
+    } catch {}
+    if (canOpenAgent) void act('agent-terminal').catch(() => {});
+  }, [taskId, !!task, live.loading, canOpenAgent]);
   async function windowAction(body: Record<string, unknown>) {
     await mutation.run(`/api/tasks/${taskId}/terminal-window`, {
       session: terminal?.session,
@@ -427,8 +450,11 @@ export function TerminalPanel({ taskId }: { taskId: string }) {
     <button
       type="button"
       className="terminal-tab-add"
-      onClick={() => setOpening(canAdd ? 'window' : 'control')}
-      disabled={mutation.busy || !(canAdd || canTakeover)}
+      onClick={() => {
+        setMode(canOpenAgent ? 'agent' : 'control');
+        setOpening(canAdd ? 'window' : 'control');
+      }}
+      disabled={mutation.busy || !(canAdd || canTakeover || canOpenAgent)}
     >
       <Icon name="plus" size={14} />
       New terminal
@@ -442,9 +468,11 @@ export function TerminalPanel({ taskId }: { taskId: string }) {
           <small className="muted">
             {task?.status === 'manual'
               ? 'You have control · automation is paused'
-              : terminal
-                ? 'Watching the agent · open a terminal to take control'
-                : 'Open a shell or an agent in this task’s worktree'}
+              : live.data?.agent
+                ? 'Your agent terminal · Relay runs no stage on this task while it is open'
+                : terminal
+                  ? 'Watching the agent · open a terminal to take control'
+                  : 'Open a shell or an agent in this task’s worktree'}
           </small>
         </div>
         <div className="inline">
@@ -570,7 +598,24 @@ export function TerminalPanel({ taskId }: { taskId: string }) {
                 ? 'An agent’s terminal appears here while it runs. Open your own to work in this worktree with a shell or an agent.'
                 : 'A workspace is created when the task starts.'}
           </p>
-          {asText(task?.workspaceRoot) && add}
+          {asText(task?.workspaceRoot) && (
+            <div className="inline">
+              {canOpenAgent && (
+                <button
+                  className="primary"
+                  disabled={mutation.busy}
+                  onClick={() => {
+                    setProvider('claude');
+                    void act('agent-terminal').catch(() => {});
+                  }}
+                >
+                  <ProviderIcon provider="claude" size={16} />
+                  Open Claude
+                </button>
+              )}
+              {add}
+            </div>
+          )}
         </div>
       )}
       {terminal?.attachCommand && (
@@ -588,7 +633,7 @@ export function TerminalPanel({ taskId }: { taskId: string }) {
             void (
               opening === 'window'
                 ? windowAction({ action: 'new', provider, model, effort })
-                : act('takeover')
+                : act(mode === 'agent' && canOpenAgent ? 'agent-terminal' : 'takeover')
             ).catch(() => {});
           }}
           footer={
@@ -602,7 +647,29 @@ export function TerminalPanel({ taskId }: { taskId: string }) {
             </>
           }
         >
-          {opening === 'control' && (
+          {opening === 'control' && canOpenAgent && (
+            <label className="field">
+              How
+              <Select
+                label="How"
+                value={mode}
+                onChange={(value) => setMode(value === 'control' ? 'control' : 'agent')}
+                options={[
+                  {
+                    value: 'agent',
+                    label: 'Work beside the task',
+                    detail: 'Keeps its stage; Relay waits while the terminal is open',
+                  },
+                  {
+                    value: 'control',
+                    label: 'Take control',
+                    detail: 'Pauses automation; needs fresh verification after',
+                  },
+                ]}
+              />
+            </label>
+          )}
+          {opening === 'control' && (mode === 'control' || !canOpenAgent) && (
             <p>
               {lost
                 ? 'Opens this worktree for you again. Returning control requires fresh verification.'

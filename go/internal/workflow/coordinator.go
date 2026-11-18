@@ -292,7 +292,10 @@ func (c *Coordinator) enqueueMode(id string, resume, automatic bool) (map[string
 	if c.closed {
 		return nil, errors.New("Relay is shutting down")
 	}
-	if c.jobs[id] != nil {
+	if job := c.jobs[id]; job != nil {
+		if job.kind == "agent-terminal" {
+			return nil, errors.New("close the agent terminal on this task before Relay runs a stage")
+		}
 		return nil, ErrStageBusy
 	}
 	if len(c.jobs) >= 256 {

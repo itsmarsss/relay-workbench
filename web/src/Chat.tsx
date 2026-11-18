@@ -49,13 +49,9 @@ type Chat = {
   proposals?: Proposal[];
 };
 type ChatMode = 'ask' | 'operator';
-function rememberedMode(): ChatMode {
-  try {
-    return localStorage.getItem('relay-chat-mode') === 'ask' ? 'ask' : 'operator';
-  } catch {
-    return 'operator';
-  }
-}
+// New conversations are Ask Relay. Working in a task's worktree happens in its terminal (Claude);
+// conversations created as operator chats earlier keep answering that way.
+const newMode: ChatMode = 'ask';
 function requestedChat() {
   try {
     return new URLSearchParams(location.hash.split('?')[1]).get('chat') || '';
@@ -99,8 +95,7 @@ export function ChatPanel({
     [deleting, setDeleting] = useState<Chat | null>(null),
     [provider, setProvider] = useState(''),
     [model, setModel] = useState(''),
-    [effort, setEffort] = useState(''),
-    [newMode, setNewMode] = useState<ChatMode>(rememberedMode);
+    [effort, setEffort] = useState('');
   const chat = useResource<Chat>(selected ? `/api/chats/${selected}` : null),
     scroll = useRef<HTMLDivElement>(null),
     textarea = useRef<HTMLTextAreaElement>(null),
@@ -254,13 +249,6 @@ export function ChatPanel({
       await list.refresh();
     } catch {}
   }
-  function switchMode(mode: ChatMode) {
-    setNewMode(mode);
-    try {
-      localStorage.setItem('relay-chat-mode', mode);
-    } catch {}
-    if (current && (current.mode === 'operator') !== (mode === 'operator')) void create(mode);
-  }
   function mention(task: Task) {
     const before = draft.slice(0, cursor);
     const start = before.lastIndexOf('@');
@@ -393,32 +381,7 @@ export function ChatPanel({
             )}
           </div>
           <div className="inline">
-            <div className="chat-mode" role="group" aria-label="Conversation mode">
-              <button
-                type="button"
-                aria-pressed={!operator}
-                title={
-                  taskId
-                    ? 'Read-only questions; the pipeline keeps running'
-                    : 'Questions and proposals; nothing changes without your approval'
-                }
-                onClick={() => switchMode('ask')}
-              >
-                Ask
-              </button>
-              <button
-                type="button"
-                aria-pressed={operator}
-                title={
-                  taskId
-                    ? 'Works in this task’s workspace: edits, checks, git, and Relay actions'
-                    : 'Does the work: shell, files, git, your tools, and Relay task actions'
-                }
-                onClick={() => switchMode('operator')}
-              >
-                Operator
-              </button>
-            </div>
+            {current?.mode === 'operator' && <span className="task-status">Operator</span>}
             {compact && (
               <button
                 className="icon-button"

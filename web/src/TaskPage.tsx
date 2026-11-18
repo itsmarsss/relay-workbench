@@ -441,6 +441,20 @@ export function TaskPage({
               </button>
             )}
           {asObject(task.migration)?.readOnly !== true && <AutoControl task={task as FullTask} />}
+          {asText(task.workspaceRoot) && !['running', 'queued', 'manual'].includes(task.status) && (
+            <button
+              title="Open Claude in this task’s worktree, briefed on the task"
+              onClick={() => {
+                try {
+                  sessionStorage.setItem('relay-open-agent', task.id);
+                } catch {}
+                onTab('terminals');
+              }}
+            >
+              <Icon name="terminal" size={15} />
+              Claude
+            </button>
+          )}
           <SideChat taskId={task.id} />
           <button onClick={onDeck}>
             <Icon name="grid" size={15} />

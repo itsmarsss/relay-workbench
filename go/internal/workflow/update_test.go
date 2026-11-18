@@ -271,3 +271,26 @@ func TestOperatorReservationWaitsForNothingWithoutAWorkspace(t *testing.T) {
 		t.Fatal("an operator was let into a running task")
 	}
 }
+
+func TestCheckoutRemovedOutsideRelayIsRecordedAsCleanedUp(t *testing.T) {
+	c, db, id, _ := coordinatorFixture(t, "cat >/dev/null\nprintf '%s\\n' '"+stageFinal()+"'")
+	if _, err := c.Start(id); err != nil {
+		t.Fatal(err)
+	}
+	waitCoordinator(t, c, id)
+	value := coordinatorTask(t, db, id)
+	root := text(value["workspaceRoot"])
+	c.noteRemovedWorkspaces(value)
+	if coordinatorTask(t, db, id)["workspaceCleanup"] != nil {
+		t.Fatal("a checkout that exists was recorded as removed")
+	}
+	if err := os.RemoveAll(root); err != nil {
+		t.Fatal(err)
+	}
+	c.noteRemovedWorkspaces(value)
+	value = coordinatorTask(t, db, id)
+	cleanup := object(value["workspaceCleanup"])
+	if cleanup["status"] != "removed" || cleanup["root"] != root || value["workspaceRoot"] != nil {
+		t.Fatalf("removed checkout was not recorded: %#v", cleanup)
+	}
+}

@@ -445,10 +445,10 @@ console.log(JSON.stringify({ type: 'item.completed', item: { type: 'agent_messag
     { times: 1 },
   );
   await page.getByRole('button', { name: 'New terminal', exact: true }).click();
-  await page
-    .getByRole('dialog', { name: 'New terminal' })
-    .getByRole('button', { name: 'Open terminal' })
-    .click();
+  const terminalDialog = page.getByRole('dialog', { name: 'New terminal' });
+  await terminalDialog.getByRole('button', { name: /^How: / }).click();
+  await page.getByRole('option', { name: /^Take control/ }).click();
+  await terminalDialog.getByRole('button', { name: 'Open terminal' }).click();
   await page
     .getByText('Terminal disconnected. Reconnect to resume.', { exact: true })
     .waitFor({ timeout: 15000 });
@@ -553,6 +553,36 @@ console.log(JSON.stringify({ type: 'item.completed', item: { type: 'agent_messag
     'manual release',
   );
   assert.equal(await readFile(join(resumed.workspaceRoot, 'manual.txt'), 'utf8'), 'terminal-ok');
+
+  // Your own terminal beside a paused task: the task keeps its state and no stage starts while
+  // it is open.
+  await page.getByRole('button', { name: 'New terminal', exact: true }).click();
+  await page
+    .getByRole('dialog', { name: 'New terminal' })
+    .getByRole('button', { name: 'Open terminal' })
+    .click();
+  await page.getByText('Your agent terminal', { exact: false }).waitFor({ timeout: 20000 });
+  await until(async () => (await tabs.count()) === 1, 'agent terminal opened');
+  await page.getByLabel('Interactive terminal', { exact: true }).focus();
+  await page.keyboard.type('printf agent-ok > agent.txt');
+  await page.keyboard.press('Enter');
+  await until(async () => {
+    try {
+      return (await readFile(join(resumed.workspaceRoot, 'agent.txt'), 'utf8')) === 'agent-ok';
+    } catch {
+      return false;
+    }
+  }, 'agent terminal input');
+  const beside = await (await fetch(`${base}/api/tasks/${second.id}`)).json();
+  assert.equal(beside.status, 'paused');
+  const refused = await fetch(`${base}/api/tasks/${second.id}/resume`, {
+    method: 'POST',
+    headers,
+    body: '{}',
+  });
+  assert.notEqual(refused.status, 202, 'a stage started under an open agent terminal');
+  await page.getByRole('button', { name: 'Close Shell terminal', exact: true }).click();
+  await page.getByText('No terminals open', { exact: true }).waitFor({ timeout: 20000 });
   async function approveTask(title) {
     const created = await draft(title);
     await page.goto(`${base}/#task/${created.id}/overview`);

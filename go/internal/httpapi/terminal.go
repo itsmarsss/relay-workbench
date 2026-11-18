@@ -18,7 +18,7 @@ func (s *Server) terminalRoute(w http.ResponseWriter, r *http.Request) bool {
 	if !strings.HasPrefix(r.URL.Path, "/api/tasks/") || len(parts) != 2 || !taskID.MatchString(parts[0]) {
 		return false
 	}
-	operations := map[string]string{"terminal": "snapshot", "terminal-preview": "snapshot", "terminal-input": "input", "terminal-window": "window", "takeover": "takeover", "return-control": "release", "terminal-stream": "stream"}
+	operations := map[string]string{"terminal": "snapshot", "terminal-preview": "snapshot", "terminal-input": "input", "terminal-window": "window", "takeover": "takeover", "return-control": "release", "terminal-stream": "stream", "agent-terminal": "agent"}
 	op, ok := operations[parts[1]]
 	if !ok {
 		return false

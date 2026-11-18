@@ -46,9 +46,35 @@ func (c *Coordinator) terminalStopped(id string) string {
 	_ = json.Unmarshal([]byte(raw), &record)
 	return record.Stopped
 }
+
+// agentTerminal reports whether the task's terminal is a person's agent terminal that is open
+// right now (see openAgentTerminal). It is only open while its job runs.
+func (c *Coordinator) agentTerminal(id string) bool {
+	raw, exists, _ := c.store.GetMeta("terminal:" + id)
+	var record struct {
+		Mode string `json:"mode"`
+	}
+	if !exists || json.Unmarshal([]byte(raw), &record) != nil || record.Mode != "agent" {
+		return false
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	job := c.jobs[id]
+	return job != nil && job.kind == "agent-terminal"
+}
+
+// writableTerminal is whether a person may type into the task's terminal: under manual control,
+// or in their own agent terminal.
+func (c *Coordinator) writableTerminal(id string, value map[string]any) bool {
+	return value["status"] == "manual" || c.agentTerminal(id)
+}
+
 func (c *Coordinator) Terminal(ctx context.Context, id, operation string, body map[string]any) (any, error) {
 	if operation == "takeover" {
 		return c.takeover(ctx, id, body)
+	}
+	if operation == "agent" {
+		return c.openAgentTerminal(ctx, id, body)
 	}
 	if operation == "release" {
 		if err := fields(body, "session"); err != nil {
@@ -91,6 +117,14 @@ func (c *Coordinator) Terminal(ctx context.Context, id, operation string, body m
 		return nil, err
 	}
 	if operation == "snapshot" {
+		agent := c.agentTerminal(id)
+		if active && !agent {
+			// An agent terminal whose job is gone (closed, or Relay restarted) is not open.
+			raw, _, _ := c.store.GetMeta("terminal:" + id)
+			if strings.Contains(raw, `"mode":"agent"`) {
+				active = false
+			}
+		}
 		if !active {
 			result := map[string]any{"available": false, "message": "No live terminal. Retained agent output is available in Activity and Logs."}
 			if stopped := c.terminalStopped(id); stopped != "" {
@@ -102,7 +136,7 @@ func (c *Coordinator) Terminal(ctx context.Context, id, operation string, body m
 		if err != nil {
 			return map[string]any{"available": false, "message": "Terminal is starting or has closed."}, nil
 		}
-		result := map[string]any{"available": true, "terminal": info, "output": output}
+		result := map[string]any{"available": true, "terminal": info, "output": output, "agent": agent}
 		if windows, err := terminal.Windows(ctx, info); err == nil {
 			result["windows"] = windows
 		}
@@ -122,7 +156,7 @@ func (c *Coordinator) Terminal(ctx context.Context, id, operation string, body m
 		return nil, err
 	}
 	var value map[string]any
-	if json.Unmarshal(raw, &value) != nil || value["status"] != "manual" {
+	if json.Unmarshal(raw, &value) != nil || !c.writableTerminal(id, value) {
 		return nil, errors.New("manual control is no longer active")
 	}
 	switch body["type"] {
@@ -154,7 +188,7 @@ func (c *Coordinator) terminalWindow(ctx context.Context, id string, info termin
 		return nil, err
 	}
 	var value map[string]any
-	if json.Unmarshal(raw, &value) != nil || value["status"] != "manual" {
+	if json.Unmarshal(raw, &value) != nil || !c.writableTerminal(id, value) {
 		return nil, errors.New("manual control is no longer active")
 	}
 	index := -1
@@ -234,7 +268,7 @@ func manualBrief(value map[string]any) string {
 		return s
 	}
 	var b strings.Builder
-	b.WriteString("Context for this session. I have taken manual control of a Relay task and opened you in its worktree. Read this, then wait for my instructions: do not start work yet.\n\n")
+	b.WriteString("Context for this session. I opened you in the worktree of a Relay task, and Relay is not running agents on it while we work. Read this, then wait for my instructions: do not start work yet.\n\n")
 	b.WriteString("Task: " + clip(title, 300) + "\n")
 	if id := text(value["id"]); id != "" {
 		b.WriteString("Task ID: " + id + "\n")
@@ -246,7 +280,7 @@ func manualBrief(value map[string]any) string {
 		b.WriteString("Branch: " + branch + "\n")
 	}
 	if stage := text(value["stage"]); stage != "" {
-		b.WriteString("Workflow stage when I took over: " + stage + "\n")
+		b.WriteString("Workflow stage: " + stage + "\n")
 	}
 	if description := clip(text(value["description"]), 6000); description != "" {
 		b.WriteString("\nDescription and requirements:\n" + description + "\n")
@@ -382,9 +416,82 @@ func (c *Coordinator) takeover(ctx context.Context, id string, body map[string]a
 	go c.runManual(jobCtx, id, repoID, command, args, job)
 	return value, nil
 }
+
+// openAgentTerminal opens a person's own agent (Claude by default) or shell in the task's
+// worktree, briefed on the task, without taking control: the task keeps its status and stage, and
+// Relay starts no stage on it while the terminal is open. Unlike Take control it does not hold the
+// repository for the whole session, so other tasks keep running; the person drives this one.
+// Verification and review still compare fingerprints, so anything changed here is checked before
+// it is accepted.
+func (c *Coordinator) openAgentTerminal(ctx context.Context, id string, body map[string]any) (any, error) {
+	if err := fields(body, "repositoryId", "provider", "model", "effort"); err != nil {
+		return nil, err
+	}
+	_, value, err := c.inspected(id, body)
+	if err != nil {
+		return nil, err
+	}
+	if !c.terminals || value["demo"] == true {
+		return nil, errors.New("install tmux to open terminals")
+	}
+	if status := text(value["status"]); status == "running" || status == "queued" || status == "manual" {
+		return nil, errors.New("this task is " + status + "; pause it, or use its terminal, before opening your own")
+	}
+	repoID := text(body["repositoryId"])
+	if repoID == "" {
+		repoID = text(object(value["repository"])["id"])
+	}
+	entry := publicationEntry(value, repoID)
+	if entry == nil || text(entry["workspaceRoot"]) == "" || entry["setupCompleted"] != true {
+		return nil, errors.New("this task has no workspace yet; start it first")
+	}
+	c.mu.Lock()
+	open := c.jobs[id] != nil && c.jobs[id].kind == "agent-terminal"
+	c.mu.Unlock()
+	if open {
+		// Already open: the page attaches to it.
+		return value, nil
+	}
+	if _, has := body["provider"]; !has {
+		body["provider"] = "claude"
+	}
+	command, args, _, err := c.manualCommand(body, value)
+	if err != nil {
+		return nil, err
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.closed {
+		return nil, errors.New("Relay is shutting down")
+	}
+	if job := c.jobs[id]; job != nil {
+		if job.kind == "agent-terminal" {
+			return value, nil
+		}
+		return nil, ErrStageBusy
+	}
+	jobCtx, cancel := context.WithCancel(context.Background())
+	job := &coordinatorJob{cancel: cancel, done: make(chan struct{}), kind: "agent-terminal"}
+	c.jobs[id] = job
+	go c.runTerminal(jobCtx, id, repoID, command, args, job, true)
+	_, _ = c.store.Event(id, mustJSON(map[string]any{"type": "terminal", "source": "user", "repositoryId": repoID, "summary": "Opened an agent terminal; Relay starts no stage on this task while it is open."}))
+	return value, nil
+}
+
 func (c *Coordinator) runManual(ctx context.Context, id, repoID, command string, args []string, job *coordinatorJob) {
+	c.runTerminal(ctx, id, repoID, command, args, job, false)
+}
+
+func (c *Coordinator) runTerminal(ctx context.Context, id, repoID, command string, args []string, job *coordinatorJob, agent bool) {
 	defer func() { c.mu.Lock(); delete(c.jobs, id); c.notifyLocked(); close(job.done); c.mu.Unlock() }()
-	lease, roots, err := c.reserveRepositories(ctx, id)
+	var lease *workspace.Lease
+	var roots []string
+	var err error
+	if agent {
+		lease, roots, err = c.reserveTask(id)
+	} else {
+		lease, roots, err = c.reserveRepositories(ctx, id)
+	}
 	if err == nil {
 		defer lease.Release()
 		err = lease.Protect(id, roots, func(revalidate func() error) error {
@@ -421,6 +528,9 @@ func (c *Coordinator) runManual(ctx context.Context, id, repoID, command string,
 			}
 			defer os.RemoveAll(spec.Directory)
 			record := map[string]any{"terminal": spec.Info, "active": true, "repositoryId": repoID}
+			if agent {
+				record["mode"] = "agent"
+			}
 			encoded, _ := json.Marshal(record)
 			if err = c.store.SetMeta("terminal:"+id, string(encoded)); err != nil {
 				return err
@@ -437,12 +547,42 @@ func (c *Coordinator) runManual(ctx context.Context, id, repoID, command string,
 		})
 	}
 	summary := "Interactive terminal closed. Return control to resume."
+	if agent {
+		summary = "Agent terminal closed."
+	}
 	if err != nil && ctx.Err() == nil {
 		summary = "Interactive terminal stopped: " + err.Error()
 		// Kept beside the terminal record so the page can say why there is nothing to show.
-		encoded, _ := json.Marshal(map[string]any{"active": false, "repositoryId": repoID, "stopped": err.Error()})
+		stopped := map[string]any{"active": false, "repositoryId": repoID, "stopped": err.Error()}
+		if agent {
+			stopped["mode"] = "agent"
+		}
+		encoded, _ := json.Marshal(stopped)
 		_ = c.store.SetMeta("terminal:"+id, string(encoded))
 		c.store.NotifyChange()
 	}
 	_, _ = c.store.Event(id, mustJSON(map[string]any{"type": "terminal", "source": "relay", "summary": summary}))
+}
+
+// reserveTask holds only the task's own checkouts, not the repository they share, for a session
+// a person drives in the task's worktree.
+func (c *Coordinator) reserveTask(id string) (*workspace.Lease, []string, error) {
+	raw, err := c.store.Get(id)
+	if err != nil {
+		return nil, nil, err
+	}
+	var value map[string]any
+	if json.Unmarshal(raw, &value) != nil {
+		return nil, nil, errors.New("invalid task")
+	}
+	entries, err := stageWorkspaces(value)
+	if err != nil {
+		return nil, nil, err
+	}
+	roots := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		roots = append(roots, entry.root)
+	}
+	lease, err := c.registry.Acquire(id, roots)
+	return lease, roots, err
 }
