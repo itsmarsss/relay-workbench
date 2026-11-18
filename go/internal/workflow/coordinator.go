@@ -166,7 +166,7 @@ func (c *Coordinator) recoverInterrupted() error {
 		}
 		for _, value := range entries {
 			entry := object(value)
-			for _, key := range []string{"delivery", "publicationMonitor"} {
+			for _, key := range []string{"delivery", "publicationMonitor", "branchUpdate"} {
 				state := object(entry[key])
 				if state["status"] == "running" || state["status"] == "queued" {
 					auxiliary = true
@@ -195,7 +195,7 @@ func (c *Coordinator) recoverInterrupted() error {
 			}
 			for _, value := range entries {
 				entry := object(value)
-				for _, key := range []string{"delivery", "publicationMonitor"} {
+				for _, key := range []string{"delivery", "publicationMonitor", "branchUpdate"} {
 					state := object(entry[key])
 					if state["status"] == "running" || state["status"] == "queued" {
 						state["status"] = "interrupted"

@@ -77,6 +77,9 @@ func (c *Coordinator) control(ctx context.Context, id, operation string, body ma
 	if operation == "followup" {
 		return c.Followup(ctx, id, body)
 	}
+	if operation == "update-branch" {
+		return c.UpdateBranch(ctx, id, body)
+	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.closed {

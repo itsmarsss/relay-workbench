@@ -504,13 +504,17 @@ export function PublicationPanel({ task }: { task: FullTask }) {
           publication = asObject(row.publication) || linked,
           delivery = asObject(row.delivery),
           monitor = asObject(row.publicationMonitor),
+          update = asObject(row.branchUpdate),
+          updating = update?.status === 'running',
+          taskActive = ['running', 'queued', 'manual'].includes(task.status),
           feedback = Array.isArray(row.feedback) ? row.feedback : [];
         const url = externalURL(publication?.url);
         const busy =
           asObject(task.migration)?.readOnly === true ||
           delivery?.status === 'running' ||
           delivery?.status === 'queued' ||
-          monitor?.status === 'running';
+          monitor?.status === 'running' ||
+          updating;
         function act(operation: string, extra: Record<string, unknown> = {}) {
           void mutation
             .run(`/api/tasks/${task.id}/${operation}`, {
@@ -551,6 +555,19 @@ export function PublicationPanel({ task }: { task: FullTask }) {
                     {busy ? 'Publishing…' : 'Publish draft PR'}
                   </button>
                 )}
+                {publication && !!row.workspaceRoot && (
+                  <button
+                    disabled={mutation.busy || busy || taskActive || update?.status === 'review'}
+                    title={
+                      taskActive
+                        ? 'Pause the task to update its branch'
+                        : 'Merge the latest main into this branch and push it'
+                    }
+                    onClick={() => act('update-branch', { action: 'start' })}
+                  >
+                    {updating ? 'Updating…' : 'Update branch'}
+                  </button>
+                )}
                 {publication && (
                   <button disabled={mutation.busy || busy} onClick={() => act('monitor')}>
                     {monitor?.status === 'running' ? 'Refreshing…' : 'Refresh'}
@@ -558,6 +575,13 @@ export function PublicationPanel({ task }: { task: FullTask }) {
                 )}
               </div>
             </div>
+            {update && update.status !== 'discarded' && (
+              <BranchUpdate
+                update={update}
+                busy={mutation.busy || busy}
+                act={(action) => act('update-branch', { action })}
+              />
+            )}
             {publication && (
               <div className="pr-status">
                 <span>
@@ -626,6 +650,71 @@ export function PublicationPanel({ task }: { task: FullTask }) {
   );
 }
 export { ExecutionGraph } from './ExecutionGraph';
+
+// What the last Update branch did, and what it needs: a conflict resolution waits for a person
+// to push it; a half-finished merge can be dropped.
+function BranchUpdate({
+  update,
+  busy,
+  act,
+}: {
+  update: Record<string, unknown>;
+  busy: boolean;
+  act: (action: 'push' | 'discard') => void;
+}) {
+  const status = asText(update.status),
+    conflicts = Array.isArray(update.conflicts) ? update.conflicts.map(asText) : [],
+    handoff = asObject(update.handoff),
+    stale = status === 'complete' && Date.now() - Date.parse(asText(update.finishedAt)) > 86400000;
+  if (stale) return null;
+  const tone =
+    status === 'failed' || status === 'interrupted'
+      ? 'error'
+      : status === 'review'
+        ? 'warning'
+        : '';
+  return (
+    <div className={`branch-update ${tone}`} role="status">
+      <p>
+        <strong>
+          {status === 'running'
+            ? 'Updating branch'
+            : status === 'review'
+              ? 'Resolution ready to push'
+              : status === 'complete'
+                ? 'Branch updated'
+                : 'Branch update stopped'}
+        </strong>{' '}
+        {asText(update.summary)}
+      </p>
+      {conflicts.length > 0 && (
+        <p className="muted">
+          Conflicts in {conflicts.slice(0, 6).join(', ')}
+          {conflicts.length > 6 && ` and ${conflicts.length - 6} more`}
+        </p>
+      )}
+      {handoff && status !== 'running' && asText(handoff.details) && (
+        <details>
+          <summary>How the conflicts were resolved</summary>
+          <Markdown text={asText(handoff.details)} />
+        </details>
+      )}
+      {(status === 'review' ||
+        ((status === 'failed' || status === 'interrupted') && !!update.from)) && (
+        <div className="inline">
+          {status === 'review' && (
+            <button className="primary" disabled={busy} onClick={() => act('push')}>
+              Push update
+            </button>
+          )}
+          <button disabled={busy} onClick={() => act('discard')}>
+            {status === 'review' ? 'Discard' : 'Discard merge'}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
 
 function WorkspaceCleanup({ task }: { task: FullTask }) {
   const mutation = useMutation();

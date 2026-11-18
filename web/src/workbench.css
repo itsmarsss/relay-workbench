@@ -4508,3 +4508,65 @@ main > .relay-conversations {
   font-weight: 600;
   color: var(--muted);
 }
+
+/* What the last Update branch did, under the pull request it updated. */
+.branch-update {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border-radius: var(--radius);
+  background: var(--status-neutral);
+  color: var(--status-neutral-ink);
+  font-size: 13px;
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+.branch-update p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.branch-update strong {
+  color: var(--text);
+  font-weight: 600;
+}
+.branch-update.warning {
+  background: var(--status-attention);
+  color: var(--status-attention-ink);
+}
+.branch-update.error {
+  background: var(--status-blocked);
+  color: var(--status-blocked-ink);
+}
+.branch-update details summary {
+  cursor: pointer;
+}
+
+/* Ask or Operator: which agent a conversation talks to. */
+.chat-mode {
+  display: inline-flex;
+  padding: 2px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--soft);
+  flex: none;
+}
+.chat-mode button {
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  padding: 3px 10px;
+  min-height: 0;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 550;
+  box-shadow: none;
+}
+.chat-mode button[aria-pressed='true'] {
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.12);
+}
+.chat-mode button:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}

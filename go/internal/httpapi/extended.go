@@ -201,7 +201,7 @@ func (s *Server) extended(w http.ResponseWriter, r *http.Request) bool {
 			}
 		} else if len(parts) == 2 && r.Method == "POST" {
 			switch parts[1] {
-			case "automation", "checkpoint", "status-override", "message", "request-changes", "replan", "review-comment", "monitor", "publication", "feedback", "followup", "recreate", "cleanup", "pull-request":
+			case "automation", "checkpoint", "status-override", "message", "request-changes", "replan", "review-comment", "monitor", "publication", "feedback", "followup", "recreate", "cleanup", "pull-request", "update-branch":
 				operation = parts[1]
 			}
 		}

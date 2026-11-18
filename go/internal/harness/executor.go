@@ -205,6 +205,8 @@ func auxiliaryRecord(task map[string]any, repositoryID, stage string) map[string
 		key := "delivery"
 		if stage == "monitor" {
 			key = "publicationMonitor"
+		} else if stage == "update" {
+			key = "branchUpdate"
 		}
 		record, _ := entry[key].(map[string]any)
 		return record
@@ -264,7 +266,7 @@ func Execute(ctx context.Context, request RunRequest) (RunResult, error) {
 		return RunResult{}, errors.New("invalid harness prompt")
 	}
 	switch request.Stage {
-	case "triage", "investigate", "plan", "implement", "verify", "review", "publish", "monitor", "followup":
+	case "triage", "investigate", "plan", "implement", "verify", "review", "publish", "monitor", "followup", "update":
 	default:
 		return RunResult{}, errors.New("unsupported workflow stage")
 	}
@@ -286,7 +288,10 @@ func Execute(ctx context.Context, request RunRequest) (RunResult, error) {
 		// Watching a pull request someone linked by hand is read-only, so it is allowed on a task
 		// Relay never accepted; publishing and follow-ups still need acceptance.
 		watching := request.Stage == "monitor" && hasLinkedPullRequest(task, request.ActiveRepositoryID)
-		if request.Debug || (request.Stage != "publish" && request.Stage != "monitor" && request.Stage != "followup") || (!HasFinalApproval(task) && !watching) {
+		// Resolving an Update branch merge only touches the task's own branch, and a person
+		// reviews the result before it is pushed, so it does not need an accepted task either.
+		updating := request.Stage == "update"
+		if request.Debug || (request.Stage != "publish" && request.Stage != "monitor" && request.Stage != "followup" && !updating) || (!HasFinalApproval(task) && !watching && !updating) {
 			return RunResult{}, errors.New("publication requires an accepted, verified task")
 		}
 		record := auxiliaryRecord(task, request.ActiveRepositoryID, request.Stage)
@@ -297,7 +302,7 @@ func Execute(ctx context.Context, request RunRequest) (RunResult, error) {
 		if id != request.AttemptID || record["status"] != "running" {
 			return RunResult{}, errors.New("publication attempt is not running")
 		}
-	} else if request.Stage == "publish" || request.Stage == "monitor" || task["status"] != "running" || task["stage"] != request.Stage {
+	} else if request.Stage == "publish" || request.Stage == "monitor" || request.Stage == "update" || task["status"] != "running" || task["stage"] != request.Stage {
 		return RunResult{}, errors.New("task is not running this stage")
 	}
 	routing, _ := task["routing"].(map[string]any)
@@ -305,7 +310,7 @@ func Execute(ctx context.Context, request RunRequest) (RunResult, error) {
 	if routeStage == "verify" {
 		routeStage = "implement"
 	}
-	if routeStage == "publish" {
+	if routeStage == "publish" || routeStage == "update" {
 		routeStage = "implement"
 	}
 	if routeStage == "monitor" {
@@ -349,7 +354,7 @@ func Execute(ctx context.Context, request RunRequest) (RunResult, error) {
 		return RunResult{}, errors.New("working directory must be inside the active workspace")
 	}
 	mode := workspace.ReadOnly
-	if (request.Stage == "implement" && !request.Debug) || request.Stage == "publish" {
+	if (request.Stage == "implement" && !request.Debug) || request.Stage == "publish" || request.Stage == "update" {
 		mode = workspace.WriteOne
 	}
 	executionStage := request.Stage
