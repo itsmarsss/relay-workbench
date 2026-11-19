@@ -1,277 +1,90 @@
 # Relay
 
-A local workbench that coordinates Codex, Claude Code and Pi across investigation, planning, implementation, verification and independent review. You approve an approach and accept the final result. Every stage shares a worktree and leaves an inspectable handoff.
+Relay is a local, single-user workbench for running coding agents (Claude Code, Codex and Pi)
+through a staged workflow, with a person approving the plan and accepting the result.
 
-## React and Go rewrite
+A task moves through investigation, planning, implementation, verification and independent
+review. Each stage runs in the task's own Git worktree and leaves a structured handoff for the
+next. You choose an approach before any code is written and accept the final result; failed
+checks, missing handoffs and unresolved review findings stop the workflow instead of slipping
+through.
 
-The standalone rewrite lives in [`web/`](web/README.md) and [`go/`](go/README.md). Follow the Go guide to build and run it on a separate port and state directory. The legacy commands and details below remain available while the rewrite is evaluated. Do not share active repositories between the two services.
+Relay runs on your machine, binds to `127.0.0.1`, and uses the agents' existing CLI logins. It
+has no accounts and no hosted service.
 
-## Task deck
+## What it does
 
-Open **Task deck** in the sidebar to work with several tasks at once. Add workspaces as tabs, choose a task for each pane, and split panes horizontally or vertically. Drag the dividers or use the arrow keys to resize; **Focus** temporarily expands a pane without stopping the others. Switch between activity, terminal, changes, and other task views in each pane. Task controls and approval gates work as they do on the full task page.
+- **Board, list and task deck.** Track tasks by stage, open several side by side, and see live
+  progress, activity, logs, changes and the execution graph for each.
+- **Approval gates.** Approve an approach, review the diff with inline comments, and accept the
+  final result. A blocked stage shows its explanation and options and waits for your decision.
+- **Agents with your own logins.** Route each stage to Claude Code, Codex or Pi, and pick the model
+  and effort per task.
+- **Terminals.** Watch an agent's terminal live, open your own agent or shell in a task's worktree
+  (briefed on the task, without pausing its workflow), or take full manual control.
+- **Pull requests.** Publish a draft PR, monitor checks and reviews, follow up on feedback, and
+  update a branch with its mainline (clean merges push straight away; conflict resolutions wait
+  for you).
+- **Ask Relay.** Read-only chats about your tasks and their worktrees, with proposals you approve.
+- **Checkpoints and storage.** Save and restore work, continue from earlier decisions, see disk
+  use per task, and clean up finished worktrees.
 
-Layouts are saved in the current browser. Closing a pane or workspace removes its layout only; tasks and agents keep running. Up to eight panes can be open per workspace. If the same manual terminal is shown in more than one pane, the panes share its input and size.
+## Requirements
 
-## Workflow intelligence
+- macOS or Linux
+- Go 1.22 or newer, a C compiler, `pkg-config` and SQLite development headers
+- Node.js 24 or newer and pnpm (for building the frontend)
+- Git
+- At least one agent CLI, already logged in: Claude Code, Codex or Pi
+- tmux (optional; enables live terminals)
 
-Choose a workflow when creating a task: **Bug fix**, **Small change**, **Investigate only**, **Cross-repo feature**, or a custom workflow. Specialist and model settings remain editable. Small changes skip routing triage when smart routing is off; investigation-only tasks stop with findings and cannot implement or publish. Other workflows retain approach approval, verification, independent review, and final acceptance.
-
-The **Approval inbox** shows recommendations, attempted remedies and evidence. Choose an approach or accept a reviewed result from the inbox with explicit confirmation. Stale decisions are rejected. Task **Overview** includes a result brief and repository coordination; workflow health is expandable. Identical failures with the same evidence on unchanged source trigger different-strategy guidance, then a bounded stop. Timeouts alone never count as test failures.
-
-For an accepted task with an open PR, choose **Automate PR feedback** in the PR tracker. A read-only monitoring agent discovers the repository’s actual provider, unresolved review feedback, and failed CI. Routine repairs automatically enter the existing proposal workflow. You approve implementation and accept the verified, independently reviewed result before the publication agent updates the PR. If repairs span repositories, publication proceeds sequentially in dependency order and retains a recoverable queue. Questions and design choices need your direction. Feedback receipts use provider IDs and source revisions, so rephrased summaries do not trigger repairs. Duplicate observations do not create another repair, and automation stops after three repair cycles. Relay never replies to reviewers or merges automatically.
-
-Repository prerequisites determine implementation order and publication eligibility: publish a prerequisite PR before a dependent PR. The coordination view separately shows manual landing order; an open prerequisite PR does not mean it has merged. All workspaces share verification and approval gates.
-
-Enable desktop notifications in **Settings** or **Approval inbox**. Decisions and completed results link directly to the task overview. Notifications require browser permission and an open Relay tab; this is not an offline push service.
-
-## Start
-
-Requires **Node.js 24 or newer** and Git on macOS or Linux. Install **tmux** to watch agent terminals and use manual takeover; automatic execution and the activity thread still work without it. No install step or API keys are required by Relay; harnesses use their existing CLI authentication.
+## Run it
 
 ```sh
-node server/index.js
-# http://127.0.0.1:4310
+pnpm install --frozen-lockfile
+pnpm --dir web run build
+(cd go && go build -o ../.relay/bin/relay-go ./cmd/relay-go)
+.relay/bin/relay-go --data-dir .relay/state --web-dir web/dist --port 4310
 ```
 
-Click **Try a demo** to exercise the entire workflow with clearly labeled simulated results. Live runs invoke your installed harness CLIs. An elevated verification agent discovers required repository checks, runs them, and investigates failures. Fixed command lists are optional. Availability checks detect executables, not account authentication.
+Open <http://127.0.0.1:4310>. The state directory must be new or empty the first time; after
+that it belongs to this instance, and a second Relay cannot open it. Stop Relay with Ctrl+C or
+SIGTERM: running agents are stopped and interrupted work waits for you to resume it.
 
-## Workspace navigation
+Relay hands its own environment to every agent and terminal it starts, so launch it from the
+shell you normally work in. Local profiles, scripts and state belong in `.relay/`, which Git
+ignores.
 
-Collapse the sidebar with the panel button beside the Relay logo. Drag its right edge to resize; focus the edge and use arrow keys, Home or End for keyboard resizing. Double-click the edge to reset its width. Width and desktop collapse state are remembered on this browser. On smaller screens the expanded navigation overlays the page.
+## How it works
 
-Repository profiles have **General**, **Workspace**, **Checks & setup**, **Integrations** and **Guidance** tabs. Optional command fields appear for the selected workspace and verification modes. The General tab detects metadata after you enter a checkout path. Suggestions include a project name, checkout root, package subdirectories, declared check scripts, dependency setup and guidance-file locations. Apply suggestions individually; commands are never executed during detection and existing command lists are preserved. All tabs save together; removing a profile asks for confirmation and preserves existing tasks and worktrees.
-
-## Chat and appearance
-
-Workspace Relay and task-side Ask Relay keep conversation history in the local database across restarts. A request interrupted by a restart must be sent again. Workspace Relay supports separate conversations in a searchable conversation sidebar on the full page. On mobile and in the quick panel, **Chats** opens the conversation list. Create, rename, switch, or delete chats; your existing history stays in **General**. Conversations have independent histories, task mentions, drafts, and running requests, so stopping one chat leaves the others running. Chat names and messages survive restarts; the selected chat and unsent drafts are remembered in this browser. Workspace permissions, model settings, approved memory, and tasks are shared. Deleting a conversation requires confirmation and retains tasks and approved memory. **Enter** sends a chat message; **Shift+Enter** adds a new line. Chat messages and task activity scroll inside their own panels. Both chats offer **Copy prompt**, **Copy reply** (preserving Markdown), and **Edit and resend**. Editing creates a linked revision; earlier replies and actions stay attached to the original message.
-
-Click the model beside **Relay** to choose its Claude model and effort and manage permissions for reading settings, reading approved memory, creating drafts, and proposing settings changes. Relay reads current repository profiles and runtime facts instead of inferring behavior from old task failures. It can search retained conversation history and retrieve approved memory scoped to a task or project.
-
-Proposed settings changes appear in chat with a **Review changes** action. Review the exact current and proposed values, then approve or reject. Relay cannot approve its own proposals, and proposals do not change settings. Changed configuration invalidates an older proposal; active work must stop before applying it. These permissions do not bypass workflow approvals.
-
-In **Settings → Appearance**, choose System, Light or Dark. The theme and Low motion preferences are saved in this browser. Task filters and task-detail tabs share a sliding selection indicator. Low motion disables tab, view, dropdown, disclosure and sidebar animations.
-
-## Your first live run
-
-1. Open **Repositories** to discover checkouts in common development folders and alongside configured repositories, or scan a specific folder. Choose **Add** on a suggestion, then save its profile. You can also supply a checkout path manually. Agent verification is the default; a fixed command list is optional.
-2. Check executables and model overrides in **Agents**. Search model lists reported by your installed CLIs, or enter a custom model ID. Blank values use the CLI default. Lists are cached for five minutes; **Refresh models** reloads them. Route each stage independently; Pi can optionally triage and recommend routing.
-3. Create a task from a title/description or import an issue through your configured issue command.
-4. Start the task. Review investigation and approach options, select an approach, then approve implementation.
-5. Relay implements, verifies through an elevated agent, asks an independent harness to review, and loops over requested fixes. Approve the final diff when ready.
-
-**New worktree** creates an isolated branch and worktree per task. **Attach existing checkout** uses an existing branch and requires a clean checkout when starting; it is useful for repositories with their own workspace managers. Relay neither removes worktrees nor merges or pushes target branches automatically.
-
-## Tasks and live terminals
-
-**All tasks** opens a list ordered by the next action, with **Needs you**, **Running**, **Backlog**, and **Done** filters. Search titles, repositories, and issue links; combine repository and stage filters, or sort by recent activity, creation, or title. Each row shows its next step and latest result or blocker. Switch to **Board** for workflow columns. Drag cards between columns to save manual board statuses; empty destinations appear during dragging and the board scrolls at its edges. Use a card’s **Move task** control on touch devices, or focus a card and press **M**. Moves never start, stop, approve or accept workflow work. Choose **Automatic** in a task’s status editor to follow its workflow again. Empty stages are hidden unless you enable them. Your layout preference is remembered. Browser back/forward navigation preserves the current filters.
-
-Task pages open on **Overview**, with the source issue link and full description. Separate tabs provide **Activity thread**, **Live terminals**, **Handoffs**, **Code changes**, and **Execution log**. Human approval gates remain above the tabs. Starting or resuming a workflow opens Activity; taking control opens Live terminals.
-
-Use **Configure task** after creation to edit its title, source issue, Markdown requirements, participating repositories, implementation dependencies, stage harnesses and models, smart routing, execution limits, verification commands, setup, and repository guidance. These overrides belong to the task and leave shared profiles unchanged. Before starting, you can revise all these settings. **Pause & configure** waits for an active worker or manual shell to stop before opening the editor. After starting, repository identity, setup, working directories, and dependencies are fixed. Changing requirements or guidance preserves the workspaces and history, pauses the workflow, and requires a fresh proposal and approach approval. Changing checks reruns verification and independent review. Resume explicitly when ready. Concurrent configuration edits reject a stale save. **Duplicate task** copies settings into a new draft with its own future workspace; finished tasks can be duplicated.
-
-Descriptions, repository guidance, context, and change requests have GitHub-style **Write / Preview** tabs and formatting controls. Rendered descriptions, activity, and handoffs support headings, emphasis, task lists, tables, quotes, links, and fenced code. Raw HTML is shown as text except for validated standalone image tags imported from issues; unsafe links are removed, and images display inline with click-to-enlarge previews. Markdown libraries are pinned and vendored; Relay still runs without a package install or CDN.
-
-Attach screenshots using **Attach images**, paste from your clipboard, or drag files onto any Markdown editor. Relay inserts `![description](/api/attachments/...)` automatically. Uploads support PNG, JPEG, GIF, and WebP up to 10 MB, 25 megapixels, and 16,000 pixels per side. Uploads are validated by file headers and stored with private permissions in ignored `.relay/attachments/`; filenames and paths are generated by Relay. A pending upload prevents saving that form. Failed uploads retain existing text and successful attachments. Preview and enlargement preserve unsaved editor contents.
-
-Existing Markdown images from HTTPS sources, including imported GitHub issue images, also render in descriptions, activity, and previews. Remote images load directly in the browser with no referrer; Relay does not proxy or download arbitrary remote URLs. Local uploads survive reloads and server restarts and are shared when duplicating a task. Back up the complete `.relay/` directory to retain both task history and uploaded files; task JSON exports contain image references, not their bytes.
-
-Real harness prompts include local file paths and metadata for uploaded images referenced in requirements, guidance, or feedback. Agents are instructed to use image-reading tools when available and report when they cannot view an image. Actual image inspection depends on the selected harness and its tools. Remote images remain URL references.
-
-The **Live terminals** tab is always available, including before a workspace exists. Run history lists every recorded terminal and the current manual session. Live panes have a read-only browser preview of the latest 200 lines, refreshed automatically; toggle **Follow latest** off to inspect earlier output. Finished sessions show retained agent activity.
-
-When tmux is installed, each agent attempt runs inside its own session. In the task's **Live terminals** panel, copy the attach command and paste it into your terminal. Agent messages and tool evidence are formatted for watching; raw structured events still feed Relay's activity thread and artifacts. Use **Ctrl+B, then D** to detach. Agent sessions close when the attempt finishes, while their output remains in Relay. Demo runs are simulated and do not create terminals.
-
-Use **Take over** on the repository you want to work in. Relay stops the active automatic process before opening an interactive shell in that task's worktree. The browser provides a live interactive terminal: type, paste, use arrow keys, or send Ctrl+C directly. You can inspect files, edit, run tests, or launch your preferred harness there. Taking over a saved agent conversation opens that native conversation in the same browser terminal. External tmux attachment remains optional. In a task spanning repositories, automation pauses for the whole task and existing checkout reservations remain held. Detaching or exiting the shell does not resume automation. A takeover shell has a 24-hour execution limit.
-
-If a terminal exits, its last screen and exit status remain available, and **Reopen terminal** starts it again while automation stays paused.
-
-**Return to automation** closes the shell and its jobs. After an approved approach, Relay reruns every repository's verification commands and independent reviews before asking for final acceptance. Before approach approval, it reruns investigation and planning and still asks you to choose an approach. Manual changes never count as a successful structured agent handoff. Restarting Relay interrupts manual control and requires explicit resume.
-
-Each attempt uses a dedicated tmux server and private socket, leaving your other tmux sessions alone. Cancellation, timeouts, server crashes, and return of control terminate the supervised terminal processes; terminal launch files are private and removed on cleanup. Ordinary background jobs are included in cleanup. Processes deliberately daemonized out of the supervised tree are outside that boundary. Attach commands grant access to local execution, so keep them private.
-
-## Persistent memory
-
-Open **Memory** in the sidebar to add, search, edit, approve, disable or delete context. Memories can apply globally, to one project, or to one task. A task also offers **Add task memory** and **Memory used by run**, showing the exact versions supplied to each agent. Side questions receive their own recorded snapshot.
-
-**Preferences** are standing user guidance. Current explicit task direction and approvals take precedence, followed by task, project and global preferences. Repository guidance still applies unless explicitly overridden by the user; memory never grants execution permissions or bypasses approval gates. **Observations** are dated evidence to revalidate, not policy. Give transient observations an expiration date.
-
-Agents may suggest up to three memories in their structured handoff. Suggestions show their source task, run, harness and model and remain inactive until you approve them. Tickets and transcripts are not automatically promoted into instructions. Review suggested scope and wording before approval.
-
-Active, approved, unexpired memories are selected when a run starts. Project-scoped implementation, investigation and review runs receive that project's memories; shared stages and diagnostic runs receive participating projects' memories. Selection is deterministic, prioritizes narrower scopes, and includes at most 24 complete entries within a 16,000-character budget. Omitted entries are disclosed in the run snapshot. Keep active context focused.
-
-Memories live in the private local database under ignored `.relay/`, survive restarts, and are included in full backup/restore. **Export JSON** downloads the memory library, including proposals and disabled entries. Disabling, editing or deleting affects future runs; historical snapshots and saved prompts retain the versions already used. A running session does not silently acquire edits—send explicit direction when it needs an immediate change. Avoid storing secrets.
-
-## Local integration profiles
-
-Configuration is persisted under `.relay/config.json` and ignored by Git. Profiles can set an issue command, PR command, setup commands, working directory, required checks and additional instructions. Commands are `{ "command": "binary", "args": ["argument"] }` objects, never shell strings. Only issue commands support `{ticket}` substitution. GitHub CLI issue imports automatically include the reporter, timestamps, status, labels, assignees, milestone, and every discussion comment via paginated API requests. Context is saved in the editable task description and passed to every specialist alongside your requirements. Custom importers can return the same metadata and a `comments` array (or `{nodes, totalCount}`); missing comments are disclosed. A failed discussion fetch fails the import, and context exceeding the task description limit is rejected explicitly rather than truncated. The imported thread is a snapshot; re-import to refresh it. Do not put credentials in command arguments. Use CLI authentication instead.
-
-Use **Settings → Import local profile** to import JSON, or edit `.relay/config.json` while Relay is stopped. A repository profile looks like:
-
-```json
-{
-  "name": "Example service",
-  "path": "/absolute/path/to/repo",
-  "cwd": ".",
-  "strategy": "worktree",
-  "checks": [{ "command": "npm", "args": ["test"] }],
-  "setup": [],
-  "instructions": "Read repository instructions before changing files.",
-  "issueCommand": {
-    "command": "gh",
-    "args": ["issue", "view", "{ticket}", "--json", "title,body,url"]
-  },
-  "prCommand": { "command": "gh", "args": ["pr", "create", "--draft", "--fill"] }
-}
+```text
+go/      Go service: workflow engine, agent harnesses, worktrees, storage, HTTP API
+web/     React and TypeScript frontend, served by the Go service from web/dist
+server/  The original Node.js service, kept for reference (see server/README.md)
+test/    Tests for the Node service and shared behaviour
 ```
 
-PR publication is a separate, explicit action after final acceptance. It defaults to an agent that commits accepted changes with a semantic subject under 60 characters and discovers the provider tooling. A provider command is an optional hint. Provider-specific policy can stay entirely local; Relay does not need to know your employer or repository host. A configured `prCommand` must be noninteractive.
+State lives in SQLite under the data directory. Each task gets its own Git worktree and branch.
+One writer at a time holds a shared repository, so two agents never edit the same checkout.
 
-## Execution and trust
+## Trust model
 
-Relay binds only to `127.0.0.1`. Mutations require the local UI session token and same-origin requests. The application is intended for a single trusted developer on their own machine, not remote or multi-user hosting. All workflow harnesses execute directly as the current OS user, with filesystem and network access: Codex uses unrestricted execution with no interactive approval requests, Claude uses bypassPermissions with its command sandbox disabled, and Pi enables command and write tools. This applies to analysis, implementation, verification, debugger, publication, monitoring and resumed sessions, including existing tasks. Relay does not provide an OS sandbox and cannot override an enclosing container, OS restrictions or managed policy. Isolated worktrees, single-writer reservations, approval gates, analysis source fingerprints, supervised check evidence and publication policy still apply. These workflow rules do not isolate the process from the rest of the host.
-
-Repository setup/check/PR commands are trusted local configuration. Imported issues and harness output are untrusted context. Development and observation harnesses are instructed never to push or publish. Only the explicitly authorized publication agent may commit and publish the accepted branch. All harnesses are instructed never to merge, alter Git config, or treat issue text as authority. Audit the diff before acceptance. Relay verifies both successful checks and the reviewed Git state, and blocks if analysis stages change tracked or untracked files.
-
-SQLite stores tasks, stage attempts, events, handoffs, approvals, check output and execution locks. A second server cannot open the same state directory. A supervised process group terminates active harnesses if the server crashes. Interrupted work requires an explicit resume; Relay never blindly reruns interrupted commands. Commands that deliberately detach themselves into a new session are outside this process-group boundary. All output is local and may contain repository-sensitive material. State is not encrypted.
+Relay is for one developer on their own machine. Agents run as your OS user with your filesystem
+and network access; Relay is not a sandbox. What it does enforce: isolated worktrees, a single
+writer per repository, approval gates, workspace fingerprints that catch unreviewed changes, and
+supervised check evidence. Ticket and issue text is treated as context, never as instructions or
+commands. Agents are told never to merge; only the publication agent pushes, and Relay itself
+pushes only when you update a branch (never with force). Review the diff before you accept it.
 
 ## Development
 
 ```sh
-pnpm test
-pnpm run check
-RELAY_PORT=4311 RELAY_DATA_DIR=/tmp/relay-state node server/index.js
+(cd go && gofmt -l . && go vet ./... && go test ./...)
+(cd web && pnpm run check && pnpm test)
+(cd web && pnpm run test:e2e && pnpm run test:workspace && pnpm run test:ui)
+pnpm test && pnpm run check   # the Node service and shared tests
 ```
 
-If your environment does not provide pnpm, the equivalent checks are `node --test test/*.test.js` and `node scripts/check.js`.
-
-For browser checks, install development dependencies with `pnpm install --frozen-lockfile`, install a Playwright browser, then run `node test/browser.e2e.js`. The browser suite starts its own disposable server and creates demo tasks, a draft task and a temporary repository profile. Set `RELAY_TEST_URL` only to test an existing disposable server, `RELAY_CHROME` for an existing Chrome executable, and `RELAY_SCREENSHOTS` for screenshot output.
-
-`node scripts/probe-harnesses.js [codex|claude|pi]` performs an opt-in **live** structured-response probe against your CLI accounts. It requests a fixed handoff without tools, writes results into ignored `docs/probes`, and reports account or protocol failures. These probes are separate from the deterministic test suite.
-
-The browser UI uses native modules and CSS; the server uses Node's built-in HTTP, SQLite and child-process APIs. No hosted service, build pipeline or package registry is required to run it.
-
-Progress and roadmap notes live in ignored `docs/`. This repository is an initial release: live account permissions and organization-specific setup commands must be validated on your own repositories. The automated suite uses deterministic harness fixtures and real temporary Git repositories.
-
-One task can coordinate up to 12 repositories. In **New task**, choose the primary repository (also used for issue import), expand **Coordinate additional repositories**, and select the other participants. For each participant, select any repositories that must be implemented first. Dependencies must refer to selected repositories and cannot form a cycle. Multiple profiles pointing to the same checkout are rejected; use one profile for that repository.
-
-Relay investigates each repository, then produces one combined proposal covering interface contracts, alternatives, compatibility, tests, and rollout order. Your approach approval authorizes implementation across the selected repositories. Implementation runs sequentially in prerequisite order, followed by all repository verification commands, then independent review of every repository and its compatibility with the others. Each harness receives the repository map, local guidance, dependency graph, and the latest handoff for every repository/stage. Each repository retains its own checkout, branch, base commit and diff. Harnesses share that checkout throughout the task.
-
-Setup and check processes receive `RELAY_WORKSPACES_JSON`, a JSON object mapping repository profile IDs to task working directories. Use it in a configured integration check to test contracts against the participating local code. Relay does not rewrite package dependencies or bypass repository build rules. All workspaces are prepared before setup begins; setup runs in prerequisite order. Verification runs after every implementation has finished. Missing integration prerequisites should be reported as blocked by the specialists.
-
-The final gate covers all repository diffs together. Changes in any participant invalidate approval. Repairs rerun implementation in dependency order, all verification, and every review. A process failure can resume at the failed repository; completed earlier repository stages remain recorded. Attached checkouts are reserved together until cancellation or acceptance, and reservations survive restart.
-
-After acceptance, each repository has its own explicit **Commit & submit draft PR** action and durable submission outcome. Submit in the landing order described by the approved plan. Only one submission per task runs at a time. Publication across providers is not atomic: successful submissions remain successful if a later repository fails. Inspect the complete provider output and recover a failed or interrupted submission manually to avoid duplicate remote writes. Relay never automatically merges or deploys cross-repository changes.
-
-Existing single-repository tasks and configurations continue to work.
-
-The activity thread retains visible agent messages as they arrive, stage starts, workspace details, and grouped tool/check activity with expandable output. Expanded tool groups stay open during live refreshes. Saved assistant messages can also be recovered from older transcripts; raw logs remain available in the execution tab. Updates depend on the installed harness emitting messages or tool events; Relay does not invent progress while a harness is silent.
-
-Repository profiles default to a new isolated worktree when a workflow starts. `attach` is an explicit choice to reuse an existing feature checkout. For repositories with their own workspace manager, use `strategy: "managed"`, a trusted `workspaceCommand` argument-array command, and an absolute `workspacePath` template. Arguments and paths support `{workspaceName}`, `{branch}`, `{baseCommit}`, and `{taskId}`. The creation command must be idempotent so interrupted preparation can be resumed. Relay validates that the result is a separate, clean worktree of the same repository at the requested branch and base commit. Private manager scripts belong in ignored `.relay/`. Verification commands also receive `RELAY_BASE_COMMIT` and `RELAY_REPOSITORY_ID` for repository-specific checks.
-
-### Decisions and native sessions
-
-The Approval inbox keeps approach decisions, final approvals, blockers, interrupted runs, and manual sessions together. Marking an item seen keeps the decision available. Desktop notifications are opt-in and require Relay to remain open in the browser.
-
-Codex runs through its app-server protocol and Pi through RPC. Both accept direction during an active turn. Claude direction interrupts the current process and resumes the recorded native session with the new context. Session IDs persist with attempts; interrupted attempts resume the same stage and conversation. The Live terminals panel can take over a recorded native conversation in tmux. Human approach approval and final acceptance still apply. Read-only stages retain their permission restrictions. Unsupported native protocols fail visibly instead of starting an unrelated session.
-
-Direction displays pending status until an agent receives it. Pending direction blocks approval; request changes to incorporate it. An accepted steering request means the harness accepted the input, not that it has completed the requested work.
-
-### Review feedback and routing evidence
-
-At final approval, Code changes supports comments on individual added, removed, context, and untracked-file lines. Comments are tied to a repository and exact workspace fingerprint. Send open comments for a focused repair, or mark them resolved. Repairs return through all repository checks and independent review. Stale anchors cannot start a repair; historical feedback remains available.
-
-Harnesses shows measured routing evidence by repository, stage, harness, and configured model. Demo runs and interrupted attempts do not count toward recommendations. An implementation succeeds only after passing verification and a clean review before its next implementation attempt. Review success counts usable structured reviews, including actionable findings, so defect discovery does not penalize the reviewer. Suggestions require three settled attempts across two tasks with a matching enabled model configuration. Unknown historical models stay visible but are ineligible. Observational rates reflect task difficulty and reviewer behavior as well as harness performance. Advice changes nothing until explicitly applied to defaults for new tasks, and never changes model settings.
-
-### Storage, archives, and recovery
-
-Settings contains storage usage, worktree cleanup, and backup/restore. Cleanup requires a finished, clean Relay-owned worktree with its commits reachable from the original base or a local main branch. Attached and custom managed workspaces stay with their own lifecycle tools. Modified, untracked, ignored, or unmerged work blocks removal. Git branches, task history and artifacts remain.
-
-A `.relay.gz` archive includes task history, approvals, receipts, local profiles/helper files, images, artifacts, exact recovery patches and untracked workspace files. Backups require all workflows and submissions to be idle. Full checkouts, ignored workspace files, Git object stores, provider-owned native sessions and harness credentials remain external. Recovery patches need the original base commits and are never applied automatically. Archives contain private local data.
-
-Restore validates checksums, record counts, paths and permissions before showing a preview. Review the included repository paths and configured commands before confirming replacement. Relay creates a safety backup, replaces state under a maintenance lock, and leaves unfinished tasks interrupted for explicit inspection and resume. A journal rolls back an interrupted restore at startup. No restored command is executed automatically. Archives are capped at 512 MB compressed, 1 GB expanded, 64 MB per file and 10,000 tasks; storage scans cap traversal at 200,000 entries and label partial results. Symlinks in state files are refused rather than followed.
-
-### Recovery and development commands
-
-Agent-reported blockers and recoverable process failures queue a dedicated debugger, with up to two diagnostic attempts by default. The debugger uses a fresh conversation in the existing worktree, receives recorded command results and prior diagnoses directly, and runs with elevated host execution. It selects diagnostic commands from repository instructions and discovered tooling rather than a fixed host-check script, and can resolve routine non-destructive setup in ignored build/cache artifacts. It must delegate source repairs to the approved writer and cannot alter credentials or security policies, expand scope, waive checks, or approve work. Source-write restrictions are workflow instructions and fingerprint checks, not OS isolation for the elevated process. A resolved diagnosis retries the interrupted stage; it never substitutes for its handoff or verification. Source changes during analysis stop immediately for inspection. Task routing stays unchanged. Set automatic blocker recovery to zero to disable it; verification and review repairs retain their own limit.
-
-Unresolved blockers produce a decision card with the problem, required input, attempted remedies, evidence, and concrete options. Genuine design decisions can escalate after the first debugger attempt. Choose a runtime direction for the debugger, retry after fixing access, request a revised approach, or pause. Revised approaches require fresh implementation approval. Decisions are tied to their current blocker ID so stale browser tabs cannot apply an older choice. Existing blocked tasks also offer **Run debugger**.
-
-Claude sessions disable the command sandbox and bypass interactive tool permission prompts in every stage. Tool denials from host or managed policies are retained as evidence. Debuggers and ordinary specialists use the same host access; repository instructions and workflow approvals still apply.
-
-Verification defaults to an elevated agent session. It reads repository guidance, discovers and runs required checks, and investigates failures on the host. It must report executed commands, exit codes, working directories and the source requirements they satisfy for every selected repository. Missing evidence, failed checks or source mutations block review. The agent cannot waive repository requirements; source repairs return to the approved writer. Existing profiles without a verification mode also use this path. Select `verificationMode: "commands"` explicitly to use a fixed command list instead.
-
-All repository profiles use host execution for development commands. Historical `developmentAccess` fields remain accepted for compatibility but no longer restrict agent execution. Trusted setup commands should materialize source and prepare prerequisites before investigation. Analysis may prepare ignored artifacts and run tests; changing tracked or untracked source still blocks its handoff.
-
-The task header summarizes the current stage, latest finding and next action. Activity keeps recent updates visible and collapses older history, long messages and detailed findings. Full evidence remains available in the activity details and handoffs.
-
-After diagnosis, Relay continues the interrupted specialist conversation with its saved work and fresh diagnostic evidence. If the native session is unavailable, the next specialist receives the same continuation context. Completed repository implementations and human approvals remain intact.
-
-Verification checkpoints preserve each passing configured command only while the complete workspace fingerprint and command configuration match. Recovery reruns failed or unfinished commands; source changes invalidate the checkpoint. A single command that runs a full suite is rerun as a whole, following the repository's required checks. Diagnostic claims never count as verification results.
-
-Live workflow counters show elapsed attempt time and time since recorded activity; they do not estimate completion. “Ask on the side” opens a separate Claude conversation from the task snapshot, with ticket context, approvals, handoffs, feedback and recent output. Side questions stream reply text and show expandable tool calls with running, completed or failed status. Partial replies remain visible if the request fails; progress notifications do not add rows to workflow history. The conversation follows new output while you are at the bottom and preserves your position when reading earlier messages. Side questions have their own history and a fixed read-only toolset for prepared task worktrees: source reads, literal search, file lists, local Git history, blame, diffs and status. GitHub reads use the host’s existing `gh` authentication for issues, PRs, comments, reviews, checks, search, bounded REST GET requests and GraphQL query operations. No login or token copying is required. Mutations, arbitrary CLI arguments and remote writes are unavailable. They have no shell, file-edit, test/build or worker-control tools; hooks and slash commands are disabled. Each inspection returns the observed HEAD and time, and file reads include a content hash and change-during-read detection. Answers must distinguish recorded evidence from live source and flag concurrent changes; this is not an atomic source snapshot. Before a worktree exists, source access remains unavailable, but GitHub reads can use an explicit repository. Inspection runs alongside the worker without taking a writer or check reservation. Send explicit direction separately when you want the worker to act.
-
-Task tabs use shareable URL fragments such as `#task/<id>/thread`; reload and browser back/forward restore the selected tab. Expand the execution map to follow recorded runs, debugger detours and repair backtracks. Native models are recorded when reported by the harness; older runs with no model metadata display “CLI default · not reported”.
-
-Open **Execution graph** from the Workflow card to inspect connected run nodes, debugger detours and return paths. Select a node for its handoff and evidence, and use zoom or scroll to explore long runs. **Ask on the side** opens a roomy conversation drawer. The compact live indicator sits under the task title.
-
-Live updates reconcile existing page elements so expanded sections, unsent text, focus, selection and reading position survive incoming output. Scrolling up in a live terminal preview pauses Follow latest; use the button to resume. Browser regression checks include nested disclosures and document/panel scrolling under repeated updates.
-
-Verification agents run checks through Relay’s explicit-argument check runner. Checks share a serial resource reservation across the Relay instance, retain command logs and durable completion records, and report progress while the agent waits. Agents choose repository commands from local guidance; Relay supplies no project-specific check commands. Unsupervised commands cannot satisfy the verification evidence gate.
-
-After a source change, the verifier receives prior results and source differences. It may preserve passing evidence with an explicit impact explanation and fresh checks in each affected repository; failed or incomplete checks cannot be reused. Required repository checks still apply. Invalid evidence reports receive at most two report-only corrections in the existing conversation before requesting help.
-
-Stage budgets are soft limits: recent recorded progress can extend execution up to twice the configured budget. Verification progress comes from check output rather than repeated polling. Exhausting the budget preserves evidence and offers **Continue with more time** in the same native session instead of automatically starting a debugger. A stopped check remains incomplete and must finish successfully before review.
-
-Exploratory inspection commands can use the check runner’s `--diagnostic` option before `--`. They remain in the journal, but cannot satisfy mandatory verification requirements. A failed exploratory script stays within the agent’s investigation instead of poisoning completed repository checks. Repository tests, lint, build and acceptance checks must use the default verification purpose; their failures still block progression.
-
-A failed check report first returns to the same verifier conversation for bounded recovery. The verifier can correct invocation mistakes, rerun failed checks, or request source repair while preserving successful evidence. Repeated unresolved failures stop visibly instead of spawning a chain of new debugger sessions.
-
-Across specialist stages, recoverable process interruptions first resume the current native conversation once. If it still cannot progress, normal bounded debugger recovery applies. Source-write violations and execution-budget stops retain their separate handling; explicit blocked handoffs must explain the obstacle and attempted remedies.
-
-### Acceptance, publication and PR status
-
-Accepting a result records final approval; it does not commit or publish. The task’s PR tracker offers an agent-led publication action for each repository. Relay checks the accepted workspace fingerprint; the publication agent commits the accepted changes and discovers the repository’s provider tooling. Each repository is submitted independently. Commit IDs, provider output and remote PR observations remain visible in PR details. A failed or interrupted submission is not automatically repeated because its remote outcome may be uncertain.
-
-After a submission attempt, a separate observation agent discovers the repository’s actual PR provider and read-only tools from its guidance, branch, commit and submission output. No provider names, URLs or CLI commands are built into this monitor. It reports a verified PR link, draft/open/closed/merged state, remote checks and review status. **Find existing PR** can also locate a PR published manually. The agent uses the investigation harness and model settings, with a two-minute soft budget (at most four minutes). One observation runs at a time, normally every five minutes, with backoff and an automatic stop after three unavailable observations. Merged/closed PRs stop polling. Pause or resume monitoring per repository.
-
-Monitoring observes only: it never authorizes code edits, repairs, pushes, reviews, comments or merges. It uses host tooling so existing provider authentication can work; read-only behavior is enforced through its instructions and a workspace fingerprint check, not an OS guarantee against all remote writes. Status failures preserve the last successful snapshot and do not fail the accepted development task or start a debugger. Snapshots include timestamps and evidence; unknown status is never presented as passing CI.
-
-### Agent-led delivery
-
-Publishing has two explicit steps after final acceptance: **Publish**, then **Monitor**. Choose **Publish draft PR** to authorize a publication agent to inspect the branch and existing remote PR, commit exactly the accepted source, discover the appropriate provider tools, and create or update the draft PR. A configured provider command is optional guidance, not a fixed workflow. The agent handles routine invocation problems in its own session; a retry receives earlier findings and must inspect remote state before writing. Publication uses the implementation harness/model and a fifteen-minute soft budget. Live terminals show publication agents and the latest observation agent for each repository. Routine PR polls stay out of workflow run history and the execution graph. The PR tracker shows freshness and status; Details contains the latest observation and evidence. Status changes remain in All activity, and full polling records remain in the audit/export data. Publication can be paused.
-
-Publication owns routine branch preparation: fetching the current base, rebasing, resolving conflicts, and repairing resulting checks within the approved behavior. Before preparation, Relay preserves the accepted source snapshot and a recovery ref. Any source or ancestry change must return to scoped supervised verification and an independent review before pushing. Publication reuses eligible prior passing evidence and runs fresh impact checks for the rebase or conflict resolutions; a base SHA change alone does not require another full test campaign. Relevant failures still block, while unrelated failures need concrete evidence and must never be reported as passing; failed checks and findings return automatically to the publication agent for repair. Routine preparation carries the existing human approval forward after those gates pass. Design changes and genuinely unavailable capabilities still stop with concrete next steps. Branches, source and verification fingerprints are checked around each handoff. Policy bypasses, blind force pushes, credential changes and PR merging remain prohibited. These tool permissions rely on agent instructions, not OS isolation; post-run checks detect source, branch and ancestry changes but cannot undo remote side effects. The agent chooses repository-supported tooling and remote update policy; Relay contains no provider-specific rebase or repair commands. Preparation/verification/review cycles are bounded and their history and work survive interruption. Previously completed commits survive retry, including interrupted attempts whose accepted content and ancestry can be proven. Each repository publishes separately under its own workspace reservation. Both `/publish` and `/submit` default to the agent workflow, even when a provider command is configured. Legacy command execution requires an explicit `mode: "commands"` on `/submit`; it is never an automatic fallback.
-
-The task sidebar keeps memory compact. **View run history** opens a run selector and the exact versioned context for the selected run. PR details open separately; raw provider output does not occupy the workspace card.
-
-Publication and PR observation agents also appear in **Activity thread → Run history**, the execution graph, and Live terminals. Each retry and observation keeps its own summary, evidence, status and terminal metadata. These auxiliary runs do not advance development stages. Older runs recovered from retained events are labeled as recorded when their original outcome is unavailable.
-
-The task header’s status badge is editable. A manual override changes the status shown in the list and board while preserving the actual workflow, running agents and approval gates. Choose **Automatic** to follow the workflow again. Active publishing shows **Publishing**; its internal checks and review remain in run history. PR links, checks and review state appear in a compact tracker. During an idle-waiting backend upgrade, status edits are saved in the browser and sync when the new backend is ready.
-
-PR monitoring backs off unchanged snapshots from five to ten to fifteen minutes and resets after a status change or explicit refresh. The oldest due observation runs first. Observations wait while the task or its workspace has an active writer. Repeated requests to validate an identical prepared fingerprint reuse a successful publication verification and review within the same repair session; changed source or base requires fresh validation.
-
-Current-run status, timers, handoffs and execution logs include publication work. Task lists carry a compact current-run snapshot instead of entire polling histories. Side questions include publication status and recent meaningful activity, so routine polls cannot hide developer direction.
-
-Check resource waits have a separate bounded budget and durable waiting/interruption records. Waiting does not count as passing a check or as test execution failure. Cancellation leaves another active check's lock intact. UI refreshes coalesce event bursts in bounded batches, and delayed diff responses cannot replace another task's view. Queued status updates for removed tasks are discarded after confirming the task is absent; per-task conflicts do not prevent other queued edits from syncing.
-
-### Workspace assistant and display preferences
-
-Open **Relay** in the top bar or press **Cmd/Ctrl+K** to coordinate work without leaving your current task. The full **Relay agent** page in the sidebar shows workspace counts and pending decisions. Use either view to inspect task status, read GitHub issue boards using the local CLI authentication, and prepare draft tasks across configured repositories. It uses the configured Claude model and streams tool activity. It can create up to 20 drafts per request and reuses existing ticket URLs. Drafts do not start automatically; implementation and final acceptance keep their approval gates. Other providers require a compatible reader; the assistant cannot invent access or replace the configured publication workflow.
-
-**Settings → Low motion** disables animations and transitions in this browser. The system reduced-motion preference is also respected. Relay vendors Motion locally and uses its JavaScript API; no CDN or React runtime is required.
-
-Drag the Ask Relay header to move its window, or drag an edge or corner to resize it. Resizing preserves the opposite edge and stays within the viewport. Double-click the header to reset. The resize grip supports arrow keys and Home. Geometry is saved in this browser and bounded to the viewport; mobile uses the full-width layout. Task search, project/stage filters, sorting and layout are retained in the URL.
-
-## Workflow reliability tests
-
-Run `pnpm run test:reliability` to exercise isolated workflows through the production engine, database, process runner and Git workspaces. The suite injects malformed provider output, process exits, stalled providers, cancellation, hard crashes during implementation and publication, and restarts at both human approval gates. It checks preserved edits and sessions, bounded retries, orphan-provider cleanup, explicit resume, and publication retry without duplicate commits.
-
-```sh
-pnpm run test:reliability --list
-pnpm run test:reliability --scenario crash-during-implementation
-pnpm run test:reliability --repeat 3 --report docs/dev/reliability.json
-```
-
-The scenarios also run in `pnpm test`. They use temporary repositories and scripted providers; they never call installed AI harnesses, touch configured projects, or publish a real PR. The scenario driver explicitly exercises approval actions as a test actor. Application approval gates stay intact.
-
-Successful temporary fixtures are removed. A failed scenario exits nonzero and prints the retained fixture directory containing `failure.json`, SQLite state and Git workspace. Optional JSON reports contain checkpoint traces, task/event snapshots, durations and failure details. These are controlled orchestration tests; external provider behavior and model quality require separate validation.
+The browser suites use disposable state and repositories; install Playwright's Chromium or set
+`RELAY_CHROME` to a Chrome or Chromium executable. More detail on the Go service, storage, export
+and import is in [go/README.md](go/README.md). Contribution rules are in [AGENTS.md](AGENTS.md).
