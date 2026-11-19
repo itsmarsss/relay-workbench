@@ -20,6 +20,7 @@ import (
 	"relay.local/relay/internal/assistant"
 	"relay.local/relay/internal/httpapi"
 	"relay.local/relay/internal/process"
+	"relay.local/relay/internal/selfupdate"
 	"relay.local/relay/internal/store"
 	"relay.local/relay/internal/terminal"
 	"relay.local/relay/internal/verification"
@@ -133,6 +134,24 @@ func run(args []string) (result error) {
 	defer chats.Close()
 	handler.SetAssistant(chats)
 	handler.SetCoordinator(coordinator)
+	// Running from a clone of Relay's repository: keep it current with commits that passed CI.
+	restart := make(chan struct{}, 1)
+	updater := &selfupdate.Updater{Binary: worker, Store: db, Busy: func() bool {
+		running, _ := coordinator.Workload()
+		return running > 0 || chats.Active() > 0
+	}, Restart: func() {
+		select {
+		case restart <- struct{}{}:
+		default:
+		}
+	}}
+	if root, ok := selfupdate.Locate(worker); ok {
+		updater.Root = root
+	}
+	handler.SetUpdater(updater)
+	updates, stopUpdates := context.WithCancel(context.Background())
+	defer stopUpdates()
+	go updater.Loop(updates)
 	server := &http.Server{Handler: handler, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 16384}
 	signals := make(chan os.Signal, 1)
 	signal.Notify(signals, os.Interrupt, syscall.SIGTERM)
@@ -140,8 +159,7 @@ func run(args []string) (result error) {
 	done := make(chan error, 1)
 	go func() { done <- server.Serve(listener) }()
 	log.Printf("Experimental Relay preview at http://127.0.0.1:%d", *port)
-	select {
-	case <-signals:
+	stop := func() {
 		ctx, cancel := httpapi.ShutdownTimeout()
 		defer cancel()
 		if err = server.Shutdown(ctx); err != nil {
@@ -149,6 +167,14 @@ func run(args []string) (result error) {
 			log.Printf("Shutdown: %v", err)
 		}
 		err = <-done
+	}
+	select {
+	case <-signals:
+		stop()
+	case <-restart:
+		log.Printf("Restarting into an update")
+		restartRequested = true
+		stop()
 	case err = <-done:
 	}
 	if err != nil && !errors.Is(err, http.ErrServerClosed) {
@@ -156,6 +182,11 @@ func run(args []string) (result error) {
 	}
 	return nil
 }
+
+// restartRequested is set when an update is installed: once everything has shut down cleanly,
+// the process replaces itself with the new build, keeping its arguments and environment.
+var restartRequested bool
+
 func main() {
 	if len(os.Args) > 1 && os.Args[1] == "--internal-terminal-worker" {
 		os.Exit(terminal.Worker(os.Args[2:]))
@@ -174,6 +205,14 @@ func main() {
 	}
 	if err := run(os.Args[1:]); err != nil {
 		log.Print(err)
+		os.Exit(1)
+	}
+	if restartRequested {
+		binary, err := os.Executable()
+		if err == nil {
+			err = syscall.Exec(binary, os.Args, os.Environ())
+		}
+		log.Printf("Could not restart into the update: %v", err)
 		os.Exit(1)
 	}
 }

@@ -39,6 +39,7 @@ type Server struct {
 	token        [32]byte
 	workflow     Coordinator
 	assistant    Assistant
+	updater      Updater
 	usage        *storage.Usage
 }
 

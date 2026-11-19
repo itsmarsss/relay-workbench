@@ -4661,3 +4661,11 @@ input[type='radio']:checked::after,
 input[type='radio']:hover:not(:checked):not(:disabled) {
   border-color: var(--line-strong);
 }
+
+.update-status {
+  margin: 0;
+  font-size: 13px;
+}
+.update-status[data-state='failed'] {
+  color: var(--danger);
+}

@@ -1,5 +1,6 @@
 import { AppearanceSettings } from './Appearance';
 import { NotificationSettings } from './Notifications';
+import { UpdateSettings } from './UpdateSettings';
 import { RoutingEvidence } from './WorkflowInsights';
 import { useState } from 'react';
 import { Markdown } from './Markdown';
@@ -67,6 +68,7 @@ export function SettingsPage({
         <>
           <AppearanceSettings />
           <NotificationSettings />
+          <UpdateSettings />
         </>
       )}
       {mode === 'agents' && (

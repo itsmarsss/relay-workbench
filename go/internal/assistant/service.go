@@ -152,6 +152,13 @@ func New(db *store.Store, worker string, args []string, env map[string]string, a
 	}
 	return s, nil
 }
+
+// Active is how many conversations are answering right now.
+func (s *Service) Active() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return len(s.jobs)
+}
 func (s *Service) Close() {
 	s.mu.Lock()
 	s.closed = true

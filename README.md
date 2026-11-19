@@ -144,6 +144,16 @@ Then open <http://127.0.0.1:4310>, add a repository, and create a task.
   it; nothing is rerun blindly.
 - Local profiles, helper scripts and state go in `.relay/`, which Git ignores.
 
+### Staying up to date
+
+When Relay runs from a clone of this repository (`pnpm run build`, then `pnpm start`), it keeps
+itself current. Every 30 minutes it fetches `main`, and when a newer commit there has passed CI
+it waits until no agent, chat or terminal is working, fast-forwards, rebuilds and restarts into
+the new build. It leaves the checkout alone if you have local changes, local commits or another
+branch checked out, and it rolls back if the update doesn't build. Turn it off, or check now,
+under **Settings → Updates**. Reading CI results for a private repository uses your `gh` login or
+`GITHUB_TOKEN`.
+
 ## Architecture
 
 ```mermaid
