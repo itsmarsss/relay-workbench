@@ -4977,3 +4977,22 @@ input[type='radio']:hover:not(:checked):not(:disabled) {
   font-size: 13px;
   font-weight: 600;
 }
+
+/* A plan in the list can be approved without opening the task. */
+.attention-item {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+.attention-item + .attention-item {
+  border-top: 1px solid var(--line);
+}
+.attention-item > .attention-row {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.attention-quick {
+  flex: none;
+  margin-right: 16px;
+  white-space: nowrap;
+}
