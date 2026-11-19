@@ -3,7 +3,7 @@ import { NotificationSettings } from './Notifications';
 import { UpdateSettings } from './UpdateSettings';
 import { SetupList } from './SetupList';
 import { RoutingEvidence } from './WorkflowInsights';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Markdown } from './Markdown';
 import { Modal } from './Modal';
 import { Select, ProviderIcon, ProviderName, providerName } from './UI';
@@ -65,6 +65,7 @@ export function SettingsPage({
         </button>
       </div>
       {message && <p role="status">{message}</p>}
+      <SectionMenu key={mode} />
       {mode === 'settings' && (
         <>
           <AppearanceSettings />
@@ -735,5 +736,52 @@ function StateTransfer() {
       </details>
       {error && <Notice>{error}</Notice>}
     </section>
+  );
+}
+
+// Jump links to each section of a long settings page, taken from its headings.
+function SectionMenu() {
+  const menu = useRef<HTMLElement>(null),
+    [sections, setSections] = useState<{ id: string; label: string }[]>([]);
+  useEffect(() => {
+    const page = menu.current?.closest('.settings-page');
+    if (!page) return;
+    const found: { id: string; label: string }[] = [];
+    page
+      .querySelectorAll<HTMLElement>(':scope > section, :scope > .agent-profiles')
+      .forEach((section) => {
+        const heading = section.querySelector('h2');
+        const label = heading?.textContent?.trim();
+        if (!heading || !label) return;
+        const id = 'settings-' + label.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+        section.id = id;
+        found.push({ id, label });
+      });
+    setSections(found);
+  }, []);
+  return (
+    <nav
+      ref={menu}
+      className="settings-menu"
+      aria-label="Settings sections"
+      hidden={sections.length < 3}
+    >
+      {sections.map((section) => (
+        <a
+          key={section.id}
+          href={'#' + section.id}
+          onClick={(event) => {
+            event.preventDefault();
+            document.getElementById(section.id)?.scrollIntoView({
+              block: 'start',
+              behavior:
+                document.documentElement.dataset.lowMotion === 'true' ? 'instant' : 'smooth',
+            });
+          }}
+        >
+          {section.label}
+        </a>
+      ))}
+    </nav>
   );
 }

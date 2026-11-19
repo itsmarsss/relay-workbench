@@ -9,6 +9,11 @@ type DiscoveryReport = {
   warnings: string[];
   truncated: boolean;
 };
+// The end of a long path is what tells repositories apart; the full path is on hover.
+function shortPath(path: string) {
+  const parts = path.split('/').filter(Boolean);
+  return parts.length > 3 ? '…/' + parts.slice(-3).join('/') : path;
+}
 type Added = { repository: RepositoryProfile; existing?: boolean; detected?: string[] };
 export function RepositoriesPage({
   config,
@@ -91,72 +96,6 @@ export function RepositoriesPage({
           </button>
         </div>
       </div>
-      <div className="repository-section-heading">
-        <h2>Connected repositories</h2>
-        <span>
-          {config.repositories.length} {config.repositories.length === 1 ? 'profile' : 'profiles'}
-        </span>
-      </div>
-      {config.repositories.length ? (
-        <div className="repository-grid">
-          {config.repositories.map((repo) => (
-            <article className="repository-card" key={repo.id}>
-              <header>
-                <span className="repo-icon">
-                  <Icon name="repository" size={22} />
-                </span>
-                <h2>{repo.name}</h2>
-                <button className="text-button" onClick={() => onEdit(repo)}>
-                  Edit profile
-                </button>
-              </header>
-              <code>{repo.path}</code>
-              <dl>
-                <div>
-                  <dt>Workspace</dt>
-                  <dd>
-                    {
-                      {
-                        worktree: 'New worktree per task',
-                        managed: 'Managed task worktree',
-                        attach: 'Attached checkout',
-                      }[repo.strategy]
-                    }
-                  </dd>
-                </div>
-                <div>
-                  <dt>Verification</dt>
-                  <dd>
-                    {repo.verificationMode === 'agent'
-                      ? 'Agent discovers checks'
-                      : `${repo.checks.length} configured commands`}
-                  </dd>
-                </div>
-                <div>
-                  <dt>Working directory</dt>
-                  <dd>{repo.cwd}</dd>
-                </div>
-                {repo.setup.length > 0 && (
-                  <div>
-                    <dt>Setup</dt>
-                    <dd>
-                      {repo.setup.length} {repo.setup.length === 1 ? 'command' : 'commands'}
-                    </dd>
-                  </div>
-                )}
-              </dl>
-            </article>
-          ))}
-        </div>
-      ) : (
-        <div className="empty-state">
-          <h2>Connect your first repository</h2>
-          <p>
-            Paste a repository URL below, or find a checkout already on this machine. Relay works
-            out its name, install step and checks.
-          </p>
-        </div>
-      )}
       <section className="surface repository-clone" aria-label="Add a repository">
         <form
           onSubmit={(event) => {
@@ -213,6 +152,72 @@ export function RepositoriesPage({
           </button>
         </p>
       </section>
+      <div className="repository-section-heading">
+        <h2>Connected repositories</h2>
+        <span>
+          {config.repositories.length} {config.repositories.length === 1 ? 'profile' : 'profiles'}
+        </span>
+      </div>
+      {config.repositories.length ? (
+        <div className="repository-grid">
+          {config.repositories.map((repo) => (
+            <article className="repository-card" key={repo.id}>
+              <header>
+                <span className="repo-icon">
+                  <Icon name="repository" size={22} />
+                </span>
+                <h2>{repo.name}</h2>
+                <button className="text-button" onClick={() => onEdit(repo)}>
+                  Edit profile
+                </button>
+              </header>
+              <code title={repo.path}>{shortPath(repo.path)}</code>
+              <dl>
+                <div>
+                  <dt>Workspace</dt>
+                  <dd>
+                    {
+                      {
+                        worktree: 'New worktree per task',
+                        managed: 'Managed task worktree',
+                        attach: 'Attached checkout',
+                      }[repo.strategy]
+                    }
+                  </dd>
+                </div>
+                <div>
+                  <dt>Verification</dt>
+                  <dd>
+                    {repo.verificationMode === 'agent'
+                      ? 'Agent discovers checks'
+                      : `${repo.checks.length} configured commands`}
+                  </dd>
+                </div>
+                <div>
+                  <dt>Working directory</dt>
+                  <dd>{repo.cwd}</dd>
+                </div>
+                {repo.setup.length > 0 && (
+                  <div>
+                    <dt>Setup</dt>
+                    <dd>
+                      {repo.setup.length} {repo.setup.length === 1 ? 'command' : 'commands'}
+                    </dd>
+                  </div>
+                )}
+              </dl>
+            </article>
+          ))}
+        </div>
+      ) : (
+        <div className="empty-state">
+          <h2>Connect your first repository</h2>
+          <p>
+            Paste a repository URL below, or find a checkout already on this machine. Relay works
+            out its name, install step and checks.
+          </p>
+        </div>
+      )}
       <section ref={panel} className="repository-discovery" aria-label="Repository discovery">
         <div className="section-heading">
           <div>

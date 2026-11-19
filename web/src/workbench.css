@@ -4815,3 +4815,42 @@ input[type='radio']:hover:not(:checked):not(:disabled) {
   font-size: 13px;
   color: var(--muted);
 }
+
+/* Fresh install: the setup card is the welcome; the empty-board hero would repeat it. */
+.overview-page:has(.getting-started) .welcome-card {
+  display: none;
+}
+/* Settings and Agents: jump to a section. */
+.settings-menu {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 6px;
+  padding: 8px 0;
+  margin: -4px 0 4px;
+  background: var(--page);
+}
+.settings-menu a {
+  padding: 4px 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 550;
+  text-decoration: none;
+}
+.settings-menu a:hover {
+  color: var(--text);
+  border-color: var(--line-strong);
+}
+.settings-page > section {
+  scroll-margin-top: 56px;
+}
+.repository-card code {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

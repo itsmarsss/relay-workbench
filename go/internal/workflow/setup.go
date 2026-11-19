@@ -103,6 +103,9 @@ func (c *Coordinator) setupItems(ctx context.Context) ([]SetupItem, error) {
 	items := []SetupItem{}
 	tool := func(id, label, why string, required bool, binary string, versionArgs []string, install *SetupAction) SetupItem {
 		item := SetupItem{ID: id, Label: label, Why: why, Required: required, Status: "missing", Install: install}
+		if install == nil {
+			item.Detail = "Not installed. Install it with your system's package manager, then check again."
+		}
 		if found(binary) {
 			item.Status, item.Install = "ok", nil
 			item.Detail, _ = quick(ctx, binary, versionArgs...)
@@ -126,6 +129,9 @@ func (c *Coordinator) setupItems(ctx context.Context) ([]SetupItem, error) {
 		if !found(command) {
 			if agent.pkg != "" {
 				item.Install = npmInstall(agent.pkg)
+			}
+			if item.Install == nil {
+				item.Detail = "Not installed. Install it from its own instructions, or turn it off if you won't use it."
 			}
 			items = append(items, item)
 			continue

@@ -78,6 +78,13 @@ export function SetupList({ onlyProblems = false }: { onlyProblems?: boolean }) 
                   {item.login.label}
                 </button>
               )}
+              {item.status === 'missing' &&
+                !item.install &&
+                ['claude', 'codex', 'pi'].includes(item.id) && (
+                  <a className="button-link" href="#agents">
+                    Turn it off
+                  </a>
+                )}
               {item.install && (
                 <button
                   type="button"
