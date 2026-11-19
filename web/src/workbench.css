@@ -4741,3 +4741,72 @@ input[type='radio']:hover:not(:checked):not(:disabled) {
   color: var(--status-done-ink);
   font-size: 13px;
 }
+
+/* Setup: each prerequisite with its state and, when something is missing, what to do. */
+.setup-list ul {
+  list-style: none;
+  margin: 8px 0;
+  padding: 0;
+  display: grid;
+}
+.setup-list li {
+  display: grid;
+  grid-template-columns: 84px minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  padding: 9px 0;
+  border-top: 1px solid var(--line);
+}
+.setup-list li:first-child {
+  border-top: 0;
+}
+.setup-list p {
+  margin: 2px 0 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+.setup-status {
+  justify-self: start;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 650;
+  background: var(--status-neutral);
+  color: var(--status-neutral-ink);
+}
+.setup-list li[data-status='ok'] .setup-status {
+  background: var(--status-done);
+  color: var(--status-done-ink);
+}
+.setup-list li[data-status='missing'] .setup-status {
+  background: var(--status-blocked);
+  color: var(--status-blocked-ink);
+}
+.setup-list li[data-status='attention'] .setup-status {
+  background: var(--status-attention);
+  color: var(--status-attention-ink);
+}
+.setup-all-ready {
+  margin: 6px 0;
+  font-size: 13px;
+}
+.setup-command {
+  margin: 8px 0;
+  padding: 10px 12px;
+  border-radius: var(--radius);
+  background: var(--soft);
+  overflow-x: auto;
+  font-size: 13px;
+}
+.setup-terminal {
+  margin-top: 10px;
+}
+.setup-terminal .terminal-raw {
+  height: 320px;
+}
+@media (max-width: 560px) {
+  .setup-list li {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 6px;
+  }
+}

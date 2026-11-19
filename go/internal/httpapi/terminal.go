@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"relay.local/relay/internal/workflow"
 	"strings"
 )
 
@@ -15,7 +16,11 @@ type terminalController interface {
 
 func (s *Server) terminalRoute(w http.ResponseWriter, r *http.Request) bool {
 	parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/api/tasks/"), "/")
-	if !strings.HasPrefix(r.URL.Path, "/api/tasks/") || len(parts) != 2 || !taskID.MatchString(parts[0]) {
+	if !strings.HasPrefix(r.URL.Path, "/api/tasks/") || len(parts) != 2 || (!taskID.MatchString(parts[0]) && parts[0] != workflow.SetupTerminalID) {
+		return false
+	}
+	// The setup terminal is watched, typed into and closed; it is never taken over.
+	if parts[0] == workflow.SetupTerminalID && parts[1] != "terminal" && parts[1] != "terminal-input" && parts[1] != "terminal-window" && parts[1] != "terminal-stream" {
 		return false
 	}
 	operations := map[string]string{"terminal": "snapshot", "terminal-preview": "snapshot", "terminal-input": "input", "terminal-window": "window", "takeover": "takeover", "return-control": "release", "terminal-stream": "stream", "agent-terminal": "agent"}

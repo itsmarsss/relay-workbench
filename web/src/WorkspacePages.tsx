@@ -1,6 +1,7 @@
 import { AppearanceSettings } from './Appearance';
 import { NotificationSettings } from './Notifications';
 import { UpdateSettings } from './UpdateSettings';
+import { SetupList } from './SetupList';
 import { RoutingEvidence } from './WorkflowInsights';
 import { useState } from 'react';
 import { Markdown } from './Markdown';
@@ -69,6 +70,15 @@ export function SettingsPage({
           <AppearanceSettings />
           <NotificationSettings />
           <UpdateSettings />
+          <section className="surface setup-settings">
+            <div className="section-heading">
+              <div>
+                <h2>Setup</h2>
+                <p>Everything Relay relies on. Installs and logins run only when you confirm.</p>
+              </div>
+            </div>
+            <SetupList />
+          </section>
         </>
       )}
       {mode === 'agents' && (

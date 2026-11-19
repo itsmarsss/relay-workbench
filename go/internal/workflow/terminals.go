@@ -54,13 +54,13 @@ func (c *Coordinator) agentTerminal(id string) bool {
 	var record struct {
 		Mode string `json:"mode"`
 	}
-	if !exists || json.Unmarshal([]byte(raw), &record) != nil || record.Mode != "agent" {
+	if !exists || json.Unmarshal([]byte(raw), &record) != nil || (record.Mode != "agent" && record.Mode != "setup") {
 		return false
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	job := c.jobs[id]
-	return job != nil && job.kind == "agent-terminal"
+	return job != nil && job.kind == record.Mode+"-terminal"
 }
 
 // writableTerminal is whether a person may type into the task's terminal: under manual control,
@@ -119,9 +119,9 @@ func (c *Coordinator) Terminal(ctx context.Context, id, operation string, body m
 	if operation == "snapshot" {
 		agent := c.agentTerminal(id)
 		if active && !agent {
-			// An agent terminal whose job is gone (closed, or Relay restarted) is not open.
+			// An agent or setup terminal whose job is gone (closed, or Relay restarted) is not open.
 			raw, _, _ := c.store.GetMeta("terminal:" + id)
-			if strings.Contains(raw, `"mode":"agent"`) {
+			if strings.Contains(raw, `"mode":"agent"`) || strings.Contains(raw, `"mode":"setup"`) {
 				active = false
 			}
 		}
@@ -151,13 +151,20 @@ func (c *Coordinator) Terminal(ctx context.Context, id, operation string, body m
 	if !active || !info.Interactive || text(body["session"]) != info.Session {
 		return nil, errors.New("take control of this terminal before typing")
 	}
-	raw, err := c.store.Get(id)
-	if err != nil {
-		return nil, err
-	}
 	var value map[string]any
-	if json.Unmarshal(raw, &value) != nil || !c.writableTerminal(id, value) {
-		return nil, errors.New("manual control is no longer active")
+	if id == SetupTerminalID {
+		// The setup terminal belongs to no task; it is open while its job runs.
+		if !c.agentTerminal(id) {
+			return nil, errors.New("the setup terminal has closed")
+		}
+	} else {
+		raw, err := c.store.Get(id)
+		if err != nil {
+			return nil, err
+		}
+		if json.Unmarshal(raw, &value) != nil || !c.writableTerminal(id, value) {
+			return nil, errors.New("manual control is no longer active")
+		}
 	}
 	switch body["type"] {
 	case "input":
@@ -182,6 +189,12 @@ func (c *Coordinator) terminalWindow(ctx context.Context, id string, info termin
 	}
 	if !active || !info.Interactive || text(body["session"]) != info.Session {
 		return nil, errors.New("take control of this task before opening terminals")
+	}
+	if id == SetupTerminalID && body["action"] != "end" {
+		return nil, errors.New("the setup terminal runs one command")
+	}
+	if id == SetupTerminalID {
+		return c.endTerminal(ctx, id)
 	}
 	raw, err := c.store.Get(id)
 	if err != nil {
@@ -214,21 +227,7 @@ func (c *Coordinator) terminalWindow(ctx context.Context, id string, info termin
 	case "end":
 		// Closes every terminal in the session. The task stays under manual control, so
 		// another terminal can be opened or control handed back.
-		c.mu.Lock()
-		job := c.jobs[id]
-		c.mu.Unlock()
-		if job == nil {
-			return nil, errors.New("no terminal is open")
-		}
-		job.cancel()
-		select {
-		case <-job.done:
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		case <-time.After(15 * time.Second):
-			return nil, errors.New("terminal did not close in time")
-		}
-		return map[string]any{"windows": []terminal.Window{}}, nil
+		return c.endTerminal(ctx, id)
 	case "select":
 		err = terminal.SelectWindow(ctx, info, index)
 	case "close":
@@ -585,4 +584,22 @@ func (c *Coordinator) reserveTask(id string) (*workspace.Lease, []string, error)
 	}
 	lease, err := c.registry.Acquire(id, roots)
 	return lease, roots, err
+}
+
+func (c *Coordinator) endTerminal(ctx context.Context, id string) (any, error) {
+	c.mu.Lock()
+	job := c.jobs[id]
+	c.mu.Unlock()
+	if job == nil {
+		return nil, errors.New("no terminal is open")
+	}
+	job.cancel()
+	select {
+	case <-job.done:
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case <-time.After(15 * time.Second):
+		return nil, errors.New("terminal did not close in time")
+	}
+	return map[string]any{"windows": []terminal.Window{}}, nil
 }

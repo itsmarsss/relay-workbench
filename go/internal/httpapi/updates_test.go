@@ -40,3 +40,13 @@ func TestUpdatesNeedTheSessionTokenToChange(t *testing.T) {
 		t.Fatalf("accepted a mixed request: %d", w.Code)
 	}
 }
+
+func TestSetupRoutesNeedTheTokenAndTheSetupTerminalCannotBeTakenOver(t *testing.T) {
+	app, _ := setup(t)
+	if w := requestBody(app, "GET", "/api/setup", "", "", "", "", ""); w.Code != 403 {
+		t.Fatalf("setup check without the token: %d", w.Code)
+	}
+	if w := requestBody(app, "POST", "/api/tasks/setup/takeover", hex.EncodeToString(app.token[:]), "", "", "application/json", `{}`); w.Code == 200 || w.Code == 202 {
+		t.Fatalf("took over the setup terminal: %d", w.Code)
+	}
+}

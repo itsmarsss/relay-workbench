@@ -7,7 +7,7 @@ import { EffortSelect, ModelSelect } from './WorkspacePages';
 import { asObject, asText } from './task-data';
 import type { FullTask } from './TaskExtras';
 
-type LiveTerminal = {
+export type LiveTerminal = {
   available: boolean;
   message?: string;
   // Why the last interactive terminal failed to start, when it did.
@@ -52,7 +52,7 @@ function terminalTheme() {
     ),
   };
 }
-function Screen({
+export function Screen({
   taskId,
   info,
   onWindows,

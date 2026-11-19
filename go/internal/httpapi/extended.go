@@ -39,6 +39,9 @@ func (s *Server) extended(w http.ResponseWriter, r *http.Request) bool {
 	if s.assistantRoute(w, r) {
 		return true
 	}
+	if s.setupRoute(w, r) {
+		return true
+	}
 	if s.updatesRoute(w, r) {
 		return true
 	}

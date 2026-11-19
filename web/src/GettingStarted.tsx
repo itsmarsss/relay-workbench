@@ -1,4 +1,5 @@
 import { useResource, useSession } from './Session';
+import { SetupList, type SetupItem } from './SetupList';
 import { Icon, ProviderIcon, providerName } from './UI';
 import { asObject } from './task-data';
 import type { Task } from './types';
@@ -17,10 +18,15 @@ export function GettingStarted({
   onCreate: () => void;
 }) {
   const { bootstrap } = useSession(),
-    models = useResource<Catalog>('/api/models');
+    models = useResource<Catalog>('/api/models'),
+    setup = useResource<SetupItem[]>('/api/setup');
   const repositories = bootstrap?.config.repositories || [],
     realTask = tasks.some((task) => (task as { demo?: boolean }).demo !== true);
-  if (!bootstrap || (repositories.length > 0 && realTask)) return null;
+  const blocking = (setup.data || []).filter((item) => item.required && item.status !== 'ok'),
+    problems = (setup.data || []).filter(
+      (item) => item.status === 'missing' || item.status === 'attention',
+    );
+  if (!bootstrap || (repositories.length > 0 && realTask && blocking.length === 0)) return null;
   const harnesses = asObject(bootstrap.config.harnesses) || {};
   const agents = ['claude', 'codex', 'pi'].filter(
     (id) => asObject(harnesses[id])?.enabled === true,
@@ -28,15 +34,20 @@ export function GettingStarted({
   const found = agents.filter((id) => models.data?.[id]?.status === 'ready');
   const steps = [
     {
-      done: found.length > 0,
-      title: 'Agents',
+      done: found.length > 0 && blocking.length === 0,
+      title: 'Tools',
       body: models.loading
         ? 'Looking for agent CLIs…'
         : found.length
-          ? `Found ${found.map(providerName).join(', ')}. Relay uses their existing logins.`
-          : 'No agent CLI answered. Install Claude Code, Codex or Pi and log in, then reload.',
+          ? `Found ${found.map(providerName).join(', ')}. Relay uses their existing logins.${
+              problems.length
+                ? ` ${problems.length} optional ${problems.length === 1 ? 'tool needs' : 'tools need'} attention.`
+                : ''
+            }`
+          : 'No agent CLI answered yet. Install one below and log in.',
       icons: found,
-      action: !found.length && { label: 'Agent settings', go: () => onNavigate('#agents') },
+      details: problems.length > 0,
+      action: false as const,
     },
     {
       done: repositories.length > 0,
@@ -85,6 +96,7 @@ export function GettingStarted({
                   ))}
                 </span>
               )}
+              {'details' in step && step.details && <SetupList onlyProblems />}
             </div>
             {step.action && !step.done && (
               <button type="button" onClick={step.action.go}>

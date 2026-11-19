@@ -90,3 +90,44 @@ func TestCloneRepositoryFromAURL(t *testing.T) {
 		t.Fatalf("expected the fixture and the clone: %d", len(array(config.Value["repositories"])))
 	}
 }
+
+func TestSetupCheckListsPrerequisitesAndRunsOnlyItsOwnCommands(t *testing.T) {
+	c, _, _, _ := coordinatorFixture(t, "exit 0")
+	value, err := c.SetupCheck(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	items := value.([]SetupItem)
+	byID := map[string]SetupItem{}
+	for _, item := range items {
+		byID[item.ID] = item
+	}
+	if byID["git"].Status != "ok" || !byID["git"].Required {
+		t.Fatalf("git: %+v", byID["git"])
+	}
+	for _, id := range []string{"claude", "codex", "pi", "gh", "tmux", "go", "pnpm", "disk"} {
+		if _, ok := byID[id]; !ok {
+			t.Fatalf("missing %s", id)
+		}
+	}
+	if byID["claude"].Status != "off" {
+		t.Fatalf("a turned-off agent was probed: %+v", byID["claude"])
+	}
+	// A request names an item and an action; it can never carry a command.
+	for _, body := range []map[string]any{
+		{"item": "git", "action": "install", "command": "rm"},
+		{"item": "nothing", "action": "install"},
+		{"item": "git", "action": "install"}, // installed already: nothing to run
+	} {
+		c.terminals = true
+		if _, err := c.RunSetup(context.Background(), body); err == nil {
+			t.Fatalf("ran setup for %#v", body)
+		}
+	}
+	c.mu.Lock()
+	open := c.jobs[SetupTerminalID] != nil
+	c.mu.Unlock()
+	if open {
+		t.Fatal("a refused request opened a terminal")
+	}
+}
