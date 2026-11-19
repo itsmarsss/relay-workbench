@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react';
 import { Icon } from './UI';
 import { Notice, useMutation } from './Session';
+import { RepositorySetup } from './RepositorySetup';
 import type { RelayConfig, RepositoryProfile } from './types';
 type Discovered = { path: string; name: string; configuredId?: string };
 type DiscoveryReport = {
@@ -31,7 +32,8 @@ export function RepositoriesPage({
     [url, setUrl] = useState(''),
     [folder, setFolder] = useState(''),
     [added, setAdded] = useState<Added | null>(null),
-    [adding, setAdding] = useState('');
+    [adding, setAdding] = useState(''),
+    [settingUp, setSettingUp] = useState<RepositoryProfile | null>(null);
   const panel = useRef<HTMLElement>(null),
     search = useRef<HTMLInputElement>(null),
     cloneInput = useRef<HTMLInputElement>(null),
@@ -140,6 +142,13 @@ export function RepositoriesPage({
               ? `Install step: ${added.detected.join(', ')}.`
               : 'No install step was needed.'}{' '}
             An agent works out its checks from the repository’s own guidance.{' '}
+            <button
+              type="button"
+              className="text-button"
+              onClick={() => setSettingUp(added.repository)}
+            >
+              Set up with an agent
+            </button>{' '}
             <button type="button" className="text-button" onClick={() => onEdit(added.repository)}>
               Edit settings
             </button>
@@ -167,6 +176,9 @@ export function RepositoriesPage({
                   <Icon name="repository" size={22} />
                 </span>
                 <h2>{repo.name}</h2>
+                <button className="text-button" onClick={() => setSettingUp(repo)}>
+                  Set up with an agent
+                </button>
                 <button className="text-button" onClick={() => onEdit(repo)}>
                   Edit profile
                 </button>
@@ -310,6 +322,14 @@ export function RepositoriesPage({
           )}
         </div>
       </section>
+      {settingUp && (
+        <RepositorySetup
+          repositoryId={settingUp.id}
+          name={settingUp.name}
+          onClose={() => setSettingUp(null)}
+          onSaved={onChanged}
+        />
+      )}
     </section>
   );
 }

@@ -4854,3 +4854,61 @@ input[type='radio']:hover:not(:checked):not(:disabled) {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* Repository setup by an agent: a proposal to keep or drop, then a test. */
+.repository-setup {
+  display: grid;
+  gap: 14px;
+  font-size: 14px;
+}
+.repository-setup p {
+  margin: 0;
+}
+.repository-setup h3 {
+  margin: 0 0 6px;
+  font-size: 13px;
+}
+.repository-setup ul,
+.repository-setup ol {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 6px;
+}
+.repository-setup-commands label {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+}
+.repository-setup-commands label > span {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.repository-setup code {
+  overflow-wrap: anywhere;
+}
+.repository-setup small {
+  color: var(--muted);
+}
+.repository-setup-running {
+  color: var(--muted);
+}
+.repository-setup-steps li[data-ok='false'] {
+  color: var(--danger);
+}
+.repository-setup-steps pre {
+  margin: 4px 0 0;
+  padding: 8px;
+  border-radius: var(--radius);
+  background: var(--soft);
+  color: var(--text);
+  max-height: 180px;
+  overflow: auto;
+  font-size: 12px;
+  white-space: pre-wrap;
+}
+.repository-card header {
+  flex-wrap: wrap;
+}
