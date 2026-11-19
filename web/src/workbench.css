@@ -5003,3 +5003,27 @@ input[type='radio']:hover:not(:checked):not(:disabled) {
 .agent-state[data-state='missing'] {
   color: var(--status-attention-ink);
 }
+
+/* Phones: two filters to a row so their labels fit; the sort takes a row of its own. */
+@media (max-width: 480px) {
+  .tasks-page .task-filters {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .tasks-page .task-filters > :last-child {
+    grid-column: 1/-1;
+  }
+  .task-list .task-card-state {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    column-gap: 10px;
+  }
+  .tasks-page .task-scopes {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
+    margin-right: -12px;
+    padding-right: 12px;
+  }
+  .tasks-page .task-scopes > button {
+    flex: none;
+  }
+}
