@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -86,6 +87,9 @@ func (c *Coordinator) addRepository(ctx context.Context, path, cwd string) (map[
 			return nil, err
 		}
 		profile := map[string]any{"id": id, "name": name, "path": root, "cwd": folder, "strategy": "worktree", "verificationMode": "agent", "instructions": "", "checks": []any{}, "setup": setup}
+		if command := c.issueCommand(ctx, runner, root); command != nil {
+			profile["issueCommand"] = command
+		}
 		config.Value["repositories"] = append(array(config.Value["repositories"]), profile)
 		saved, err := (task.ConfigurationService{Store: c.store}).Replace(config.Revision, config.Value)
 		if errors.Is(err, store.ErrConfigChanged) {
@@ -155,4 +159,27 @@ func (c *Coordinator) cloneRepository(ctx context.Context, url, directory string
 		return nil, errors.New("git could not clone it: " + detail)
 	}
 	return c.addRepository(ctx, destination, ".")
+}
+
+var githubRemote = regexp.MustCompile(`github\.com[:/]([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+?)(?:\.git)?/?$`)
+
+// issueCommand lets issue links be pasted into new tasks without configuring anything: for a
+// GitHub repository, with the GitHub CLI installed, issues are read with "gh issue view". The
+// ticket stays one literal argument.
+func (c *Coordinator) issueCommand(ctx context.Context, runner workspace.Runner, root string) map[string]any {
+	gh, err := exec.LookPath("gh")
+	if err != nil || gh == "" {
+		return nil
+	}
+	remotes, err := runner.Remotes(ctx, root)
+	if err != nil {
+		return nil
+	}
+	for _, name := range []string{"origin", "upstream"} {
+		match := githubRemote.FindStringSubmatch(remotes[name])
+		if match != nil {
+			return map[string]any{"command": "gh", "args": []any{"issue", "view", "{ticket}", "--repo", match[1] + "/" + match[2]}}
+		}
+	}
+	return nil
 }

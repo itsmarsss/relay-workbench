@@ -215,6 +215,22 @@ func Suggestions(ctx context.Context, runner workspace.Runner, path, cwd string)
 			add("checks", "Suggested test command", map[string]any{"command": entry.command, "args": entry.args}, entry.file)
 		}
 	}
+	// Dependencies other ecosystems fetch up front, so a new worktree is ready before an agent
+	// starts rather than downloading on its first build. Only lockfiles in the working folder
+	// count, and each tool's own non-interactive form is used.
+	for _, entry := range []struct {
+		file, label, command string
+		args                 []string
+	}{
+		{"go.sum", "Download Go modules", "go", []string{"mod", "download"}},
+		{"Cargo.lock", "Fetch Rust crates", "cargo", []string{"fetch", "--locked"}},
+		{"uv.lock", "Install Python dependencies", "uv", []string{"sync", "--frozen"}},
+		{"poetry.lock", "Install Python dependencies", "poetry", []string{"install", "--no-interaction"}},
+	} {
+		if metadataExists(info.Cwd, entry.file) {
+			add("setup", entry.label, map[string]any{"command": entry.command, "args": entry.args}, entry.file)
+		}
+	}
 	guidance := []string{}
 	seenGuidance := map[string]bool{}
 	for _, folder := range []string{info.Root, info.Cwd} {

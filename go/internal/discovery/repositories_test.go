@@ -169,3 +169,31 @@ func TestSuggestionsInheritRunnerWithoutRootInstall(t *testing.T) {
 		t.Fatalf("checks: %#v", result)
 	}
 }
+
+func TestSuggestionsFetchDependenciesForOtherLanguages(t *testing.T) {
+	root := t.TempDir()
+	if out, err := exec.Command("git", "-C", root, "init", "-q").CombinedOutput(); err != nil {
+		t.Fatalf("%s", out)
+	}
+	for _, file := range []string{"go.mod", "go.sum", "Cargo.toml", "Cargo.lock", "uv.lock"} {
+		if err := os.WriteFile(filepath.Join(root, file), []byte("x\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	executable, _ := os.Executable()
+	runner := workspace.Runner{WorkerExecutable: executable, WorkerArgs: []string{"-test.run=^TestDiscoveryWorker$", "--"}, Environment: map[string]string{"RELAY_DISCOVERY_WORKER": "1"}}
+	result, err := Suggestions(context.Background(), runner, root, ".")
+	if err != nil {
+		t.Fatal(err)
+	}
+	setup := []string{}
+	for _, item := range result["suggestions"].([]map[string]any) {
+		if item["field"] == "setup" {
+			command := item["value"].(map[string]any)
+			setup = append(setup, command["command"].(string))
+		}
+	}
+	if strings.Join(setup, ",") != "go,cargo,uv" {
+		t.Fatalf("install steps: %v", setup)
+	}
+}

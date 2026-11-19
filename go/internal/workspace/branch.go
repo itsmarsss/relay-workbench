@@ -274,3 +274,19 @@ func (r Runner) ResetTo(ctx context.Context, root, commit string) error {
 	_, err := r.step(ctx, root, "reset", "--hard", "--quiet", commit)
 	return err
 }
+
+// Remotes maps each configured remote to its fetch URL.
+func (r Runner) Remotes(ctx context.Context, root string) (map[string]string, error) {
+	output, err := r.git(ctx, root, "remote", "-v")
+	if err != nil {
+		return nil, err
+	}
+	remotes := map[string]string{}
+	for _, line := range strings.Split(output, "\n") {
+		fields := strings.Fields(line)
+		if len(fields) == 3 && fields[2] == "(fetch)" {
+			remotes[fields[0]] = fields[1]
+		}
+	}
+	return remotes, nil
+}

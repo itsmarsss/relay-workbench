@@ -4,7 +4,9 @@ package workflow
 
 import (
 	"context"
+	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 
@@ -20,11 +22,19 @@ func TestAddRepositoryInOneStepUsesWhatItDetects(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(repo, "pnpm-lock.yaml"), []byte("lockfileVersion: '9.0'\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	gitFixture(t, repo, "remote", "add", "origin", "git@github.com:octo/widget-shop.git")
 	result, err := c.Discover(context.Background(), "add", map[string]any{"path": repo})
 	if err != nil {
 		t.Fatal(err)
 	}
 	profile := object(object(result)["repository"])
+	if _, err := exec.LookPath("gh"); err == nil {
+		// Issue links work straight away for a GitHub repository.
+		issue := object(profile["issueCommand"])
+		if issue["command"] != "gh" || fmt.Sprint(issue["args"]) != "[issue view {ticket} --repo octo/widget-shop]" {
+			t.Fatalf("issue import: %#v", issue)
+		}
+	}
 	if profile["name"] != "widget-shop" || profile["verificationMode"] != "agent" || len(array(profile["setup"])) != 1 {
 		t.Fatalf("profile: %#v", profile)
 	}
