@@ -590,6 +590,7 @@ export function ChatPanel({
           ))}
         </div>
         <form
+          {...uploads.zone}
           className="chat-composer"
           onSubmit={(e) => {
             e.preventDefault();
@@ -653,8 +654,6 @@ export function ChatPanel({
             <textarea
               rows={1}
               onPaste={uploads.onPaste}
-              onDrop={uploads.onDrop}
-              onDragOver={uploads.onDragOver}
               ref={textarea}
               aria-label={taskId ? 'Ask Relay about this task' : 'Message Relay'}
               aria-autocomplete="list"

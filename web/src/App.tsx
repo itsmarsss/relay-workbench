@@ -1,4 +1,5 @@
 import { useTaskNotifications } from './Notifications';
+import { ignoreStrayFileDrops } from './ImageUpload';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { MotionConfig, motion, useReducedMotion } from 'motion/react';
 import { SessionProvider } from './Session';
@@ -129,6 +130,7 @@ export default function App() {
     return () => window.removeEventListener('keydown', shortcut);
   }, [bootstrap]);
   useTaskNotifications(tasks, !!bootstrap);
+  useEffect(ignoreStrayFileDrops, []);
   useEffect(() => {
     document.documentElement.dataset.theme = dark ? 'dark' : 'light';
     try {

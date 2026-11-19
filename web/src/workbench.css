@@ -4585,3 +4585,56 @@ main > .relay-conversations {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* Adding images: one quiet button, and every composer is a drop target. */
+.image-upload-control .attach-image {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
+  padding: 3px 9px 3px 7px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 500;
+}
+.image-upload-control .attach-image:hover:not(:disabled) {
+  color: var(--text);
+  border-color: var(--line-strong);
+}
+.image-upload-control .attach-image:disabled {
+  opacity: 0.75;
+}
+.chat-composer .image-upload-control > .attach-image,
+.markdown-attachments .image-upload-control > .attach-image {
+  min-height: 26px;
+  padding: 2px 9px 2px 7px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 12px;
+}
+[data-image-drop] {
+  position: relative;
+}
+[data-image-drop='over'] {
+  outline: 2px dashed var(--focus);
+  outline-offset: 2px;
+  border-radius: var(--radius);
+}
+[data-image-drop='over']::after {
+  content: 'Drop images to attach';
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--surface) 82%, transparent);
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+  pointer-events: none;
+  z-index: 2;
+}

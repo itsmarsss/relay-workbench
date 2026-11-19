@@ -103,6 +103,46 @@ let input='';process.stdin.on('data',d=>input+=d);process.stdin.on('end',()=>{
   await page.getByText('Finished answer', { exact: true }).waitFor();
   await page.reload();
   await page.getByText('Finished answer', { exact: true }).waitFor();
+  // Images: drop one on the composer's edge (not the text box) and paste a screenshot.
+  const imageInput = page.getByRole('textbox', { name: 'Message Relay' });
+  const attach = async (how) =>
+    page.evaluate(async (how) => {
+      const bytes = Uint8Array.from(
+        atob(
+          'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNgYGD4DwABBAEAwS2OUAAAAABJRU5ErkJggg==',
+        ),
+        (c) => c.charCodeAt(0),
+      );
+      const data = new DataTransfer();
+      data.items.add(
+        new File([bytes], how === 'drop' ? 'dropped.png' : 'image.png', { type: 'image/png' }),
+      );
+      const composer = document.querySelector('.chat-composer');
+      if (how === 'drop') {
+        for (const type of ['dragenter', 'dragover', 'drop'])
+          composer.dispatchEvent(
+            new DragEvent(type, { bubbles: true, cancelable: true, dataTransfer: data }),
+          );
+      } else {
+        document
+          .querySelector('.chat-composer textarea')
+          .dispatchEvent(
+            new ClipboardEvent('paste', { bubbles: true, cancelable: true, clipboardData: data }),
+          );
+      }
+    }, how);
+  await attach('drop');
+  await until(
+    async () => (await imageInput.inputValue()).includes('![dropped.png](/api/attachments/'),
+    'dropped image attached',
+  );
+  await attach('paste');
+  await until(
+    async () => (await imageInput.inputValue()).includes('![Pasted image](/api/attachments/'),
+    'pasted image attached',
+  );
+  assert.equal(await page.locator('[data-image-drop="over"]').count(), 0, 'drop highlight cleared');
+  await imageInput.fill('');
   await page.getByRole('button', { name: 'Edit', exact: true }).click();
   assert.equal(await input.inputValue(), 'First line\nSecond line');
   await page.getByRole('button', { name: 'Cancel edit' }).click();

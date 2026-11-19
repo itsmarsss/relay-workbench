@@ -384,6 +384,8 @@ export function ContinueWork({ task }: { task: FullTask }) {
       {open && (
         <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }}>
           <form
+            {...uploads.zone}
+            className="direction-composer"
             onSubmit={(e) => {
               e.preventDefault();
               if (uploads.busy) return;
@@ -403,8 +405,6 @@ export function ContinueWork({ task }: { task: FullTask }) {
             <textarea
               aria-label="Agent direction"
               onPaste={uploads.onPaste}
-              onDrop={uploads.onDrop}
-              onDragOver={uploads.onDragOver}
               placeholder={
                 active
                   ? 'Direction for the next turn…'

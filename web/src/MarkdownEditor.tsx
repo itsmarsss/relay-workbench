@@ -62,7 +62,7 @@ export function MarkdownEditor({
   return (
     <div className="field markdown-field">
       <label htmlFor={id}>{label}</label>
-      <div className="markdown-editor">
+      <div className="markdown-editor" {...uploads.zone}>
         <div className="markdown-toolbar">
           <div className="markdown-mode" role="group" aria-label={`${label} editor`}>
             <button type="button" aria-pressed={!preview} onClick={() => setPreview(false)}>
@@ -118,8 +118,6 @@ export function MarkdownEditor({
             id={id}
             aria-label={label}
             onPaste={uploads.onPaste}
-            onDrop={uploads.onDrop}
-            onDragOver={uploads.onDragOver}
             rows={7}
             maxLength={50000}
             value={value}
@@ -129,7 +127,7 @@ export function MarkdownEditor({
         )}
         <div className="markdown-attachments">
           {uploads.control}
-          <span>Paste or drop images · 10 MB each</span>
+          <span>or paste or drop images here · up to 10 MB each</span>
         </div>
       </div>
       {error && <p role="alert">{error}</p>}
