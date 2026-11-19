@@ -375,7 +375,7 @@ export function ChatPanel({
                 />
               </div>
             ) : compact ? (
-              <h2>{current?.name || (taskId ? 'Ask Relay' : 'Relay')}</h2>
+              current && <h2>{current.name}</h2>
             ) : (
               <h1>{current?.name || 'Relay'}</h1>
             )}
