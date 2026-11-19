@@ -679,8 +679,9 @@ select {
   font-size: 12px;
   color: var(--muted);
 }
-.attention-meta > * + *::before,
-.overview-facts > span + span::before {
+/* The dot trails each item, so a wrapped line never starts with one. */
+.attention-meta > :not(:last-child)::after,
+.overview-facts > span:not(:last-child)::after {
   content: '·';
   margin: 0 7px;
   font-weight: 400;
