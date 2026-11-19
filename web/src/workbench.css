@@ -856,8 +856,10 @@ select {
 }
 /* The title keeps a readable width; the actions sit beside it when there is room, else below. */
 .task-page-title {
-  min-width: 0;
-  flex: 1 1 420px;
+  flex: 1 1 auto;
+  /* A minimum width, not a basis: the header stacks vertically when the page is narrow, and a
+     basis would then become the title's height. */
+  min-width: min(420px, 100%);
 }
 .task-page-heading > .task-page-actions {
   flex: 0 1 auto;

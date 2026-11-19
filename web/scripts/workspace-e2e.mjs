@@ -340,6 +340,12 @@ let input='';process.stdin.on('data',d=>input+=d);process.stdin.on('end',()=>{
   await page.goto(origin + '/#task/' + task.id + '/overview');
   await page.getByRole('button', { name: 'Ask Relay', exact: true }).click();
   assert.match(page.url(), /ask=1/);
+  // With the dock open the page is narrower; the task header must stay compact, not stretch.
+  await page.waitForTimeout(600);
+  const headerHeight = await page
+    .locator('.task-page-heading')
+    .evaluate((el) => el.getBoundingClientRect().height);
+  assert.ok(headerHeight < 260, `task header is ${headerHeight}px tall with the dock open`);
   await page.getByRole('textbox', { name: 'Ask Relay about this task' }).fill('Inspect this task');
   await page.getByRole('textbox', { name: 'Ask Relay about this task' }).press('Enter');
   await page.getByText('Finished answer', { exact: true }).waitFor();
