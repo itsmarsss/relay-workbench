@@ -7,15 +7,13 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"relay.local/relay/internal/legacytest"
 	"testing"
 	"time"
 )
 
 func TestOutcomesMatchLegacyEvidenceRules(t *testing.T) {
-	node, err := exec.LookPath("node")
-	if err != nil {
-		t.Skip("Node oracle unavailable")
-	}
+	node, _ := exec.LookPath("node")
 	attempt := func(stage, status, verdict, model string) map[string]any {
 		return map[string]any{"stage": stage, "status": status, "model": model, "harness": "codex", "repositoryId": "repo", "startedAt": "2026-01-01T00:00:00Z", "finishedAt": "2026-01-01T00:00:30Z", "handoff": map[string]any{"verdict": verdict, "findings": []any{}}}
 	}
@@ -32,7 +30,7 @@ func TestOutcomesMatchLegacyEvidenceRules(t *testing.T) {
 		input, _ := json.Marshal(map[string]any{"tasks": tasks, "config": config, "repository": repository})
 		cmd := exec.Command(node, "--input-type=module", "-e", `import{pathToFileURL}from'node:url';const{routingOutcomes}=await import(pathToFileURL(process.argv[1]));let s='';for await(const c of process.stdin)s+=c;const v=JSON.parse(s);console.log(JSON.stringify(routingOutcomes(v.tasks,v.config,v.repository)));`, script)
 		cmd.Stdin = bytes.NewReader(input)
-		output, err := cmd.CombinedOutput()
+		output, err := legacytest.Output(t, "insights-insights-1", cmd, true)
 		if err != nil {
 			t.Fatalf("oracle: %s %v", output, err)
 		}

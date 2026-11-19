@@ -130,9 +130,8 @@ Relay's state.
 
 ```sh
 pnpm install --frozen-lockfile
-pnpm --dir web run build
-(cd go && go build -o ../.relay/bin/relay-go ./cmd/relay-go)
-.relay/bin/relay-go --data-dir .relay/state --web-dir web/dist --port 4310
+pnpm run build   # the web app, then .relay/bin/relay-go
+pnpm start       # .relay/bin/relay-go --data-dir .relay/state --web-dir web/dist --port 4310
 ```
 
 Then open <http://127.0.0.1:4310>, add a repository, and create a task.
@@ -159,12 +158,10 @@ flowchart LR
     agents -.->|"publish and monitor"| host["Code host<br/>pull requests"]
 ```
 
-| Directory | What's in it                                                                     |
-| --------- | -------------------------------------------------------------------------------- |
-| `go/`     | The service: workflow engine, agent harnesses, worktrees, storage and HTTP API   |
-| `web/`    | The React and TypeScript frontend, served from `web/dist`                        |
-| `server/` | The original Node.js service, kept for reference ([its guide](server/README.md)) |
-| `test/`   | Tests for the Node service and shared behaviour                                  |
+| Directory | What's in it                                                                   |
+| --------- | ------------------------------------------------------------------------------ |
+| `go/`     | The service: workflow engine, agent harnesses, worktrees, storage and HTTP API |
+| `web/`    | The React and TypeScript frontend, served from `web/dist`                      |
 
 The Go service has no third-party Go dependencies. Each task gets its own branch and worktree,
 and only one writer at a time holds a shared repository, so two agents never edit the same
@@ -190,10 +187,9 @@ Review the diff before you accept it.
 ## Development
 
 ```sh
-(cd go && gofmt -l . && go vet ./... && go test ./...)
-(cd web && pnpm run check && pnpm test)
-(cd web && pnpm run test:e2e && pnpm run test:workspace && pnpm run test:ui)
-pnpm test && pnpm run check   # the Node service and shared tests
+pnpm test              # Go and web unit tests
+pnpm run check         # gofmt, go vet, the TypeScript check and Prettier
+pnpm run test:browser  # end-to-end, workspace and UI audit suites in a real browser
 ```
 
 The browser suites use throwaway state and repositories. Install Playwright's Chromium, or set

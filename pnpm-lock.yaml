@@ -12,24 +12,6 @@ importers:
 
   .:
     devDependencies:
-      '@xterm/addon-fit':
-        specifier: 0.11.0
-        version: 0.11.0
-      '@xterm/xterm':
-        specifier: 6.0.0
-        version: 6.0.0
-      dompurify:
-        specifier: 3.4.17
-        version: 3.4.17
-      marked:
-        specifier: 18.1.2
-        version: 18.1.2
-      motion:
-        specifier: 14.10.1
-        version: 14.10.1(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
-      playwright:
-        specifier: ^1.64.1
-        version: 1.64.1
       prettier:
         specifier: ^3.9.10
         version: 3.9.10
@@ -271,20 +253,6 @@ packages:
     engines: {node: '>=18'}
     hasBin: true
 
-  framer-motion@14.10.1:
-    resolution: {integrity: sha512-hT8WLczAcreOHG4EHymMtATztwUc3al1/88/stal3tpxYkMefGNzIPHHgFFHW3iLnrNY36BrKKJDuT2V7o8Tfw==}
-    peerDependencies:
-      react: ^18.0.0 || ^19.0.0
-      react-dom: ^18.0.0 || ^19.0.0
-      remix: ^3.1.0
-    peerDependenciesMeta:
-      react:
-        optional: true
-      react-dom:
-        optional: true
-      remix:
-        optional: true
-
   framer-motion@14.11.1:
     resolution: {integrity: sha512-kXs+RHzja034QumwdXJubF0az86ueiWtANLB7FbhM+WKNGrgmYHysRRWG+we2KEpWv1+8W4eoMtsKaUldf54nA==, tarball: https://registry.npmjs.org/framer-motion/-/framer-motion-14.11.1.tgz}
     peerDependencies:
@@ -311,28 +279,11 @@ packages:
     engines: {node: '>= 20'}
     hasBin: true
 
-  motion-dom@14.10.1:
-    resolution: {integrity: sha512-NzVzM7y3JJl3rYlVN4yM6kbziab/tHNBEV6gqOoAQIg8npHlIMhW2oPnzr0HkP+rR8xMoiX9+zSZ4BLaVuJadw==}
-
   motion-dom@14.11.1:
     resolution: {integrity: sha512-H/12gSe24nuV19IR7jHLObI+5Tm34UA/S5JaUye802l19VoVsT1USE+Suv+G/XO1U+YmXI9Nnbs4Krd4FthSSg==, tarball: https://registry.npmjs.org/motion-dom/-/motion-dom-14.11.1.tgz}
 
   motion-utils@14.7.0:
     resolution: {integrity: sha512-woO0/Nb7ys75f94fjvQi/6leiHGvZUYkeHUPEZ3vxsV+9OpEVhkxp01x8MlRwX0zt31EqgXsKDAoBoJLC148Tw==}
-
-  motion@14.10.1:
-    resolution: {integrity: sha512-CRlxgrRmG5SNu5jxyYmiw3Oo6IrPq8xhQ0EmOm6WS6tx956G6O4WqVBA8ovrIwt4Sb/A9M0j2T2Vca7ze5PkRQ==}
-    peerDependencies:
-      react: ^18.0.0 || ^19.0.0
-      react-dom: ^18.0.0 || ^19.0.0
-      remix: ^3.1.0
-    peerDependenciesMeta:
-      react:
-        optional: true
-      react-dom:
-        optional: true
-      remix:
-        optional: true
 
   motion@14.11.1:
     resolution: {integrity: sha512-V0AQPpbTlkhXYQGiO6X55KsFHz+fdYlZJVERFEjJpBWZlCggWOcbCA7zd24iYs1q/Le191tAV3J29xBfS5+tWA==, tarball: https://registry.npmjs.org/motion/-/motion-14.11.1.tgz}
@@ -521,15 +472,6 @@ snapshots:
       '@esbuild/win32-ia32': 0.28.1
       '@esbuild/win32-x64': 0.28.1
 
-  framer-motion@14.10.1(react-dom@18.3.1(react@18.3.1))(react@18.3.1):
-    dependencies:
-      motion-dom: 14.10.1
-      motion-utils: 14.7.0
-      tslib: 2.9.1
-    optionalDependencies:
-      react: 18.3.1
-      react-dom: 18.3.1(react@18.3.1)
-
   framer-motion@14.11.1(react-dom@18.3.1(react@18.3.1))(react@18.3.1):
     dependencies:
       motion-dom: 14.11.1
@@ -547,23 +489,11 @@ snapshots:
 
   marked@18.1.2: {}
 
-  motion-dom@14.10.1:
-    dependencies:
-      motion-utils: 14.7.0
-
   motion-dom@14.11.1:
     dependencies:
       motion-utils: 14.7.0
 
   motion-utils@14.7.0: {}
-
-  motion@14.10.1(react-dom@18.3.1(react@18.3.1))(react@18.3.1):
-    dependencies:
-      framer-motion: 14.10.1(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
-      tslib: 2.9.1
-    optionalDependencies:
-      react: 18.3.1
-      react-dom: 18.3.1(react@18.3.1)
 
   motion@14.11.1(react-dom@18.3.1(react@18.3.1))(react@18.3.1):
     dependencies:

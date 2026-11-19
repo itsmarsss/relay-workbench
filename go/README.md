@@ -1,6 +1,6 @@
 # Relay Go backend
 
-The rewrite pairs this Go service with the React/TypeScript frontend in `../web`. It runs independently from the legacy Node service, with its own state directory and port. Keep the legacy service running while evaluating the rewrite. Do not point both services at the same state or active repository.
+This Go service and the React/TypeScript frontend in `../web` are Relay. Relay started as a Node.js service, which has since been removed; `--export-legacy` below still reads that version's saved state.
 
 Requires Go 1.22+, a C compiler, `pkg-config`, SQLite development headers/libraries, Git and macOS or Linux. Provider CLIs use their existing authentication. tmux enables live agent terminals and browser takeover. The server itself does not require Node; frontend builds and Pi's JavaScript CLI do.
 
@@ -31,7 +31,7 @@ A task's board override only changes its displayed column. It never grants imple
 
 Editing prepared task requirements revokes the selected approach and Auto delegation and returns the task to planning. Repository scope stays fixed after any workspace preparation; use a continuation for another scope. Long activity histories use bounded windows: loading earlier events pauses live appends until **Jump to latest**.
 
-One Go writer at a time reserves a shared Git repository across linked worktrees and Go processes. The legacy Node server does not participate in that lock protocol. Use separate fixture repositories while both versions run.
+One Go writer at a time reserves a shared Git repository across linked worktrees and Go processes.
 
 ## Storage
 
@@ -71,7 +71,7 @@ pnpm run test:e2e
 pnpm run test:workspace
 ```
 
-Browser tests use disposable state and repositories. Install Playwright Chromium or set `RELAY_CHROME` to a compatible browser executable. The legacy `pnpm test` and `pnpm run check` remain available from the repository root.
+Browser tests use disposable state and repositories. Install Playwright Chromium or set `RELAY_CHROME` to a compatible browser executable. From the repository root, `pnpm test` and `pnpm run check` run the Go and web suites together. Parity tests compare against recorded answers from the original Node implementation (`internal/legacytest`).
 
 ## Operational limits
 

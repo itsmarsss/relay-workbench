@@ -7,16 +7,14 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"relay.local/relay/internal/legacytest"
 	"strings"
 	"testing"
 )
 
 func legacyAcceptedContent(t *testing.T, root, base string) string {
 	t.Helper()
-	node, err := exec.LookPath("node")
-	if err != nil {
-		t.Skip("Node required for legacy oracle")
-	}
+	node, _ := exec.LookPath("node")
 	path, err := filepath.Abs("../../../server/publication-workflow.js")
 	if err != nil {
 		t.Fatal(err)
@@ -24,7 +22,7 @@ func legacyAcceptedContent(t *testing.T, root, base string) string {
 	js := `import {pathToFileURL} from 'node:url'; const {acceptedContent}=await import(pathToFileURL(process.argv[1])); console.log(await acceptedContent({workspaceRoot:process.argv[2],baseCommit:process.argv[3]}));`
 	command := exec.Command(node, "--input-type=module", "-e", js, path, root, base)
 	command.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1")
-	output, err := command.CombinedOutput()
+	output, err := legacytest.Output(t, "workspace-content-1", command, true, root)
 	if err != nil {
 		t.Fatalf("legacy content oracle: %s %v", output, err)
 	}

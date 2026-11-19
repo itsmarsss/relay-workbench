@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os/exec"
 	"path/filepath"
+	"relay.local/relay/internal/legacytest"
 	"strings"
 	"testing"
 )
@@ -50,10 +51,7 @@ func TestApproachIdentifiersRemainActionable(t *testing.T) {
 	}
 }
 func TestMatchesLegacyValidatorAcrossHandoffCorpus(t *testing.T) {
-	node, err := exec.LookPath("node")
-	if err != nil {
-		t.Skip("Node required for legacy differential oracle")
-	}
+	node, _ := exec.LookPath("node")
 	cases := []testCase{}
 	for _, stage := range []string{"triage", "investigate", "plan", "implement", "verify", "review", "followup", "publish", "monitor"} {
 		for _, verdict := range []string{"complete", "blocked", "changes_requested", "repair_requested", "verification_requested", "other"} {
@@ -102,7 +100,7 @@ func TestMatchesLegacyValidatorAcrossHandoffCorpus(t *testing.T) {
 	js := `import {pathToFileURL} from 'node:url'; const {validateHandoff}=await import(pathToFileURL(process.argv[1])); let input=''; for await(const chunk of process.stdin) input+=chunk; const cases=JSON.parse(input); console.log(JSON.stringify(cases.map(c=>{try{validateHandoff(c.raw,c.stage);return ''}catch(e){return e.message}})));`
 	cmd := exec.Command(node, "--input-type=module", "-e", js, script)
 	cmd.Stdin = bytes.NewReader(payload)
-	out, err := cmd.CombinedOutput()
+	out, err := legacytest.Output(t, "handoff-validate-1", cmd, true)
 	if err != nil {
 		t.Fatalf("legacy oracle: %s: %v", out, err)
 	}

@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"relay.local/relay/internal/legacytest"
 	"strings"
 	"testing"
 )
@@ -22,10 +23,7 @@ type optionResult struct {
 }
 
 func TestOptionsMatchLegacyAndRejectInjection(t *testing.T) {
-	node, err := exec.LookPath("node")
-	if err != nil {
-		t.Skip("Node required for legacy oracle")
-	}
+	node, _ := exec.LookPath("node")
 	cases := []optionCase{}
 	for _, p := range []string{"codex", "claude", "pi", "unknown"} {
 		for _, e := range []string{"", "none", "minimal", "off", "low", "medium", "high", "xhigh", "max", "ultra", "high\";evil"} {
@@ -43,7 +41,7 @@ func TestOptionsMatchLegacyAndRejectInjection(t *testing.T) {
 	js := `import {pathToFileURL} from 'node:url';const {agentOptions}=await import(pathToFileURL(process.argv[1]));let s='';for await(const c of process.stdin)s+=c;console.log(JSON.stringify(JSON.parse(s).map(c=>{try{return {...agentOptions(c.provider,c),error:''}}catch(e){return {model:'',effort:'',error:e.message}}})));`
 	cmd := exec.Command(node, "--input-type=module", "-e", js, path)
 	cmd.Stdin = bytes.NewReader(payload)
-	out, err := cmd.CombinedOutput()
+	out, err := legacytest.Output(t, "harness-options-1", cmd, true)
 	if err != nil {
 		t.Fatalf("oracle: %s %v", out, err)
 	}

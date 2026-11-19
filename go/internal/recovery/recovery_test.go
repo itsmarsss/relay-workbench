@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"relay.local/relay/internal/legacytest"
 	"testing"
 )
 
@@ -38,10 +39,7 @@ func clone(t map[string]any) map[string]any {
 	return out
 }
 func TestRecoveryTransitionsMatchLegacy(t *testing.T) {
-	node, err := exec.LookPath("node")
-	if err != nil {
-		t.Skip("Node required for legacy oracle")
-	}
+	node, _ := exec.LookPath("node")
 	cases := []testCase{}
 	add := func(operation string, task map[string]any, h map[string]any, limit int, explicit bool) {
 		cases = append(cases, testCase{operation, task, h, "continue diagnosis", limit, explicit})
@@ -89,7 +87,7 @@ func TestRecoveryTransitionsMatchLegacy(t *testing.T) {
 	js := `import {pathToFileURL} from 'node:url';const {recoverInPlace,recoverBlocked}=await import(pathToFileURL(process.argv[1]));let s='';for await(const c of process.stdin)s+=c;console.log(JSON.stringify(JSON.parse(s).map(c=>({changed:c.operation==='inplace'?recoverInPlace(c.task,c.reason):recoverBlocked(c.task,c.handoff,c.limit,c.explicit),task:c.task}))));`
 	cmd := exec.Command(node, "--input-type=module", "-e", js, path)
 	cmd.Stdin = bytes.NewReader(payload)
-	out, err := cmd.CombinedOutput()
+	out, err := legacytest.Output(t, "recovery-recovery-1", cmd, true)
 	if err != nil {
 		t.Fatalf("oracle: %s %v", out, err)
 	}
@@ -147,10 +145,7 @@ type resumeResult struct {
 }
 
 func TestContinuationAndSessionSelectionMatchLegacy(t *testing.T) {
-	node, err := exec.LookPath("node")
-	if err != nil {
-		t.Skip("Node required for legacy oracle")
-	}
+	node, _ := exec.LookPath("node")
 	tasks := []resumeCase{}
 	first := attempt("first", "implement", nil)
 	delete(first, "handoff")
@@ -185,7 +180,7 @@ func TestContinuationAndSessionSelectionMatchLegacy(t *testing.T) {
 	js := `import {pathToFileURL} from 'node:url';const {resumableAttempt,continuationContext}=await import(pathToFileURL(process.argv[1]));let s='';for await(const c of process.stdin)s+=c;console.log(JSON.stringify(JSON.parse(s).map(c=>{const repo=c.hasRepo?c.repo:undefined;return {attempt:resumableAttempt(c.task,c.stage,c.harness,repo)??null,context:continuationContext(c.task,c.stage,repo)??null}})));`
 	cmd := exec.Command(node, "--input-type=module", "-e", js, path)
 	cmd.Stdin = bytes.NewReader(payload)
-	out, err := cmd.CombinedOutput()
+	out, err := legacytest.Output(t, "recovery-recovery-2", cmd, true)
 	if err != nil {
 		t.Fatalf("oracle: %s %v", out, err)
 	}

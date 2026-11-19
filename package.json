@@ -3,29 +3,20 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "A local workbench for human-directed, multi-harness development",
+  "description": "A local workbench for running coding agents through a staged, human-approved workflow",
   "engines": {
     "node": ">=24.0.0"
   },
   "packageManager": "pnpm@10.34.5",
   "scripts": {
-    "start": "node server/index.js",
-    "dev": "node --watch server/index.js",
-    "test": "node --test test/*.test.js",
-    "check": "node scripts/check.js",
-    "test:browser": "node test/live-dom.e2e.js && node test/search-select.e2e.js && node test/memory.e2e.js && node test/browser.e2e.js && node test/follow-up.e2e.js && node test/ui-sweep.e2e.js && node test/workspace-pages.e2e.js && node test/board-drag.e2e.js && node test/profile-suggestions.e2e.js && node test/polish.e2e.js && node test/control-audit.e2e.js && node test/theme-scroll.e2e.js && node test/workspace-permissions.e2e.js && node test/chat-tabs.e2e.js && node test/productivity.e2e.js && node test/task-mentions.e2e.js && node test/workflow-controls.e2e.js && node test/workspace-controls.e2e.js && node test/task-deck.e2e.js",
-    "format": "prettier --write .",
-    "format:check": "prettier --check .",
-    "vendor": "node scripts/vendor.js",
-    "test:reliability": "node scripts/reliability.js"
+    "build": "pnpm --dir web run build && go -C go build -o ../.relay/bin/relay-go ./cmd/relay-go",
+    "start": ".relay/bin/relay-go --data-dir .relay/state --web-dir web/dist --port 4310",
+    "test": "go -C go test ./... && pnpm --dir web test",
+    "test:browser": "pnpm --dir web run test:e2e && pnpm --dir web run test:workspace && pnpm --dir web run test:ui",
+    "check": "node scripts/check.mjs",
+    "format": "prettier --write web/src web/scripts scripts README.md"
   },
   "devDependencies": {
-    "@xterm/addon-fit": "0.11.0",
-    "@xterm/xterm": "6.0.0",
-    "dompurify": "3.4.17",
-    "marked": "18.1.2",
-    "motion": "14.10.1",
-    "playwright": "^1.64.1",
     "prettier": "^3.9.10"
   }
 }

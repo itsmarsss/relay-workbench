@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"relay.local/relay/internal/legacytest"
 	"testing"
 )
 
@@ -38,10 +39,7 @@ func copyCase(c testCase) testCase {
 	return out
 }
 func TestMatchesLegacyVerificationGate(t *testing.T) {
-	node, err := exec.LookPath("node")
-	if err != nil {
-		t.Skip("Node required for legacy oracle")
-	}
+	node, _ := exec.LookPath("node")
 	cases := []testCase{base()}
 	add := func(fn func(*testCase)) { c := copyCase(base()); fn(&c); cases = append(cases, c) }
 	add(func(c *testCase) { c.ToolEvidence = false })
@@ -145,7 +143,7 @@ func TestMatchesLegacyVerificationGate(t *testing.T) {
 	js := `import {pathToFileURL} from 'node:url';const {validateVerification}=await import(pathToFileURL(process.argv[1]));let input='';for await(const c of process.stdin)input+=c;console.log(JSON.stringify(JSON.parse(input).map(c=>{try{validateVerification(c.handoff,c.entries,c.toolEvidence,c.context);return {code:'',message:''}}catch(e){return {code:e.code,message:e.message}}})));`
 	cmd := exec.Command(node, "--input-type=module", "-e", js, path)
 	cmd.Stdin = bytes.NewReader(payload)
-	out, err := cmd.CombinedOutput()
+	out, err := legacytest.Output(t, "verification-validate-1", cmd, true)
 	if err != nil {
 		t.Fatalf("oracle: %s %v", out, err)
 	}

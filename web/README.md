@@ -1,6 +1,6 @@
 # Relay React/TypeScript frontend
 
-The React frontend is served by the standalone [Go backend](../go/README.md). Its API calls do not depend on the legacy JavaScript backend. Keep the two versions on separate ports, state directories and repositories while evaluating the rewrite.
+The React frontend is served by the [Go backend](../go/README.md).
 
 ```sh
 pnpm install --frozen-lockfile

@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"relay.local/relay/internal/legacytest"
 	"strings"
 	"testing"
 	"time"
@@ -34,10 +35,7 @@ func TestPerStageEffortValidation(t *testing.T) {
 	}
 }
 func TestDraftConstructionMatchesLegacyForValidAndInvalidInputs(t *testing.T) {
-	node, err := exec.LookPath("node")
-	if err != nil {
-		t.Skip("Node required for legacy oracle")
-	}
+	node, _ := exec.LookPath("node")
 	config := configFixture()
 	cases := []map[string]any{
 		{"title": "Demo", "demo": true},
@@ -58,7 +56,7 @@ func TestDraftConstructionMatchesLegacyForValidAndInvalidInputs(t *testing.T) {
 	js := `import {pathToFileURL} from 'node:url';const {newTask}=await import(pathToFileURL(process.argv[1]));let s='';for await(const c of process.stdin)s+=c;const input=JSON.parse(s);console.log(JSON.stringify(input.cases.map(raw=>{try{const task=newTask(raw,input.config);delete task.id;delete task.createdAt;delete task.updatedAt;return {task,error:''}}catch(e){return {task:null,error:e.message}}})));`
 	cmd := exec.Command(node, "--input-type=module", "-e", js, path)
 	cmd.Stdin = bytes.NewReader(payload)
-	out, err := cmd.CombinedOutput()
+	out, err := legacytest.Output(t, "task-task-1", cmd, true)
 	if err != nil {
 		t.Fatalf("oracle: %s %v", out, err)
 	}

@@ -6,14 +6,12 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"relay.local/relay/internal/legacytest"
 	"testing"
 )
 
 func TestSummaryMatchesLegacyRunSelection(t *testing.T) {
-	node, err := exec.LookPath("node")
-	if err != nil {
-		t.Skip("Node required for differential oracle")
-	}
+	node, _ := exec.LookPath("node")
 	base := func() map[string]any {
 		return map[string]any{"id": "550e8400-e29b-41d4-a716-446655440000", "title": "task", "status": "running", "stage": "implement", "repository": map[string]any{"id": "r", "name": "repo", "path": "private"}, "attempts": []any{}, "deliveryRuns": []any{}}
 	}
@@ -46,7 +44,7 @@ func TestSummaryMatchesLegacyRunSelection(t *testing.T) {
 	js := `import {pathToFileURL} from 'node:url'; const {taskListSummary}=await import(pathToFileURL(process.argv[1])); let data='';for await (const c of process.stdin) data+=c;const keys=['id','title','status','stage','updatedAt','error','repository','currentRun','latestSummary'];console.log(JSON.stringify(JSON.parse(data).map(t=>{let s=taskListSummary(t);return Object.fromEntries(keys.filter(k=>s[k]!==undefined).map(k=>[k,s[k]]))})));`
 	cmd := exec.Command(node, "--input-type=module", "-e", js, script)
 	cmd.Stdin = bytes.NewReader(payload)
-	out, err := cmd.CombinedOutput()
+	out, err := legacytest.Output(t, "tasksummary-summary-1", cmd, true)
 	if err != nil {
 		t.Fatalf("oracle: %s: %v", out, err)
 	}

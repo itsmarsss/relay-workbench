@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"relay.local/relay/internal/legacytest"
 	"testing"
 )
 
@@ -22,10 +23,7 @@ func run(id, verdict, fp string) map[string]any {
 	return map[string]any{"id": id, "stage": "verify", "repositoryId": "r", "fingerprint": fp, "handoff": map[string]any{"verdict": verdict, "summary": "Test failed", "evidence": []any{"same evidence"}}}
 }
 func TestIdenticalFailureGuardMatchesLegacy(t *testing.T) {
-	node, err := exec.LookPath("node")
-	if err != nil {
-		t.Skip("Node required for legacy oracle")
-	}
+	node, _ := exec.LookPath("node")
 	a, b, c := run("a", "blocked", "hash"), run("b", "blocked", "hash"), run("c", "blocked", "hash")
 	cases := []input{
 		{map[string]any{"status": "running", "attempts": []any{a}}, a},
@@ -45,7 +43,7 @@ func TestIdenticalFailureGuardMatchesLegacy(t *testing.T) {
 	js := `import {pathToFileURL} from 'node:url';const {applyLoopGuard}=await import(pathToFileURL(process.argv[1]));let s='';for await(const c of process.stdin)s+=c;console.log(JSON.stringify(JSON.parse(s).map(x=>({changed:applyLoopGuard(x.task,x.attempt),task:x.task}))));`
 	cmd := exec.Command(node, "--input-type=module", "-e", js, path)
 	cmd.Stdin = bytes.NewReader(payload)
-	out, err := cmd.CombinedOutput()
+	out, err := legacytest.Output(t, "loopguard-guard-1", cmd, true)
 	if err != nil {
 		t.Fatalf("oracle: %s %v", out, err)
 	}

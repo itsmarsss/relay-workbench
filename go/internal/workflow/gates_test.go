@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"relay.local/relay/internal/legacytest"
 	"strings"
 	"testing"
 	"time"
@@ -114,10 +115,7 @@ func TestFinalAcceptanceRequiresFreshVerifiedReviewedWork(t *testing.T) {
 	}
 }
 func TestCompletedPlanMatchesLegacySelection(t *testing.T) {
-	node, err := exec.LookPath("node")
-	if err != nil {
-		t.Skip("Node required for legacy oracle")
-	}
+	node, _ := exec.LookPath("node")
 	base := planTask()
 	cases := []map[string]any{base, clone(base)}
 	debug := object(array(cases[1]["attempts"])[0])
@@ -144,7 +142,7 @@ func TestCompletedPlanMatchesLegacySelection(t *testing.T) {
 	js := `import {pathToFileURL} from 'node:url';const {completedPlan}=await import(pathToFileURL(process.argv[1]));let s='';for await(const c of process.stdin)s+=c;console.log(JSON.stringify(JSON.parse(s).map(t=>completedPlan(t)??null)));`
 	cmd := exec.Command(node, "--input-type=module", "-e", js, path)
 	cmd.Stdin = bytes.NewReader(raw)
-	out, err := cmd.CombinedOutput()
+	out, err := legacytest.Output(t, "workflow-gates-1", cmd, true)
 	if err != nil {
 		t.Fatalf("oracle: %s %v", out, err)
 	}

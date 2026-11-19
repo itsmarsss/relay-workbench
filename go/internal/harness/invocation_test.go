@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"relay.local/relay/internal/legacytest"
 	"strings"
 	"testing"
 )
@@ -36,10 +37,7 @@ func contains(values []string, value string) bool {
 	return false
 }
 func TestInvocationAndEmbeddedSchemasMatchLegacy(t *testing.T) {
-	node, err := exec.LookPath("node")
-	if err != nil {
-		t.Skip("Node required for legacy oracle")
-	}
+	node, _ := exec.LookPath("node")
 	cases := []buildCase{}
 	for _, provider := range []string{"codex", "claude", "pi"} {
 		for _, stage := range []string{"triage", "investigate", "plan", "implement", "verify", "review", "followup", "publish", "monitor", "unknown"} {
@@ -57,7 +55,7 @@ func TestInvocationAndEmbeddedSchemasMatchLegacy(t *testing.T) {
 	js := `import {pathToFileURL} from 'node:url';const {buildInvocation}=await import(pathToFileURL(process.argv[1]));let input='';for await(const c of process.stdin)input+=c;console.log(JSON.stringify(JSON.parse(input).map(c=>buildInvocation(c.provider,c.config,c.schemaPath,c.stage,c.session))));`
 	cmd := exec.Command(node, "--input-type=module", "-e", js, path)
 	cmd.Stdin = bytes.NewReader(raw)
-	out, err := cmd.CombinedOutput()
+	out, err := legacytest.Output(t, "harness-invocation-1", cmd, true)
 	if err != nil {
 		t.Fatalf("oracle: %s: %v", out, err)
 	}

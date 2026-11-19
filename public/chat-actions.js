@@ -1,4 +1,0 @@
-import { e, icon } from './ui.js';
-export function chatActions(message, scope, { answer = false, running = false } = {}) {
-  return `<div class="chat-message-actions" role="group" aria-label="${answer ? 'Reply actions' : 'Message actions'}"><button type="button" class="chat-action" data-action="copy-chat-message" data-scope="${scope}" data-message="${e(message.id)}" data-part="${answer ? 'answer' : 'question'}" aria-label="${answer ? 'Copy reply' : 'Copy prompt'}" title="${answer ? 'Copy reply' : 'Copy prompt'}" ${answer && !message.answer ? 'disabled' : ''}>${icon('copy')}</button>${answer ? '' : `<button type="button" class="chat-action" data-action="edit-chat-message" data-scope="${scope}" data-message="${e(message.id)}" aria-label="Edit prompt" title="Edit and resend" ${running ? 'disabled' : ''}>${icon('edit')}</button>`}</div>`;
-}

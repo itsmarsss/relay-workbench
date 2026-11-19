@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"relay.local/relay/internal/legacytest"
 	"strings"
 	"syscall"
 	"testing"
@@ -38,7 +39,7 @@ func runner(t *testing.T) Runner {
 func gitFixture(t *testing.T, root string, args ...string) {
 	t.Helper()
 	cmd := exec.Command("git", append([]string{"-C", root, "-c", "core.fsmonitor=false"}, args...)...)
-	cmd.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1", "GIT_AUTHOR_NAME=Fixture", "GIT_AUTHOR_EMAIL=fixture@example.invalid", "GIT_COMMITTER_NAME=Fixture", "GIT_COMMITTER_EMAIL=fixture@example.invalid")
+	cmd.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1", "GIT_AUTHOR_NAME=Fixture", "GIT_AUTHOR_EMAIL=fixture@example.invalid", "GIT_COMMITTER_NAME=Fixture", "GIT_COMMITTER_EMAIL=fixture@example.invalid", "GIT_AUTHOR_DATE=2026-01-01T00:00:00Z", "GIT_COMMITTER_DATE=2026-01-01T00:00:00Z")
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("git fixture: %s: %v", out, err)
 	}
@@ -56,10 +57,7 @@ func fixture(t *testing.T) string {
 }
 func legacyFingerprint(t *testing.T, entries []Workspace) string {
 	t.Helper()
-	node, err := exec.LookPath("node")
-	if err != nil {
-		t.Skip("Node required for legacy oracle")
-	}
+	node, _ := exec.LookPath("node")
 	path, err := filepath.Abs("../../../server/workspace.js")
 	if err != nil {
 		t.Fatal(err)
@@ -69,7 +67,11 @@ func legacyFingerprint(t *testing.T, entries []Workspace) string {
 	cmd := exec.Command(node, "--input-type=module", "-e", js, path)
 	cmd.Stdin = strings.NewReader(string(payload))
 	cmd.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1")
-	out, err := cmd.Output()
+	roots := []string{}
+	for _, entry := range entries {
+		roots = append(roots, entry.Root)
+	}
+	out, err := legacytest.Output(t, "workspace-workspace-1", cmd, false, roots...)
 	if err != nil {
 		t.Fatalf("legacy oracle: %v", err)
 	}

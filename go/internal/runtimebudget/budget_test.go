@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"relay.local/relay/internal/legacytest"
 	"testing"
 )
 
@@ -40,10 +41,7 @@ func TestProgressAndHardDeadline(t *testing.T) {
 	}
 }
 func TestMatchesLegacyBudget(t *testing.T) {
-	node, err := exec.LookPath("node")
-	if err != nil {
-		t.Skip("Node required for legacy oracle")
-	}
+	node, _ := exec.LookPath("node")
 	scenarios := []scenario{
 		{1000, 1000000, nil, nil, []action{{1000999, nil}, {1001000, ptr(1000999)}, {1001249, ptr(1000999)}, {1001250, ptr(1001001)}, {1002000, ptr(1001999)}}},
 		{1000, 1000000, nil, nil, []action{{1001000, nil}, {1001000, ptr(1000000)}, {1001000, ptr(1000499)}, {1001000, ptr(1000500)}}},
@@ -59,7 +57,7 @@ func TestMatchesLegacyBudget(t *testing.T) {
 	js := `import {pathToFileURL} from 'node:url'; const {RuntimeBudget}=await import(pathToFileURL(process.argv[1]));let input='';for await(const c of process.stdin)input+=c;let cases=JSON.parse(input);console.log(JSON.stringify(cases.map(c=>{let opts={timeout:c.timeout,startedAt:c.start};if(c.max!==null)opts.maxTimeout=c.max;if(c.window!==null)opts.progressWindow=c.window;let b=new RuntimeBudget(opts);return c.actions.map(a=>({decision:b.evaluate(a.now,a.progress),snapshot:b.snapshot(a.progress)}))})));`
 	cmd := exec.Command(node, "--input-type=module", "-e", js, path)
 	cmd.Stdin = bytes.NewReader(payload)
-	out, err := cmd.CombinedOutput()
+	out, err := legacytest.Output(t, "runtimebudget-budget-1", cmd, true)
 	if err != nil {
 		t.Fatalf("oracle: %s %v", out, err)
 	}

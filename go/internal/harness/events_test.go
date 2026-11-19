@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"relay.local/relay/internal/legacytest"
 	"strings"
 	"testing"
 )
@@ -16,10 +17,7 @@ type eventCase struct {
 }
 
 func TestEventDecodingMatchesLegacy(t *testing.T) {
-	node, err := exec.LookPath("node")
-	if err != nil {
-		t.Skip("Node required for legacy oracle")
-	}
+	node, _ := exec.LookPath("node")
 	cases := []eventCase{}
 	add := func(provider string, value any) {
 		raw, _ := json.Marshal(value)
@@ -63,7 +61,7 @@ func TestEventDecodingMatchesLegacy(t *testing.T) {
 	script := `import {pathToFileURL} from 'node:url';const {decodeEvent}=await import(pathToFileURL(process.argv[1]));let s='';for await(const c of process.stdin)s+=c;console.log(JSON.stringify(JSON.parse(s).map(c=>decodeEvent(c.provider,c.line))));`
 	cmd := exec.Command(node, "--input-type=module", "-e", script, path)
 	cmd.Stdin = bytes.NewReader(payload)
-	out, err := cmd.CombinedOutput()
+	out, err := legacytest.Output(t, "harness-events-1", cmd, true)
 	if err != nil {
 		t.Fatalf("oracle: %s %v", out, err)
 	}
