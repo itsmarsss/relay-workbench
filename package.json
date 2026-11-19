@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "description": "A local workbench for running coding agents through a staged, human-approved workflow",
+  "license": "MIT",
   "engines": {
     "node": ">=24.0.0"
   },

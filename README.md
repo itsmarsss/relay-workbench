@@ -205,3 +205,7 @@ pnpm run test:browser  # end-to-end, workspace and UI audit suites in a real bro
 The browser suites use throwaway state and repositories. Install Playwright's Chromium, or set
 `RELAY_CHROME` to a Chrome or Chromium executable. Contribution rules are in
 [AGENTS.md](AGENTS.md).
+
+## License
+
+[MIT](LICENSE)
