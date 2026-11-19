@@ -3,7 +3,7 @@ import { useEffect, useId, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { AnimatePresence, motion } from 'motion/react';
 import { useMutation, useResource, useSession, Notice } from './Session';
-import { Icon, CopyButton, OptionList, Select, ProviderIcon, RelayMark } from './UI';
+import { Icon, CopyButton, OptionList, Select, ProviderIcon, RelayMark, providerName } from './UI';
 import { Markdown } from './Markdown';
 import { useImageUpload } from './ImageUpload';
 import { Modal } from './Modal';
@@ -112,7 +112,7 @@ export function ChatPanel({
       String(
         configuredModel ||
           asObject(asObject(bootstrap?.config.harnesses)?.[selectedProvider])?.model ||
-          selectedProvider,
+          providerName(selectedProvider),
       );
   const current = chat.data?.id === selected ? chat.data : null,
     running = current?.messages?.some((m) => m.status === 'running'),

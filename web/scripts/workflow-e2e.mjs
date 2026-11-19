@@ -691,12 +691,12 @@ console.log(JSON.stringify({ type: 'item.completed', item: { type: 'agent_messag
   // Auto is an explicit task-scoped delegation, separate from ordinary approval.
   const automatic = await draft('Automatic fixture');
   await page.goto(`${base}/#task/${automatic.id}/overview`);
-  await page.getByRole('button', { name: 'Auto off', exact: true }).click();
+  await page.getByRole('button', { name: 'Auto: off', exact: true }).click();
   await page
     .getByRole('dialog', { name: 'Authorize Auto mode' })
     .getByRole('button', { name: 'Authorize for this task' })
     .click();
-  await page.getByRole('button', { name: 'Auto on', exact: true }).waitFor();
+  await page.getByRole('button', { name: 'Auto: on', exact: true }).waitFor();
   await page.getByRole('button', { name: 'Start investigation' }).click();
   const automated = await until(
     async () => {

@@ -46,10 +46,17 @@ export function AutoControl({ task }: { task: FullTask }) {
     <>
       <button
         aria-pressed={enabled}
+        className="auto-control"
+        title={
+          enabled
+            ? 'Relay approves for you within the scope you set. Click to stop.'
+            : 'Let Relay approve plans and results for this task without waiting for you'
+        }
         onClick={() => (enabled ? void save(false).catch(() => {}) : setOpen(true))}
         disabled={mutation.busy}
       >
-        Auto {enabled ? 'on' : 'off'}
+        <span className="auto-dot" aria-hidden="true" />
+        {enabled ? 'Auto: on' : 'Auto: off'}
       </button>
       {mutation.error && !open && <Notice>{mutation.error}</Notice>}
       {open && (

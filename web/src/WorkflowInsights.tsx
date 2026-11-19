@@ -161,9 +161,10 @@ export function TaskResult({ task, onTab }: { task: FullTask; onTab?: (tab: Task
           {onTab && (
             <div className="result-actions">
               {/* The review banner above already carries this next to Accept. */}
-              {task.status !== 'awaiting_final' && (
-                <button onClick={() => onTab('diff')}>View changes</button>
-              )}
+              {task.status !== 'awaiting_final' &&
+                (task as { attempts?: { stage?: string }[] }).attempts?.some(
+                  (attempt) => attempt.stage === 'implement',
+                ) && <button onClick={() => onTab('diff')}>View changes</button>}
               <button onClick={() => onTab('handoffs')}>Full reports</button>
             </div>
           )}

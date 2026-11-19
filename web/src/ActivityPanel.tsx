@@ -5,6 +5,7 @@ import { Notice, request, useResource } from './Session';
 import { asObject, asText } from './task-data';
 import type { FullTask } from './TaskExtras';
 import { activityEntries, activityWindow } from './activity-window';
+import { stageNames } from './presentation';
 
 type Row = Record<string, unknown> & { seq: number };
 function rows(value: unknown): Row[] {
@@ -174,7 +175,9 @@ export function HandoffsPanel({ taskId }: { taskId: string }) {
         <article className="handoff-card" key={asText(row?.id) || index}>
           <header>
             <span className="eyebrow">
-              {row?.role === 'debug' ? 'Debugger' : label(row?.stage)}
+              {row?.role === 'debug'
+                ? 'Debugger'
+                : stageNames[asText(row?.stage)] || label(row?.stage)}
             </span>
             <span className="muted">
               <ProviderName provider={asText(row?.harness)} size={22} /> · {label(row?.status)} ·{' '}

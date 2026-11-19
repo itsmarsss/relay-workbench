@@ -368,14 +368,16 @@ export default function App() {
             <div className="main-shell">
               <header className="app-topbar">
                 <nav className="breadcrumb" aria-label="Breadcrumb">
-                  <span>Workspace</span>
+                  {route.kind === 'task' ? <a href="#tasks">Tasks</a> : <span>Workspace</span>}
                   <Icon name="chevron" size={13} />
                   <span>
                     {
                       {
                         deck: 'Task deck',
                         tasks: 'Tasks',
-                        task: 'Task workspace',
+                        task:
+                          tasks.find((item) => item.id === (route as { id?: string }).id)?.title ||
+                          'Task',
                         relay: 'Relay agent',
                         inbox: 'Approval inbox',
                         repositories: 'Repositories',
@@ -611,6 +613,7 @@ export default function App() {
                 issueImportPreview={bootstrap.issueImportPreview}
                 onImport={importTicket}
                 onCreate={create}
+                onStart={(task) => act(task.id, 'start')}
                 onClose={() => setDraftOpen(false)}
                 onCreated={(task) => {
                   setDraftOpen(false);

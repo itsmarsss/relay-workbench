@@ -75,7 +75,6 @@ export function RepositoriesPage({
     <section className="repositories-page">
       <div className="page-title">
         <div>
-          <div className="eyebrow">Workspace</div>
           <h1>Repositories</h1>
           <p>Repository profiles and task workspaces.</p>
         </div>

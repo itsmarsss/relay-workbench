@@ -422,6 +422,7 @@ export function TasksPage({
       <div className="page-title">
         <div>
           <h1>Tasks</h1>
+          <p>Everything in flight, grouped by stage.</p>
         </div>
         <div className="segmented task-layout-switch" role="group" aria-label="Task layout">
           {(['board', 'list'] as const).map((layout) => (

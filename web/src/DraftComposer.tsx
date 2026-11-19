@@ -19,6 +19,7 @@ export function DraftComposer({
   issueImportPreview,
   onImport,
   onCreate,
+  onStart,
   onClose,
   onCreated,
 }: {
@@ -27,6 +28,8 @@ export function DraftComposer({
   issueImportPreview: boolean;
   onImport: (repositoryId: string, ticket: string, signal?: AbortSignal) => Promise<ImportedIssue>;
   onCreate: (request: Record<string, unknown>) => Promise<Task>;
+  // Starts the new task's investigation straight away; offered beside Create draft.
+  onStart?: (task: Task) => Promise<unknown>;
   onClose: () => void;
   onCreated: (task: Task) => void;
 }) {
@@ -120,6 +123,8 @@ export function DraftComposer({
       }}
       onSubmit={async (event) => {
         event.preventDefault();
+        const start =
+          (event.nativeEvent as SubmitEvent).submitter?.getAttribute('data-start') === 'true';
         if (busy || importing || uploads.busy) return;
         setError('');
         try {
@@ -138,6 +143,7 @@ export function DraftComposer({
           );
           setBusy(true);
           const task = await onCreate(request);
+          if (start && onStart) await onStart(task).catch(() => {});
           onCreated(task);
         } catch (failure) {
           setError(failure instanceof Error ? failure.message : 'Could not create task.');
@@ -149,15 +155,29 @@ export function DraftComposer({
         <>
           <span className="form-note">
             {workflowPreview
-              ? 'Creates a draft. You approve the approach before implementation.'
+              ? 'You approve the approach before any code is written.'
               : 'Creates a draft. Agent execution is still being ported.'}
           </span>
           <button type="button" onClick={onClose} disabled={busy}>
             Cancel
           </button>
-          <button className="primary" type="submit" disabled={busy || importing || uploads.busy}>
+          <button
+            type="submit"
+            className={onStart && workflowPreview ? undefined : 'primary'}
+            disabled={busy || importing || uploads.busy}
+          >
             {busy ? 'Creating…' : 'Create draft'}
           </button>
+          {onStart && workflowPreview && (
+            <button
+              className="primary"
+              type="submit"
+              data-start="true"
+              disabled={busy || importing || uploads.busy}
+            >
+              {busy ? 'Starting…' : 'Create and start'}
+            </button>
+          )}
         </>
       }
     >

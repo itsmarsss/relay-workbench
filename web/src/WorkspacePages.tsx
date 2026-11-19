@@ -36,7 +36,6 @@ export function SettingsPage({
     <section className={`settings-page ${mode}-page`}>
       <div className="page-title">
         <div>
-          <div className="eyebrow">{mode === 'agents' ? 'Workspace' : 'Make it yours'}</div>
           <h1>{mode === 'agents' ? 'Agents' : 'Settings'}</h1>
           <p>
             {mode === 'agents'
@@ -367,7 +366,6 @@ export function MemoryPage() {
     <section>
       <div className="page-title">
         <div>
-          <div className="eyebrow">Workspace knowledge</div>
           <h1>Memory</h1>
           <p>Approved knowledge, scoped to where it applies.</p>
         </div>

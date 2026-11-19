@@ -75,12 +75,6 @@ export function TaskMeta({
           </a>
         );
       })}
-      {!links.length && (
-        <span className="pr-chip pr-none" title="No pull request">
-          <Icon name="pull-request" size={13} />
-          <span>No PR</span>
-        </span>
-      )}
       <button
         type="button"
         className="task-id"

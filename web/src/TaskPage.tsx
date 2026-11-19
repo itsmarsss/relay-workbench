@@ -68,7 +68,7 @@ function Description({ task }: { task: Details }) {
   return (
     <section className="description-card">
       <div className="section-heading">
-        <h2>Description &amp; requirements</h2>
+        <h2>Description</h2>
         {!locked &&
           draft === null &&
           (active ? (
@@ -195,8 +195,13 @@ export function TaskPage({
     [blockerOption, setBlockerOption] = useState(''),
     [blockerNote, setBlockerNote] = useState('');
   const planRevision = task ? latestPlan(task)?.attemptId : undefined;
+  // A fresh plan starts with its recommended option (or its only option) chosen, so approving
+  // what the planner recommends is one click.
   useEffect(() => {
-    setSelectedOption('');
+    const current = task ? latestPlan(task) : null;
+    setSelectedOption(
+      current?.recommendedId || (current?.options.length === 1 ? current.options[0]!.id : ''),
+    );
     setBlockerOption('');
   }, [planRevision]);
   useEffect(() => {
@@ -395,9 +400,6 @@ export function TaskPage({
                 <span>{task.ticket}</span>
               ))}
             <span className="task-id">{task.id.slice(0, 8)}</span>
-            {shortDate(asText(task.createdAt)) && (
-              <span>Created {shortDate(asText(task.createdAt))}</span>
-            )}
             {task.updatedAt && <span>Updated {ago(task.updatedAt).toLowerCase()}</span>}
             {task.currentRun?.role === 'debug' && task.currentRun.status === 'running' && (
               <span>
@@ -658,6 +660,13 @@ export function TaskPage({
                     <input
                       value={approvalNote}
                       onChange={(event) => setApprovalNote(event.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter' && selectedOption && !busy) {
+                          event.preventDefault();
+                          void decide('approve');
+                        }
+                      }}
+                      placeholder="Optional direction for the implementer"
                       maxLength={10000}
                     />
                   </label>

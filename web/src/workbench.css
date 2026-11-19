@@ -1153,10 +1153,8 @@ select {
 .task-main .description-card {
   padding: 22px 24px;
 }
+/* Main-column cards share one heading style; small capitals are for the side rail. */
 .description-card h2 {
-  text-transform: uppercase;
-  letter-spacing: 1px;
-  font-size: 12px;
   margin: 0;
 }
 .description-card > .section-heading {
@@ -2192,9 +2190,8 @@ main.page-main:has(> .tasks-page) {
   align-items: center;
   margin: 0 0 12px;
 }
-.tasks-page .page-title h1 {
-  margin: 0;
-  font-size: 22px;
+.tasks-page .page-title p {
+  color: var(--muted);
 }
 .tasks-page .task-scopes {
   flex-wrap: wrap;
@@ -4911,4 +4908,42 @@ input[type='radio']:hover:not(:checked):not(:disabled) {
 }
 .repository-card header {
   flex-wrap: wrap;
+}
+
+/* One page header everywhere: title, one line of description, actions on the right. */
+.page-title h1 {
+  font-size: 26px;
+  margin: 0 0 6px;
+}
+.page-title {
+  margin-bottom: 24px;
+}
+
+.breadcrumb a {
+  color: inherit;
+  text-decoration: none;
+}
+.breadcrumb a:hover {
+  color: var(--text);
+  text-decoration: underline;
+}
+.breadcrumb > span:last-child {
+  max-width: 48ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.auto-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+.auto-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--line-strong);
+}
+.auto-control[aria-pressed='true'] .auto-dot {
+  background: var(--success);
 }
