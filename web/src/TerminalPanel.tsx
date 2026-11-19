@@ -377,18 +377,22 @@ function AgentLive({ taskId, attemptId }: { taskId: string; attemptId: string })
   );
 }
 const lastAgentKey = 'relay-terminal-agent';
-function lastAgent() {
+// The agent (or "shell") last opened in a terminal; null before the first time.
+function lastAgent(): string | null {
   try {
-    return localStorage.getItem(lastAgentKey) || '';
+    return localStorage.getItem(lastAgentKey);
   } catch {
-    return '';
+    return null;
   }
 }
 export function TerminalPanel({ taskId }: { taskId: string }) {
   const { bootstrap } = useSession(),
-    // Every agent enabled in Settings can open in a terminal, plus a plain shell.
+    catalog = useResource<Record<string, unknown>>('/api/models'),
+    // Every agent that is enabled and actually installed can open in a terminal, plus a shell.
     agents = ['claude', 'codex', 'pi'].filter(
-      (name) => asObject(asObject(bootstrap?.config.harnesses)?.[name])?.enabled === true,
+      (name) =>
+        asObject(asObject(bootstrap?.config.harnesses)?.[name])?.enabled === true &&
+        (!catalog.data || asObject(catalog.data[name])?.status === 'ready'),
     );
   const current = useResource<FullTask>(`/api/tasks/${taskId}`),
     live = useResource<LiveTerminal>(`/api/tasks/${taskId}/terminal`),
@@ -432,7 +436,7 @@ export function TerminalPanel({ taskId }: { taskId: string }) {
     const latest = await request<FullTask>(`/api/tasks/${taskId}`);
     if (operation === 'agent-terminal' || operation === 'takeover')
       try {
-        localStorage.setItem(lastAgentKey, chosen);
+        localStorage.setItem(lastAgentKey, chosen || 'shell');
       } catch {}
     await mutation.run(`/api/tasks/${taskId}/${operation}`, {
       taskRevision: latest.taskRevision,
@@ -460,7 +464,13 @@ export function TerminalPanel({ taskId }: { taskId: string }) {
     } catch {}
     if (canOpenAgent) {
       const remembered = lastAgent();
-      setProvider(remembered === '' || agents.includes(remembered) ? remembered : agents[0] || '');
+      setProvider(
+        remembered === 'shell'
+          ? ''
+          : remembered && agents.includes(remembered)
+            ? remembered
+            : agents[0] || '',
+      );
       setModel('');
       setEffort('');
       setMode('agent');
