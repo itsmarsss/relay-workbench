@@ -18,6 +18,7 @@ import { useImageUpload } from './ImageUpload';
 import { AutoControl, ForkLinks } from './WorkflowHistory';
 import { useEffect, useState } from 'react';
 import { TaskMenu, ContinueWork, PublicationPanel, type FullTask } from './TaskExtras';
+import { NotifyOffer } from './Notifications';
 import { motion } from 'motion/react';
 import { Markdown } from './Markdown';
 import { ClampedText, DecisionOptions } from './DecisionOptions';
@@ -471,6 +472,7 @@ export function TaskPage({
               <div className="status-banner-body">
                 {kicker}
                 <h2>{awaitingReview ? 'Ready for your review' : nextStep(task)}</h2>
+                {['queued', 'running'].includes(task.status) && <NotifyOffer />}
                 <p>
                   {/* While an agent works, the summary is the previous run's, so say so. */}
                   {summary && task.currentRun?.status === 'running' && (

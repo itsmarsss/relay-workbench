@@ -1,6 +1,6 @@
 import { Icon, ProviderIcon } from './UI';
 import { TaskPicker } from './TaskPicker';
-import { ago, currentStage, nextStep, stageNames } from './presentation';
+import { ago, currentStage, nextStep, stageNames, plainSummary } from './presentation';
 import { statusLabel, type Task, type TaskView } from './types';
 import { columns, taskLane } from './board';
 import { isLive, needsDecision, type Pane } from './deck';
@@ -142,7 +142,7 @@ export function TaskMonitor({
             className={`monitor-update ${task.error ? 'has-error' : ''}`}
             title={task.error || task.latestSummary || nextStep(task)}
           >
-            {task.error || task.latestSummary || nextStep(task)}
+            {plainSummary(task.error || task.latestSummary) || nextStep(task)}
           </p>
           <footer className="monitor-footer">
             <span

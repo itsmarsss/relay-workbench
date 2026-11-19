@@ -112,3 +112,33 @@ export function NotificationSettings() {
     </section>
   );
 }
+
+// Offered beside a running task while notifications are off: one click, and Relay tells you when
+// it needs you instead of you checking back.
+export function NotifyOffer() {
+  const [state, setState] = useState(() =>
+    typeof Notification === 'undefined' || enabled() ? 'hidden' : 'offer',
+  );
+  if (state === 'hidden') return null;
+  if (state === 'on') return <span className="notify-offer muted">You'll get a notification.</span>;
+  return (
+    <button
+      type="button"
+      className="text-button notify-offer"
+      onClick={() => {
+        void Notification.requestPermission()
+          .then((permission) => {
+            if (permission === 'granted') {
+              try {
+                localStorage.setItem(key, 'true');
+              } catch {}
+              setState('on');
+            } else setState('hidden');
+          })
+          .catch(() => setState('hidden'));
+      }}
+    >
+      Notify me when it needs me
+    </button>
+  );
+}

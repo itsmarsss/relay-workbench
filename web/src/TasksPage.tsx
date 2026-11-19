@@ -27,6 +27,7 @@ import {
   ticketRef,
   ticketURL,
   waitingKind,
+  plainSummary,
 } from './presentation';
 export { taskLane } from './board';
 const useClientLayoutEffect = typeof window === 'undefined' ? useEffect : useLayoutEffect;
@@ -342,7 +343,7 @@ export function TasksPage({
             </span>
             {(task.error || task.latestSummary) && (
               <span className={`task-card-summary ${task.error ? 'is-error' : ''}`}>
-                {task.error || task.latestSummary}
+                {plainSummary(task.error || task.latestSummary)}
               </span>
             )}
             <span className="board-task-next">
@@ -369,7 +370,9 @@ export function TasksPage({
                 {stageNote(task) && ` · ${stageNote(task)}`}
               </small>
               {(task.error || task.latestSummary) && (
-                <span className="task-card-summary">{task.error || task.latestSummary}</span>
+                <span className="task-card-summary">
+                  {plainSummary(task.error || task.latestSummary)}
+                </span>
               )}
             </span>
             <span className="task-card-state">
@@ -668,6 +671,23 @@ export function TasksPage({
               <Icon name="arrow" size={15} />
               Open task
             </button>
+            {/* A draft can start straight from the board, without opening it first. */}
+            {menu.task.status === 'draft' && (
+              <button
+                disabled={mutation.busy}
+                onClick={() => {
+                  const task = menu.task;
+                  setMenu(null);
+                  void mutation
+                    .run(`/api/tasks/${task.id}/start`, {})
+                    .then(() => window.dispatchEvent(new Event('relay-data-change')))
+                    .catch(() => {});
+                }}
+              >
+                <Icon name="bolt" size={15} />
+                Start investigation
+              </button>
+            )}
             <div className="menu-field">
               <Icon name="board" size={15} />
               <span>Column</span>
