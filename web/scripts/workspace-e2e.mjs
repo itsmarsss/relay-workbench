@@ -399,10 +399,14 @@ let input='';process.stdin.on('data',d=>input+=d);process.stdin.on('end',()=>{
   assert.deepEqual(profile.checks, [{ command: 'fixture-check', args: [literal] }]);
   assert.equal(profile.verificationMode, 'commands');
   await page.goto(origin + '/#settings');
-  await page.getByRole('button', { name: 'Save settings', exact: true }).click();
-  await page.getByText('Settings saved.', { exact: true }).waitFor();
-  await page.getByRole('button', { name: 'Save settings', exact: true }).click();
-  await page.getByText('Settings saved.', { exact: true }).waitFor();
+  // Save appears only with a change; saving twice in a row must not conflict.
+  assert.equal(await page.getByRole('button', { name: 'Save settings', exact: true }).count(), 0);
+  const concurrency = page.getByRole('spinbutton', { name: 'Concurrent tasks' });
+  for (const value of ['3', '2']) {
+    await concurrency.fill(value);
+    await page.getByRole('button', { name: 'Save settings', exact: true }).click();
+    await page.getByText('Settings saved.', { exact: true }).waitFor();
+  }
   await page.getByRole('heading', { name: 'Notifications', exact: true }).waitFor();
   // Appearance lives in Settings, persists, and follows the OS in System mode.
   await page.getByRole('checkbox', { name: 'Low motion', exact: true }).check();
@@ -431,6 +435,11 @@ let input='';process.stdin.on('data',d=>input+=d);process.stdin.on('end',()=>{
   await capture(page, 'settings');
   await page.goto(origin + '/#agents');
   await page.getByRole('heading', { name: 'Agents', exact: true }).waitFor();
+  const routable = page.getByRole('checkbox', { name: /^Enable .* for routing$/ }).last();
+  await routable.click();
+  await routable.click();
+  assert.equal(await page.getByRole('button', { name: 'Save agent settings' }).count(), 0);
+  await routable.click();
   await page.getByRole('button', { name: 'Save agent settings', exact: true }).click();
   await page.getByText('Settings saved.', { exact: true }).waitFor();
   await page.getByText('Routing evidence', { exact: true }).click();

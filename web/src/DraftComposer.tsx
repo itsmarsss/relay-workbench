@@ -6,6 +6,17 @@ import { draftRequest } from './forms';
 import { AgentSettings, agentOptions } from './AgentSettings';
 import { jsonObject } from './forms';
 import type { ImportedIssue, RelayConfig, Task } from './types';
+const lastRepositoriesKey = 'relay-last-repositories';
+// A new task starts with the repositories used last time, or the only one there is.
+function initialRepositories(config: RelayConfig): string[] {
+  const ids = config.repositories.map((repo) => repo.id);
+  if (ids.length === 1) return ids;
+  try {
+    const last: unknown = JSON.parse(localStorage.getItem(lastRepositoriesKey) || '[]');
+    if (Array.isArray(last)) return last.filter((id): id is string => ids.includes(id));
+  } catch {}
+  return [];
+}
 const presets = [
   { id: 'bugfix', label: 'Bug fix' },
   { id: 'small', label: 'Small change' },
@@ -37,8 +48,8 @@ export function DraftComposer({
     [description, setDescription] = useState(''),
     [ticket, setTicket] = useState(''),
     [demo, setDemo] = useState(false),
-    [selected, setSelected] = useState<string[]>([]),
-    [primary, setPrimary] = useState(''),
+    [selected, setSelected] = useState<string[]>(() => initialRepositories(config)),
+    [primary, setPrimary] = useState(() => initialRepositories(config)[0] || ''),
     [preset, setPreset] = useState('bugfix'),
     [advanced, setAdvanced] = useState('{}'),
     [agents, setAgents] = useState(agentOptions),
@@ -143,6 +154,9 @@ export function DraftComposer({
           );
           setBusy(true);
           const task = await onCreate(request);
+          try {
+            if (!demo) localStorage.setItem(lastRepositoriesKey, JSON.stringify(selected));
+          } catch {}
           if (start && onStart) await onStart(task).catch(() => {});
           onCreated(task);
         } catch (failure) {
@@ -196,7 +210,56 @@ export function DraftComposer({
           autoFocus
         />
       </label>
-      <MarkdownEditor value={description} onChange={setDescription} uploads={uploads} />
+      {!demo && (
+        <fieldset>
+          <legend>{config.repositories.length === 1 ? 'Repository' : 'Repositories'}</legend>
+          {config.repositories.length > 5 && (
+            <input
+              aria-label="Filter repositories"
+              type="search"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Filter repositories…"
+            />
+          )}
+          {config.repositories.length === 0 ? (
+            <p className="form-note">Add a repository profile first, or create a demo draft.</p>
+          ) : (
+            <div className="repository-choices">
+              {config.repositories
+                .filter((repo) =>
+                  `${repo.name} ${repo.path}`.toLowerCase().includes(query.toLowerCase()),
+                )
+                .map((repo) => (
+                  <div key={repo.id} className="repository-choice">
+                    <label className="check-row">
+                      <input
+                        type="checkbox"
+                        checked={selected.includes(repo.id)}
+                        onChange={(event) => choose(repo.id, event.target.checked)}
+                      />
+                      <span>
+                        <strong>{repo.name}</strong>
+                        <small>{repo.path}</small>
+                      </span>
+                    </label>
+                    {selected.includes(repo.id) && selected.length > 1 && (
+                      <label className="check-row">
+                        <input
+                          type="radio"
+                          name="primary"
+                          checked={primary === repo.id}
+                          onChange={() => setPrimary(repo.id)}
+                        />
+                        Primary
+                      </label>
+                    )}
+                  </div>
+                ))}
+            </div>
+          )}
+        </fieldset>
+      )}
       <label className="field">
         Issue link or reference
         <input
@@ -228,6 +291,7 @@ export function DraftComposer({
           ))}
         </div>
       )}
+      <MarkdownEditor value={description} onChange={setDescription} uploads={uploads} />
       <fieldset>
         <legend>Workflow</legend>
         <div className="choice-row">
@@ -248,54 +312,6 @@ export function DraftComposer({
         <input type="checkbox" checked={demo} onChange={(event) => setDemo(event.target.checked)} />
         Demo · simulated agents, no repository commands
       </label>
-      {!demo && (
-        <fieldset>
-          <legend>Repositories</legend>
-          <input
-            aria-label="Filter repositories"
-            type="search"
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="Filter repositories…"
-          />
-          {config.repositories.length === 0 ? (
-            <p className="form-note">Add a repository profile first, or create a demo draft.</p>
-          ) : (
-            <div className="repository-choices">
-              {config.repositories
-                .filter((repo) =>
-                  `${repo.name} ${repo.path}`.toLowerCase().includes(query.toLowerCase()),
-                )
-                .map((repo) => (
-                  <div key={repo.id} className="repository-choice">
-                    <label className="check-row">
-                      <input
-                        type="checkbox"
-                        checked={selected.includes(repo.id)}
-                        onChange={(event) => choose(repo.id, event.target.checked)}
-                      />
-                      <span>
-                        <strong>{repo.name}</strong>
-                        <small>{repo.path}</small>
-                      </span>
-                    </label>
-                    {selected.includes(repo.id) && (
-                      <label className="check-row">
-                        <input
-                          type="radio"
-                          name="primary"
-                          checked={primary === repo.id}
-                          onChange={() => setPrimary(repo.id)}
-                        />
-                        Primary
-                      </label>
-                    )}
-                  </div>
-                ))}
-            </div>
-          )}
-        </fieldset>
-      )}
       <details>
         <summary>Agents and execution</summary>
         <AgentSettings config={config} value={agents} onChange={setAgents} />

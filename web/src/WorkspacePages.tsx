@@ -32,6 +32,23 @@ export function SettingsPage({
   }
   const agents = asObject(config.harnesses) || {},
     routing = asObject(config.routing) || {};
+  // Save only appears when something here differs from what is saved.
+  const dirty = JSON.stringify(config) !== JSON.stringify(snapshot.config);
+  function save() {
+    if (!config || !snapshot) return;
+    setBusy(true);
+    setMessage('');
+    void onSave(snapshot.configRevision, config)
+      .then(async () => {
+        const next = await request<Bootstrap>('/api/bootstrap');
+        setSnapshot(next);
+        setConfig(next.config);
+        setMessage('Settings saved.');
+        window.setTimeout(() => setMessage(''), 4000);
+      })
+      .catch((e) => setMessage(e.message))
+      .finally(() => setBusy(false));
+  }
   return (
     <section className={`settings-page ${mode}-page`}>
       <div className="page-title">
@@ -43,27 +60,7 @@ export function SettingsPage({
               : 'Local configuration, execution limits, and private integration profiles.'}
           </p>
         </div>
-        <button
-          className="primary"
-          disabled={busy}
-          onClick={() => {
-            setBusy(true);
-            setMessage('');
-            void onSave(snapshot.configRevision, config)
-              .then(async () => {
-                const next = await request<Bootstrap>('/api/bootstrap');
-                setSnapshot(next);
-                setConfig(next.config);
-                setMessage('Settings saved.');
-              })
-              .catch((e) => setMessage(e.message))
-              .finally(() => setBusy(false));
-          }}
-        >
-          {busy ? 'Saving…' : mode === 'agents' ? 'Save agent settings' : 'Save settings'}
-        </button>
       </div>
-      {message && <p role="status">{message}</p>}
       <SectionMenu key={mode} />
       {mode === 'settings' && (
         <>
@@ -294,6 +291,21 @@ export function SettingsPage({
           </section>
           <StateTransfer />
         </>
+      )}
+      {(dirty || message) && (
+        <div className="settings-save-bar" role="region" aria-label="Unsaved settings">
+          <span role="status">{dirty ? 'Unsaved changes' : message}</span>
+          {dirty && (
+            <>
+              <button type="button" disabled={busy} onClick={() => setConfig(snapshot.config)}>
+                Discard
+              </button>
+              <button className="primary" disabled={busy} onClick={save}>
+                {busy ? 'Saving…' : mode === 'agents' ? 'Save agent settings' : 'Save settings'}
+              </button>
+            </>
+          )}
+        </div>
       )}
     </section>
   );

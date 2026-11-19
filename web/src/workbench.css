@@ -1790,12 +1790,14 @@ main.deck-main {
   letter-spacing: -0.4px;
 }
 .deck-title > span,
+/* "Needs you" is the attention colour everywhere; red is for failures. */
 .deck-attention-count {
   font-size: 12px;
-  color: var(--muted);
-}
-.deck-attention-count {
-  color: var(--danger);
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--status-attention);
+  color: var(--status-attention-ink);
 }
 .deck-mode {
   margin-left: auto;
@@ -4946,4 +4948,25 @@ input[type='radio']:hover:not(:checked):not(:disabled) {
 }
 .auto-control[aria-pressed='true'] .auto-dot {
   background: var(--success);
+}
+
+/* Settings: Save appears only with unsaved changes, and stays in view. */
+.settings-save-bar {
+  position: sticky;
+  bottom: 12px;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 20px;
+  padding: 10px 12px 10px 16px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: 0 6px 24px rgb(0 0 0 / 0.12);
+}
+.settings-save-bar > span {
+  margin-right: auto;
+  font-size: 13px;
+  font-weight: 600;
 }
