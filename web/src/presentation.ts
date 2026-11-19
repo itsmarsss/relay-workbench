@@ -16,7 +16,16 @@ export function currentStage(task: Pick<Task, 'stage' | 'currentRun'> | undefine
   const run = task?.currentRun;
   return (run?.status === 'running' && run.stage) || task?.stage || run?.stage || '';
 }
+// Agent summaries are Markdown; places that show them as one line drop the markup.
+export function plainSummary(value?: string | null): string {
+  return (value || '')
+    .replace(/`([^`]+)`/g, '$1')
+    .replace(/\*\*([^*]+)\*\*/g, '$1')
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1');
+}
 export function nextStep(task: Task): string {
+  if (task.status === 'completed')
+    return task.pullRequests?.length ? 'Pull request open' : 'Publish or follow up';
   return (
     (
       {

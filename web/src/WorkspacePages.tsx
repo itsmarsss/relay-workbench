@@ -22,6 +22,7 @@ export function SettingsPage({
   onSave: (revision: string, config: RelayConfig) => Promise<void>;
 }) {
   const { bootstrap } = useSession();
+  const catalog = useResource<Record<string, unknown>>('/api/models');
   const [snapshot, setSnapshot] = useState(() => (bootstrap ? structuredClone(bootstrap) : null)),
     [config, setConfig] = useState(() => snapshot?.config),
     [busy, setBusy] = useState(false),
@@ -32,6 +33,13 @@ export function SettingsPage({
   }
   const agents = asObject(config.harnesses) || {},
     routing = asObject(config.routing) || {};
+  // Whether each agent's CLI actually answers, from the model catalog.
+  function agentState(id: string, on: boolean) {
+    if (!on) return 'off';
+    const entry = asObject(catalog.data?.[id]);
+    if (!catalog.data) return 'checking';
+    return entry?.status === 'ready' ? 'ready' : 'missing';
+  }
   // Save only appears when something here differs from what is saved.
   const dirty = JSON.stringify(config) !== JSON.stringify(snapshot.config);
   function save() {
@@ -93,7 +101,19 @@ export function SettingsPage({
                       <h2>
                         <ProviderName provider={id} size={30} />
                       </h2>
-                      <p>{agent.enabled !== false ? 'Enabled' : 'Disabled'}</p>
+                      <p
+                        className="agent-state"
+                        data-state={agentState(id, agent.enabled !== false)}
+                      >
+                        {
+                          {
+                            ready: 'Ready',
+                            missing: 'Not installed · tasks use another agent',
+                            off: 'Turned off',
+                            checking: 'Checking…',
+                          }[agentState(id, agent.enabled !== false)]
+                        }
+                      </p>
                     </div>
                     <label className="field">
                       Executable

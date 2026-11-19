@@ -211,3 +211,33 @@ func TestSetupOutputDropsTerminalColourCodes(t *testing.T) {
 		t.Fatalf("got %q", got)
 	}
 }
+
+func TestStagesRoutedToMissingAgentsUseAnInstalledOne(t *testing.T) {
+	c, db, id, _ := coordinatorFixture(t, "cat >/dev/null\nprintf '%s\\n' '"+stageFinal()+"'")
+	value := coordinatorTask(t, db, id)
+	// Only Codex is enabled in the fixture; route planning to Claude and triage to Pi.
+	value["routing"] = map[string]any{"triage": "pi", "investigate": "codex", "plan": "claude", "implement": "codex", "review": "claude"}
+	saved(t, db, value)
+	if _, err := c.Start(id); err != nil {
+		t.Fatalf("a task with an uninstalled agent in its routing could not start: %v", err)
+	}
+	waitCoordinator(t, c, id)
+	value = coordinatorTask(t, db, id)
+	routing := object(value["routing"])
+	if routing["plan"] != "codex" || routing["review"] != "codex" || routing["triage"] != "codex" {
+		t.Fatalf("routing: %#v", routing)
+	}
+	if value["status"] != "awaiting_plan" {
+		t.Fatalf("task did not run: %v %v", value["status"], value["error"])
+	}
+	events, _ := db.Events(id, 0, 500)
+	found := false
+	for _, raw := range events {
+		if strings.Contains(string(raw), "uses Codex") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("the reroute was not recorded in the activity")
+	}
+}

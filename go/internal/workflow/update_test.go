@@ -37,7 +37,7 @@ func updateFixture(t *testing.T, mainFile, mainContent string) (*Coordinator, *s
 	root, branch := text(value["workspaceRoot"]), text(value["branch"])
 	remote := filepath.Join(t.TempDir(), "remote.git")
 	gitFixture(t, source, "init", "-q", "--bare", remote)
-	gitFixture(t, source, "remote", "add", "origin", remote)
+	gitFixture(t, source, "remote", "set-url", "origin", remote)
 	gitFixture(t, source, "push", "-q", "origin", "HEAD:refs/heads/main")
 	gitFixture(t, root, "add", "-A")
 	gitFixture(t, root, "commit", "-q", "-m", "feat: accepted change")

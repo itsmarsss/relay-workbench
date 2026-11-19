@@ -4996,3 +4996,10 @@ input[type='radio']:hover:not(:checked):not(:disabled) {
   margin-right: 16px;
   white-space: nowrap;
 }
+
+.agent-state[data-state='ready'] {
+  color: var(--success);
+}
+.agent-state[data-state='missing'] {
+  color: var(--status-attention-ink);
+}

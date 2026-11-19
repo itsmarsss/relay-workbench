@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"relay.local/relay/internal/harness"
@@ -116,9 +117,20 @@ func (c *Coordinator) publish(ctx context.Context, id, revision, repositoryID st
 		return nil, err
 	}
 	enabled, configs := enabledAgents(config.Value)
+	git := workspace.Runner{WorkerExecutable: c.worker, WorkerArgs: c.args, Environment: c.env}
+	if remotes, err := git.Remotes(ctx, text(entry["workspaceRoot"])); err == nil && len(remotes) == 0 {
+		return nil, errors.New("this repository has no remote, so there is nowhere to publish; add one (git remote add origin <url>) or push it to GitHub first")
+	}
+	var rerouted []string
 	provider := text(object(value["routing"])["implement"])
 	if !enabled[provider] {
-		return nil, errors.New("configured publication agent is unavailable")
+		// Publishing uses the implementer's agent; if that one is not installed, use one that is,
+		// and keep the change on the task so every later publication step agrees.
+		rerouted = rerouteUnavailable(value, enabled)
+		provider = text(object(value["routing"])["implement"])
+	}
+	if !enabled[provider] {
+		return nil, errors.New("no agent is available to publish; install or enable one under Agents")
 	}
 	limit, _ := config.Value["concurrency"].(float64)
 	minutes, _ := config.Value["timeoutMinutes"].(float64)
@@ -165,6 +177,9 @@ func (c *Coordinator) publish(ctx context.Context, id, revision, repositoryID st
 	saved, err := c.store.CompareAndSwapWithMeta(id, raw, next, event, guards)
 	if err != nil {
 		return nil, err
+	}
+	if len(rerouted) > 0 {
+		_, _ = c.store.Event(id, mustJSON(map[string]any{"type": "routing", "source": "relay", "summary": strings.Join(rerouted, " ")}))
 	}
 	if json.Unmarshal(saved, &value) != nil {
 		return nil, errors.New("invalid saved task")

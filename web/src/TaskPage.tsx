@@ -9,6 +9,7 @@ import {
   stageNames,
   ticketLabel,
   ticketURL,
+  plainSummary,
 } from './presentation';
 import { Notice, useMutation } from './Session';
 import { MarkdownEditor } from './MarkdownEditor';
@@ -475,7 +476,7 @@ export function TaskPage({
                   {summary && task.currentRun?.status === 'running' && (
                     <span className="status-previous">Previous result: </span>
                   )}
-                  {summary ||
+                  {plainSummary(summary) ||
                     (task.status === 'draft'
                       ? 'Relay will investigate, propose an approach and ask before implementing.'
                       : 'No update yet.')}

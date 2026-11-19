@@ -258,6 +258,46 @@ func profiles(task map[string]any) ([]map[string]any, error) {
 	return result, nil
 }
 
+// Each stage's preferred agents, best first, for when the routed one is not installed.
+var stagePreference = map[string][]string{
+	"triage":      {"pi", "codex", "claude"},
+	"investigate": {"codex", "claude", "pi"},
+	"plan":        {"claude", "codex", "pi"},
+	"implement":   {"codex", "claude", "pi"},
+	"review":      {"claude", "codex", "pi"},
+}
+
+var agentNames = map[string]string{"claude": "Claude Code", "codex": "Codex", "pi": "Pi"}
+
+// rerouteUnavailable moves a stage routed to an agent that is turned off or not installed to
+// the best available one, so a machine with a single agent CLI can run every stage. It returns
+// a line per change, for the task's activity.
+func rerouteUnavailable(value map[string]any, enabled map[string]bool) []string {
+	routing := object(value["routing"])
+	if routing == nil {
+		return nil
+	}
+	notes := []string{}
+	for _, stage := range []string{"triage", "investigate", "plan", "implement", "review"} {
+		current := text(routing[stage])
+		if current == "" || enabled[current] {
+			continue
+		}
+		for _, candidate := range stagePreference[stage] {
+			if enabled[candidate] {
+				routing[stage] = candidate
+				notes = append(notes, fmt.Sprintf("%s isn't available, so %s uses %s.", agentNames[current], stageNameFor(stage), agentNames[candidate]))
+				break
+			}
+		}
+	}
+	return notes
+}
+
+func stageNameFor(stage string) string {
+	return map[string]string{"triage": "triage", "investigate": "investigation", "plan": "planning", "implement": "implementation", "review": "review"}[stage]
+}
+
 func enabledAgents(config map[string]any) (map[string]bool, map[string]harness.Config) {
 	enabled, configs := map[string]bool{}, map[string]harness.Config{}
 	for _, id := range []string{"codex", "claude", "pi"} {
@@ -320,6 +360,7 @@ func (c *Coordinator) enqueueMode(id string, resume, automatic bool) (map[string
 		return nil, err
 	}
 	enabled, configs := enabledAgents(config.Value)
+	var rerouted []string
 	var limit int
 	if value, ok := config.Value["concurrency"].(float64); ok {
 		limit = int(value)
@@ -385,6 +426,7 @@ func (c *Coordinator) enqueueMode(id string, resume, automatic bool) (map[string
 			value["loopGuardAcknowledgedAt"], value["loopGuard"] = len(array(value["attempts"])), nil
 			value["debugVerificationRequests"] = nil
 		}
+		rerouted = rerouteUnavailable(value, enabled)
 		routing := object(value["routing"])
 		needed := []string{"investigate", "plan"}
 		if value["preset"] == "investigate" {
@@ -437,6 +479,9 @@ func (c *Coordinator) enqueueMode(id string, resume, automatic bool) (map[string
 	}, map[string]any{"type": "queued", "summary": "Workflow queued for investigation or planning."})
 	if err != nil {
 		return nil, err
+	}
+	if len(rerouted) > 0 {
+		_, _ = c.store.Event(id, mustJSON(map[string]any{"type": "routing", "source": "relay", "summary": strings.Join(rerouted, " ")}))
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	job := &coordinatorJob{cancel: cancel, done: make(chan struct{})}

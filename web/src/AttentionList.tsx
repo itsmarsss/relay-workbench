@@ -3,6 +3,7 @@ import { taskLane } from './board';
 import {
   ago,
   decisionLabel,
+  plainSummary,
   repositoryNames,
   stageNames,
   ticketRef,
@@ -100,7 +101,9 @@ export function AttentionList({ tasks, onOpen }: { tasks: Task[]; onOpen: (task:
               </span>
               <strong>{task.title}</strong>
               {(task.error || task.latestSummary) && (
-                <span className="attention-reason">{task.error || task.latestSummary}</span>
+                <span className="attention-reason">
+                  {plainSummary(task.error || task.latestSummary)}
+                </span>
               )}
             </span>
             <span className="attention-action">

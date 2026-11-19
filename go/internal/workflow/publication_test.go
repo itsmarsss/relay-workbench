@@ -33,6 +33,8 @@ func TestPublicationHistoryDoesNotNestPreviousRuns(t *testing.T) {
 func acceptedPublicationFixture(t *testing.T) (*Coordinator, *store.Store, string, string, string) {
 	t.Helper()
 	c, db, id, source := coordinatorFixture(t, "cat >/dev/null\nprintf '%s\\n' '"+stageFinal()+"'")
+	// Publishing needs somewhere to push to.
+	gitFixture(t, source, "remote", "add", "origin", "https://code.example/team/repo.git")
 	if _, err := c.Start(id); err != nil {
 		t.Fatal(err)
 	}
@@ -156,5 +158,21 @@ func TestRoutinePublicationRevalidationKeepsHumanApprovalHonest(t *testing.T) {
 	}
 	if value = coordinatorTask(t, db, id); value["status"] != "awaiting_final" {
 		t.Fatal("failed revalidation changed task status")
+	}
+}
+
+func TestPublishingWithoutARemoteSaysSoBeforeRunningAnAgent(t *testing.T) {
+	c, db, id, source, program := acceptedPublicationFixture(t)
+	gitFixture(t, source, "remote", "remove", "origin")
+	marker := filepath.Join(t.TempDir(), "agent-ran")
+	if err := os.WriteFile(program, []byte("#!/bin/sh\ntouch "+marker+"\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := db.Get(id)
+	if _, err := c.Publish(context.Background(), id, store.TaskRevision(raw), "repo"); err == nil || !strings.Contains(err.Error(), "no remote") {
+		t.Fatalf("publish without a remote: %v", err)
+	}
+	if _, err := os.Stat(marker); err == nil {
+		t.Fatal("an agent ran for a repository with nowhere to publish")
 	}
 }
