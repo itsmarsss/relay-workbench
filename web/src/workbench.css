@@ -4638,3 +4638,26 @@ main > .relay-conversations {
   pointer-events: none;
   z-index: 2;
 }
+
+/* Radio buttons: a ring with a filled centre when chosen, never a solid disc. */
+input[type='radio']:checked,
+.editor-modal input[type='radio']:checked {
+  background: var(--surface);
+  border-color: var(--accent);
+}
+input[type='radio']:checked::after,
+.editor-modal input[type='radio']:checked::after {
+  content: '';
+  position: absolute;
+  inset: 3px;
+  width: auto;
+  height: auto;
+  border-radius: 50%;
+  background: var(--accent);
+}
+.editor-modal input[type='radio'] {
+  position: relative;
+}
+input[type='radio']:hover:not(:checked):not(:disabled) {
+  border-color: var(--line-strong);
+}
