@@ -70,7 +70,7 @@ func (s *Server) extended(w http.ResponseWriter, r *http.Request) bool {
 		return true
 	}
 
-	if path == "/api/models" || path == "/api/models/discover" || path == "/api/repositories/discover" || path == "/api/repositories/suggestions" {
+	if path == "/api/models" || path == "/api/models/discover" || path == "/api/repositories/discover" || path == "/api/repositories/suggestions" || path == "/api/repositories/add" || path == "/api/repositories/clone" {
 		if !s.authorized(r) {
 			respond(w, 403, map[string]string{"error": "Session token required"})
 			return true
@@ -99,6 +99,10 @@ func (s *Server) extended(w http.ResponseWriter, r *http.Request) bool {
 			operation = "repositories"
 			if strings.HasSuffix(path, "suggestions") {
 				operation = "suggestions"
+			} else if strings.HasSuffix(path, "/add") {
+				operation = "add"
+			} else if strings.HasSuffix(path, "/clone") {
+				operation = "clone"
 			}
 		}
 		value, err := discover.Discover(r.Context(), operation, body)

@@ -493,6 +493,17 @@ console.log(JSON.stringify({ type: 'item.completed', item: { type: 'agent_messag
   // Escape belongs to the program in the terminal, not to the page.
   await page.keyboard.type('cat -v > escape.txt');
   await page.keyboard.press('Enter');
+  // Only once cat is reading (its output file is open) does Escape go to it; before that the
+  // shell's own line editor would take it.
+  await until(async () => {
+    try {
+      await readFile(join(resumed.workspaceRoot, 'escape.txt'));
+      return true;
+    } catch {
+      return false;
+    }
+  }, 'cat is running');
+  await new Promise((resolve) => setTimeout(resolve, 300));
   await page.keyboard.press('Escape');
   await page.keyboard.press('Enter');
   await page.keyboard.press('Control+d');

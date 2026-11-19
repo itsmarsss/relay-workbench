@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { GettingStarted } from './GettingStarted';
 import { Icon, ProviderIcon, RelayMark, providerName } from './UI';
 import { inTaskScope, taskLane } from './board';
 import { AttentionList, TaskFacts } from './AttentionList';
@@ -89,6 +90,7 @@ export function OverviewPage({
       <div className="overview-heading">
         <h1>{greeting}</h1>
       </div>
+      <GettingStarted tasks={tasks} onNavigate={onNavigate} onCreate={onCreate} />
       <div className="overview-stats" role="group" aria-label="Workspace summary">
         {stats.map((stat) => (
           <button

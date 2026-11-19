@@ -13,7 +13,7 @@ import (
 )
 
 func (c *Coordinator) Discover(ctx context.Context, operation string, body map[string]any) (any, error) {
-	allowed := map[string]map[string]bool{"models": {"force": true}, "repositories": {"roots": true, "details": true}, "suggestions": {"path": true, "cwd": true}}
+	allowed := map[string]map[string]bool{"models": {"force": true}, "repositories": {"roots": true, "details": true}, "suggestions": {"path": true, "cwd": true}, "add": {"path": true, "cwd": true}, "clone": {"url": true, "directory": true}}
 	valid, ok := allowed[operation]
 	if !ok {
 		return nil, errors.New("unknown discovery operation")
@@ -33,7 +33,7 @@ func (c *Coordinator) Discover(ctx context.Context, operation string, body map[s
 			return nil, errors.New("force must be a boolean")
 		}
 	}
-	for _, key := range []string{"path", "cwd"} {
+	for _, key := range []string{"path", "cwd", "directory"} {
 		if value, exists := body[key]; exists {
 			if text(value) == "" || len(text(value)) > 4096 {
 				return nil, errors.New("invalid discovery path")
@@ -114,6 +114,13 @@ func (c *Coordinator) Discover(ctx context.Context, operation string, body map[s
 			return report, nil
 		}
 		return discovery.Repositories(ctx, roots)
+	case "add":
+		if text(body["path"]) == "" {
+			return nil, errors.New("choose a repository folder")
+		}
+		return c.addRepository(ctx, text(body["path"]), text(body["cwd"]))
+	case "clone":
+		return c.cloneRepository(ctx, text(body["url"]), text(body["directory"]))
 	default:
 		return discovery.Suggestions(ctx, workspace.Runner{WorkerExecutable: c.worker, WorkerArgs: c.args, Environment: c.env}, text(body["path"]), text(body["cwd"]))
 	}

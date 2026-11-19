@@ -514,6 +514,7 @@ export default function App() {
                       config={bootstrap.config}
                       onAdd={editRepository}
                       onEdit={editRepository}
+                      onChanged={() => void refresh()}
                     />
                   ) : (
                     <p role="status">{error || 'Loading repository profiles…'}</p>

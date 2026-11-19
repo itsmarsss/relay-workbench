@@ -4669,3 +4669,75 @@ input[type='radio']:hover:not(:checked):not(:disabled) {
 .update-status[data-state='failed'] {
   color: var(--danger);
 }
+
+/* First run: three steps to real work. */
+.getting-started ol {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 10px;
+}
+.getting-started li {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: start;
+  padding: 10px 0;
+  border-top: 1px solid var(--line);
+}
+.getting-started li:first-child {
+  border-top: 0;
+}
+.getting-started p {
+  margin: 2px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+.getting-started-mark {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: 1.5px solid var(--line-strong);
+  font-size: 12px;
+  font-weight: 650;
+  color: var(--muted);
+}
+.getting-started li[data-done='true'] .getting-started-mark {
+  border-color: var(--success);
+  background: var(--status-done);
+  color: var(--status-done-ink);
+}
+.getting-started li > button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+@media (max-width: 560px) {
+  .getting-started li {
+    grid-template-columns: 28px minmax(0, 1fr);
+  }
+  .getting-started li > button {
+    grid-column: 2;
+    justify-self: start;
+  }
+}
+.repository-clone {
+  display: grid;
+  gap: 8px;
+}
+.repository-clone .discovery-scope input {
+  width: 100%;
+  margin-top: 6px;
+}
+.repository-added {
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: var(--radius);
+  background: var(--status-done);
+  color: var(--status-done-ink);
+  font-size: 13px;
+}

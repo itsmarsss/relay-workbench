@@ -9,20 +9,52 @@ type DiscoveryReport = {
   warnings: string[];
   truncated: boolean;
 };
+type Added = { repository: RepositoryProfile; existing?: boolean; detected?: string[] };
 export function RepositoriesPage({
   config,
   onEdit,
   onAdd,
+  onChanged,
 }: {
   config: RelayConfig;
   onEdit: (profile: RepositoryProfile) => void;
   onAdd: (profile?: RepositoryProfile) => void;
+  onChanged: () => void;
 }) {
   const [root, setRoot] = useState(''),
-    [report, setReport] = useState<DiscoveryReport | null>(null);
+    [report, setReport] = useState<DiscoveryReport | null>(null),
+    [url, setUrl] = useState(''),
+    [folder, setFolder] = useState(''),
+    [added, setAdded] = useState<Added | null>(null),
+    [adding, setAdding] = useState('');
   const panel = useRef<HTMLElement>(null),
     search = useRef<HTMLInputElement>(null),
-    mutation = useMutation();
+    cloneInput = useRef<HTMLInputElement>(null),
+    mutation = useMutation(),
+    quick = useMutation();
+  // One click: Relay saves a profile from what it detects; editing it is optional.
+  async function addNow(path: string) {
+    setAdding(path);
+    try {
+      setAdded(await quick.run<Added>('/api/repositories/add', { path }));
+      onChanged();
+    } catch {
+    } finally {
+      setAdding('');
+    }
+  }
+  async function clone() {
+    try {
+      setAdded(
+        await quick.run<Added>('/api/repositories/clone', {
+          url: url.trim(),
+          ...(folder.trim() ? { directory: folder.trim() } : {}),
+        }),
+      );
+      setUrl('');
+      onChanged();
+    } catch {}
+  }
   function scan(common = false) {
     void mutation
       .run<DiscoveryReport>('/api/repositories/discover', {
@@ -119,10 +151,68 @@ export function RepositoriesPage({
       ) : (
         <div className="empty-state">
           <h2>Connect your first repository</h2>
-          <p>Choose a local checkout to start real work.</p>
-          <button onClick={() => onAdd()}>Add a checkout</button>
+          <p>
+            Paste a repository URL below, or find a checkout already on this machine. Relay works
+            out its name, install step and checks.
+          </p>
         </div>
       )}
+      <section className="surface repository-clone" aria-label="Add a repository">
+        <form
+          onSubmit={(event) => {
+            event.preventDefault();
+            void clone();
+          }}
+        >
+          <div className="field">
+            <label htmlFor="repository-clone-url">Clone from a URL</label>
+            <div className="repository-scan-row">
+              <input
+                id="repository-clone-url"
+                ref={cloneInput}
+                required
+                value={url}
+                onChange={(event) => setUrl(event.target.value)}
+                placeholder="https://github.com/owner/repo"
+                autoComplete="off"
+                spellCheck={false}
+              />
+              <button className="primary" disabled={quick.busy || !url.trim()}>
+                {quick.busy && !adding ? 'Cloning…' : 'Clone and add'}
+              </button>
+            </div>
+          </div>
+          <details className="discovery-scope">
+            <summary>Clone into another folder</summary>
+            <input
+              aria-label="Folder to clone into"
+              value={folder}
+              onChange={(event) => setFolder(event.target.value)}
+              placeholder="Absolute folder; ~/relay-repositories by default"
+            />
+          </details>
+        </form>
+        {quick.error && <Notice>{quick.error}</Notice>}
+        {added && (
+          <p role="status" className="repository-added">
+            <strong>{added.repository.name}</strong>{' '}
+            {added.existing ? 'was already added.' : 'is ready.'}{' '}
+            {added.detected?.length
+              ? `Install step: ${added.detected.join(', ')}.`
+              : 'No install step was needed.'}{' '}
+            An agent works out its checks from the repository’s own guidance.{' '}
+            <button type="button" className="text-button" onClick={() => onEdit(added.repository)}>
+              Edit settings
+            </button>
+          </p>
+        )}
+        <p className="form-note">
+          Uses your own Git login.{' '}
+          <button type="button" className="text-button" onClick={() => onAdd()}>
+            Set up a folder by hand
+          </button>
+        </p>
+      </section>
       <section ref={panel} className="repository-discovery" aria-label="Repository discovery">
         <div className="section-heading">
           <div>
@@ -178,22 +268,8 @@ export function RepositoriesPage({
                         {configured ? (
                           <span className="discovery-added">Added</span>
                         ) : (
-                          <button
-                            onClick={() =>
-                              onAdd({
-                                id: crypto.randomUUID(),
-                                name: repo.name,
-                                path: repo.path,
-                                cwd: '.',
-                                strategy: 'worktree',
-                                verificationMode: 'agent',
-                                instructions: '',
-                                checks: [],
-                                setup: [],
-                              })
-                            }
-                          >
-                            Add
+                          <button disabled={quick.busy} onClick={() => void addNow(repo.path)}>
+                            {adding === repo.path ? 'Adding…' : 'Add'}
                           </button>
                         )}
                       </li>
