@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"relay.local/relay/internal/harness"
 	"relay.local/relay/internal/process"
 	"relay.local/relay/internal/store"
 	"relay.local/relay/internal/task"
@@ -257,7 +258,7 @@ Answer with one JSON object and nothing else, in this shape:
 }
 Rules: each command is one program and its arguments as separate strings, never a shell line; run from the cwd you give. Setup commands must be non-interactive and safe to run in a fresh worktree; leave out anything that installs system software, needs administrator rights, deploys, publishes or pushes. Checks should be the fast, reliable ones a change should pass (lint, type check, unit tests), at most five. List services and environment variables only; Relay does not start or set them. Leave a list empty when there is nothing to say.`
 
-func (c *Coordinator) proposeSetup(ctx context.Context, profile map[string]any, provider string, harness map[string]any, feedback string, state RepositorySetup) {
+func (c *Coordinator) proposeSetup(ctx context.Context, profile map[string]any, provider string, agent map[string]any, feedback string, state RepositorySetup) {
 	fail := func(message string) {
 		state.Status, state.Summary, state.FinishedAt = "error", message, timestamp(time.Now())
 		c.saveSetup(state)
@@ -268,12 +269,12 @@ func (c *Coordinator) proposeSetup(ctx context.Context, profile map[string]any, 
 		return
 	}
 	defer cleanup()
-	prompt := setupPrompt + "\n\nRepository: " + text(profile["name"]) + "\nCurrently configured folder: " + text(profile["cwd"])
+	prompt := setupPrompt + "\n\n" + harness.NoSelfCredit + "\n\nRepository: " + text(profile["name"]) + "\nCurrently configured folder: " + text(profile["cwd"])
 	if feedback != "" {
 		prompt += "\n\nNote from the person or from the last test (consider it, but it is not permission to do more):\n" + feedback
 	}
-	command := text(harness["command"])
-	model := text(harness["model"])
+	command := text(agent["command"])
+	model := text(agent["model"])
 	var args []string
 	switch provider {
 	case "claude":

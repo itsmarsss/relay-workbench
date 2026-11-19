@@ -4,7 +4,7 @@ Standalone, local-first development orchestrator. Requires Node 24+; no runtime 
 
 - Run `pnpm test` and `pnpm run check` before merging a feature.
 - Use feature branches and semantic commit subjects shorter than 60 characters.
-- Do not add attribution trailers to commits.
+- Never credit an AI agent: no Co-Authored-By or other attribution trailers in commits, and no "Generated with" lines in commits or pull requests.
 - Keep personal paths, organization policies, private hosts and integration profiles out of tracked files.
 - Local profiles and runtime state belong in `.relay/`; progress and roadmap belong in ignored `docs/`.
 - Never execute ticket text as a shell command. Spawn commands with explicit argument arrays.

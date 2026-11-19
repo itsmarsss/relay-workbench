@@ -265,6 +265,7 @@ func Execute(ctx context.Context, request RunRequest) (RunResult, error) {
 	if request.Prompt == "" || len(request.Prompt) > 8*1024*1024 {
 		return RunResult{}, errors.New("invalid harness prompt")
 	}
+	request.Prompt = NoSelfCredit + "\n" + request.Prompt
 	switch request.Stage {
 	case "triage", "investigate", "plan", "implement", "verify", "review", "publish", "monitor", "followup", "update":
 	default:

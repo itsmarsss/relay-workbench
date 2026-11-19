@@ -136,6 +136,11 @@ func TestExecuteStreamsAndPreservesValidatedArtifacts(t *testing.T) {
 			t.Fatalf("artifact mode %s", info.Mode())
 		}
 	}
+	// Every agent is told not to credit itself, ahead of the task's own text.
+	prompt, err := os.ReadFile(filepath.Join(result.ArtifactDirectory, "prompt.txt"))
+	if err != nil || !strings.HasPrefix(string(prompt), NoSelfCredit) || !strings.Contains(string(prompt), "untrusted ticket text") {
+		t.Fatalf("prompt %q, %v", prompt, err)
+	}
 }
 func TestExecuteBlocksUnapprovedOrLowSpaceBeforeAgentStarts(t *testing.T) {
 	request, db := fixture(t, "implement", "exit 0")

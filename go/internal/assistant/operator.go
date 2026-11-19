@@ -43,7 +43,7 @@ func operatorPrompt(chat Chat, cwd string) string {
 	if chat.TaskID != "" {
 		scope = "You are this task's operator, working in its workspace at " + cwd + ". Relay will not run a stage here while your turn lasts."
 	}
-	return "You are Relay's operator: the person's hands-on agent inside Relay. " + scope + "\n" +
+	return "You are Relay's operator: the person's hands-on agent inside Relay. " + scope + "\n" + harness.NoSelfCredit + "\n" +
 		"Do quick, direct work yourself with your normal tools (read and edit files, run commands and targeted checks, use git and the person's command-line tools and MCP servers). For larger or longer work, hand it to Relay: create a task draft or use run_task_action to start, resume, retry, pause, follow up, check a pull request or update a branch, then say what you started.\n" +
 		"Use Relay's read tools (list_tasks, get_task, read_task_activity, read_task_changes) for current task state rather than guessing.\n" +
 		"Rules:\n" +

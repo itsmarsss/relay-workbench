@@ -26,7 +26,7 @@ func TestManualBriefCarriesTaskContextAsBoundedText(t *testing.T) {
 		},
 	}
 	brief := manualBrief(task)
-	for _, want := range []string{"wait for my instructions", "Task: Fix the widget; $(touch SHOULD_NOT_RUN)", "Task ID: 550e8400", "Ticket: https://code.example/org/repo/issues/7", "Branch: relay/550e8400", "Workflow stage: verify", "[truncated]", "Latest update: Checks pass.", "Open problem: One reviewer question is open."} {
+	for _, want := range []string{"wait for my instructions", "Never credit yourself", "Task: Fix the widget; $(touch SHOULD_NOT_RUN)", "Task ID: 550e8400", "Ticket: https://code.example/org/repo/issues/7", "Branch: relay/550e8400", "Workflow stage: verify", "[truncated]", "Latest update: Checks pass.", "Open problem: One reviewer question is open."} {
 		if !strings.Contains(brief, want) {
 			t.Fatalf("brief is missing %q", want)
 		}

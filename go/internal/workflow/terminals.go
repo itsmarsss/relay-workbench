@@ -267,7 +267,7 @@ func manualBrief(value map[string]any) string {
 		return s
 	}
 	var b strings.Builder
-	b.WriteString("Context for this session. I opened you in the worktree of a Relay task, and Relay is not running agents on it while we work. Read this, then wait for my instructions: do not start work yet.\n\n")
+	b.WriteString("Context for this session. I opened you in the worktree of a Relay task, and Relay is not running agents on it while we work. Read this, then wait for my instructions: do not start work yet.\n\n" + harness.NoSelfCredit + "\n\n")
 	b.WriteString("Task: " + clip(title, 300) + "\n")
 	if id := text(value["id"]); id != "" {
 		b.WriteString("Task ID: " + id + "\n")
