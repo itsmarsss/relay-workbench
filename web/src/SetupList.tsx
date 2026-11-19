@@ -26,7 +26,9 @@ export function SetupList({ onlyProblems = false }: { onlyProblems?: boolean }) 
   const [confirm, setConfirm] = useState<{ item: SetupItem; kind: 'install' | 'login' } | null>(
       null,
     ),
-    [status, setStatus] = useState('');
+    [status, setStatus] = useState(''),
+    // The last command run, kept after its terminal closes so its outcome stays on screen.
+    [ran, setRan] = useState('');
   const live = terminal.data?.available ? terminal.data.terminal : undefined;
   // When the setup terminal closes (the install or login finished), check again.
   const wasLive = useRef(false);
@@ -40,6 +42,7 @@ export function SetupList({ onlyProblems = false }: { onlyProblems?: boolean }) 
   async function run() {
     if (!confirm) return;
     await mutation.run('/api/setup/run', { item: confirm.item.id, action: confirm.kind });
+    setRan(confirm.item[confirm.kind]?.display || '');
     setConfirm(null);
     await terminal.refresh();
   }
@@ -92,6 +95,11 @@ export function SetupList({ onlyProblems = false }: { onlyProblems?: boolean }) 
         <button type="button" className="text-button" onClick={() => void check.refresh()}>
           Check again
         </button>
+      )}
+      {!live && ran && (
+        <p role="status" className="setup-ran">
+          Finished <code>{ran}</code>. Relay checked again; the list above is current.
+        </p>
       )}
       {live && (
         <div className="terminal-frame setup-terminal">
