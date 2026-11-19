@@ -31,6 +31,15 @@ func (s *Server) setupRoute(w http.ResponseWriter, r *http.Request) bool {
 			respond(w, 405, map[string]string{"error": "Use GET"})
 			return true
 		}
+		if r.URL.Query().Get("fresh") == "1" {
+			if fresh, ok := s.workflow.(interface {
+				SetupCheckFresh(context.Context) (any, error)
+			}); ok {
+				value, err := fresh.SetupCheckFresh(r.Context())
+				result(w, value, err, 200)
+				return true
+			}
+		}
 		value, err := setup.SetupCheck(r.Context())
 		result(w, value, err, 200)
 		return true

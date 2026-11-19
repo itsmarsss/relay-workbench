@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Modal } from './Modal';
-import { Notice, useMutation, useResource } from './Session';
+import { Notice, request, useMutation, useResource, useSession } from './Session';
 import { Screen, type LiveTerminal } from './TerminalPanel';
 
 type SetupAction = { label: string; command: string; args: string[]; display: string };
@@ -20,7 +20,8 @@ const statusText = { ok: 'Ready', missing: 'Missing', attention: 'Needs you', of
 // What Relay relies on, each with what to do about it. Installs and logins run only after the
 // exact command is shown and confirmed, in a terminal the person watches and types into.
 export function SetupList({ onlyProblems = false }: { onlyProblems?: boolean }) {
-  const check = useResource<SetupItem[]>('/api/setup'),
+  const { bootstrap } = useSession(),
+    check = useResource<SetupItem[]>('/api/setup'),
     terminal = useResource<LiveTerminal>('/api/tasks/setup/terminal'),
     mutation = useMutation();
   const [confirm, setConfirm] = useState<{ item: SetupItem; kind: 'install' | 'login' } | null>(
@@ -32,8 +33,13 @@ export function SetupList({ onlyProblems = false }: { onlyProblems?: boolean }) 
   const live = terminal.data?.available ? terminal.data.terminal : undefined;
   // When the setup terminal closes (the install or login finished), check again.
   const wasLive = useRef(false);
+  // Relay keeps its last check for a couple of minutes; after an install, look again for real.
+  async function recheck() {
+    await request('/api/setup?fresh=1', bootstrap?.token).catch(() => {});
+    await check.refresh();
+  }
   useEffect(() => {
-    if (wasLive.current && !live) void check.refresh();
+    if (wasLive.current && !live) void recheck();
     wasLive.current = !!live;
   }, [live]);
   const items = (check.data || []).filter(
@@ -99,7 +105,7 @@ export function SetupList({ onlyProblems = false }: { onlyProblems?: boolean }) 
         ))}
       </ul>
       {check.data && (
-        <button type="button" className="text-button" onClick={() => void check.refresh()}>
+        <button type="button" className="text-button" onClick={() => void recheck()}>
           Check again
         </button>
       )}

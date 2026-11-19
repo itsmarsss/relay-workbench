@@ -12,7 +12,15 @@ import { asObject, asText, externalURL } from './task-data';
 import type { Task } from './types';
 import { ago } from './presentation';
 export type FullTask = Task & Record<string, unknown>;
-export function TaskMenu({ task, onDeleted }: { task: Task; onDeleted?: () => void }) {
+export function TaskMenu({
+  task,
+  onDeleted,
+  onDeck,
+}: {
+  task: Task;
+  onDeleted?: () => void;
+  onDeck?: () => void;
+}) {
   const mutation = useMutation(),
     { bootstrap } = useSession();
   const [confirm, setConfirm] = useState(false),
@@ -95,6 +103,12 @@ export function TaskMenu({ task, onDeleted }: { task: Task; onDeleted?: () => vo
             <Icon name="edit" size={15} />
             Edit task
           </button>
+          {onDeck && (
+            <button onClick={onDeck}>
+              <Icon name="grid" size={15} />
+              Open in task deck
+            </button>
+          )}
           <WorkspaceCleanup task={task as FullTask} />
           <hr />
           <button className="danger" onClick={() => setConfirm(true)}>

@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 
 	"relay.local/relay/internal/process"
@@ -90,15 +91,71 @@ func found(name string) bool {
 	return err == nil
 }
 
-// SetupCheck reports each prerequisite with what to do about it.
+// SetupCheck reports each prerequisite with what to do about it. The answer is kept for two
+// minutes, because the Overview asks on every visit; SetupCheckFresh always looks again.
 func (c *Coordinator) SetupCheck(ctx context.Context) (any, error) {
-	return c.setupItems(ctx)
+	setupCache.Lock()
+	if time.Since(setupCache.at) < 2*time.Minute && setupCache.items != nil {
+		items := setupCache.items
+		setupCache.Unlock()
+		return items, nil
+	}
+	setupCache.Unlock()
+	return c.SetupCheckFresh(ctx)
+}
+
+func (c *Coordinator) SetupCheckFresh(ctx context.Context) (any, error) {
+	items, err := c.setupItems(ctx)
+	if err == nil {
+		setupCache.Lock()
+		setupCache.items, setupCache.at = items, time.Now()
+		setupCache.Unlock()
+	}
+	return items, err
+}
+
+var setupCache struct {
+	sync.Mutex
+	at    time.Time
+	items []SetupItem
 }
 
 func (c *Coordinator) setupItems(ctx context.Context) ([]SetupItem, error) {
 	config, err := (task.ConfigurationService{Store: c.store}).Read()
 	if err != nil {
 		return nil, err
+	}
+	// The slow part is asking each tool for its version and gh for its login; ask all at once.
+	type answer struct {
+		text string
+		ok   bool
+	}
+	probes := map[string][]string{"git": {"--version"}, "tmux": {"-V"}, "go": {"version"}, "pnpm": {"--version"}, "gh auth": {"auth", "status"}}
+	answers := map[string]answer{}
+	var lock sync.Mutex
+	var wait sync.WaitGroup
+	for key, args := range probes {
+		binary := strings.Fields(key)[0]
+		if !found(binary) {
+			continue
+		}
+		wait.Add(1)
+		go func(key, binary string, args []string) {
+			defer wait.Done()
+			text, ok := quick(ctx, binary, args...)
+			lock.Lock()
+			answers[key] = answer{text, ok}
+			lock.Unlock()
+		}(key, binary, args)
+	}
+	wait.Wait()
+	quick := func(_ context.Context, name string, args ...string) (string, bool) {
+		key := name
+		if name == "gh" {
+			key = "gh auth"
+		}
+		got := answers[key]
+		return got.text, got.ok
 	}
 	items := []SetupItem{}
 	tool := func(id, label, why string, required bool, binary string, versionArgs []string, install *SetupAction) SetupItem {

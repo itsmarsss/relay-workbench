@@ -458,11 +458,7 @@ export function TaskPage({
             </button>
           )}
           <SideChat taskId={task.id} />
-          <button onClick={onDeck}>
-            <Icon name="grid" size={15} />
-            Open task deck
-          </button>
-          <TaskMenu task={task} onDeleted={onBack} />
+          <TaskMenu task={task} onDeleted={onBack} onDeck={onDeck} />
         </div>
       </div>
 
