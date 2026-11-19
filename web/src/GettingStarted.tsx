@@ -3,7 +3,7 @@ import { Icon, ProviderIcon, providerName } from './UI';
 import { asObject } from './task-data';
 import type { Task } from './types';
 
-type Catalog = Record<string, { models?: unknown[]; error?: string }>;
+type Catalog = Record<string, { models?: unknown[]; error?: string; status?: string }>;
 
 // First run: which agent CLIs Relay found, a repository, a first task. It goes away once there is
 // a repository and a real task.
@@ -25,7 +25,7 @@ export function GettingStarted({
   const agents = ['claude', 'codex', 'pi'].filter(
     (id) => asObject(harnesses[id])?.enabled === true,
   );
-  const found = agents.filter((id) => models.data && !models.data[id]?.error);
+  const found = agents.filter((id) => models.data?.[id]?.status === 'ready');
   const steps = [
     {
       done: found.length > 0,
