@@ -88,7 +88,7 @@ export function SettingsPage({
       )}
       {mode === 'agents' && (
         <>
-          <section className="agent-profiles">
+          <section className="agent-profiles" data-menu="Providers">
             <div className="agent-settings">
               {providers.map((id) => {
                 const agent = asObject(agents[id]) || {};
@@ -108,7 +108,7 @@ export function SettingsPage({
                         {
                           {
                             ready: 'Ready',
-                            missing: 'Not installed · tasks use another agent',
+                            missing: 'Not installed',
                             off: 'Turned off',
                             checking: 'Checking…',
                           }[agentState(id, agent.enabled !== false)]
@@ -170,6 +170,16 @@ export function SettingsPage({
                     }))}
                     onChange={(value) => update('routing', { ...routing, [stage]: value })}
                   />
+                  {(() => {
+                    const id = String(routing[stage] || 'codex');
+                    const state = agentState(id, asObject(agents[id])?.enabled !== false);
+                    return state === 'missing' || state === 'off' ? (
+                      <small className="agent-state" data-state="missing">
+                        {providerName(id)} is {state === 'off' ? 'turned off' : 'not installed'}, so
+                        an installed agent runs this stage
+                      </small>
+                    ) : null;
+                  })()}
                 </label>
               ))}
             </div>
@@ -781,8 +791,8 @@ function SectionMenu() {
       .querySelectorAll<HTMLElement>(':scope > section, :scope > .agent-profiles')
       .forEach((section) => {
         const heading = section.querySelector('h2');
-        const label = heading?.textContent?.trim();
-        if (!heading || !label) return;
+        const label = section.dataset.menu || heading?.textContent?.trim();
+        if (!label) return;
         const id = 'settings-' + label.toLowerCase().replace(/[^a-z0-9]+/g, '-');
         section.id = id;
         found.push({ id, label });
