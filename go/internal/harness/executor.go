@@ -164,7 +164,9 @@ func HasFinalApproval(task map[string]any) bool {
 	return final && matching
 }
 
-func hasLinkedPullRequest(task map[string]any, repositoryID string) bool {
+// hasPullRequest is whether the repository has a pull request to watch: one Relay published or one
+// a person linked by hand. Watching is read-only, so it does not depend on the task being accepted.
+func hasPullRequest(task map[string]any, repositoryID string) bool {
 	entries, _ := task["repositories"].([]any)
 	if len(entries) <= 1 {
 		entries = []any{task}
@@ -173,9 +175,13 @@ func hasLinkedPullRequest(task map[string]any, repositoryID string) bool {
 		entry, _ := item.(map[string]any)
 		repo, _ := entry["repository"].(map[string]any)
 		if repositoryID != "" && repo["id"] == repositoryID {
-			link, _ := entry["pullRequestLink"].(map[string]any)
-			url, _ := link["url"].(string)
-			return url != ""
+			for _, key := range []string{"publication", "pullRequestLink"} {
+				record, _ := entry[key].(map[string]any)
+				if url, _ := record["url"].(string); url != "" {
+					return true
+				}
+			}
+			return false
 		}
 	}
 	return false
@@ -286,9 +292,9 @@ func Execute(ctx context.Context, request RunRequest) (RunResult, error) {
 		return RunResult{}, err
 	}
 	if request.Auxiliary {
-		// Watching a pull request someone linked by hand is read-only, so it is allowed on a task
-		// Relay never accepted; publishing and follow-ups still need acceptance.
-		watching := request.Stage == "monitor" && hasLinkedPullRequest(task, request.ActiveRepositoryID)
+		// Watching a pull request is read-only, so it is allowed on a task that is not (or no longer)
+		// accepted, such as one paused after it was published; publishing and follow-ups still need acceptance.
+		watching := request.Stage == "monitor" && hasPullRequest(task, request.ActiveRepositoryID)
 		// Resolving an Update branch merge only touches the task's own branch, and a person
 		// reviews the result before it is pushed, so it does not need an accepted task either.
 		updating := request.Stage == "update"

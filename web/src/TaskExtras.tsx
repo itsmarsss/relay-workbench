@@ -622,7 +622,18 @@ export function PublicationPanel({ task }: { task: FullTask }) {
                       : 'Not checked yet'}
                   </span>
                 )}
+                {!linked && monitor?.status === 'complete' && asText(monitor.finishedAt) && (
+                  <span className="muted">
+                    Checked {ago(asText(monitor.finishedAt)).toLowerCase()}
+                  </span>
+                )}
               </div>
+            )}
+            {publication && monitor?.status === 'blocked' && (
+              <Notice>
+                Couldn't refresh this pull request: {asText(monitor.summary)}. What's shown is from
+                the last check that worked.
+              </Notice>
             )}
             {delivery?.status === 'blocked' && <Notice>{asText(delivery.summary)}</Notice>}
             {publication && (

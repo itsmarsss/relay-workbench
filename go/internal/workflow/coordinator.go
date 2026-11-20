@@ -180,7 +180,11 @@ func (c *Coordinator) recoverInterrupted() error {
 			continue
 		}
 		_, err = c.update(id, func(current map[string]any) error {
-			if current["status"] == "running" || current["status"] == "queued" || current["status"] == "manual" {
+			if current["status"] == "manual" {
+				// Nothing of Relay's was running: the person's terminal closed with the restart.
+				current["status"] = "interrupted"
+				current["error"] = "Relay restarted while you had control, so your terminal closed. Your changes are kept; take control again or resume."
+			} else if current["status"] == "running" || current["status"] == "queued" {
 				current["status"] = "interrupted"
 				current["error"] = "Relay stopped before this stage finished. Inspect the retained workspace before resuming."
 			}
@@ -200,7 +204,10 @@ func (c *Coordinator) recoverInterrupted() error {
 				entry := object(value)
 				for _, key := range []string{"delivery", "publicationMonitor", "branchUpdate"} {
 					state := object(entry[key])
-					if state["status"] == "running" || state["status"] == "queued" {
+					if (state["status"] == "running" || state["status"] == "queued") && key == "publicationMonitor" {
+						// A pull request check is only an observation: keep the last result and check again soon.
+						state["status"], state["finishedAt"], state["nextCheckAt"] = "complete", timestamp(time.Now()), timestamp(time.Now().Add(time.Minute))
+					} else if state["status"] == "running" || state["status"] == "queued" {
 						state["status"] = "interrupted"
 						state["finishedAt"] = timestamp(time.Now())
 						state["summary"] = "Relay stopped during this operation; workspace and evidence retained."
