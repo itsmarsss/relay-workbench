@@ -232,7 +232,10 @@ let input='';process.stdin.on('data',d=>input+=d);process.stdin.on('end',()=>{
   );
   await page.getByRole('checkbox', { name: 'Empty stages', exact: true }).check();
   await page.locator('.task-board .task-card-open').first().click();
-  await page.getByRole('button', { name: 'All tasks', exact: true }).click();
+  await page
+    .getByRole('navigation', { name: 'Breadcrumb', exact: true })
+    .getByRole('link', { name: 'Tasks', exact: true })
+    .click();
   await page.getByRole('region', { name: 'Task board', exact: true }).waitFor();
   // Explicit bookmarks also become the remembered view without a filter click.
   await page.goto(origin + '/#tasks?view=list');
@@ -240,7 +243,10 @@ let input='';process.stdin.on('data',d=>input+=d);process.stdin.on('end',()=>{
   await page.goto(origin + '/#tasks?view=board');
   await capture(page, 'completed-board');
   await page.locator('.task-board .task-card-open').first().click();
-  await page.getByRole('button', { name: 'All tasks', exact: true }).click();
+  await page
+    .getByRole('navigation', { name: 'Breadcrumb', exact: true })
+    .getByRole('link', { name: 'Tasks', exact: true })
+    .click();
   await page.getByRole('region', { name: 'Task board', exact: true }).waitFor();
   assert.equal(
     await page.getByRole('button', { name: 'Board', exact: true }).getAttribute('aria-pressed'),

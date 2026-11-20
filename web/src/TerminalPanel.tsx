@@ -508,7 +508,7 @@ export function TerminalPanel({ taskId }: { taskId: string }) {
             {task?.status === 'manual'
               ? 'You have control · automation is paused'
               : live.data?.agent
-                ? 'Your agent terminal · Relay runs no stage on this task while it is open'
+                ? 'Your terminal · Relay runs no stage on this task while it is open'
                 : terminal
                   ? 'Watching the agent · open a terminal to take control'
                   : 'Open a shell or an agent in this task’s worktree'}
@@ -523,7 +523,7 @@ export function TerminalPanel({ taskId }: { taskId: string }) {
               Return control
             </button>
           )}
-          {terminal && (
+          {terminal && !['You have control', 'Live · viewing agent output'].includes(status) && (
             <button
               onClick={() => {
                 setConnection((value) => value + 1);
@@ -542,7 +542,11 @@ export function TerminalPanel({ taskId }: { taskId: string }) {
         <div className="terminal-frame" data-full={full}>
           <div className="terminal-bar">
             <div className="terminal-tabs" role="tablist" aria-label="Terminals">
-              {(windows || [{ index: 0, name: '', active: true, dead: false }]).map((item, at) => (
+              {/* An empty list still means one terminal: the one the session started with. */}
+              {(windows?.length
+                ? windows
+                : [{ index: 0, name: '', active: true, dead: false }]
+              ).map((item, at) => (
                 <span key={item.index} className="terminal-tab" data-active={item.active}>
                   <button
                     type="button"
@@ -559,7 +563,7 @@ export function TerminalPanel({ taskId }: { taskId: string }) {
                     {item.dead && <small>exited</small>}
                   </button>
                   {/* Extra terminals close on their own; the last one left ends the session. */}
-                  {canAdd && (at > 0 || windows?.length === 1) && (
+                  {canAdd && (at > 0 || (windows?.length ?? 0) <= 1) && (
                     <button
                       type="button"
                       className="terminal-tab-close"

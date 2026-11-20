@@ -5111,3 +5111,43 @@ input[type='radio']:hover:not(:checked):not(:disabled) {
   color: var(--muted);
   font-size: 12px;
 }
+
+/* Request changes opens in the final-approval banner itself, under its text. */
+.status-banner {
+  flex-wrap: wrap;
+}
+.status-banner > .request-changes {
+  flex: 1 1 100%;
+  display: grid;
+  gap: 8px;
+}
+.status-banner > .request-changes textarea {
+  width: 100%;
+  resize: vertical;
+}
+.status-banner > .request-changes .task-page-actions {
+  justify-content: flex-end;
+}
+
+/* "Notify me" is a small link under the heading, aligned with it. */
+.notify-offer {
+  display: inline-block;
+  margin: 0 0 6px;
+  padding: 0;
+  min-height: 0;
+  border: 0;
+  background: none;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+.notify-offer:hover {
+  color: var(--text);
+}
+span.notify-offer {
+  text-decoration: none;
+  cursor: default;
+}

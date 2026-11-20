@@ -572,7 +572,9 @@ console.log(JSON.stringify({ type: 'item.completed', item: { type: 'agent_messag
     .getByRole('dialog', { name: 'New terminal' })
     .getByRole('button', { name: 'Open terminal' })
     .click();
-  await page.getByText('Your agent terminal', { exact: false }).waitFor({ timeout: 20000 });
+  await page
+    .getByText('Relay runs no stage on this task while it is open', { exact: false })
+    .waitFor({ timeout: 20000 });
   await until(async () => (await tabs.count()) === 1, 'agent terminal opened');
   await page.getByLabel('Interactive terminal', { exact: true }).focus();
   await page.keyboard.type('printf agent-ok > agent.txt');

@@ -137,6 +137,8 @@ function Description({ task }: { task: Details }) {
 function bannerTone(task: Task): { tone: string; kicker: string } {
   const lane = taskLane(task);
   if (['approach', 'final'].includes(lane)) return { tone: 'decision', kicker: 'Needs you' };
+  // A pause someone asked for is not a failure.
+  if (task.status === 'paused') return { tone: 'neutral', kicker: 'Paused' };
   if (lane === 'attention') return { tone: 'blocked', kicker: 'Needs you' };
   if (['discovery', 'progress', 'review'].includes(lane))
     return task.status === 'queued'
@@ -195,7 +197,9 @@ export function TaskPage({
     [selectedOption, setSelectedOption] = useState(''),
     [approvalNote, setApprovalNote] = useState(''),
     [blockerOption, setBlockerOption] = useState(''),
-    [blockerNote, setBlockerNote] = useState('');
+    [blockerNote, setBlockerNote] = useState(''),
+    // Direction typed beside Accept, sent back to the implementer; null while closed.
+    [changes, setChanges] = useState<string | null>(null);
   const planRevision = task ? latestPlan(task)?.attemptId : undefined;
   // A fresh plan starts with its recommended option (or its only option) chosen, so approving
   // what the planner recommends is one click.
@@ -329,6 +333,26 @@ export function TaskPage({
       setBusy(false);
     }
   }
+  // Sends direction back to an agent: a different approach, or changes before acceptance.
+  async function direct(operation: 'replan' | 'request-changes', message: string) {
+    if (!task || busy || !task.taskRevision || !message.trim()) return;
+    setBusy(true);
+    setActionError('');
+    try {
+      const updated = await migrationMutation.run<Task>(`/api/tasks/${task.id}/${operation}`, {
+        taskRevision: task.taskRevision,
+        message,
+      });
+      setTask((current) => (current ? { ...current, ...updated } : current));
+      setApprovalNote('');
+      setChanges(null);
+      window.dispatchEvent(new Event('relay-data-change'));
+    } catch (failure) {
+      setActionError(failure instanceof Error ? failure.message : 'Could not send direction.');
+    } finally {
+      setBusy(false);
+    }
+  }
   async function resolveDecision(resolution: BlockerResolution) {
     const blocker = task ? currentBlocker(task) : null;
     if (!task || !task.taskRevision || !blocker || busy) return;
@@ -366,7 +390,10 @@ export function TaskPage({
   const plan = task.status === 'awaiting_plan' && tab === 'overview' ? latestPlan(task) : null;
   const blocker = currentBlocker(task);
   const banner = bannerTone(task);
-  const stage = stageNames[currentStage(task)] || '';
+  // A finished task's last stage is history, not where it is now.
+  const stage = ['completed', 'finished', 'cancelled'].includes(task.status)
+    ? ''
+    : stageNames[currentStage(task)] || '';
   const awaitingReview = implementationPreview && task.status === 'awaiting_final';
   const attempts = (Array.isArray(task.attempts) ? task.attempts : []).map(asObject);
   const handoffs = attempts.filter((run) => run?.handoff).length;
@@ -375,6 +402,29 @@ export function TaskPage({
     task.latestSummary ||
     task.error ||
     asText(asObject(attempts.findLast((run) => run?.handoff)?.handoff)?.summary, 600);
+  // The one thing to do next sits in the banner beside the sentence that names it.
+  const primaryAction =
+    workflowPreview && task.status === 'draft' ? (
+      <button className="primary" disabled={busy} onClick={() => void runAction('start')}>
+        {busy ? 'Starting…' : task.demo ? 'Run demo' : 'Start investigation'}
+      </button>
+    ) : workflowPreview &&
+      ['paused', 'interrupted', 'blocked'].includes(task.status) &&
+      !blocker &&
+      ['triage', 'investigate', 'plan', 'implement', 'verify', 'review'].includes(
+        task.stage || '',
+      ) ? (
+      <button className="primary" disabled={busy} onClick={() => void runAction('resume')}>
+        {/* A blocked stage is run again; a paused or interrupted one carries on. */}
+        {task.status === 'blocked'
+          ? busy
+            ? 'Retrying…'
+            : `Retry ${(stageNames[task.stage || ''] || 'stage').toLowerCase()}`
+          : busy
+            ? 'Resuming…'
+            : 'Resume'}
+      </button>
+    ) : null;
   const kicker = (
     <div className="status-kicker">
       <span>{banner.kicker}</span>
@@ -383,10 +433,6 @@ export function TaskPage({
   );
   return (
     <section className="task-page">
-      <button className="back" onClick={onBack}>
-        <Icon name="back" size={16} />
-        All tasks
-      </button>
       <div className="task-page-heading">
         <div className="task-page-title">
           <h1>{task.title}</h1>
@@ -413,28 +459,6 @@ export function TaskPage({
           </div>
         </div>
         <div className="task-page-actions">
-          {workflowPreview && task.status === 'draft' && (
-            <button className="primary" disabled={busy} onClick={() => void runAction('start')}>
-              {busy ? 'Starting…' : task.demo ? 'Run demo' : 'Start investigation'}
-            </button>
-          )}
-          {workflowPreview &&
-            ['paused', 'interrupted', 'blocked'].includes(task.status) &&
-            !blocker &&
-            ['triage', 'investigate', 'plan', 'implement', 'verify', 'review'].includes(
-              task.stage || '',
-            ) && (
-              <button className="primary" disabled={busy} onClick={() => void runAction('resume')}>
-                {/* A blocked stage is run again; a paused or interrupted one carries on. */}
-                {task.status === 'blocked'
-                  ? busy
-                    ? 'Retrying…'
-                    : `Retry ${(stageNames[task.stage || ''] || 'stage').toLowerCase()}`
-                  : busy
-                    ? 'Resuming…'
-                    : 'Resume'}
-              </button>
-            )}
           {workflowPreview &&
             (['queued', 'running'].includes(task.status) ||
               (task.currentRun?.auxiliary &&
@@ -444,7 +468,10 @@ export function TaskPage({
                 {busy ? 'Stopping…' : 'Pause'}
               </button>
             )}
-          {asObject(task.migration)?.readOnly !== true && <AutoControl task={task as FullTask} />}
+          {asObject(task.migration)?.readOnly !== true &&
+            !['completed', 'finished', 'cancelled'].includes(task.status) && (
+              <AutoControl task={task as FullTask} />
+            )}
           {asText(task.workspaceRoot) && !['running', 'queued', 'manual'].includes(task.status) && (
             <button
               title="Open an agent or a shell in this task’s worktree, briefed on the task"
@@ -473,20 +500,28 @@ export function TaskPage({
                 {kicker}
                 <h2>{awaitingReview ? 'Ready for your review' : nextStep(task)}</h2>
                 {['queued', 'running'].includes(task.status) && <NotifyOffer />}
-                <p>
-                  {/* While an agent works, the summary is the previous run's, so say so. */}
-                  {summary && task.currentRun?.status === 'running' && (
-                    <span className="status-previous">Previous result: </span>
-                  )}
-                  {plainSummary(summary) ||
-                    (task.status === 'draft'
-                      ? 'Relay will investigate, propose an approach and ask before implementing.'
-                      : 'No update yet.')}
-                </p>
+                {/* The Result and Latest handoff cards below carry a finished run's summary. */}
+                {(!handoffs ||
+                  !!task.error ||
+                  ['queued', 'running', 'blocked', 'interrupted'].includes(task.status)) && (
+                  <p>
+                    {/* While an agent works, the summary is the previous run's, so say so. */}
+                    {summary && task.currentRun?.status === 'running' && (
+                      <span className="status-previous">Previous result: </span>
+                    )}
+                    {plainSummary(summary) ||
+                      (task.status === 'draft'
+                        ? 'Relay will investigate, propose an approach and ask before implementing.'
+                        : 'No update yet.')}
+                  </p>
+                )}
               </div>
-              {awaitingReview && (
+              {awaitingReview && changes === null && (
                 <div className="task-page-actions">
                   <button onClick={() => onTab('diff')}>View changes</button>
+                  <button disabled={busy || !task.taskRevision} onClick={() => setChanges('')}>
+                    Request changes
+                  </button>
                   <button
                     className="primary"
                     disabled={busy || !task.taskRevision}
@@ -495,6 +530,43 @@ export function TaskPage({
                     {busy ? 'Checking…' : 'Accept result'}
                   </button>
                 </div>
+              )}
+              {awaitingReview && changes !== null && (
+                <form
+                  className="request-changes"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    void direct('request-changes', changes);
+                  }}
+                >
+                  <textarea
+                    aria-label="Changes to make"
+                    autoFocus
+                    rows={3}
+                    maxLength={20000}
+                    value={changes}
+                    placeholder="What should change before you accept? The agent keeps the approved approach, then checks and review run again."
+                    onChange={(event) => setChanges(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
+                        event.preventDefault();
+                        void direct('request-changes', changes);
+                      }
+                      if (event.key === 'Escape') setChanges(null);
+                    }}
+                  />
+                  <div className="task-page-actions">
+                    <button type="button" onClick={() => setChanges(null)}>
+                      Cancel
+                    </button>
+                    <button className="primary" disabled={busy || !changes.trim()}>
+                      {busy ? 'Sending…' : 'Send changes'}
+                    </button>
+                  </div>
+                </form>
+              )}
+              {!awaitingReview && primaryAction && (
+                <div className="task-page-actions">{primaryAction}</div>
               )}
               {/* The live run spans the banner, under its text and actions. */}
               {task.currentRun?.status === 'running' && <WorkflowStatus task={task as FullTask} />}
@@ -665,10 +737,21 @@ export function TaskPage({
                           void decide('approve');
                         }
                       }}
-                      placeholder="Optional direction for the implementer"
+                      placeholder="Optional direction, or what you want instead"
                       maxLength={10000}
                     />
                   </label>
+                  <button
+                    disabled={busy || !approvalNote.trim() || !task.taskRevision}
+                    title={
+                      approvalNote.trim()
+                        ? 'Plan again with this note as direction'
+                        : 'Write what you want instead in the note'
+                    }
+                    onClick={() => void direct('replan', approvalNote)}
+                  >
+                    Ask for another approach
+                  </button>
                   <button
                     className="primary"
                     disabled={busy || !selectedOption || !task.taskRevision}

@@ -4,7 +4,7 @@ export const stageNames: Record<string, string> = {
   investigate: 'Investigation',
   plan: 'Solution design',
   implement: 'Implementation',
-  verify: 'Verification agent',
+  verify: 'Verification',
   review: 'Independent review',
   publish: 'Publish',
   monitor: 'PR feedback',
@@ -23,9 +23,26 @@ export function plainSummary(value?: string | null): string {
     .replace(/\*\*([^*]+)\*\*/g, '$1')
     .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1');
 }
+// The task's pull request states, from the list summary or the full task (published or linked).
+function pullRequestStates(task: Task): string[] {
+  if (task.pullRequests?.length) return task.pullRequests.map((pr) => pr.state || '');
+  const full = task as unknown as Record<string, unknown>;
+  const rows =
+    Array.isArray(full.repositories) && full.repositories.length > 1 ? full.repositories : [full];
+  return rows.flatMap((row) => {
+    const entry = (row || {}) as Record<string, Record<string, unknown> | undefined>;
+    const pr = entry.publication?.url ? entry.publication : entry.pullRequestLink;
+    return pr?.url ? [String(pr.state || '')] : [];
+  });
+}
 export function nextStep(task: Task): string {
-  if (task.status === 'completed')
-    return task.pullRequests?.length ? 'Pull request open' : 'Publish or follow up';
+  if (task.status === 'completed') {
+    const states = pullRequestStates(task);
+    if (!states.length) return 'Publish or follow up';
+    return states.every((state) => state === 'merged')
+      ? 'Pull request merged'
+      : 'Pull request open';
+  }
   return (
     (
       {
