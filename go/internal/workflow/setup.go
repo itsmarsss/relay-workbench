@@ -256,6 +256,14 @@ func (c *Coordinator) setupItems(ctx context.Context) ([]SetupItem, error) {
 		}
 		free := float64(space.AvailableBytes) / (1 << 30)
 		disk.Detail = fmt.Sprintf("%.0f GiB free.", free)
+		// The same thresholds as the Storage page and the sidebar warning, so they agree.
+		if policy, err := (storage.PolicyService{Store: c.store}).Read(); err == nil {
+			if pressure, err := storage.Evaluate(policy.Policy, space); err == nil && (pressure.State == "warning" || pressure.State == "critical") {
+				disk.Status = "attention"
+				disk.Detail += fmt.Sprintf(" Below your warning level of %.0f GiB; see Storage.", float64(pressure.WarningThreshold)/(1<<30))
+			}
+			return nil
+		}
 		if free < 20 {
 			disk.Status = "attention"
 			disk.Detail += " Large repositories need more; free some space."

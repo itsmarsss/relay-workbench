@@ -1,5 +1,6 @@
 import { Select, ProviderIcon, providerName } from './UI';
 import { useResource } from './Session';
+import { stageNames } from './presentation';
 import { EffortSelect, ModelSelect } from './WorkspacePages';
 import { asObject } from './task-data';
 import type { RelayConfig } from './types';
@@ -20,12 +21,13 @@ export function agentOptions(value: Record<string, unknown> = {}): AgentOptions 
     smartRouting: value.smartRouting === true,
   };
 }
+// Stage names are the ones used across Relay (Agents page, task rail).
 const stages = [
-  ['triage', 'Routing', 'Chooses agents for the task'],
-  ['investigate', 'Investigation', 'Reproduction, evidence and affected files'],
-  ['plan', 'Planning', 'Approaches, tradeoffs and recommendation'],
-  ['implement', 'Implementation', 'Source changes and supervised verification'],
-  ['review', 'Review', 'Independent review of the result'],
+  ['triage', stageNames.triage, 'Chooses agents for the task'],
+  ['investigate', stageNames.investigate, 'Reproduction, evidence and affected files'],
+  ['plan', stageNames.plan, 'Approaches, tradeoffs and recommendation'],
+  ['implement', stageNames.implement, 'Source changes and supervised verification'],
+  ['review', stageNames.review, 'Independent review of the result'],
 ];
 export function AgentSettings({
   config,
@@ -42,6 +44,8 @@ export function AgentSettings({
   const unavailable = (id: string) =>
     asObject(asObject(config.harnesses)?.[id])?.enabled === false ||
     (!!catalog.data && asObject(catalog.data[id])?.status !== 'ready');
+  // The agent a stage falls back to: the first one that is on and answering.
+  const fallback = ['claude', 'codex', 'pi'].find((id) => !unavailable(id));
   return (
     <div className="task-agent-settings">
       <label className="check-row">
@@ -82,12 +86,6 @@ export function AgentSettings({
                         })
                       }
                     />
-                    {unavailable(provider) && (
-                      <small className="agent-state" data-state="missing">
-                        {providerName(provider)} isn't available here, so an installed agent runs
-                        this stage
-                      </small>
-                    )}
                   </label>
                   <label className="field">
                     Model
@@ -110,6 +108,12 @@ export function AgentSettings({
                     />
                   </label>
                 </div>
+                {unavailable(provider) && (
+                  <small className="agent-state stage-fallback" data-state="missing">
+                    {providerName(provider)} is not installed, so{' '}
+                    {fallback ? providerName(fallback) : 'an installed agent'} runs this stage.
+                  </small>
+                )}
               </fieldset>
             );
           })}

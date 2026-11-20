@@ -1,3 +1,4 @@
+import { stageNames } from './presentation';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Markdown } from './Markdown';
 import { Icon, ProviderName } from './UI';
@@ -6,16 +7,7 @@ import { CheckpointControls, type History } from './WorkflowHistory';
 import { executionLayout } from './execution';
 import { asObject, asText } from './task-data';
 import type { FullTask } from './TaskExtras';
-const names: Record<string, string> = {
-  triage: 'Routing',
-  investigate: 'Investigation',
-  plan: 'Planning',
-  implement: 'Implementation',
-  verify: 'Verification',
-  review: 'Review',
-  publish: 'Publication',
-  followup: 'Follow-up',
-};
+const names: Record<string, string> = { ...stageNames, publish: 'Publication' };
 const NODE_WIDTH = 190,
   NODE_HEIGHT = 92,
   MIN_ZOOM = 0.08,

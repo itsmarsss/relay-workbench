@@ -11,7 +11,7 @@ import {
   ticketURL,
   plainSummary,
 } from './presentation';
-import { Notice, useMutation } from './Session';
+import { Notice, request, useMutation } from './Session';
 import { MarkdownEditor } from './MarkdownEditor';
 import { SideChat } from './Chat';
 import { useImageUpload } from './ImageUpload';
@@ -139,6 +139,7 @@ function bannerTone(task: Task): { tone: string; kicker: string } {
   if (['approach', 'final'].includes(lane)) return { tone: 'decision', kicker: 'Needs you' };
   // A pause someone asked for is not a failure.
   if (task.status === 'paused') return { tone: 'neutral', kicker: 'Paused' };
+  if (task.status === 'manual') return { tone: 'neutral', kicker: 'Manual control' };
   if (lane === 'attention') return { tone: 'blocked', kicker: 'Needs you' };
   if (['discovery', 'progress', 'review'].includes(lane))
     return task.status === 'queued'
@@ -347,6 +348,44 @@ export function TaskPage({
       setBusy(false);
     }
   }
+  // Hands a task under manual control back to automation, from the banner.
+  async function returnControl() {
+    if (!task || busy) return;
+    setBusy(true);
+    setActionError('');
+    try {
+      const live = await request<{ terminal?: { session?: string } }>(
+        `/api/tasks/${task.id}/terminal`,
+      ).catch(() => ({}) as { terminal?: { session?: string } });
+      const updated = await migrationMutation.run<Task>(`/api/tasks/${task.id}/return-control`, {
+        taskRevision: task.taskRevision,
+        session: live.terminal?.session,
+      });
+      setTask((current) => (current ? { ...current, ...updated } : current));
+      window.dispatchEvent(new Event('relay-data-change'));
+    } catch (failure) {
+      setActionError(failure instanceof Error ? failure.message : 'Could not return control.');
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function publish() {
+    if (!task || busy) return;
+    setBusy(true);
+    setActionError('');
+    try {
+      const updated = await migrationMutation.run<Task>(`/api/tasks/${task.id}/publish`, {
+        taskRevision: task.taskRevision,
+        repositoryId: asObject(task.repository)?.id,
+      });
+      setTask((current) => (current ? { ...current, ...updated } : current));
+      window.dispatchEvent(new Event('relay-data-change'));
+    } catch (failure) {
+      setActionError(failure instanceof Error ? failure.message : 'Could not publish.');
+    } finally {
+      setBusy(false);
+    }
+  }
   // Sends direction back to an agent: a different approach, or changes before acceptance.
   async function direct(operation: 'replan' | 'request-changes', message: string) {
     if (!task || busy || !task.taskRevision || !message.trim()) return;
@@ -405,20 +444,38 @@ export function TaskPage({
   const blocker = currentBlocker(task);
   const banner = bannerTone(task);
   // A finished task's last stage is history, not where it is now.
-  const stage = ['completed', 'finished', 'cancelled'].includes(task.status)
+  const stage = ['completed', 'finished', 'cancelled', 'draft'].includes(task.status)
     ? ''
     : stageNames[currentStage(task)] || '';
   const awaitingReview = implementationPreview && task.status === 'awaiting_final';
   const attempts = (Array.isArray(task.attempts) ? task.attempts : []).map(asObject);
   const handoffs = attempts.filter((run) => run?.handoff).length;
   // The list endpoint carries a summary; older and imported tasks only have it on the handoff.
+  const failed = ['blocked', 'interrupted', 'failed'].includes(task.status);
   const summary =
+    (failed && task.error) ||
     task.latestSummary ||
     task.error ||
     asText(asObject(attempts.findLast((run) => run?.handoff)?.handoff)?.summary, 600);
   // The one thing to do next sits in the banner beside the sentence that names it.
+  const single = !(Array.isArray(task.repositories) && task.repositories.length > 1);
+  const unpublished =
+    task.status === 'completed' &&
+    !task.demo &&
+    single &&
+    !asText(asObject(task.publication)?.url) &&
+    !asText(asObject(task.pullRequestLink)?.url) &&
+    !['running', 'queued'].includes(asText(asObject(task.delivery)?.status));
   const primaryAction =
-    workflowPreview && task.status === 'draft' ? (
+    task.status === 'manual' ? (
+      <button className="primary" disabled={busy} onClick={() => void returnControl()}>
+        {busy ? 'Returning…' : 'Return control'}
+      </button>
+    ) : unpublished && implementationPreview ? (
+      <button className="primary" disabled={busy} onClick={() => void publish()}>
+        {busy ? 'Publishing…' : 'Publish draft PR'}
+      </button>
+    ) : workflowPreview && task.status === 'draft' ? (
       <button className="primary" disabled={busy} onClick={() => void runAction('start')}>
         {busy ? 'Starting…' : task.demo ? 'Run demo' : 'Start investigation'}
       </button>
@@ -752,7 +809,12 @@ export function TaskPage({
                       value={approvalNote}
                       onChange={(event) => setApprovalNote(event.target.value)}
                       onKeyDown={(event) => {
-                        if (event.key === 'Enter' && selectedOption && !busy) {
+                        if (
+                          event.key === 'Enter' &&
+                          selectedOption &&
+                          !busy &&
+                          (!approvalNote.trim() || event.metaKey || event.ctrlKey)
+                        ) {
                           event.preventDefault();
                           void decide('approve');
                         }

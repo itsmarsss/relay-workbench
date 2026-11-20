@@ -40,6 +40,10 @@ export function SettingsPage({
     if (!catalog.data) return 'checking';
     return entry?.status === 'ready' ? 'ready' : 'missing';
   }
+  // The agent a stage routed to a missing one falls back to.
+  const fallbackAgent = ['claude', 'codex', 'pi'].find(
+    (id) => agentState(id, asObject(agents[id])?.enabled !== false) === 'ready',
+  );
   // Save only appears when something here differs from what is saved.
   const dirty = JSON.stringify(config) !== JSON.stringify(snapshot.config);
   function save() {
@@ -175,8 +179,9 @@ export function SettingsPage({
                     const state = agentState(id, asObject(agents[id])?.enabled !== false);
                     return state === 'missing' || state === 'off' ? (
                       <small className="agent-state" data-state="missing">
-                        {providerName(id)} is {state === 'off' ? 'turned off' : 'not installed'}, so
-                        an installed agent runs this stage
+                        {providerName(id)} is {state === 'off' ? 'turned off' : 'not installed'}, so{' '}
+                        {fallbackAgent ? providerName(fallbackAgent) : 'an installed agent'} runs
+                        this stage
                       </small>
                     ) : null;
                   })()}

@@ -3387,7 +3387,6 @@ body:has(dialog[open]) .main-shell > main {
 .activity-entry-meta .activity-kind {
   color: var(--text);
   font-weight: 650;
-  text-transform: capitalize;
 }
 .activity-entry-meta time {
   margin-left: auto;
@@ -3623,7 +3622,6 @@ body:has(dialog[open]) .main-shell > main {
   gap: 3px;
 }
 .workflow-status strong {
-  text-transform: capitalize;
 }
 .workflow-status p {
   margin: 0;

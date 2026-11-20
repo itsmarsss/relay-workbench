@@ -5327,3 +5327,49 @@ p.error::first-letter,
 .error[role='status']::first-letter {
   text-transform: uppercase;
 }
+
+/* The free-space bar takes the pressure state's colour and the cards' square corners. */
+.storage-meter {
+  border-radius: 0;
+}
+.storage-meter[data-state='warning'] span {
+  background: var(--status-attention-ink);
+}
+.storage-meter[data-state='critical'] span {
+  background: var(--status-blocked-ink);
+}
+
+/* On a phone the task breadcrumb keeps its chevron, so "Tasks › title" still reads as a path. */
+@media (max-width: 800px) {
+  nav.breadcrumb > a + .icon {
+    display: inline-block;
+  }
+}
+
+/* Banner decisions on a phone: full-width buttons, primary first. */
+@media (max-width: 480px) {
+  .status-banner > .task-page-actions {
+    flex-direction: column;
+    align-items: stretch;
+    width: 100%;
+  }
+  .status-banner > .task-page-actions > button {
+    width: 100%;
+  }
+  .status-banner > .task-page-actions > .primary {
+    order: -1;
+  }
+}
+.stage-fallback {
+  display: block;
+  margin-top: 6px;
+}
+
+/* The quick approve beside a row's own action is the same size as it. */
+.attention-quick {
+  min-height: 0;
+  padding: 6px 12px;
+  font-size: 13px;
+  line-height: 1.35;
+  border-radius: 5px;
+}

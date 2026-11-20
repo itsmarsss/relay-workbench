@@ -38,7 +38,8 @@ function pullRequestStates(task: Task): string[] {
 export function nextStep(task: Task): string {
   if (task.status === 'completed') {
     const states = pullRequestStates(task);
-    if (!states.length) return 'Publish or follow up';
+    if (!states.length)
+      return (task as { demo?: boolean }).demo ? 'Demo finished' : 'Publish or follow up';
     return states.every((state) => state === 'merged')
       ? 'Pull request merged'
       : 'Pull request open';
@@ -57,7 +58,7 @@ export function nextStep(task: Task): string {
         manual: 'Return to automation',
         completed: 'Review delivery',
         finished: 'Work completed',
-        cancelled: 'Cancelled',
+        cancelled: 'Nothing more will run',
       } as Record<string, string>
     )[task.status] || 'Open task'
   );

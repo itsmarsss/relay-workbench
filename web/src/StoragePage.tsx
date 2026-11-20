@@ -172,6 +172,7 @@ export function StoragePage({
           </div>
           <div
             className="storage-meter"
+            data-state={report.pressure.state}
             role="meter"
             aria-label="Available disk space"
             aria-valuemin={0}
@@ -186,8 +187,8 @@ export function StoragePage({
             />
           </div>
           <p className="form-note">
-            {formatBytes(report.pressure.space.totalBytes)} total · This checks the Relay data
-            volume; repository workspaces can be on other volumes.
+            Bar shows free space · {formatBytes(report.pressure.space.totalBytes)} total · This
+            checks the Relay data volume; repository workspaces can be on other volumes.
           </p>
           <section className="storage-card">
             <div className="page-title">

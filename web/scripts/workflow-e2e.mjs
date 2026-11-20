@@ -558,7 +558,11 @@ console.log(JSON.stringify({ type: 'item.completed', item: { type: 'agent_messag
   await until(async () => (await tabs.count()) === 1, 'terminal reopened');
   await page.getByRole('button', { name: 'Close Shell terminal', exact: true }).click();
   await page.getByText('No terminals open', { exact: true }).waitFor({ timeout: 20000 });
-  await page.getByRole('button', { name: 'Return control', exact: true }).click();
+  // The banner offers it too; the task needs no open terminal to be handed back.
+  await page
+    .getByRole('region', { name: 'Current status', exact: true })
+    .getByRole('button', { name: 'Return control', exact: true })
+    .click();
   await until(
     async () => (await (await fetch(`${base}/api/tasks/${second.id}`)).json()).status === 'paused',
     'manual release',
