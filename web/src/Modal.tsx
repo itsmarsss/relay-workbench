@@ -82,7 +82,26 @@ export function Modal({
     const previous =
       returnFocus ||
       (document.activeElement instanceof HTMLElement ? document.activeElement : null);
-    if (element && !element.open) element.showModal();
+    if (element && !element.open) {
+      element.showModal();
+      // showModal focuses the first control, the header's Close button. Start where typing goes.
+      const field = () =>
+        element.querySelector<HTMLElement>(
+          '.editor-modal-body :is(input:not([type=checkbox], [type=radio], [type=hidden], [type=search]), textarea):not(:disabled)',
+        );
+      const first = field();
+      if (first) first.focus({ preventScroll: true });
+      // Content that renders a moment later (a chat composer) still gets the focus.
+      else
+        setTimeout(() => {
+          if (
+            element.contains(document.activeElement) &&
+            !element.querySelector('header')?.contains(document.activeElement)
+          )
+            return;
+          field()?.focus({ preventScroll: true });
+        }, 120);
+    }
     return () => {
       element?.close();
       if (previous?.isConnected) previous.focus({ preventScroll: true });

@@ -431,12 +431,12 @@ export default function App() {
                 layout={!resizingSidebar}
                 className={route.kind === 'deck' ? 'deck-main' : 'page-main'}
               >
-                {storage.report &&
-                  ['warning', 'critical'].includes(storage.report.pressure.state) && (
-                    <button className="mobile-storage-alert" onClick={() => navigate('#storage')}>
-                      Low disk space · Review storage
-                    </button>
-                  )}
+                {/* On a phone only a critical shortage is worth the room; a warning stays in the menu. */}
+                {storage.report?.pressure.state === 'critical' && (
+                  <button className="mobile-storage-alert" onClick={() => navigate('#storage')}>
+                    Low disk space · Review storage
+                  </button>
+                )}
                 {route.kind === 'overview' ? (
                   <OverviewPage
                     tasks={tasks}
@@ -568,7 +568,7 @@ export default function App() {
             <div id="ask-dock" className="ask-dock-slot" />
             {relayOpen && (
               <Modal
-                title="Relay orchestrator"
+                title="Relay agent"
                 variant="drawer"
                 className="orchestrator-dialog"
                 onClose={() => setRelayOpen(false)}

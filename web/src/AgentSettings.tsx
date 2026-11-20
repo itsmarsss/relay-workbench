@@ -1,4 +1,5 @@
-import { Select, ProviderIcon } from './UI';
+import { Select, ProviderIcon, providerName } from './UI';
+import { useResource } from './Session';
 import { EffortSelect, ModelSelect } from './WorkspacePages';
 import { asObject } from './task-data';
 import type { RelayConfig } from './types';
@@ -36,6 +37,11 @@ export function AgentSettings({
   onChange: (next: AgentOptions) => void;
 }) {
   const routing = asObject(config.routing) || {};
+  // Which agents answer on this machine, as on the Agents page.
+  const catalog = useResource<Record<string, unknown>>('/api/models');
+  const unavailable = (id: string) =>
+    asObject(asObject(config.harnesses)?.[id])?.enabled === false ||
+    (!!catalog.data && asObject(catalog.data[id])?.status !== 'ready');
   return (
     <div className="task-agent-settings">
       <label className="check-row">
@@ -76,6 +82,12 @@ export function AgentSettings({
                         })
                       }
                     />
+                    {unavailable(provider) && (
+                      <small className="agent-state" data-state="missing">
+                        {providerName(provider)} isn't available here, so an installed agent runs
+                        this stage
+                      </small>
+                    )}
                   </label>
                   <label className="field">
                     Model
@@ -107,9 +119,9 @@ export function AgentSettings({
         <div className="agent-field-grid">
           {(
             [
-              ['timeoutMinutes', 'Minutes per agent', 1, 240],
-              ['maxRepairRounds', 'Repair rounds', 1, 10],
-              ['maxRecoveryAttempts', 'Debugger attempts', 0, 5],
+              ['timeoutMinutes', 'Stage budget (minutes)', 1, 240],
+              ['maxRepairRounds', 'Automatic repair rounds', 1, 10],
+              ['maxRecoveryAttempts', 'Blocker recovery attempts', 0, 5],
             ] as const
           ).map(([key, label, min, max]) => (
             <label className="field" key={key}>

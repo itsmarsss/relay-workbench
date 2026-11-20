@@ -384,15 +384,16 @@ export function TaskDeck({
       <header className="deck-toolbar">
         <div className="deck-title">
           <h1>Task deck</h1>
-          <span>
-            {loading
+          {(() => {
+            const note = loading
               ? 'Loading…'
               : live
                 ? [working && `${working} running`, !waiting && !working && 'Nothing running']
                     .filter(Boolean)
                     .join(' · ')
-                : `${taskCount} watching`}
-          </span>
+                : `${taskCount} watching`;
+            return note ? <span>{note}</span> : null;
+          })()}
         </div>
         {waiting > 0 && (
           <span className="deck-attention-count">

@@ -289,7 +289,7 @@ export function SettingsPage({
             <p className="muted">Execution and settings proposals always need your approval.</p>
             {Object.entries(asObject(asObject(config.workspaceAgent)?.permissions) || {}).map(
               ([key, value]) => (
-                <label className="check-row" key={key}>
+                <label className="check-row permission-row" key={key}>
                   <input
                     type="checkbox"
                     checked={value === true}
@@ -303,7 +303,10 @@ export function SettingsPage({
                       })
                     }
                   />
-                  <span>{key.replace(/([A-Z])/g, ' $1').toLowerCase()}</span>
+                  <span>
+                    {permissionLabels[key]?.[0] || key.replace(/([A-Z])/g, ' $1').toLowerCase()}
+                    {permissionLabels[key] && <small>{permissionLabels[key][1]}</small>}
+                  </span>
                 </label>
               ),
             )}
@@ -778,6 +781,18 @@ function StateTransfer() {
     </section>
   );
 }
+
+// What each Relay agent permission lets it do, in words.
+const permissionLabels: Record<string, [string, string]> = {
+  readSettings: ['Read settings', 'See how Relay, agents and repositories are configured.'],
+  readMemory: ['Read memory', 'Use the knowledge you approved on the Memory page.'],
+  createDrafts: ['Create task drafts', 'Draft new tasks for you to start.'],
+  proposeTasks: ['Propose task changes', 'Suggest starts, retries and edits for you to approve.'],
+  proposeSettings: [
+    'Propose settings changes',
+    'Suggest configuration changes for you to approve.',
+  ],
+};
 
 // Jump links to each section of a long settings page, taken from its headings.
 function SectionMenu() {

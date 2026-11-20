@@ -175,16 +175,10 @@ export function DraftComposer({
           <button type="button" onClick={onClose} disabled={busy}>
             Cancel
           </button>
-          <button
-            type="submit"
-            className={onStart && workflowPreview ? undefined : 'primary'}
-            disabled={busy || importing || uploads.busy}
-          >
-            {busy ? 'Creating…' : 'Create draft'}
-          </button>
+          {/* First in the form, so Enter does what the highlighted button says; shown last. */}
           {onStart && workflowPreview && (
             <button
-              className="primary"
+              className="primary draft-start"
               type="submit"
               data-start="true"
               disabled={busy || importing || uploads.busy}
@@ -192,6 +186,13 @@ export function DraftComposer({
               {busy ? 'Starting…' : 'Create and start'}
             </button>
           )}
+          <button
+            type="submit"
+            className={onStart && workflowPreview ? undefined : 'primary'}
+            disabled={busy || importing || uploads.busy}
+          >
+            {busy ? 'Creating…' : 'Create draft'}
+          </button>
         </>
       }
     >

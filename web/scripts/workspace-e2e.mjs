@@ -464,7 +464,7 @@ let input='';process.stdin.on('data',d=>input+=d);process.stdin.on('end',()=>{
   assert.match(page.url(), /scope=attention/);
   const workspaceURL = page.url();
   await page.getByRole('button', { name: 'Open Relay agent', exact: true }).click();
-  const orchestrator = page.getByRole('dialog', { name: 'Relay orchestrator', exact: true });
+  const orchestrator = page.getByRole('dialog', { name: 'Relay agent', exact: true });
   await orchestrator
     .getByRole('textbox', { name: 'Message Relay', exact: true })
     .fill('Keep this as a draft');

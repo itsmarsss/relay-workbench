@@ -1796,10 +1796,13 @@ main.deck-main {
 }
 .deck-title h1 {
   margin: 0;
-  font-size: 20px;
+  font-size: 26px;
   letter-spacing: -0.4px;
 }
-.deck-title > span,
+.deck-title > span {
+  font-size: 13px;
+  color: var(--muted);
+}
 /* "Needs you" is the attention colour everywhere; red is for failures. */
 .deck-attention-count {
   font-size: 12px;
@@ -4848,12 +4851,14 @@ input[type='radio']:hover:not(:checked):not(:disabled) {
 /* Settings and Agents: jump to a section. */
 .settings-menu {
   position: sticky;
-  top: 0;
+  /* Flush with the top of the scrolling page, so nothing scrolls through above it. */
+  top: calc(-1 * var(--page-pad-top, 0px));
   z-index: 3;
   display: flex;
   flex-wrap: wrap;
   gap: 4px 6px;
-  padding: 8px 0;
+  padding: 10px 0 8px;
+  border-bottom: 1px solid transparent;
   margin: -4px 0 4px;
   background: var(--page);
 }
@@ -4866,6 +4871,17 @@ input[type='radio']:hover:not(:checked):not(:disabled) {
   font-size: 12px;
   font-weight: 550;
   text-decoration: none;
+}
+@media (max-width: 640px) {
+  .settings-menu {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .settings-menu a {
+    flex: none;
+    white-space: nowrap;
+  }
 }
 .settings-menu a:hover {
   color: var(--text);
@@ -4979,7 +4995,8 @@ input[type='radio']:hover:not(:checked):not(:disabled) {
 /* Settings: Save appears only with unsaved changes, and stays in view. */
 .settings-save-bar {
   position: sticky;
-  bottom: 12px;
+  /* Flush with the bottom edge, with the page colour behind it so fields never peek out below. */
+  bottom: 0;
   z-index: 4;
   display: flex;
   align-items: center;
@@ -4989,7 +5006,9 @@ input[type='radio']:hover:not(:checked):not(:disabled) {
   border: 1px solid var(--line-strong);
   border-radius: var(--radius);
   background: var(--surface);
-  box-shadow: 0 6px 24px rgb(0 0 0 / 0.12);
+  box-shadow:
+    0 6px 24px rgb(0 0 0 / 0.12),
+    0 48px 0 0 var(--page);
 }
 .settings-save-bar > span {
   margin-right: auto;
@@ -5063,4 +5082,32 @@ input[type='radio']:hover:not(:checked):not(:disabled) {
 }
 .terminal-empty .inline > button {
   white-space: nowrap;
+}
+
+/* New task: "Create and start" comes first in the form (Enter uses it) but sits last on screen. */
+.editor-modal footer .draft-start {
+  order: 1;
+}
+.editor-modal footer > button {
+  white-space: nowrap;
+}
+
+/* Relay agent permissions: a compact list, each with what it allows. */
+.permission-row {
+  align-items: flex-start;
+  margin: 0;
+  padding: 6px 0;
+}
+.permission-row + .permission-row {
+  border-top: 1px solid var(--line);
+}
+.permission-row > span {
+  display: grid;
+  gap: 1px;
+  font-weight: 550;
+}
+.permission-row small {
+  font-weight: 400;
+  color: var(--muted);
+  font-size: 12px;
 }

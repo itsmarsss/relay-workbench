@@ -266,7 +266,7 @@ let input='';process.stdin.on('data',d=>input+=d);process.stdin.on('end',()=>{
     failures.push({ name: 'navigation', issue: 'New page retains old scroll position' });
 
   await page.getByRole('button', { name: 'Open Relay agent', exact: true }).click();
-  await page.getByRole('dialog', { name: 'Relay orchestrator', exact: true }).waitFor();
+  await page.getByRole('dialog', { name: 'Relay agent', exact: true }).waitFor();
   await audit('relay-orchestrator');
   await page.keyboard.press('Escape');
 
