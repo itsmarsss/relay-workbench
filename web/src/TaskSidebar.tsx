@@ -30,7 +30,7 @@ const memoryEntries = (value: unknown): unknown[] =>
       : [];
 function Fact({ label, value, copy }: { label: string; value: string; copy?: string }) {
   return (
-    <div className="task-fact">
+    <div className={copy ? 'task-fact is-copyable' : 'task-fact'}>
       <dt>{label}</dt>
       <dd>
         <span title={copy || value}>{value}</span>
@@ -255,7 +255,8 @@ export function TaskSidebar({ task }: { task: FullTask }) {
           <Icon name="arrow" size={14} />
         </button>
       </section>
-      <WorkspaceCard task={task} />
+      {/* A simulated task never gets a workspace, so there is nothing to show. */}
+      {!task.demo && <WorkspaceCard task={task} />}
       {asText(approach?.title) && (
         <section className="surface approved-approach" aria-label="Approved approach">
           <div className="section-heading">
@@ -271,30 +272,33 @@ export function TaskSidebar({ task }: { task: FullTask }) {
           )}
         </section>
       )}
-      <section className="surface task-memory-summary">
-        <div className="section-heading">
-          <h2>Memory</h2>
-          <span>{memories.length} in latest run</span>
-        </div>
-        {memories.length ? (
-          <details>
-            <summary>
-              {memories.length} approved {memories.length === 1 ? 'memory' : 'memories'} supplied
-            </summary>
-            <ul>
-              {memories.slice(0, 20).map((entry, index) => (
-                <li key={index}>{asText(asObject(entry)?.title) || 'Untitled memory'}</li>
-              ))}
-            </ul>
-          </details>
-        ) : (
-          <p>No memories included in the latest run.</p>
-        )}
-        <a href="#memory">
-          Manage memory
-          <Icon name="arrow" size={14} />
-        </a>
-      </section>
+      {/* Memory is what a run was given; a task that never ran has nothing to report. */}
+      {Array.isArray(task.attempts) && task.attempts.length > 0 && (
+        <section className="surface task-memory-summary">
+          <div className="section-heading">
+            <h2>Memory</h2>
+            <span>{memories.length} in latest run</span>
+          </div>
+          {memories.length ? (
+            <details>
+              <summary>
+                {memories.length} approved {memories.length === 1 ? 'memory' : 'memories'} supplied
+              </summary>
+              <ul>
+                {memories.slice(0, 20).map((entry, index) => (
+                  <li key={index}>{asText(asObject(entry)?.title) || 'Untitled memory'}</li>
+                ))}
+              </ul>
+            </details>
+          ) : (
+            <p>No memories included in the latest run.</p>
+          )}
+          <a href="#memory">
+            Manage memory
+            <Icon name="arrow" size={14} />
+          </a>
+        </section>
+      )}
       <section className="surface task-facts" aria-label="Task details">
         <div className="section-heading">
           <h2>Details</h2>
@@ -303,17 +307,32 @@ export function TaskSidebar({ task }: { task: FullTask }) {
           {shortDate(asText(task.createdAt)) && (
             <Fact label="Created" value={shortDate(asText(task.createdAt))} />
           )}
-          {asText(task.preset) && <Fact label="Workflow" value={asText(task.preset)} />}
+          {asText(task.preset) && (
+            <Fact
+              label="Workflow"
+              value={
+                (
+                  {
+                    bugfix: 'Bug fix',
+                    small: 'Small change',
+                    investigate: 'Investigate only',
+                    'cross-repo': 'Cross-repo feature',
+                  } as Record<string, string>
+                )[asText(task.preset)] || asText(task.preset)
+              }
+            />
+          )}
           <Fact label="Task ID" value={task.id.slice(0, 8)} copy={task.id} />
           {execution && (
             <Fact
               label="Limits"
               value={[
-                execution.timeoutMinutes != null && `${Number(execution.timeoutMinutes)}m timeout`,
+                execution.timeoutMinutes != null &&
+                  `${Number(execution.timeoutMinutes)} min per stage`,
                 execution.maxRepairRounds != null &&
                   `${Number(execution.maxRepairRounds)} repair rounds`,
                 execution.maxRecoveryAttempts != null &&
-                  `${Number(execution.maxRecoveryAttempts)} recoveries`,
+                  `${Number(execution.maxRecoveryAttempts)} recovery attempts`,
               ]
                 .filter(Boolean)
                 .join(' · ')}

@@ -16,8 +16,13 @@ function rows(value: unknown): Row[] {
     return row as Row;
   });
 }
+// Stage ids read as their names; other values ("pull-request", "awaiting_plan") as sentence case.
 function label(value: unknown) {
-  return asText(value).replaceAll('_', ' ') || 'Update';
+  const text = asText(value);
+  if (!text) return 'Update';
+  if (stageNames[text]) return stageNames[text];
+  const words = text.replace(/[_-]+/g, ' ').toLowerCase();
+  return words.charAt(0).toUpperCase() + words.slice(1);
 }
 function when(value: unknown) {
   const date = new Date(asText(value));

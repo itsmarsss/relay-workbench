@@ -5151,3 +5151,68 @@ span.notify-offer {
   text-decoration: none;
   cursor: default;
 }
+
+/* Task tabs that do not fit scroll sideways; the fading edge shows there is more. */
+@media (max-width: 1180px) {
+  .task-main .detail-nav {
+    overflow-x: auto;
+    scrollbar-width: none;
+    mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent);
+  }
+  .task-main .detail-nav button {
+    flex: none;
+    padding-inline: 8px;
+  }
+}
+
+/* On a phone decision buttons stack full width, primary first, instead of ragged rows. */
+@media (max-width: 480px) {
+  .blocker-actions .task-page-actions,
+  .plan-decision {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .blocker-actions .task-page-actions > button,
+  .plan-decision > button {
+    width: 100%;
+  }
+  .blocker-actions .task-page-actions > .primary,
+  .plan-decision > .primary {
+    order: -1;
+  }
+}
+
+/* Paths, branches and ids stay on one line; the full value is in the tooltip and the copy button. */
+.task-fact.is-copyable dd {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.task-fact.is-copyable dd > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* A disclosure's chevron turns down while it is open. */
+.disclosure-button > .icon {
+  transition: transform 0.15s ease;
+}
+.disclosure-button[aria-expanded='true'] > .icon {
+  transform: rotate(90deg);
+}
+.check-row.is-dependent {
+  margin-left: 26px;
+}
+.publication-panel details > .check-row {
+  margin: 6px 0;
+}
+
+/* Stacked under the main column, the side cards share its edges. */
+@media (max-width: 800px) {
+  .task-layout > .task-sidebar {
+    padding: 0;
+  }
+}

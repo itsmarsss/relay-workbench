@@ -40,14 +40,14 @@ export function WorkflowStatus({ task }: { task: FullTask }) {
           {active
             ? run?.role === 'debug'
               ? 'Debugger'
-              : asText(run?.stage).replaceAll('_', ' ')
+              : stageNames[asText(run?.stage)] || asText(run?.stage).replaceAll('_', ' ')
             : asText(health?.summary)}
         </strong>
         {active && (
           <span>
             <ProviderName provider={run?.harness || ''} size={18} />
             <span className="workflow-model">
-              {run?.actualModel || run?.model || 'CLI default'}
+              {run?.actualModel || run?.model || 'Default model'}
             </span>
           </span>
         )}

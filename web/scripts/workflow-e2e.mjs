@@ -389,7 +389,7 @@ console.log(JSON.stringify({ type: 'item.completed', item: { type: 'agent_messag
     .getByRole('navigation', { name: 'Task views', exact: true })
     .getByRole('button', { name: 'Overview', exact: true })
     .click();
-  await page.getByRole('button', { name: 'Continue', exact: true }).click();
+  await page.getByRole('button', { name: 'Give direction', exact: true }).click();
   await page.getByLabel('Agent direction', { exact: true }).fill('Explain the changed behavior.');
   await page.getByRole('button', { name: 'Run agent', exact: true }).click();
   const followed = await until(async () => {
@@ -651,7 +651,7 @@ console.log(JSON.stringify({ type: 'item.completed', item: { type: 'agent_messag
   await page.getByRole('radio', { name: 'Select Small change' }).check();
   await page.getByLabel('Direction (optional)').fill('Use the newly available capability.');
   await writeFile(decisionRelease, 'ready');
-  await page.getByRole('button', { name: 'Retry debugger' }).click();
+  await page.getByRole('button', { name: /^(Try again|Continue with this choice)$/ }).click();
   await page.getByRole('heading', { name: 'Proposed approaches' }).waitFor({ timeout: 45000 });
   const resolved = await (await fetch(`${base}/api/tasks/${decisionTask.id}`)).json();
   assert.ok(resolved.attempts.filter((attempt) => attempt.role === 'debug').length >= 3);

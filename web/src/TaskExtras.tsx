@@ -390,8 +390,8 @@ export function ContinueWork({ task }: { task: FullTask }) {
           <h2>Continue work</h2>
           <p className="muted">Give the next agent direction.</p>
         </div>
-        <button onClick={() => setOpen(!open)} aria-expanded={open}>
-          {open ? 'Close' : 'Continue'}
+        <button className="disclosure-button" onClick={() => setOpen(!open)} aria-expanded={open}>
+          {open ? 'Hide' : 'Give direction'}
           <Icon name="chevron" size={14} />
         </button>
       </div>
@@ -650,19 +650,20 @@ export function PublicationPanel({ task }: { task: FullTask }) {
                   />
                   Monitor PR status
                 </label>
-                <label className="check-row">
+                {/* Acting on feedback needs the monitoring that finds it. */}
+                <label className="check-row is-dependent">
                   <input
                     type="checkbox"
                     checked={asObject(row.feedbackAutomation)?.enabled === true}
-                    disabled={mutation.busy || busy || !!linked}
+                    disabled={mutation.busy || busy || !!linked || monitor?.enabled !== true}
                     onChange={(e) => act('feedback', { enabled: e.target.checked })}
                   />
                   Let agents address actionable feedback
                 </label>
                 {linked && (
                   <p className="form-note">
-                    Monitoring only reads this pull request. Agents can act on its feedback once
-                    Relay has verified, reviewed and you have accepted the task.
+                    This pull request was opened outside Relay, so monitoring only reads it. Agents
+                    act on feedback only for pull requests Relay published.
                   </p>
                 )}
                 {feedback.map((item, i) => {

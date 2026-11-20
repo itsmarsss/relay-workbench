@@ -201,6 +201,20 @@ export function TaskPage({
     // Direction typed beside Accept, sent back to the implementer; null while closed.
     [changes, setChanges] = useState<string | null>(null);
   const planRevision = task ? latestPlan(task)?.attemptId : undefined;
+  // When the task is waiting on a decision, the keyboard starts on it (Enter or Space decides),
+  // unless the person is already somewhere else on the page.
+  useEffect(() => {
+    if (!task) return;
+    const frame = requestAnimationFrame(() => {
+      if (document.activeElement && document.activeElement !== document.body) return;
+      document
+        .querySelector<HTMLElement>(
+          '.plan-decision .primary, .status-banner .task-page-actions .primary, .blocker-actions .primary',
+        )
+        ?.focus({ preventScroll: true });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [task?.id, task?.status, planRevision, Array.isArray(task?.attempts) && task.attempts.length]);
   // A fresh plan starts with its recommended option (or its only option) chosen, so approving
   // what the planner recommends is one click.
   useEffect(() => {
@@ -452,7 +466,7 @@ export function TaskPage({
             {task.currentRun?.role === 'debug' && task.currentRun.status === 'running' && (
               <span>
                 Debugger running · {task.currentRun.harness || 'Agent'} ·{' '}
-                {task.currentRun.actualModel || task.currentRun.model || 'CLI default'}
+                {task.currentRun.actualModel || task.currentRun.model || 'Default model'}
               </span>
             )}
             {task.demo && <span>Demo</span>}
@@ -650,6 +664,12 @@ export function TaskPage({
                       maxLength={10000}
                       rows={2}
                     />
+                    {task.stage === 'verify' && blockerNote.trim().length < 10 && (
+                      <small className="form-note">
+                        To waive a failed check as environmental, say why here (for example, it
+                        fails on main too).
+                      </small>
+                    )}
                   </label>
                   <div className="task-page-actions">
                     <button
@@ -657,7 +677,7 @@ export function TaskPage({
                       disabled={busy || !task.taskRevision}
                       onClick={() => void resolveDecision('retry')}
                     >
-                      Retry debugger
+                      {blockerOption ? 'Continue with this choice' : 'Try again'}
                     </button>
                     {task.preset !== 'investigate' && (
                       <button
@@ -677,7 +697,7 @@ export function TaskPage({
                         }
                         onClick={() => void resolveDecision('environmental')}
                       >
-                        Environmental, continue to review
+                        Waive as environmental
                       </button>
                     )}
                     <button
