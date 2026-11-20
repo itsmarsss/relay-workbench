@@ -4340,9 +4340,25 @@ main > .relay-conversations {
   font-size: 12px;
 }
 /* Pull request row: the state chip, its note and the buttons sit on one line at one height. */
+.pr-row-heading {
+  flex-wrap: wrap;
+  align-items: flex-start;
+  row-gap: 12px;
+}
+/* The title takes the room; the actions wrap beneath it when there is not enough. */
+.pr-row-heading > div:first-child {
+  display: grid;
+  gap: 4px;
+  flex: 1 1 280px;
+  min-width: 0;
+}
 .pr-row-actions {
   align-items: center;
   gap: 10px;
+  flex-wrap: wrap;
+}
+.pr-row-actions > * {
+  white-space: nowrap;
 }
 .pr-row-actions > button {
   min-height: 30px;

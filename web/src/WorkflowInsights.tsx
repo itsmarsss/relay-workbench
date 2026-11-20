@@ -73,7 +73,7 @@ export function TaskResult({ task, onTab }: { task: FullTask; onTab?: (tab: Task
   const latest = attempts.findLast((run) => run?.handoff);
   const handoff = asObject(latest?.handoff);
   const entries = (
-    Array.isArray(task.repositories) && task.repositories.length ? task.repositories : [task]
+    Array.isArray(task.repositories) && task.repositories.length > 1 ? task.repositories : [task]
   ).map(asObject);
   const findStage = (stage: string) =>
     attempts.findLast((run) => run?.stage === stage && run.role !== 'debug');

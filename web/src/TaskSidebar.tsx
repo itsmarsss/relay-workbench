@@ -41,7 +41,7 @@ function Fact({ label, value, copy }: { label: string; value: string; copy?: str
 }
 function WorkspaceCard({ task }: { task: FullTask }) {
   const rows = (
-    Array.isArray(task.repositories) && task.repositories.length ? task.repositories : [task]
+    Array.isArray(task.repositories) && task.repositories.length > 1 ? task.repositories : [task]
   ).map(asObject);
   const imported = asText(asObject(task.migration)?.originalWorkspace);
   return (

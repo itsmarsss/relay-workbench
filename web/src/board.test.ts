@@ -186,4 +186,8 @@ test('a completed task whose pull requests merged is finished', () => {
     'done',
   );
   assert.equal(taskLane(base), 'done');
+  // Finished by hand and merged: the paused record does not keep it in Needs you.
+  const merged = [{ ...pr, state: 'merged' }];
+  assert.equal(taskLane({ ...base, status: 'paused', pullRequests: merged }), 'finished');
+  assert.notEqual(taskLane({ ...base, status: 'running', pullRequests: merged }), 'finished');
 });

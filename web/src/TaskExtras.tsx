@@ -151,7 +151,7 @@ function TaskEditor({ task, onClose }: { task: FullTask; onClose: () => void }) 
     [agents, setAgents] = useState(() => agentOptions(task));
   const { bootstrap } = useSession();
   const entries = (
-    Array.isArray(task.repositories) && task.repositories.length ? task.repositories : [task]
+    Array.isArray(task.repositories) && task.repositories.length > 1 ? task.repositories : [task]
   ).map(asObject);
   const scopeFixed =
     !!task.workspaceRoot ||
@@ -540,7 +540,7 @@ export function PublicationPanel({ task }: { task: FullTask }) {
         }
         return (
           <article className="pr-row" key={asText(repo?.id)}>
-            <div className="section-heading">
+            <div className="section-heading pr-row-heading">
               <div>
                 <strong>{asText(repo?.name) || 'Repository'}</strong>
                 {url ? (
@@ -559,7 +559,6 @@ export function PublicationPanel({ task }: { task: FullTask }) {
                     {asText(publication.state) || 'unknown'}
                   </span>
                 )}
-                {linked && <small className="muted">Opened outside Relay</small>}
                 {task.status === 'completed' && !publication && (
                   <button
                     className="primary"
@@ -571,7 +570,13 @@ export function PublicationPanel({ task }: { task: FullTask }) {
                 )}
                 {publication && !!row.workspaceRoot && (
                   <button
-                    disabled={mutation.busy || busy || taskActive || update?.status === 'review'}
+                    // A pull request check in progress does not block this: Relay stops it.
+                    disabled={
+                      mutation.busy ||
+                      (busy && monitor?.status !== 'running') ||
+                      taskActive ||
+                      update?.status === 'review'
+                    }
                     title={
                       taskActive
                         ? 'Pause the task to update its branch'
@@ -598,13 +603,18 @@ export function PublicationPanel({ task }: { task: FullTask }) {
             )}
             {publication && (
               <div className="pr-status">
-                <span>
-                  Checks <strong>{asText(publication.checks)}</strong>
-                </span>
-                <span>
-                  Review <strong>{asText(publication.review)}</strong>
-                </span>
+                {asText(publication.checks) && (
+                  <span>
+                    Checks <strong>{asText(publication.checks)}</strong>
+                  </span>
+                )}
+                {asText(publication.review) && (
+                  <span>
+                    Review <strong>{asText(publication.review)}</strong>
+                  </span>
+                )}
                 <span>{publication.draft === true ? 'Draft' : 'Ready for review'}</span>
+                {linked && <span className="muted">Opened outside Relay</span>}
                 {linked && (
                   <span className="muted">
                     {asText(linked.checkedAt)

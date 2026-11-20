@@ -52,9 +52,14 @@ export function taskLane(task: Task): string {
   // An investigation that has reported back is finished as a workflow, but nothing was built:
   // it gets its own column so it is not read as delivered work.
   if (task.status === 'completed' && task.preset === 'investigate') return 'investigated';
-  // Delivered work whose pull requests have all merged is fully finished, not waiting in Done.
+  // Work whose pull requests have all merged has landed, even if its Relay record was left paused
+  // or blocked after being finished by hand. Only something actively running keeps it in place.
   const pulls = task.pullRequests || [];
-  if (task.status === 'completed' && pulls.length > 0 && pulls.every((pr) => pr.state === 'merged'))
+  if (
+    !['running', 'queued', 'manual', 'draft'].includes(task.status) &&
+    pulls.length > 0 &&
+    pulls.every((pr) => pr.state === 'merged')
+  )
     return 'finished';
   return (
     known[task.status] ||
