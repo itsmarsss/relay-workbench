@@ -11,7 +11,12 @@ func TestPressureUsesPercentAndAbsoluteThresholds(t *testing.T) {
 	for _, tc := range []struct {
 		total, free uint64
 		want        string
-	}{{1000 * GiB, 200 * GiB, "normal"}, {1000 * GiB, 90 * GiB, "warning"}, {1000 * GiB, 20 * GiB, "critical"}, {20 * GiB, 9 * GiB, "warning"}, {20 * GiB, 1 * GiB, "critical"}} {
+	}{
+		// A large disk warns at the fixed sizes, not at 10% (100 GiB) of it.
+		{1000 * GiB, 200 * GiB, "normal"}, {1000 * GiB, 90 * GiB, "normal"}, {1000 * GiB, 8 * GiB, "warning"}, {1000 * GiB, 1 * GiB, "critical"},
+		// A small disk warns at its percentages.
+		{20 * GiB, 9 * GiB, "normal"}, {20 * GiB, 1 * GiB, "warning"}, {20 * GiB, GiB / 2, "critical"},
+	} {
 		got, err := Evaluate(p, Space{tc.total, tc.free})
 		if err != nil || got.State != tc.want {
 			t.Fatalf("%+v: %#v %v", tc, got, err)
@@ -47,7 +52,7 @@ func TestThresholdsRejectInvalidAndAvoidOverflow(t *testing.T) {
 		t.Fatal("empty filesystem accepted")
 	}
 	got, err := Evaluate(p, Space{math.MaxUint64, math.MaxUint64})
-	if err != nil || got.WarningThreshold != percent(math.MaxUint64, 10) {
+	if err != nil || got.WarningThreshold != p.WarningBytes || percent(math.MaxUint64, 10) == 0 {
 		t.Fatalf("overflow: %#v %v", got, err)
 	}
 }

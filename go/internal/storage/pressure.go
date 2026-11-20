@@ -56,8 +56,11 @@ func (p Policy) Validate() error {
 	return nil
 }
 func percent(total, value uint64) uint64 { return (total/100)*value + (total%100)*value/100 }
-func max(a, b uint64) uint64 {
-	if a > b {
+
+// lower picks the smaller threshold: a large disk warns at the fixed size rather than at a
+// percentage that still leaves tens of gigabytes free, and a small disk warns at its percentage.
+func lower(a, b uint64) uint64 {
+	if a < b {
 		return a
 	}
 	return b
@@ -71,7 +74,7 @@ func Evaluate(policy Policy, space Space) (Pressure, error) {
 	if space.TotalBytes == 0 || space.AvailableBytes > space.TotalBytes {
 		return Pressure{}, errors.New("invalid filesystem capacity")
 	}
-	result := Pressure{Space: space, WarningThreshold: max(percent(space.TotalBytes, policy.WarningPercent), policy.WarningBytes), CriticalThreshold: max(percent(space.TotalBytes, policy.CriticalPercent), policy.CriticalBytes)}
+	result := Pressure{Space: space, WarningThreshold: lower(percent(space.TotalBytes, policy.WarningPercent), policy.WarningBytes), CriticalThreshold: lower(percent(space.TotalBytes, policy.CriticalPercent), policy.CriticalBytes)}
 	switch {
 	case !policy.Enabled:
 		result.State = "disabled"

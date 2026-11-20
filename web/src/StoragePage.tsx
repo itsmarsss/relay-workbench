@@ -195,8 +195,8 @@ export function StoragePage({
               <div>
                 <h2>Warning thresholds</h2>
                 <p>
-                  The percentage or the minimum free space, whichever is higher, determines each
-                  threshold.
+                  The percentage or the minimum free space, whichever is lower, determines each
+                  threshold, so a large disk warns only when little room is left.
                 </p>
               </div>
               {!editing && (
