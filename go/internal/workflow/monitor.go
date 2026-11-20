@@ -26,13 +26,12 @@ func feedbackKey(id, revision string) string {
 }
 
 // watchedPullRequest is the pull request monitoring observes for a repository: the one Relay
-// published for an accepted task, or one a person linked by hand. Watching is read-only either
-// way; only an accepted task's own pull request may have its feedback acted on.
+// published for the task, or one a person linked by hand. Watching is read-only either way, so a
+// published pull request stays watched after the task is paused or sent back for changes; only an
+// accepted task's own pull request may have its feedback acted on.
 func watchedPullRequest(value, entry map[string]any) (url string, accepted bool) {
-	if harness.HasFinalApproval(value) {
-		if url = text(object(entry["publication"])["url"]); url != "" {
-			return url, true
-		}
+	if url = text(object(entry["publication"])["url"]); url != "" {
+		return url, harness.HasFinalApproval(value)
 	}
 	return text(object(entry["pullRequestLink"])["url"]), false
 }
@@ -43,8 +42,14 @@ func (c *Coordinator) Monitor(ctx context.Context, id, revision, repositoryID st
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if c.closed || c.jobs[id] != nil || len(c.jobs) >= 256 {
-		return nil, ErrStageBusy
+	if c.closed {
+		return nil, errors.New("Relay is shutting down")
+	}
+	if job := c.jobs[id]; job != nil {
+		return nil, busyLocked(job)
+	}
+	if len(c.jobs) >= 256 {
+		return nil, errors.New("workflow queue is full")
 	}
 	raw, value, err := c.inspected(id, map[string]any{"taskRevision": revision})
 	if err != nil {
@@ -157,8 +162,10 @@ func (c *Coordinator) runMonitor(ctx context.Context, id, repositoryID, attemptI
 				return err
 			}
 			entry := publicationEntry(value, repositoryID)
+			// The task's own publication is updated in place; a linked pull request stays a link.
+			own := text(object(entry["publication"])["url"]) == watchedURL
 			watched := entry["publication"]
-			if !accepted {
+			if !own {
 				watched = entry["pullRequestLink"]
 			}
 			contextData, _ := json.Marshal(map[string]any{"title": value["title"], "ticket": value["ticket"], "repository": entry["repository"], "publication": watched, "branch": entry["branch"], "feedbackHandled": entry["feedbackHandled"]})
@@ -218,7 +225,10 @@ func (c *Coordinator) runMonitor(ctx context.Context, id, repositoryID, attemptI
 				}
 				monitor["status"], monitor["summary"], monitor["finishedAt"], monitor["nextCheckAt"] = "complete", handoff["summary"], timestamp(time.Now()), timestamp(time.Now().Add(5*time.Minute))
 				target["feedback"] = items
-				if accepted {
+				if own {
+					if text(object(target["publication"])["url"]) != watchedURL {
+						return errors.New("pull request changed")
+					}
 					target["publication"] = observed
 				} else {
 					// A linked pull request keeps being a link: what was observed is recorded on it,
@@ -262,6 +272,23 @@ func (c *Coordinator) runMonitor(ctx context.Context, id, repositoryID, attemptI
 			}())
 			return err
 		})
+	}
+	c.mu.Lock()
+	preempted := job.preempted
+	c.mu.Unlock()
+	if err != nil && preempted {
+		// Stopped for the person's own action: not a failure, just check again soon.
+		_, _ = c.update(id, func(value map[string]any) error {
+			entry := publicationEntry(value, repositoryID)
+			monitor := object(entry["publicationMonitor"])
+			if text(monitor["id"]) != attemptID {
+				return errTaskNoLongerActive
+			}
+			// The last real observation's summary stays.
+			monitor["status"], monitor["finishedAt"], monitor["nextCheckAt"] = "complete", timestamp(time.Now()), timestamp(time.Now().Add(5*time.Minute))
+			return nil
+		}, nil)
+		return
 	}
 	if err != nil {
 		_, _ = c.update(id, func(value map[string]any) error {

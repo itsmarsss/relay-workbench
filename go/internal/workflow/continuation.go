@@ -25,8 +25,11 @@ func (c *Coordinator) ForkCheckpoint(ctx context.Context, sourceID string, body 
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if c.closed || len(c.jobs) >= 256 {
-		return nil, ErrStageBusy
+	if c.closed {
+		return nil, errors.New("Relay is shutting down")
+	}
+	if len(c.jobs) >= 256 {
+		return nil, errors.New("workflow queue is full")
 	}
 	if _, _, err := c.inspected(sourceID, body); err != nil {
 		return nil, err

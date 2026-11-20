@@ -58,10 +58,10 @@ func (c *Coordinator) UpdateBranch(ctx context.Context, id string, body map[stri
 		if job.kind == "monitor" {
 			return nil, errors.New("Relay is checking this pull request right now; try again in a moment")
 		}
-		return nil, ErrStageBusy
+		return nil, busyLocked(job)
 	}
 	if len(c.jobs) >= 256 {
-		return nil, ErrStageBusy
+		return nil, errors.New("workflow queue is full")
 	}
 	raw, value, err := c.inspected(id, body)
 	if err != nil {

@@ -70,6 +70,9 @@ func (c *Coordinator) writableTerminal(id string, value map[string]any) bool {
 }
 
 func (c *Coordinator) Terminal(ctx context.Context, id, operation string, body map[string]any) (any, error) {
+	if operation == "takeover" || operation == "agent" {
+		c.yieldMonitor(id)
+	}
 	if operation == "takeover" {
 		return c.takeover(ctx, id, body)
 	}
@@ -106,7 +109,7 @@ func (c *Coordinator) Terminal(ctx context.Context, id, operation string, body m
 		}
 		return c.update(id, func(value map[string]any) error {
 			if value["status"] != "manual" {
-				return ErrStageBusy
+				return errors.New("this task is no longer under manual control; refresh the page")
 			}
 			value["status"] = "paused"
 			return nil
@@ -387,15 +390,18 @@ func (c *Coordinator) takeover(ctx context.Context, id string, body map[string]a
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if c.closed || c.jobs[id] != nil {
-		return nil, ErrStageBusy
+	if c.closed {
+		return nil, errors.New("Relay is shutting down")
+	}
+	if job := c.jobs[id]; job != nil {
+		return nil, busyLocked(job)
 	}
 	value, err = c.update(id, func(value map[string]any) error {
 		if value["status"] == "manual" {
 			if reopening {
 				return nil
 			}
-			return ErrStageBusy
+			return busyLocked(&coordinatorJob{kind: "manual"})
 		}
 		value["status"], value["verifiedFingerprint"], value["reviewedFingerprint"] = "manual", nil, nil
 		if harness.HasApprovedApproach(value) {
@@ -410,7 +416,7 @@ func (c *Coordinator) takeover(ctx context.Context, id string, body map[string]a
 		return nil, err
 	}
 	jobCtx, cancel := context.WithCancel(context.Background())
-	job = &coordinatorJob{cancel: cancel, done: make(chan struct{})}
+	job = &coordinatorJob{cancel: cancel, done: make(chan struct{}), kind: "manual"}
 	c.jobs[id] = job
 	go c.runManual(jobCtx, id, repoID, command, args, job)
 	return value, nil
@@ -467,7 +473,7 @@ func (c *Coordinator) openAgentTerminal(ctx context.Context, id string, body map
 		if job.kind == "agent-terminal" {
 			return value, nil
 		}
-		return nil, ErrStageBusy
+		return nil, busyLocked(job)
 	}
 	jobCtx, cancel := context.WithCancel(context.Background())
 	job := &coordinatorJob{cancel: cancel, done: make(chan struct{}), kind: "agent-terminal"}

@@ -28,8 +28,14 @@ func (c *Coordinator) Followup(ctx context.Context, id string, body map[string]a
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if c.closed || c.jobs[id] != nil || len(c.jobs) >= 256 {
-		return nil, ErrStageBusy
+	if c.closed {
+		return nil, errors.New("Relay is shutting down")
+	}
+	if job := c.jobs[id]; job != nil {
+		return nil, busyLocked(job)
+	}
+	if len(c.jobs) >= 256 {
+		return nil, errors.New("workflow queue is full")
 	}
 	raw, value, err := c.inspected(id, body)
 	if err != nil {
@@ -87,7 +93,7 @@ func (c *Coordinator) Followup(ctx context.Context, id string, body map[string]a
 	_ = json.Unmarshal(saved, &value)
 	value["taskRevision"] = store.TaskRevision(saved)
 	jobCtx, cancel := context.WithCancel(context.Background())
-	job := &coordinatorJob{cancel: cancel, done: make(chan struct{})}
+	job := &coordinatorJob{cancel: cancel, done: make(chan struct{}), kind: "followup"}
 	c.jobs[id] = job
 	go c.runFollowup(jobCtx, id, attemptID, provider, config, job)
 	return value, nil

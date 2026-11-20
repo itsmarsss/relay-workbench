@@ -52,6 +52,9 @@ func (c *Coordinator) inspectedMode(id string, body map[string]any, allowImporte
 // Control is the authenticated task-edit boundary. It never accepts persisted
 // attempts, approvals, workspace paths or workflow state from HTTP clients.
 func (c *Coordinator) Control(ctx context.Context, id, operation string, body map[string]any) (any, error) {
+	if operation != "monitor" {
+		c.yieldMonitor(id)
+	}
 	return c.control(ctx, id, operation, body, nil)
 }
 
@@ -234,7 +237,7 @@ func (c *Coordinator) control(ctx context.Context, id, operation string, body ma
 			return nil, err
 		}
 		if active {
-			return nil, ErrStageBusy
+			return nil, c.activeErrorLocked(id, value)
 		}
 		enabled, ok := body["enabled"].(bool)
 		if !ok {
@@ -343,7 +346,7 @@ func (c *Coordinator) control(ctx context.Context, id, operation string, body ma
 		}
 		if operation != "message" {
 			if active {
-				return nil, ErrStageBusy
+				return nil, c.activeErrorLocked(id, value)
 			}
 			if operation == "request-changes" && !harness.HasApprovedApproach(value) {
 				return nil, errors.New("choose an implementation approach before requesting code changes")

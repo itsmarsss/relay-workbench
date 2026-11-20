@@ -28,6 +28,8 @@ type coordinatorJob struct {
 	cancel context.CancelFunc
 	done   chan struct{}
 	kind   string
+	// preempted marks a pull request check stopped so a person's action could run (see yieldMonitor).
+	preempted bool
 }
 
 var errTaskNoLongerActive = errors.New("task no longer active")
@@ -323,6 +325,7 @@ func (c *Coordinator) Resume(id string) (map[string]any, error) {
 }
 
 func (c *Coordinator) enqueue(id string, resume bool) (map[string]any, error) {
+	c.yieldMonitor(id)
 	return c.enqueueMode(id, resume, false)
 }
 
@@ -336,7 +339,7 @@ func (c *Coordinator) enqueueMode(id string, resume, automatic bool) (map[string
 		if job.kind == "agent-terminal" {
 			return nil, errors.New("close the agent terminal on this task before Relay runs a stage")
 		}
-		return nil, ErrStageBusy
+		return nil, busyLocked(job)
 	}
 	if len(c.jobs) >= 256 {
 		return nil, errors.New("workflow queue is full")
@@ -535,7 +538,7 @@ func (c *Coordinator) waitAtGate(ctx context.Context, id, expected string) error
 	}
 	var value map[string]any
 	if json.Unmarshal(raw, &value) != nil || text(value["status"]) != expected {
-		return ErrStageBusy
+		return busyError{"this task is " + text(value["status"]) + " now, not " + expected + "; refresh and try again"}
 	}
 	waitCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()

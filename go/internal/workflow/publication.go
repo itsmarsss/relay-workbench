@@ -76,6 +76,7 @@ func publicationPrevious(value map[string]any) map[string]any {
 // Publish records an explicit user request before an agent may perform remote
 // writes. The configured implementation provider handles publication.
 func (c *Coordinator) Publish(ctx context.Context, id, revision, repositoryID string) (map[string]any, error) {
+	c.yieldMonitor(id)
 	return c.publish(ctx, id, revision, repositoryID, nil)
 }
 
@@ -185,7 +186,7 @@ func (c *Coordinator) publish(ctx context.Context, id, revision, repositoryID st
 		return nil, errors.New("invalid saved task")
 	}
 	jobCtx, cancel := context.WithCancel(context.Background())
-	job := &coordinatorJob{cancel: cancel, done: make(chan struct{})}
+	job := &coordinatorJob{cancel: cancel, done: make(chan struct{}), kind: "publish"}
 	c.jobs[id] = job
 	go c.runPublication(jobCtx, id, repositoryID, attemptID, int(limit), time.Duration(minutes)*time.Minute, repairs, recoveryLimit, enabled, configs, job, nil)
 	return value, nil

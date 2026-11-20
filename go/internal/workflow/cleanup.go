@@ -24,8 +24,11 @@ func (c *Coordinator) Cleanup(ctx context.Context, id string, body map[string]an
 		return nil, errors.New("choose whether to remove ignored files")
 	}
 	c.mu.Lock()
-	if c.closed || c.jobs[id] != nil || len(c.jobs) >= 256 {
+	if job := c.jobs[id]; c.closed || job != nil || len(c.jobs) >= 256 {
 		c.mu.Unlock()
+		if job != nil {
+			return nil, busyLocked(job)
+		}
 		return nil, ErrStageBusy
 	}
 	_, value, err := c.inspected(id, body)
@@ -54,7 +57,7 @@ func (c *Coordinator) Cleanup(ctx context.Context, id string, body map[string]an
 		}
 	}
 	jobCtx, cancel := context.WithTimeout(ctx, 10*time.Minute)
-	job := &coordinatorJob{cancel: cancel, done: make(chan struct{})}
+	job := &coordinatorJob{cancel: cancel, done: make(chan struct{}), kind: "cleanup"}
 	c.jobs[id] = job
 	c.mu.Unlock()
 	defer func() {
