@@ -5308,3 +5308,22 @@ span.notify-offer {
   min-width: 0;
   overflow-wrap: anywhere;
 }
+
+/* Settings sections share one heading size and one description size. */
+.settings-page > section > h2,
+.settings-page > section > .section-heading h2 {
+  font-size: 18px;
+}
+.settings-page > section > p.form-note,
+.settings-page > section > p.muted,
+.settings-page > section > .section-heading p {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+/* Server errors arrive in lower case; shown to a person, they start a sentence. */
+p.error::first-letter,
+.error[role='alert']::first-letter,
+.error[role='status']::first-letter {
+  text-transform: uppercase;
+}
