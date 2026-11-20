@@ -9,13 +9,19 @@ export type SetupItem = {
   label: string;
   why: string;
   required: boolean;
-  status: 'ok' | 'missing' | 'attention' | 'off';
+  status: 'ok' | 'missing' | 'attention' | 'off' | 'optional';
   detail: string;
   install?: SetupAction;
   login?: SetupAction;
 };
 
-const statusText = { ok: 'Ready', missing: 'Missing', attention: 'Needs you', off: 'Off' };
+const statusText = {
+  ok: 'Ready',
+  missing: 'Missing',
+  attention: 'Needs you',
+  off: 'Off',
+  optional: 'Optional',
+};
 
 // What Relay relies on, each with what to do about it. Installs and logins run only after the
 // exact command is shown and confirmed, in a terminal the person watches and types into.
@@ -43,7 +49,7 @@ export function SetupList({ onlyProblems = false }: { onlyProblems?: boolean }) 
     wasLive.current = !!live;
   }, [live]);
   const items = (check.data || []).filter(
-    (item) => !onlyProblems || (item.status !== 'ok' && item.status !== 'off'),
+    (item) => !onlyProblems || !['ok', 'off', 'optional'].includes(item.status),
   );
   async function run() {
     if (!confirm) return;
@@ -84,8 +90,7 @@ export function SetupList({ onlyProblems = false }: { onlyProblems?: boolean }) 
                   {item.login.label}
                 </button>
               )}
-              {item.status === 'missing' &&
-                !item.install &&
+              {['missing', 'optional'].includes(item.status) &&
                 ['claude', 'codex', 'pi'].includes(item.id) && (
                   <a className="button-link" href="#agents">
                     Turn it off

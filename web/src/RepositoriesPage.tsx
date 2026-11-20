@@ -174,13 +174,19 @@ export function RepositoriesPage({
                 <span className="repo-icon">
                   <Icon name="repository" size={22} />
                 </span>
-                <h2>{repo.name}</h2>
-                <button className="text-button" onClick={() => setSettingUp(repo)}>
-                  Set up with an agent
-                </button>
-                <button className="text-button" onClick={() => onEdit(repo)}>
-                  Edit profile
-                </button>
+                <h2>
+                  {repo.name}
+                  {/* Two profiles with one name are told apart by their folder. */}
+                  {config.repositories.filter((other) => other.name === repo.name).length > 1 && (
+                    <small className="muted"> · {repo.path.split('/').filter(Boolean).pop()}</small>
+                  )}
+                </h2>
+                <span className="repository-card-actions">
+                  <button onClick={() => setSettingUp(repo)}>Set up with an agent</button>
+                  <button aria-label={`Edit ${repo.name}`} onClick={() => onEdit(repo)}>
+                    Edit
+                  </button>
+                </span>
               </header>
               <code title={repo.path}>{shortPath(repo.path)}</code>
               <dl>
@@ -201,13 +207,15 @@ export function RepositoriesPage({
                   <dd>
                     {repo.verificationMode === 'agent'
                       ? 'Agent discovers checks'
-                      : `${repo.checks.length} configured commands`}
+                      : `${repo.checks.length} configured ${repo.checks.length === 1 ? 'command' : 'commands'}`}
                   </dd>
                 </div>
-                <div>
-                  <dt>Working directory</dt>
-                  <dd>{repo.cwd}</dd>
-                </div>
+                {repo.cwd && repo.cwd !== '.' && (
+                  <div>
+                    <dt>Working directory</dt>
+                    <dd>{repo.cwd}</dd>
+                  </div>
+                )}
                 {repo.setup.length > 0 && (
                   <div>
                     <dt>Setup</dt>

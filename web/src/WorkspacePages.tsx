@@ -451,7 +451,8 @@ export function MemoryPage() {
               <div className="section-heading">
                 <div>
                   <small className="eyebrow">
-                    {row.scope} · {row.kind} · {row.status}
+                    {memoryWords[row.scope] || row.scope} · {memoryWords[row.kind] || row.kind} ·{' '}
+                    {memoryWords[row.status] || row.status}
                   </small>
                   <h2>{row.title}</h2>
                 </div>
@@ -554,7 +555,11 @@ export function MemoryPage() {
               <Select
                 label="Memory scope"
                 value={editing.scope || 'global'}
-                options={['global', 'project', 'task'].map((value) => ({ value, label: value }))}
+                options={[
+                  { value: 'global', label: 'Everywhere' },
+                  { value: 'project', label: 'This repository' },
+                  { value: 'task', label: 'One task' },
+                ]}
                 onChange={(scope) => setEditing({ ...editing, scope, targetId: '' })}
               />
             </label>
@@ -563,7 +568,10 @@ export function MemoryPage() {
               <Select
                 label="Memory kind"
                 value={editing.kind || 'observation'}
-                options={['observation', 'preference'].map((value) => ({ value, label: value }))}
+                options={[
+                  { value: 'observation', label: 'Fact about the code' },
+                  { value: 'preference', label: 'How you like things done' },
+                ]}
                 onChange={(kind) => setEditing({ ...editing, kind })}
               />
             </label>
@@ -781,6 +789,18 @@ function StateTransfer() {
     </section>
   );
 }
+
+// Memory fields as a person reads them.
+const memoryWords: Record<string, string> = {
+  global: 'Everywhere',
+  project: 'This repository',
+  task: 'One task',
+  observation: 'Fact',
+  preference: 'Preference',
+  approved: 'Approved',
+  proposed: 'Suggested',
+  rejected: 'Rejected',
+};
 
 // What each Relay agent permission lets it do, in words.
 const permissionLabels: Record<string, [string, string]> = {

@@ -27,7 +27,15 @@ export function TaskFacts({ task, lead }: { task: Task; lead?: string }) {
 
 // A plan waiting for approval can be approved from the list, choosing what the planner
 // recommends, without opening the task. Opening it shows every option first.
-function QuickApprove({ task }: { task: Task }) {
+export function QuickApprove({
+  task,
+  className = 'primary attention-quick',
+  label = 'Approve recommended',
+}: {
+  task: Task;
+  className?: string;
+  label?: string;
+}) {
   const { bootstrap } = useSession();
   const [plan, setPlan] = useState<{
       option: string;
@@ -60,7 +68,7 @@ function QuickApprove({ task }: { task: Task }) {
   return (
     <button
       type="button"
-      className="primary attention-quick"
+      className={className}
       disabled={busy || !bootstrap}
       title={error || `Approve “${plan.title}”, the recommended approach`}
       onClick={() => {
@@ -78,7 +86,7 @@ function QuickApprove({ task }: { task: Task }) {
           .finally(() => setBusy(false));
       }}
     >
-      {busy ? 'Approving…' : error ? 'Try again' : 'Approve recommended'}
+      {busy ? 'Approving…' : error ? 'Try again' : label}
     </button>
   );
 }

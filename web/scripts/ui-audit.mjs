@@ -468,8 +468,8 @@ let input='';process.stdin.on('data',d=>input+=d);process.stdin.on('end',()=>{
   const addedProfile = page
     .locator('.repository-card')
     .filter({ has: page.getByRole('heading', { name: 'detected-service', exact: true }) });
-  await addedProfile.getByText('1 configured commands', { exact: true }).waitFor();
-  await addedProfile.getByRole('button', { name: 'Edit profile', exact: true }).click();
+  await addedProfile.getByText('1 configured command', { exact: true }).waitFor();
+  await addedProfile.getByRole('button', { name: 'Edit detected-service', exact: true }).click();
   dialog = page.getByRole('dialog', { name: 'Edit repository', exact: true });
   await dialog.getByRole('tab', { name: 'Guidance', exact: true }).click();
   await dialog.getByRole('button', { name: 'Remove profile', exact: true }).click();

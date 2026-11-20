@@ -290,7 +290,7 @@ let input='';process.stdin.on('data',d=>input+=d);process.stdin.on('end',()=>{
   await capture(page, 'task-list');
   await page.getByRole('button', { name: 'Actions for Workspace fixture' }).click();
   await page.getByRole('button', { name: /^Move to column:/ }).click();
-  await page.getByRole('option', { name: 'Completed', exact: true }).click();
+  await page.getByRole('option', { name: 'Shipped', exact: true }).click();
   await until(
     async () =>
       (await (await fetch(origin + '/api/tasks/' + task.id)).json()).statusOverride?.value ===
@@ -339,7 +339,7 @@ let input='';process.stdin.on('data',d=>input+=d);process.stdin.on('end',()=>{
   await page.getByRole('button', { name: 'Add memory', exact: true }).click();
   await page.getByRole('textbox', { name: 'Title', exact: true }).fill('Scope memory');
   await page.getByRole('button', { name: /^Memory kind:/ }).click();
-  await page.getByRole('option', { name: 'preference', exact: true }).click();
+  await page.getByRole('option', { name: 'How you like things done', exact: true }).click();
   await page.getByRole('textbox', { name: 'Content', exact: true }).fill('Prefer focused tests');
   await page.getByRole('button', { name: 'Save memory', exact: true }).click();
   await page.getByRole('heading', { name: 'Scope memory' }).waitFor();
@@ -427,14 +427,18 @@ let input='';process.stdin.on('data',d=>input+=d);process.stdin.on('end',()=>{
     async () => (await page.locator('html').getAttribute('data-theme')) === 'dark',
     'system dark theme',
   );
-  await page.getByRole('button', { name: /^Theme:/ }).click();
-  await page.getByRole('option', { name: 'Light', exact: true }).click();
+  await page
+    .getByRole('group', { name: 'Theme', exact: true })
+    .getByRole('button', { name: 'Light', exact: true })
+    .click();
   await page.reload();
   await page.getByRole('heading', { name: 'Appearance', exact: true }).waitFor();
   assert.equal(await page.locator('html').getAttribute('data-theme'), 'light');
   assert.ok(await page.getByRole('checkbox', { name: 'Low motion', exact: true }).isChecked());
-  await page.getByRole('button', { name: /^Theme:/ }).click();
-  await page.getByRole('option', { name: 'System', exact: true }).click();
+  await page
+    .getByRole('group', { name: 'Theme', exact: true })
+    .getByRole('button', { name: 'System', exact: true })
+    .click();
   await until(
     async () => (await page.locator('html').getAttribute('data-theme')) === 'dark',
     'restored system theme',
@@ -564,8 +568,10 @@ let input='';process.stdin.on('data',d=>input+=d);process.stdin.on('end',()=>{
   await capture(page, 'relay-light');
   await page.screenshot({ path: join(directory, 'light.png') });
   await page.goto(origin + '/#settings');
-  await page.getByRole('button', { name: /^Theme:/ }).click();
-  await page.getByRole('option', { name: 'Dark', exact: true }).click();
+  await page
+    .getByRole('group', { name: 'Theme', exact: true })
+    .getByRole('button', { name: 'Dark', exact: true })
+    .click();
   await page.goto(origin + '/#relay');
   await page.getByText('Finished answer', { exact: true }).waitFor();
   const unreadable = await page.evaluate(() => {

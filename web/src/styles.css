@@ -1045,14 +1045,14 @@ html:has(dialog[open]) {
 .storage-meter {
   height: 8px;
   border-radius: 4px;
-  background: #d6e0d8;
+  background: var(--line);
   overflow: hidden;
   margin: 12px 0 6px;
 }
 .storage-meter span {
   display: block;
   height: 100%;
-  background: #387a4c;
+  background: var(--success, #387a4c);
 }
 .storage-card {
   border: 1px solid var(--line);

@@ -1,3 +1,4 @@
+import { QuickApprove } from './AttentionList';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { motion } from 'motion/react';
 import { createPortal } from 'react-dom';
@@ -394,6 +395,26 @@ export function TasksPage({
         size={usage.sizes[task.id]}
         measuring={usage.measuring.includes(task.id)}
       />
+      {/* The next step for a card that only needs a go-ahead, without opening it. */}
+      {filters.layout === 'board' && task.status === 'draft' && !task.statusOverride && (
+        <button
+          type="button"
+          className="card-quick"
+          disabled={mutation.busy}
+          onClick={() =>
+            void mutation
+              .run(`/api/tasks/${task.id}/start`, {})
+              .then(() => window.dispatchEvent(new Event('relay-data-change')))
+              .catch(() => {})
+          }
+        >
+          <Icon name="bolt" size={14} />
+          Start
+        </button>
+      )}
+      {filters.layout === 'board' && task.status === 'awaiting_plan' && !task.statusOverride && (
+        <QuickApprove task={task} className="card-quick" label="Approve recommended" />
+      )}
       <button
         className="icon-button card-menu"
         aria-label={`Actions for ${task.title}`}
@@ -499,9 +520,9 @@ export function TasksPage({
             label="Sort tasks"
             value={filters.sort}
             options={[
-              { value: 'priority', label: 'Sort: Needs you first' },
-              { value: 'recent', label: 'Sort: Recently updated' },
-              { value: 'title', label: 'Sort: Title' },
+              { value: 'priority', label: 'Needs you first' },
+              { value: 'recent', label: 'Recently updated' },
+              { value: 'title', label: 'Title' },
             ]}
             onChange={(sort) => filter({ sort })}
           />

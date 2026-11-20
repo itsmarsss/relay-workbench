@@ -10,6 +10,7 @@ import { Icon, RelayMark } from './UI';
 import { Modal } from './Modal';
 import { SettingsPage, MemoryPage, InboxPage } from './WorkspacePages';
 import { emptyPane, newDeck, parseDeck, type Deck } from './deck';
+import { inTaskScope } from './board';
 import { type RelayConfig, type RepositoryProfile } from './types';
 import { TaskDeck } from './TaskDeck';
 import { useRelay } from './useRelay';
@@ -27,7 +28,7 @@ const workspaceNavigation = [
   ['overview', 'Overview', 'grid'],
   ['relay', 'Relay agent', 'relay'],
   ['tasks', 'All tasks', 'tasks'],
-  ['deck', 'Task deck', 'grid'],
+  ['deck', 'Task deck', 'board'],
   ['inbox', 'Approval inbox', 'inbox'],
   ['repositories', 'Repositories', 'repository'],
   ['agents', 'Agents', 'bolt'],
@@ -130,6 +131,7 @@ export default function App() {
     return () => window.removeEventListener('keydown', shortcut);
   }, [bootstrap]);
   useTaskNotifications(tasks, !!bootstrap);
+  const waiting = tasks.filter((task) => inTaskScope(task, 'attention')).length;
   useEffect(ignoreStrayFileDrops, []);
   useEffect(() => {
     document.documentElement.dataset.theme = dark ? 'dark' : 'light';
@@ -246,7 +248,9 @@ export default function App() {
               <nav className="app-nav" aria-label="Workspace">
                 {workspaceNavigation.map(([kind, label, icon]) => (
                   <button
-                    aria-label={kind === 'tasks' && !collapsed ? `${label} ${tasks.length}` : label}
+                    aria-label={
+                      kind === 'inbox' && waiting ? `${label}, ${waiting} need you` : label
+                    }
                     title={label}
                     aria-current={
                       route.kind === kind || (kind === 'tasks' && route.kind === 'task')
@@ -266,12 +270,16 @@ export default function App() {
                       <motion.i className="nav-pill" layoutId="nav-pill" aria-hidden="true" />
                     )}
                     <Icon name={icon!} />
+                    {/* The count that matters is what is waiting on you, on the inbox. */}
+                    {collapsed && kind === 'inbox' && waiting > 0 && (
+                      <span className="nav-dot" aria-hidden="true" />
+                    )}
                     {!collapsed && (
                       <>
                         {label}{' '}
-                        {kind === 'tasks' && (
-                          <span className="nav-count" aria-hidden="true">
-                            {tasks.length}
+                        {kind === 'inbox' && waiting > 0 && (
+                          <span className="nav-count is-attention" aria-hidden="true">
+                            {waiting}
                           </span>
                         )}
                       </>

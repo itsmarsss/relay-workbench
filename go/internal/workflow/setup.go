@@ -213,11 +213,16 @@ func (c *Coordinator) setupItems(ctx context.Context) ([]SetupItem, error) {
 			anyAgent = true
 		}
 	}
-	if !anyAgent {
-		for i := range items {
-			if items[i].ID == "claude" || items[i].ID == "codex" || items[i].ID == "pi" {
-				items[i].Required = true
-			}
+	for i := range items {
+		if items[i].ID != "claude" && items[i].ID != "codex" && items[i].ID != "pi" {
+			continue
+		}
+		if !anyAgent {
+			items[i].Required = true
+		} else if items[i].Status == "missing" {
+			// One agent is enough; the others are a choice, not a problem.
+			items[i].Status = "optional"
+			items[i].Detail = "Not installed. Optional: stages routed to it use an installed agent."
 		}
 	}
 	gh := SetupItem{ID: "gh", Label: "GitHub CLI", Why: "Publishes pull requests, reads issues and CI results.", Status: "missing", Install: installer("gh", "gh")}

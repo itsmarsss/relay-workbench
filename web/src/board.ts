@@ -10,8 +10,8 @@ export const columns = [
   ['review', 'In review', 'review'],
   ['final', 'Final approval', 'awaiting_final'],
   ['investigated', 'Investigated', 'completed'],
-  ['done', 'Done', 'completed'],
-  ['finished', 'Completed', 'finished'],
+  ['done', 'Accepted', 'completed'],
+  ['finished', 'Shipped', 'finished'],
   ['cancelled', 'Cancelled', 'cancelled'],
 ] as const;
 export const laneHints: Record<string, string> = {
@@ -23,8 +23,8 @@ export const laneHints: Record<string, string> = {
   review: 'Independent agent review',
   final: 'Your final look',
   investigated: 'Findings ready, no code changed',
-  done: 'Pipeline finished',
-  finished: 'Work is fully finished',
+  done: 'Accepted · publish or merge next',
+  finished: 'Merged or closed out',
   attention: 'Blocked, paused, or in your hands',
   cancelled: 'Retained for reference',
 };
@@ -110,8 +110,8 @@ export const taskScopes = [
   ['backlog', 'Backlog'],
   ['parked', 'Parked'],
   ['investigated', 'Investigated'],
-  ['done', 'Done'],
-  ['finished', 'Completed'],
+  ['done', 'Accepted'],
+  ['finished', 'Shipped'],
 ] as const;
 
 export function inTaskScope(task: Task, scope: string) {
