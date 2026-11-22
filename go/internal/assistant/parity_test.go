@@ -65,11 +65,10 @@ func TestHistoryChangesAndLatestActivityRemainTaskScoped(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	rows := result.([]json.RawMessage)
-	var last map[string]any
-	json.Unmarshal(rows[len(rows)-1], &last)
-	if len(rows) != 200 || last["summary"] != "event-204" {
-		t.Fatal("activity is stale")
+	// Newest first, so the latest event leads even on a long task.
+	rows := result.([]any)
+	if len(rows) != 80 || obj(rows[0])["summary"] != "event-204" {
+		t.Fatalf("activity is stale: %d rows, first %#v", len(rows), rows[0])
 	}
 }
 

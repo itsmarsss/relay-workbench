@@ -711,7 +711,9 @@ export function ChatPanel({
             {running ? (
               <button
                 type="button"
-                className="stop-response"
+                className="primary send-message stop-response"
+                aria-label="Stop response"
+                title="Stop response"
                 disabled={mutation.busy}
                 onClick={() =>
                   void mutation
@@ -720,7 +722,7 @@ export function ChatPanel({
                     .catch(() => {})
                 }
               >
-                Stop
+                <Icon name="stop" size={16} />
               </button>
             ) : (
               <button

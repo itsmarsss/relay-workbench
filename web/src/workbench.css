@@ -5373,3 +5373,8 @@ p.error::first-letter,
   line-height: 1.35;
   border-radius: 5px;
 }
+
+/* Stop sits where Send was, same size, as a solid square. */
+.stop-response svg rect {
+  fill: currentColor;
+}

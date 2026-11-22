@@ -106,6 +106,15 @@ func (s *Service) propose(chat Chat, name string, input map[string]any) (Proposa
 			if err := checkFields(p.Body, "taskRevision", "decisionId", "resolution", "optionId", "note"); err != nil {
 				return p, err
 			}
+		case "cleanup":
+			if err := checkFields(p.Body, "taskRevision", "includeIgnored"); err != nil {
+				return p, err
+			}
+			// Removing a finished task's workspace takes its build output with it; that is most of
+			// its size. Local changes still block the cleanup either way.
+			if _, set := p.Body["includeIgnored"].(bool); !set {
+				p.Body["includeIgnored"] = true
+			}
 		}
 		p.Body["taskRevision"] = store.TaskRevision(raw)
 		if p.Operation == "start" || p.Operation == "resume" || p.Operation == "pause" {

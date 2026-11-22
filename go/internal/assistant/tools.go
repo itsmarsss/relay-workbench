@@ -42,12 +42,12 @@ func tools() []tool {
 	}
 	return []tool{
 		makeTool("list_tasks", "Read current workspace tasks.", map[string]any{}),
-		makeTool("get_task", "Read a task's full current context and workflow state.", map[string]any{"taskId": str}, "taskId"),
+		makeTool("get_task", "Read a task's current state: status, workflow stage, repositories with workspaces and pull requests, approvals, recent runs with their summaries, and recent direction. Transcripts are left out; use read_task_history, read_task_changes or read_task_activity for detail.", map[string]any{"taskId": str}, "taskId"),
 		makeTool("read_routing_evidence", "Read observed provider results and cautious routing recommendations. Never changes routing automatically.", map[string]any{"repositoryId": str}),
 		makeTool("read_task_history", "Read saved checkpoints, approach choices and workflow continuations.", map[string]any{"taskId": str}, "taskId"),
 		makeTool("read_task_changes", "Read current structured Git diffs and their revision. Requires prepared source access.", map[string]any{"taskId": str}, "taskId"),
-		makeTool("read_task_activity", "Read recent task activity, handoffs and failures.", map[string]any{"taskId": str}, "taskId"),
-		makeTool("read_storage", "Read the current disk policy and Relay data volume capacity.", map[string]any{}),
+		makeTool("read_task_activity", "Read a task's recent activity, newest first: state changes, handoffs, decisions and failures, without streamed agent output.", map[string]any{"taskId": str}, "taskId"),
+		makeTool("read_storage", "Read the disk policy, the Relay data volume's capacity and free space, and each task workspace's measured size on disk.", map[string]any{}),
 		makeTool("read_configuration", "Read current provider, repository and execution settings; credentials are excluded.", map[string]any{}),
 		makeTool("read_memory", "Read approved global and task/project memory.", map[string]any{"taskId": str}),
 		makeTool("read_model_catalog", "Discover actual provider models.", map[string]any{}),
@@ -100,13 +100,25 @@ func (s *Service) context(chat Chat, message Message) ([]byte, error) {
 	}
 	for _, id := range ids {
 		if raw, err := s.Store.Get(id); err == nil {
-			var value any
+			var value map[string]any
 			if json.Unmarshal(raw, &value) == nil {
-				mentioned = append(mentioned, value)
+				mentioned = append(mentioned, compactTask(value))
 			}
 		}
 	}
 	result["mentionedTasks"] = mentioned
+	// What became of this conversation's proposals, so the agent never reports a failed or applied
+	// change as still waiting.
+	if proposals, err := s.Proposals(chat.ID); err == nil && len(proposals) > 0 {
+		recent := []map[string]any{}
+		for _, p := range proposals {
+			recent = append(recent, map[string]any{"id": p.ID, "taskId": p.TaskID, "taskTitle": p.TaskTitle, "operation": p.Operation, "kind": p.Kind, "status": p.Status, "error": p.Error, "createdAt": p.CreatedAt})
+		}
+		if len(recent) > 20 {
+			recent = recent[len(recent)-20:]
+		}
+		result["proposals"] = recent
+	}
 	images, err := attachments.Context(s.Store, map[string]any{"description": message.Question, "messages": history})
 	if err != nil {
 		return nil, err
@@ -267,12 +279,16 @@ func (s *Service) call(ctx context.Context, chat Chat, name string, input map[st
 			return nil, err
 		}
 		value["health"] = insights.Health(value, evidence, time.Now())
-		return value, nil
+		return compactTask(value), nil
 	case "read_task_activity":
 		if taskID == "" {
 			return nil, errors.New("select a task")
 		}
-		return s.Store.EventsBefore(taskID, 0, 200)
+		rows, err := s.Store.EventsBefore(taskID, 0, 1000)
+		if err != nil {
+			return nil, err
+		}
+		return compactActivity(rows, 80), nil
 	case "read_task_history":
 		if taskID == "" {
 			return nil, errors.New("select a task")
@@ -336,7 +352,16 @@ func (s *Service) call(ctx context.Context, chat Chat, name string, input map[st
 		if err != nil {
 			return nil, err
 		}
-		return map[string]any{"policy": policy.Policy, "revision": policy.Revision, "space": capacity}, nil
+		result := map[string]any{"policy": policy.Policy, "revision": policy.Revision, "space": capacity}
+		// Each task workspace's measured size, largest first, as the Storage page shows it.
+		if raw, ok, _ := s.Store.GetMeta("workspace:sizes"); ok {
+			var sizes []map[string]any
+			if json.Unmarshal([]byte(raw), &sizes) == nil {
+				result["workspaces"] = sizes
+				result["workspacesNote"] = "bytes is the measured size on disk of each task workspace (path names the task id); at is when it was measured."
+			}
+		}
+		return result, nil
 	case "read_configuration":
 		if permissions["readSettings"] != true {
 			return nil, errors.New("readSettings permission is disabled")

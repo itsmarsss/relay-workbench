@@ -36,6 +36,7 @@ export function RepositoryEditor({
       JSON.stringify(
         {
           workspaceCommand: profile?.workspaceCommand || null,
+          cleanupCommand: profile?.cleanupCommand || null,
           workspacePath: profile?.workspacePath || '',
           issueCommand: profile?.issueCommand || null,
           prCommand: profile?.prCommand || null,
@@ -199,6 +200,7 @@ export function RepositoryEditor({
           }
           const allowed = new Set([
             'workspaceCommand',
+            'cleanupCommand',
             'workspacePath',
             'issueCommand',
             'prCommand',
@@ -227,9 +229,11 @@ export function RepositoryEditor({
               throw new Error(`${label} need an executable and a list of literal arguments.`);
             }
           }
-          for (const key of ['workspaceCommand', 'issueCommand', 'prCommand']) {
+          for (const key of ['workspaceCommand', 'cleanupCommand', 'issueCommand', 'prCommand']) {
             if (options[key] != null && !validCommand(options[key])) {
-              setTab(key === 'workspaceCommand' ? 'workspace' : 'integrations');
+              setTab(
+                ['workspaceCommand', 'cleanupCommand'].includes(key) ? 'workspace' : 'integrations',
+              );
               throw new Error(
                 'Each integration command needs an executable and a list of literal arguments.',
               );

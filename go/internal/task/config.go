@@ -246,11 +246,12 @@ func ValidateConfig(raw map[string]any) (map[string]any, error) {
 		if err != nil {
 			return nil, err
 		}
-		var workspaceCommand, issueCommand, prCommand any
+		// cleanupCommand removes a managed workspace the way workspaceCommand made it.
+		var workspaceCommand, cleanupCommand, issueCommand, prCommand any
 		for _, field := range []struct {
 			key         string
 			destination *any
-		}{{"workspaceCommand", &workspaceCommand}, {"issueCommand", &issueCommand}, {"prCommand", &prCommand}} {
+		}{{"workspaceCommand", &workspaceCommand}, {"cleanupCommand", &cleanupCommand}, {"issueCommand", &issueCommand}, {"prCommand", &prCommand}} {
 			if truthy(profile[field.key]) {
 				v, err := command(profile[field.key])
 				if err != nil {
@@ -267,6 +268,9 @@ func ValidateConfig(raw map[string]any) (map[string]any, error) {
 			}
 		}
 		result = append(result, map[string]any{"developmentAccess": map[string]any{"analysisCommands": access["analysisCommands"] == true, "networkAccess": access["networkAccess"] == true, "writableRoots": roots}, "id": id, "name": name, "path": path, "cwd": cwd, "strategy": strategy, "workspaceCommand": workspaceCommand, "workspacePath": workspacePath, "verificationMode": nullish(profile["verificationMode"], "agent"), "checks": checks, "setup": setup, "instructions": instructions, "issueCommand": issueCommand, "prCommand": prCommand})
+		if cleanupCommand != nil {
+			result[len(result)-1].(map[string]any)["cleanupCommand"] = cleanupCommand
+		}
 	}
 	config["repositories"] = result
 	return config, nil

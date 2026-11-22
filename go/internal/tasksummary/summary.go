@@ -50,6 +50,10 @@ func pullRequests(task map[string]any) []any {
 		if draft, ok := record["draft"].(bool); ok {
 			item["draft"] = draft
 		}
+		// Relay's own pull request records when it was observed on the monitor, not on the record.
+		if monitor := object(entry["publicationMonitor"]); item["checkedAt"] == "" && !manual && stringValue(monitor["status"]) == "complete" {
+			item["checkedAt"] = stringValue(monitor["finishedAt"])
+		}
 		result = append(result, item)
 	}
 	return result
