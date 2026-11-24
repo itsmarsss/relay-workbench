@@ -35,6 +35,25 @@ func within(root, path string) bool {
 	rel, err := filepath.Rel(root, path)
 	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(os.PathSeparator)) && !filepath.IsAbs(rel)
 }
+
+// readOnlyGit are the git subcommands Relay runs only to read state.
+var readOnlyGit = map[string]bool{"diff": true, "status": true, "ls-files": true, "show": true, "cat-file": true, "log": true, "rev-parse": true, "rev-list": true, "merge-base": true, "symbolic-ref": true}
+
+// gitEnvironment is the environment for one git subcommand. Reading status and diffs never needs
+// large-file contents; without GIT_LFS_SKIP_SMUDGE, Git LFS downloads every LFS object a read
+// touches, and a single object missing on the server fails the whole read.
+func (r Runner) gitEnvironment(subcommand string) map[string]string {
+	if !readOnlyGit[subcommand] {
+		return r.Environment
+	}
+	env := make(map[string]string, len(r.Environment)+1)
+	for key, value := range r.Environment {
+		env[key] = value
+	}
+	env["GIT_LFS_SKIP_SMUDGE"] = "1"
+	return env
+}
+
 func (r Runner) git(ctx context.Context, cwd string, args ...string) (string, error) {
 	if len(args) == 0 {
 		return "", errors.New("git operation required")
@@ -43,7 +62,7 @@ func (r Runner) git(ctx context.Context, cwd string, args ...string) (string, er
 	if args[0] == "worktree" || args[0] == "status" || args[0] == "diff" || args[0] == "ls-files" || args[0] == "read-tree" {
 		timeout = 10 * time.Minute
 	}
-	result, err := process.Run(ctx, process.Options{WorkerExecutable: r.WorkerExecutable, WorkerArgs: r.WorkerArgs, Command: "git", Args: append([]string{"-C", cwd}, args...), Directory: cwd, Environment: r.Environment, Timeout: timeout, MaxOutputBytes: 8 * 1024 * 1024})
+	result, err := process.Run(ctx, process.Options{WorkerExecutable: r.WorkerExecutable, WorkerArgs: r.WorkerArgs, Command: "git", Args: append([]string{"-C", cwd}, args...), Directory: cwd, Environment: r.gitEnvironment(args[0]), Timeout: timeout, MaxOutputBytes: 8 * 1024 * 1024})
 	if err != nil {
 		return "", fmt.Errorf("git %s in %s: %w", args[0], cwd, err)
 	}
@@ -66,7 +85,7 @@ func (r Runner) gitInto(ctx context.Context, cwd string, sink io.Writer, args ..
 	if len(args) == 0 {
 		return errors.New("git operation required")
 	}
-	result, err := process.Run(ctx, process.Options{WorkerExecutable: r.WorkerExecutable, WorkerArgs: r.WorkerArgs, Command: "git", Args: append([]string{"-C", cwd}, args...), Directory: cwd, Environment: r.Environment, Timeout: 10 * time.Minute, MaxOutputBytes: 1024 * 1024, StdoutSink: sink})
+	result, err := process.Run(ctx, process.Options{WorkerExecutable: r.WorkerExecutable, WorkerArgs: r.WorkerArgs, Command: "git", Args: append([]string{"-C", cwd}, args...), Directory: cwd, Environment: r.gitEnvironment(args[0]), Timeout: 10 * time.Minute, MaxOutputBytes: 1024 * 1024, StdoutSink: sink})
 	if err != nil {
 		return fmt.Errorf("git %s in %s: %w", args[0], cwd, err)
 	}
