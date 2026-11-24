@@ -326,6 +326,24 @@ func jsonString(value string) (string, error) {
 	b.WriteByte('"')
 	return b.String(), nil
 }
+
+// merging is whether the checkout has a merge in progress (MERGE_HEAD exists).
+func (r Runner) merging(ctx context.Context, root string) (bool, error) {
+	path, err := r.git(ctx, root, "rev-parse", "--git-path", "MERGE_HEAD")
+	if err != nil {
+		return false, err
+	}
+	path = strings.TrimSpace(path)
+	if !filepath.IsAbs(path) {
+		path = filepath.Join(root, path)
+	}
+	_, err = os.Stat(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	return err == nil, err
+}
+
 func (r Runner) singleFingerprint(ctx context.Context, entry Workspace) (string, error) {
 	if !filepath.IsAbs(entry.Root) {
 		return "", errors.New("workspace root must be absolute")
@@ -340,9 +358,24 @@ func (r Runner) singleFingerprint(ctx context.Context, entry Workspace) (string,
 		return "", err
 	}
 	_, _ = hash.Write([]byte(strings.TrimRight(head, "\r\n")))
-	// The diffs are hashed as they stream, so a large change (a merge of a busy mainline, say)
-	// costs time, not a failure. The bytes hashed are the same as when they were collected.
-	for _, args := range [][]string{{"diff", "--binary", "HEAD", "--"}, {"diff", "--cached", "--binary", "--"}} {
+	// The diffs are hashed as they stream, so a large change costs time, not a failure. The bytes
+	// hashed are the same as when they were collected.
+	reads := [][]string{{"diff", "--binary", "HEAD", "--"}, {"diff", "--cached", "--binary", "--"}}
+	if merging, err := r.merging(ctx, root); err != nil {
+		return "", err
+	} else if merging {
+		// Mid-merge the index holds the whole mainline delta, and patching it twice takes minutes in
+		// a large repository. Object ids identify the same content: the staged changes by blob id,
+		// the conflicted entries by stage, and only the working tree's small difference from the
+		// index as a patch. A merge is never stored as an approval, so the different form is safe.
+		_, _ = hash.Write([]byte("\nmerge-v1\n"))
+		reads = [][]string{
+			{"diff", "--cached", "--raw", "--full-index", "--no-renames", "-z", "--"},
+			{"ls-files", "--unmerged", "-z"},
+			{"diff", "--binary", "--"},
+		}
+	}
+	for _, args := range reads {
 		if err := r.gitInto(ctx, root, hash, args...); err != nil {
 			return "", err
 		}
