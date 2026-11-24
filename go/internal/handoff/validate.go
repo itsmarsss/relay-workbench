@@ -38,7 +38,7 @@ func member(v any, values ...string) bool {
 // round (implementation, verification, review) instead.
 // Without this the whole handoff, and the agent's explanation with it, was rejected as invalid.
 func Normalize(raw json.RawMessage, stage string) json.RawMessage {
-	if stage != "verify" && stage != "review" && stage != "monitor" && stage != "followup" {
+	if stage != "verify" && stage != "review" && stage != "monitor" && stage != "followup" && stage != "investigate" {
 		return raw
 	}
 	var value map[string]json.RawMessage
@@ -51,6 +51,14 @@ func Normalize(raw json.RawMessage, stage string) json.RawMessage {
 	}
 	delegated := verdict == "repair_requested" || verdict == "verification_requested" || verdict == "changes_requested"
 	switch {
+	// An investigation that found problems (a code review, say) has finished investigating: its
+	// findings are the result, not a request for this stage to change anything. Its other
+	// verdicts (a debugger's repair request among them) keep their meaning.
+	case stage == "investigate":
+		if verdict != "changes_requested" {
+			return raw
+		}
+		verdict = "complete"
 	case stage == "followup" && delegated:
 		verdict = "complete"
 		value["followUpAction"], _ = json.Marshal("changes")

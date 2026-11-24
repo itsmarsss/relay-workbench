@@ -138,6 +138,7 @@ func TestNormalizeMapsDelegationVerdictsOnlyForCheckingStages(t *testing.T) {
 		{"review", "repair_requested", "changes_requested"},
 		{"verify", "complete", "complete"},
 		{"investigate", "repair_requested", "repair_requested"},
+		{"investigate", "changes_requested", "complete"},
 		{"monitor", "verification_requested", "complete"},
 		{"monitor", "changes_requested", "complete"},
 		{"monitor", "blocked", "blocked"},
@@ -150,7 +151,7 @@ func TestNormalizeMapsDelegationVerdictsOnlyForCheckingStages(t *testing.T) {
 		if got := verdict(normalized); got != c.out {
 			t.Fatalf("%s %s became %s, want %s", c.stage, c.in, got, c.out)
 		}
-		if c.stage == "verify" || c.stage == "review" || c.stage == "monitor" {
+		if c.stage == "verify" || c.stage == "review" || c.stage == "monitor" || (c.stage == "investigate" && c.out == "complete") {
 			if err := Validate(normalized, c.stage); err != nil {
 				t.Fatalf("%s %s still rejected: %v", c.stage, c.in, err)
 			}
