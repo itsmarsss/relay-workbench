@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -1596,6 +1597,11 @@ func (c *Coordinator) setup(ctx context.Context, id string, guard storage.Guard,
 			if err != nil {
 				return err
 			}
+			if executable := text(command["command"]); filepath.IsAbs(executable) {
+				if _, statErr := os.Stat(executable); statErr != nil {
+					return setupFailure(repoID, executable, 127)
+				}
+			}
 			_, err = workspace.GuardedRun(ctx, lease, id, workspaces, workspace.WriteOne, repoID, guard, inspector, func(runCtx context.Context) error {
 				result, runErr := process.Run(runCtx, process.Options{WorkerExecutable: c.worker, WorkerArgs: c.args, Command: text(command["command"]), Args: args, Directory: cwd, Environment: env, Timeout: timeout, MaxOutputBytes: 8 * 1024 * 1024, OnLine: func(eventCtx context.Context, line, stream string) error {
 					if err := eventCtx.Err(); err != nil {
@@ -1609,7 +1615,7 @@ func (c *Coordinator) setup(ctx context.Context, id string, guard storage.Guard,
 					return runErr
 				}
 				if result.ExitCode != 0 {
-					return fmt.Errorf("setup for %s exited %d", repoID, result.ExitCode)
+					return setupFailure(repoID, text(command["command"]), result.ExitCode)
 				}
 				return nil
 			})
@@ -1631,4 +1637,14 @@ func (c *Coordinator) setup(ctx context.Context, id string, guard storage.Guard,
 		}
 	}
 	return nil
+}
+
+// setupFailure explains a failed setup command. A command that could not be found (exit 127) is
+// named, since the usual cause is a program that moved, such as a toolchain update replacing a
+// versioned install path.
+func setupFailure(repoID, command string, code int) error {
+	if code == 127 {
+		return fmt.Errorf("setup for %s could not run %s: command not found. If it moved (a toolchain update can replace a versioned path), point the repository's setup at the command by name or its new path", repoID, command)
+	}
+	return fmt.Errorf("setup for %s exited %d", repoID, code)
 }
