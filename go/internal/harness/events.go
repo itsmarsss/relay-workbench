@@ -171,7 +171,16 @@ func Decode(provider, line string) map[string]any {
 			if message == "" {
 				message = "Codex turn failed"
 			}
+			// Codex reports its own retries of a dropped connection as error events
+			// ("Reconnecting... 2/5", "Reconnecting... waiting for network"). They are progress,
+			// not a failure: the turn usually goes on to finish.
+			if kind == "error" && strings.HasPrefix(message, "Reconnecting") {
+				return map[string]any{"activity": "Provider connection dropped; reconnecting", "details": message, "kind": "status"}
+			}
 			return map[string]any{"error": message}
+		}
+		if kind == "turn.completed" {
+			return map[string]any{"turnCompleted": true}
 		}
 	}
 	if provider == "claude" {

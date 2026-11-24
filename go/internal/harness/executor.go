@@ -435,6 +435,10 @@ func Execute(ctx context.Context, request RunRequest) (RunResult, error) {
 				if value, exists := decoded["error"]; exists && value != nil {
 					harnessError = fmt.Sprint(value)
 				}
+				// A turn that completes after an earlier error recovered from it.
+				if decoded["turnCompleted"] == true {
+					harnessError = ""
+				}
 				activities, ok := decoded["activities"].([]map[string]any)
 				if !ok {
 					if _, exists := decoded["activity"]; exists {
