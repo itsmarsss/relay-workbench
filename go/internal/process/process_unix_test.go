@@ -8,11 +8,13 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"relay.local/relay/internal/runtimebudget"
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -365,5 +367,25 @@ func TestProtocolInputFileSupportsBidirectionalConversation(t *testing.T) {
 	}
 	if result.ExitCode != 0 || !strings.Contains(result.Stdout, "finish") {
 		t.Fatalf("protocol stalled: %#v", result)
+	}
+}
+
+// Started under nohup, Relay ignores SIGHUP; the commands it runs must still get the default, so a
+// shell can trap HUP (a test that signals its own process group relies on that).
+func TestCommandsGetDefaultHangupEvenWhenRelayIgnoresIt(t *testing.T) {
+	bash, err := exec.LookPath("bash")
+	if err != nil {
+		t.Skip("bash is needed")
+	}
+	signal.Ignore(syscall.SIGHUP)
+	defer signal.Reset(syscall.SIGHUP)
+	opts := options(t, "")
+	opts.Command, opts.Args = bash, []string{"-c", `trap "exit 129" HUP; kill -HUP $$; sleep 2; exit 0`}
+	result, err := Run(context.Background(), opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.ExitCode != 129 {
+		t.Fatalf("HUP trap did not fire: exit %d", result.ExitCode)
 	}
 }

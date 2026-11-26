@@ -429,6 +429,13 @@ func Worker(args []string) int {
 	signals := make(chan os.Signal, 2)
 	signal.Notify(signals, syscall.SIGTERM, syscall.SIGINT)
 	defer signal.Stop(signals)
+	// A Relay started under nohup ignores SIGHUP, and an ignored signal stays ignored in every
+	// program it starts: a shell then cannot trap HUP, and tools or tests that rely on it hang.
+	// A caught signal is reset to its default when a program starts, so catching (and dropping)
+	// SIGHUP here gives the command the default disposition it would get from a terminal.
+	hangup := make(chan os.Signal, 1)
+	signal.Notify(hangup, syscall.SIGHUP)
+	defer signal.Stop(hangup)
 	child := exec.Command(args[0], args[1:]...)
 	child.Stdin = os.Stdin
 	child.Stdout = os.Stdout
